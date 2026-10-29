@@ -17,8 +17,7 @@ const agentHarness = vi.hoisted(() => ({
 }))
 
 vi.mock('@vantage/agent-core', async () => {
-  const actual =
-    await vi.importActual<typeof import('@vantage/agent-core')>('@vantage/agent-core')
+  const actual = await vi.importActual<typeof import('@vantage/agent-core')>('@vantage/agent-core')
   return {
     ...actual,
     AgentLoop: class MockAgentLoop {

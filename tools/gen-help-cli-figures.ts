@@ -317,9 +317,7 @@ async function main(): Promise<void> {
   if (take('cli')) {
     ensureCliBundle()
     await shootHtml(
-      figureHtml('vantage --help', [
-        { command: 'vantage --help', output: capture(['--help']) },
-      ]),
+      figureHtml('vantage --help', [{ command: 'vantage --help', output: capture(['--help']) }]),
       'cli',
     )
   }

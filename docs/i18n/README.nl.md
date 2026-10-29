@@ -307,11 +307,11 @@ MCP-client.
 
 ### De skill installeren
 
-| Hoe                                       | Wat er gebeurt                                                                                                                                                                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hoe                                       | Wat er gebeurt                                                                                                                                                                                                          |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Instellingen → Integraties** in de app  | Toont de agents die op deze computer zijn gevonden; met één klik wordt de skill naar elke agent geschreven die je kiest. Er verschijnt een knop **Bijwerken** wanneer een Vantage-release een nieuwere skill meebrengt. |
-| **Downloaden als zip** op dezelfde pagina | De indeling die claude.ai, de Claude-desktop-apps en andere assistenten accepteren als geüploade skill.                                                                                                                   |
-| `npx skills add genspark-ai/vantage`    | Installeert vanuit deze repository in elke agent die skills ondersteunt.                                                                                                                                                  |
+| **Downloaden als zip** op dezelfde pagina | De indeling die claude.ai, de Claude-desktop-apps en andere assistenten accepteren als geüploade skill.                                                                                                                 |
+| `npx skills add genspark-ai/vantage`      | Installeert vanuit deze repository in elke agent die skills ondersteunt.                                                                                                                                                |
 
 Start daarna een nieuwe chat en vraag om een document. De skill leert de
 agent wanneer hij naar `vantage` moet grijpen, hoe hij een bestand leest
@@ -371,10 +371,10 @@ assistenten die geen terminal kunnen draaien of waaraan je liever geen
 terminal geeft. Er zijn twee manieren om te verbinden, allebei getoond met
 kant-en-klare snippets in **Instellingen → Integraties → MCP**:
 
-| Manier                               | Wat het is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Manier                             | Wat het is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **A · `vantage mcp`** (aanbevolen) | Een stdio-server die de assistent zelf start; Vantage hoeft niet open te staan. Eén tool per commando (`info`, `convert`, `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf`, `docs_read` / `docs_apply` / `docs_check`, `sheet_*`, `slides_*`, `render`, `guide`, `search`, `image`, `media`, `open`) plus de gefaseerde deck-flow `deck_start` → `deck_page` → `deck_build` → `deck_replace`. Ops, specs en Markdown worden inline doorgegeven, dus werkt ook een client zonder bestandssysteem. |
-| **B · Lokale HTTP-server**           | Draait binnen de Vantage-app op `http://127.0.0.1:3093/mcp` (Streamable HTTP, met legacy SSE). De tools ervan sturen een zichtbaar Word-editortabblad aan: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, en je ziet het document vorm aannemen. Standaard uit; zet hem aan in hetzelfde instellingenscherm.                                                                                                                                         |
+| **B · Lokale HTTP-server**         | Draait binnen de Vantage-app op `http://127.0.0.1:3093/mcp` (Streamable HTTP, met legacy SSE). De tools ervan sturen een zichtbaar Word-editortabblad aan: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, en je ziet het document vorm aannemen. Standaard uit; zet hem aan in hetzelfde instellingenscherm.                                                                                                                                         |
 
 ```bash
 # Claude Code
@@ -426,8 +426,8 @@ Vantage is geconfigureerd.
 
 ## Download
 
-| Platform                             | Vereisten                                               | Download                                                                                    |
-| ------------------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Platform                             | Vereisten                                               | Download                                                                                     |
+| ------------------------------------ | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | **macOS** — Apple Silicon (arm64)    | macOS 11+                                               | [Nieuwste `.dmg` (arm64)](https://github.com/Adilson09/aster-office/releases/latest)         |
 | **macOS** — Intel (x64)              | macOS 11+                                               | [Nieuwste `.dmg` (x64)](https://github.com/Adilson09/aster-office/releases/latest)           |
 | **Windows** (x64, de meeste pc's)    | Windows 10+, Intel/AMD                                  | [Nieuwste `-x64.exe`-installer](https://github.com/Adilson09/aster-office/releases/latest)   |

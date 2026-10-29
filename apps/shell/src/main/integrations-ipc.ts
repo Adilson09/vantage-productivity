@@ -131,7 +131,10 @@ export function registerIntegrationsIpc(deps: IntegrationsDeps): void {
       const skill = bundled()
       const opts: Electron.SaveDialogOptions = {
         title: String(title ?? ''),
-        defaultPath: join(app.getPath('downloads'), `vantage-productivity-skill-${skill.version}.zip`),
+        defaultPath: join(
+          app.getPath('downloads'),
+          `vantage-productivity-skill-${skill.version}.zip`,
+        ),
         filters: [{ name: 'ZIP', extensions: ['zip'] }],
       }
       const win = deps.window()

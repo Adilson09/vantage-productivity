@@ -58,8 +58,8 @@ En **Servidor HTTP local**, la aplicación también puede ejecutar el servidor p
 
 ## Chuleta de la línea de comandos
 
-| Comando            | Qué hace                      |
-| ------------------ | ----------------------------- |
+| Comando          | Qué hace                      |
+| ---------------- | ----------------------------- |
 | `vantage <file>` | abrir un archivo              |
 | `vantage mcp`    | iniciar el servidor MCP local |
 | `vantage --help` | todos los comandos y opciones |

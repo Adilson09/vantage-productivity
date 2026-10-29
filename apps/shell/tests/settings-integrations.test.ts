@@ -219,7 +219,9 @@ describe('Settings → Integrations', () => {
     const row = host.querySelector('[data-agent="claude-code"]')!
     await click(buttonWithText('Install', row))
     expect(install).not.toHaveBeenCalled()
-    expect(row.textContent).toContain('Will write: /home/u/.claude/skills/vantage-productivity/SKILL.md')
+    expect(row.textContent).toContain(
+      'Will write: /home/u/.claude/skills/vantage-productivity/SKILL.md',
+    )
 
     await click(buttonWithText('Cancel', row))
     expect(row.querySelector('.set-intg-confirm')).toBeNull()

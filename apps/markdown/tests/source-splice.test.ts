@@ -257,38 +257,46 @@ describe('source splice', () => {
   // while finishing in ~7 s on its own. Budget for growth rather than trimming
   // the assertion to keep the files it exists to check; the in-app manual added
   // 294 topic bodies, which is what pushed it over on this branch.
-  it('round-trips every repository Markdown body through the real loading normalization', { timeout: 120_000 }, () => {
-    const root = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()
-    const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.md'], { cwd: root, encoding: 'utf8' })
-      .split('\0')
-      .filter((path) => path && existsSync(join(root, path)))
-    expect(files.length).toBeGreaterThan(20)
-    const editor = createEditor()
-    const declined: string[] = []
-    const differs: string[] = []
-    for (const file of files) {
-      // The app captures original bytes separately, then passes the normalized
-      // Markdown body to buildSourceMap. Exercise every file through that same
-      // path; the complete-byte/no-op corpus lives in roundtrip-serializer.test.
-      const envelope = parseDocText(readFileSync(join(root, file), 'utf8'))
-      const source = stripLegacyFencedDivs(envelope.body)
-      const map = load(editor, source)
-      if (!map) {
-        declined.push(file)
-        continue
+  it(
+    'round-trips every repository Markdown body through the real loading normalization',
+    { timeout: 120_000 },
+    () => {
+      const root = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()
+      const files = execFileSync(
+        'git',
+        ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.md'],
+        { cwd: root, encoding: 'utf8' },
+      )
+        .split('\0')
+        .filter((path) => path && existsSync(join(root, path)))
+      expect(files.length).toBeGreaterThan(20)
+      const editor = createEditor()
+      const declined: string[] = []
+      const differs: string[] = []
+      for (const file of files) {
+        // The app captures original bytes separately, then passes the normalized
+        // Markdown body to buildSourceMap. Exercise every file through that same
+        // path; the complete-byte/no-op corpus lives in roundtrip-serializer.test.
+        const envelope = parseDocText(readFileSync(join(root, file), 'utf8'))
+        const source = stripLegacyFencedDivs(envelope.body)
+        const map = load(editor, source)
+        if (!map) {
+          declined.push(file)
+          continue
+        }
+        const out = spliceMarkdown(editor, editor.state.doc, map)
+        if (out !== source) differs.push(file)
+        // after editing the first block, every other block is still copied verbatim
+        if (editor.state.doc.childCount > 1 && editor.state.doc.child(0).isTextblock) {
+          editor.commands.insertContentAt(endOfBlock(editor, 0), ' edited')
+          const edited = spliceMarkdown(editor, editor.state.doc, map)
+          for (const unit of map.units.slice(2)) expect(edited, file).toContain(unit.core)
+        }
       }
-      const out = spliceMarkdown(editor, editor.state.doc, map)
-      if (out !== source) differs.push(file)
-      // after editing the first block, every other block is still copied verbatim
-      if (editor.state.doc.childCount > 1 && editor.state.doc.child(0).isTextblock) {
-        editor.commands.insertContentAt(endOfBlock(editor, 0), ' edited')
-        const edited = spliceMarkdown(editor, editor.state.doc, map)
-        for (const unit of map.units.slice(2)) expect(edited, file).toContain(unit.core)
-      }
-    }
-    expect(differs).toEqual([])
-    expect(declined.length, `declined: ${declined.join(', ')}`).toBeLessThanOrEqual(
-      Math.ceil(files.length * 0.05),
-    )
-  })
+      expect(differs).toEqual([])
+      expect(declined.length, `declined: ${declined.join(', ')}`).toBeLessThanOrEqual(
+        Math.ceil(files.length * 0.05),
+      )
+    },
+  )
 })

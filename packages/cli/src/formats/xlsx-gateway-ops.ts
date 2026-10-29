@@ -18,10 +18,7 @@ import {
   matchableCellText,
   type WorkbookOperation,
 } from '@vantage/xlsx-gateway/domain/workbook-dsl'
-import type {
-  WorkbookSnapshot,
-  WorksheetState,
-} from '@vantage/xlsx-gateway/domain/workbook.types'
+import type { WorkbookSnapshot, WorksheetState } from '@vantage/xlsx-gateway/domain/workbook.types'
 import type { CfWireRule } from '@vantage/xlsx-gateway/gateway/xlsx-cf'
 import type {
   DefinedNameEntry,

@@ -100,7 +100,9 @@ describe('vantage skill', () => {
         .detail.agents.map((a: any) => a.agent)
         .sort(),
     ).toEqual(['agents', 'claude-code'])
-    expect(existsSync(join(m.home, '.agents', 'skills', 'vantage-productivity', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(m.home, '.agents', 'skills', 'vantage-productivity', 'SKILL.md'))).toBe(
+      true,
+    )
     expect(existsSync(join(m.home, '.codex', 'skills'))).toBe(false)
 
     const typo = await run(['skill', 'install', 'claud-code', '--json'], { env: m.env })
@@ -122,7 +124,9 @@ describe('vantage skill', () => {
     const forced = await run(['skill', 'install', 'windsurf', '--force', '--json'], { env: m.env })
     expect(forced.code).toBe(0)
     expect(
-      existsSync(join(m.home, '.codeium', 'windsurf', 'skills', 'vantage-productivity', 'SKILL.md')),
+      existsSync(
+        join(m.home, '.codeium', 'windsurf', 'skills', 'vantage-productivity', 'SKILL.md'),
+      ),
     ).toBe(true)
   })
 
@@ -131,7 +135,10 @@ describe('vantage skill', () => {
     const dir = join(m.home, '.claude', 'skills', 'vantage-productivity')
     mkdirSync(dir, { recursive: true })
     const path = join(dir, 'SKILL.md')
-    writeFileSync(path, '---\nname: vantage-productivity\nmetadata:\n  version: 99.0.0\n---\nfuture\n')
+    writeFileSync(
+      path,
+      '---\nname: vantage-productivity\nmetadata:\n  version: 99.0.0\n---\nfuture\n',
+    )
     const newer = await run(['skill', 'install', 'claude-code', '--json'], { env: m.env })
     expect(newer.code).toBe(2)
     expect(newer.json()).toMatchObject({ error: 'output_exists', detail: { status: 'newer' } })

@@ -66,12 +66,12 @@ describe('mcp launch entry', () => {
     expect(isVantageLauncher('C:\\Program Files\\Vantage\\Vantage Productivity.exe')).toBe(true)
     expect(isVantageLauncher(WIN_APP.command, WIN_APP.args)).toBe(true)
     expect(isVantageLauncher(join(__dirname, '..', 'bin', 'vantage'))).toBe(true)
-    expect(
-      isVantageLauncher('node', ['C:\\src\\packages\\cli\\dist\\vantage.cjs', 'mcp']),
-    ).toBe(false)
-    expect(
-      isVantageLauncher('node', [join(__dirname, '..', 'dist', 'vantage.cjs'), 'mcp']),
-    ).toBe(true)
+    expect(isVantageLauncher('node', ['C:\\src\\packages\\cli\\dist\\vantage.cjs', 'mcp'])).toBe(
+      false,
+    )
+    expect(isVantageLauncher('node', [join(__dirname, '..', 'dist', 'vantage.cjs'), 'mcp'])).toBe(
+      true,
+    )
     expect(
       isVantageLauncher('C:\\Vantage\\Vantage.exe', [
         'C:\\Vantage\\resources\\cli\\vantage.cjs',
@@ -94,7 +94,9 @@ describe('mcp launch entry', () => {
     })
     const gemini = join(home, '.gemini', 'settings.json')
     writeMcpEntry('gemini', gemini, WIN_APP)
-    expect(JSON.parse(readFileSync(gemini, 'utf-8')).mcpServers['vantage-productivity']).toEqual(WIN_APP)
+    expect(JSON.parse(readFileSync(gemini, 'utf-8')).mcpServers['vantage-productivity']).toEqual(
+      WIN_APP,
+    )
     const copilot = join(home, '.copilot', 'mcp-config.json')
     writeMcpEntry('copilot', copilot, WIN_APP)
     expect(JSON.parse(readFileSync(copilot, 'utf-8')).mcpServers['vantage-productivity']).toEqual({

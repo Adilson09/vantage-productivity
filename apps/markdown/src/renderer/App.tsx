@@ -13,10 +13,7 @@ import {
   useAutoSavePref,
   useAiSidebarEnabled,
 } from '@vantage/ui'
-import {
-  pollUntilReady,
-  runHeadlessRendererExport,
-} from '@vantage/electron-utils/headless-export'
+import { pollUntilReady, runHeadlessRendererExport } from '@vantage/electron-utils/headless-export'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { FindPanel, type FindFocusRequest, type FindPanelStrings } from '@vantage/ui'
 import type { Editor } from '@tiptap/core'
@@ -572,7 +569,11 @@ export default function App() {
       envelopeRef.current,
       current.state.doc,
       () => bodyMarkdown(current),
-      { original: originalSourceRef.current, clean: !dirtyRef.current, experimental: roundTripEnabled },
+      {
+        original: originalSourceRef.current,
+        clean: !dirtyRef.current,
+        experimental: roundTripEnabled,
+      },
     )
   }, [roundTripEnabled])
 
@@ -1071,7 +1072,11 @@ export default function App() {
           envelopeRef.current,
           current.state.doc,
           () => bodyMarkdown(current),
-          { original: originalSourceRef.current, clean: !dirtyRef.current, experimental: roundTripEnabled },
+          {
+            original: originalSourceRef.current,
+            clean: !dirtyRef.current,
+            experimental: roundTripEnabled,
+          },
         )
         window.markdownApi.sendReadTextResult({ text })
       } catch (err) {
@@ -1189,7 +1194,18 @@ export default function App() {
       offRenamed()
       window.removeEventListener('keydown', onKeyDown, true)
     }
-  }, [doSave, printDoc, zoomIn, zoomOut, openFind, toggleSource, loadFromPath, reloadFromDisk, roundTripEnabled, t])
+  }, [
+    doSave,
+    printDoc,
+    zoomIn,
+    zoomOut,
+    openFind,
+    toggleSource,
+    loadFromPath,
+    reloadFromDisk,
+    roundTripEnabled,
+    t,
+  ])
 
   // Chromium reports trackpad pinch as ctrl+wheel. Also support Cmd/Ctrl+scroll
   // while the pointer is over the document canvas.
@@ -1232,9 +1248,17 @@ export default function App() {
   useEffect(() => {
     let pending = false
     const tick = async () => {
-      if (pending || !dirtyRef.current || statusRef.current !== 'ready' || editorRef.current?.view.composing) return
+      if (
+        pending ||
+        !dirtyRef.current ||
+        statusRef.current !== 'ready' ||
+        editorRef.current?.view.composing
+      )
+        return
       flushSource()
-      const text = sourceMode ? writeSourceText(sourceTextRef.current, sourceFormatRef.current) : currentFileText()
+      const text = sourceMode
+        ? writeSourceText(sourceTextRef.current, sourceFormatRef.current)
+        : currentFileText()
       if (text === null) return
       pending = true
       try {
@@ -1246,14 +1270,26 @@ export default function App() {
       } catch (error) {
         if (!draftWarningRef.current) {
           draftWarningRef.current = true
-          showToast(`Crash recovery is unavailable: ${error instanceof Error ? error.message : String(error)}`, 'error')
+          showToast(
+            `Crash recovery is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+            'error',
+          )
         }
-      } finally { pending = false }
+      } finally {
+        pending = false
+      }
     }
-    const interval = window.setInterval(() => { void tick() }, 15_000)
-    const blur = () => { void tick() }
+    const interval = window.setInterval(() => {
+      void tick()
+    }, 15_000)
+    const blur = () => {
+      void tick()
+    }
     window.addEventListener('blur', blur)
-    return () => { window.clearInterval(interval); window.removeEventListener('blur', blur) }
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('blur', blur)
+    }
   }, [flushSource, currentFileText, sourceMode])
 
   // ---- selection-scoped AI edit queue (anchors live in the editor as decorations) ----

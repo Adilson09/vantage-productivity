@@ -47,9 +47,7 @@ describe('vantage create/slides (pptx ops)', () => {
     const deck = read.json().detail
     expect(deck.slides).toBe(2)
     expect(deck.pages[0].id).toMatch(/^s_/)
-    const styled = deck.pages[0].elements.find(
-      (e: { text?: string }) => e.text === 'Hello vantage',
-    )
+    const styled = deck.pages[0].elements.find((e: { text?: string }) => e.text === 'Hello vantage')
     expect(styled.effective).toMatchObject({ fontSizePt: 32, bold: true, italic: false })
     expect(styled.effective.src.fontSize).toBe('run')
     expect(styled.effective.src.bold).toBe('run')

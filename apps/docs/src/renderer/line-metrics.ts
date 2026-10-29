@@ -1062,10 +1062,7 @@ const STAND_IN_CHAINS: Record<string, [string[], Generic]> = {
   '\ub098\ub214\uba85\uc870': [KO_SERIF, 'serif'],
   nanummyeongjoextrabold: [KO_SERIF, 'serif'],
   '\ub098\ub214\uba85\uc870 extrabold': [KO_SERIF, 'serif'],
-  simsun: [
-    ['Vantage SimSun Latin', 'Vantage Songti SC', 'STSong', 'SimSun', CJK_SERIF],
-    'serif',
-  ],
+  simsun: [['Vantage SimSun Latin', 'Vantage Songti SC', 'STSong', 'SimSun', CJK_SERIF], 'serif'],
   '\u5b8b\u4f53': [
     ['Vantage SimSun Latin', 'Vantage Songti SC', 'STSong', 'SimSun', CJK_SERIF],
     'serif',

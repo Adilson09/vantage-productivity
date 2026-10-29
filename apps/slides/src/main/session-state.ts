@@ -18,11 +18,7 @@ import {
   type SlideElement,
   type TextElement,
 } from '@vantage/pptx-engine'
-import {
-  buildRenderSlide,
-  type FontMetricsProvider,
-  type RenderSlide,
-} from '@vantage/pptx-render'
+import { buildRenderSlide, type FontMetricsProvider, type RenderSlide } from '@vantage/pptx-render'
 import { createSystemFontMetrics, resetFontRegistry } from './fonts'
 import { tiffToPng } from './tiff-decode'
 import { neutralizeJpegOrientation } from './jpeg-orientation'

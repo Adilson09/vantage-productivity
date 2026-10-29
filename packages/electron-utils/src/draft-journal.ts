@@ -12,22 +12,39 @@ const MAX_DRAFTS = 64
 const modules = new Set(['docs', 'sheets', 'slides', 'pdf', 'markdown', 'html'])
 const extensions = new Set(['.docx', '.xlsx', '.pptx', '.pdf', '.md', '.html', '.txt', '.json'])
 export interface DraftEntry {
-  id: string; module: string; documentPath: string | null; extension: string;
-  createdAt: string; updatedAt: string; bytes: number; storedBytes: number;
-  sha256: string; payload: string; encrypted: boolean
+  id: string
+  module: string
+  documentPath: string | null
+  extension: string
+  createdAt: string
+  updatedAt: string
+  bytes: number
+  storedBytes: number
+  sha256: string
+  payload: string
+  encrypted: boolean
 }
-const registry = globalThis as typeof globalThis & { __vantageDraftLocks?: Map<string, Promise<unknown>>; __vantageDraftEpochs?: Map<string, number> }
-const locks = registry.__vantageDraftLocks ??= new Map<string, Promise<unknown>>()
-const epochs = registry.__vantageDraftEpochs ??= new Map<string, number>()
-const canonical = (path: string) => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
+const registry = globalThis as typeof globalThis & {
+  __vantageDraftLocks?: Map<string, Promise<unknown>>
+  __vantageDraftEpochs?: Map<string, number>
+}
+const locks = (registry.__vantageDraftLocks ??= new Map<string, Promise<unknown>>())
+const epochs = (registry.__vantageDraftEpochs ??= new Map<string, number>())
+const canonical = (path: string) =>
+  process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
 const epochKey = (root: string, id: string) => `${canonical(root)}:${id}`
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
 const directory = (root: string) => join(root, 'drafts')
 async function locked<T>(root: string, operation: () => Promise<T>): Promise<T> {
-  const key = canonical(root), prior = locks.get(key) ?? Promise.resolve()
+  const key = canonical(root),
+    prior = locks.get(key) ?? Promise.resolve()
   const pending = prior.catch(() => {}).then(operation)
   locks.set(key, pending)
-  try { return await pending } finally { if (locks.get(key) === pending) locks.delete(key) }
+  try {
+    return await pending
+  } finally {
+    if (locks.get(key) === pending) locks.delete(key)
+  }
 }
 async function readBounded(path: string, maximum: number): Promise<Buffer> {
   const handle = await open(path, 'r')
@@ -42,32 +59,54 @@ async function readBounded(path: string, maximum: number): Promise<Buffer> {
       offset += part.bytesRead
     }
     const after = await handle.stat()
-    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) throw new Error('Draft data changed while being read')
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs)
+      throw new Error('Draft data changed while being read')
     return bytes
-  } finally { await handle.close() }
+  } finally {
+    await handle.close()
+  }
 }
 function validate(value: unknown): value is DraftEntry {
   if (!value || typeof value !== 'object') return false
   const item = value as DraftEntry
-  return ID.test(item.id) && modules.has(item.module) && extensions.has(item.extension) &&
-    (item.documentPath === null || (typeof item.documentPath === 'string' && isAbsolute(item.documentPath))) &&
-    Number.isFinite(Date.parse(item.createdAt)) && Number.isFinite(Date.parse(item.updatedAt)) &&
-    Number.isSafeInteger(item.bytes) && item.bytes >= 0 && item.bytes <= MAX_DRAFT_BYTES &&
-    Number.isSafeInteger(item.storedBytes) && item.storedBytes >= item.bytes && item.storedBytes <= MAX_DRAFT_BYTES + 128 &&
-    /^[a-f0-9]{64}$/.test(item.sha256) && typeof item.encrypted === 'boolean' &&
-    typeof item.payload === 'string' && item.payload.startsWith(`${item.id}.`) &&
-    item.payload.endsWith('.bin') && ID.test(item.payload.slice(item.id.length + 1, -4))
+  return (
+    ID.test(item.id) &&
+    modules.has(item.module) &&
+    extensions.has(item.extension) &&
+    (item.documentPath === null ||
+      (typeof item.documentPath === 'string' && isAbsolute(item.documentPath))) &&
+    Number.isFinite(Date.parse(item.createdAt)) &&
+    Number.isFinite(Date.parse(item.updatedAt)) &&
+    Number.isSafeInteger(item.bytes) &&
+    item.bytes >= 0 &&
+    item.bytes <= MAX_DRAFT_BYTES &&
+    Number.isSafeInteger(item.storedBytes) &&
+    item.storedBytes >= item.bytes &&
+    item.storedBytes <= MAX_DRAFT_BYTES + 128 &&
+    /^[a-f0-9]{64}$/.test(item.sha256) &&
+    typeof item.encrypted === 'boolean' &&
+    typeof item.payload === 'string' &&
+    item.payload.startsWith(`${item.id}.`) &&
+    item.payload.endsWith('.bin') &&
+    ID.test(item.payload.slice(item.id.length + 1, -4))
+  )
 }
 async function entriesIn(root: string): Promise<DraftEntry[]> {
   let files: string[]
-  try { files = await readdir(directory(root)) }
-  catch (error) { if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return []; throw error }
+  try {
+    files = await readdir(directory(root))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return []
+    throw error
+  }
   if (files.length > 512) throw new Error('Draft journal exceeds its inspection limit')
   const result: DraftEntry[] = []
   for (const file of files) {
     if (!file.endsWith('.json') || !ID.test(file.slice(0, -5))) continue
     try {
-      const data: unknown = JSON.parse((await readBounded(join(directory(root), file), 16 * 1024)).toString('utf8'))
+      const data: unknown = JSON.parse(
+        (await readBounded(join(directory(root), file), 16 * 1024)).toString('utf8'),
+      )
       if (!validate(data) || data.id !== file.slice(0, -5)) continue
       const payload = await stat(join(directory(root), data.payload))
       if (payload.isFile() && payload.size === data.storedBytes) result.push(data)
@@ -78,16 +117,23 @@ async function entriesIn(root: string): Promise<DraftEntry[]> {
   }
   return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
-export async function listDraftJournal(root: string): Promise<DraftEntry[]> { return locked(root, () => entriesIn(root)) }
+export async function listDraftJournal(root: string): Promise<DraftEntry[]> {
+  return locked(root, () => entriesIn(root))
+}
 async function bytesFor(root: string, entry: DraftEntry): Promise<Buffer> {
   const payload = await readBounded(join(directory(root), entry.payload), MAX_DRAFT_BYTES + 128)
   const cipher = recoveryCipherFor(root)
-  if (entry.encrypted && !cipher) throw new Error('Unlock OS-protected recovery storage to read this draft')
+  if (entry.encrypted && !cipher)
+    throw new Error('Unlock OS-protected recovery storage to read this draft')
   const bytes = entry.encrypted ? cipher!.decrypt(payload) : payload
-  if (bytes.length !== entry.bytes || digest(bytes) !== entry.sha256) throw new Error('Draft data failed its integrity check')
+  if (bytes.length !== entry.bytes || digest(bytes) !== entry.sha256)
+    throw new Error('Draft data failed its integrity check')
   return bytes
 }
-export async function readDraftJournal(root: string, id: string): Promise<{ entry: DraftEntry; bytes: Buffer }> {
+export async function readDraftJournal(
+  root: string,
+  id: string,
+): Promise<{ entry: DraftEntry; bytes: Buffer }> {
   if (!ID.test(id)) throw new Error('Invalid draft identifier')
   return locked(root, async () => {
     const entry = (await entriesIn(root)).find((entry) => entry.id === id)
@@ -95,13 +141,26 @@ export async function readDraftJournal(root: string, id: string): Promise<{ entr
     return { entry, bytes: await bytesFor(root, entry) }
   })
 }
-export async function writeDraftJournal(root: string, request: {
-  id: string; module: string; documentPath: string | null; extension: string; bytes: Buffer
-}): Promise<DraftEntry | null> {
-  if (!ID.test(request.id) || !modules.has(request.module) || !extensions.has(request.extension) ||
-    (request.documentPath !== null && !isAbsolute(request.documentPath)) || request.bytes.length > MAX_DRAFT_BYTES)
+export async function writeDraftJournal(
+  root: string,
+  request: {
+    id: string
+    module: string
+    documentPath: string | null
+    extension: string
+    bytes: Buffer
+  },
+): Promise<DraftEntry | null> {
+  if (
+    !ID.test(request.id) ||
+    !modules.has(request.module) ||
+    !extensions.has(request.extension) ||
+    (request.documentPath !== null && !isAbsolute(request.documentPath)) ||
+    request.bytes.length > MAX_DRAFT_BYTES
+  )
     throw new Error('Invalid draft or draft exceeds its 16 MiB limit')
-  const key = epochKey(root, request.id), epoch = epochs.get(key) ?? 0
+  const key = epochKey(root, request.id),
+    epoch = epochs.get(key) ?? 0
   return locked(root, async () => {
     if ((epochs.get(key) ?? 0) !== epoch) return null
     await mkdir(directory(root), { recursive: true, mode: 0o700 })
@@ -112,32 +171,59 @@ export async function writeDraftJournal(root: string, request: {
       await bytesFor(root, previous)
       return previous
     }
-    if (!previous && entries.length >= MAX_DRAFTS) throw new Error('The draft journal is full; recover or discard older drafts first')
+    if (!previous && entries.length >= MAX_DRAFTS)
+      throw new Error('The draft journal is full; recover or discard older drafts first')
     const cipher = recoveryCipherFor(root)
-    if (!cipher && await stat(join(root, 'protected-key.bin')).then(() => true, (error: unknown) => {
-      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false
-      throw error
-    })) throw new Error('Unlock OS-protected recovery storage before recording another draft')
+    if (
+      !cipher &&
+      (await stat(join(root, 'protected-key.bin')).then(
+        () => true,
+        (error: unknown) => {
+          if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false
+          throw error
+        },
+      ))
+    )
+      throw new Error('Unlock OS-protected recovery storage before recording another draft')
     const payload = cipher ? cipher.encrypt(request.bytes) : request.bytes
     let occupied = 0
-    for (const file of await readdir(directory(root))) occupied += (await stat(join(directory(root), file))).size
-    if (occupied + payload.length + 16 * 1024 > MAX_JOURNAL_BYTES) throw new Error('The bounded draft journal is full')
+    for (const file of await readdir(directory(root)))
+      occupied += (await stat(join(directory(root), file))).size
+    if (occupied + payload.length + 16 * 1024 > MAX_JOURNAL_BYTES)
+      throw new Error('The bounded draft journal is full')
     await assertRecoveryFreeSpace(root, payload.length + 16 * 1024, await getRecoveryPolicy(root))
     const now = new Date().toISOString()
-    const entry: DraftEntry = { id: request.id, module: request.module, documentPath: request.documentPath,
-      extension: request.extension, bytes: request.bytes.length, storedBytes: payload.length, sha256,
-      createdAt: previous?.createdAt ?? now, updatedAt: now,
-      payload: `${request.id}.${randomUUID()}.bin`, encrypted: !!cipher }
+    const entry: DraftEntry = {
+      id: request.id,
+      module: request.module,
+      documentPath: request.documentPath,
+      extension: request.extension,
+      bytes: request.bytes.length,
+      storedBytes: payload.length,
+      sha256,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+      payload: `${request.id}.${randomUUID()}.bin`,
+      encrypted: !!cipher,
+    }
     const blob = join(directory(root), entry.payload)
     const pending = join(directory(root), `${entry.id}.${randomUUID()}.tmp`)
     let committed = false
     try {
       await writeFile(blob, payload, { flag: 'wx', mode: 0o600 })
       let handle = await open(blob, 'r+')
-      try { await handle.sync() } finally { await handle.close() }
+      try {
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
       await writeFile(pending, JSON.stringify(entry), { flag: 'wx', mode: 0o600 })
       handle = await open(pending, 'r+')
-      try { await handle.sync() } finally { await handle.close() }
+      try {
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
       if ((epochs.get(key) ?? 0) !== epoch) return null
       await rename(pending, join(directory(root), `${entry.id}.json`))
       committed = true
@@ -158,20 +244,39 @@ export async function discardDraftJournal(root: string, id: string): Promise<voi
     await unlink(join(directory(root), `${id}.json`)).catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
     })
-    if (entry) await unlink(join(directory(root), entry.payload)).catch((error: unknown) => {
-      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
-    })
+    if (entry)
+      await unlink(join(directory(root), entry.payload)).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
+      })
   })
 }
-export async function restoreDraftCopy(root: string, id: string, destination: string): Promise<void> {
+export async function restoreDraftCopy(
+  root: string,
+  id: string,
+  destination: string,
+): Promise<void> {
   const { entry, bytes } = await readDraftJournal(root, id)
-  if (entry.documentPath && canonical(destination) === canonical(entry.documentPath)) throw new Error('Recover the draft to a new copy')
-  const temp = join(dirname(resolve(destination)), `${basename(destination)}.${randomUUID()}.draft.tmp`)
+  if (entry.documentPath && canonical(destination) === canonical(entry.documentPath))
+    throw new Error('Recover the draft to a new copy')
+  const temp = join(
+    dirname(resolve(destination)),
+    `${basename(destination)}.${randomUUID()}.draft.tmp`,
+  )
   let owns = false
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
-    handle = await open(temp, 'wx', 0o600); owns = true
-    await handle.writeFile(bytes); await handle.sync(); await handle.close(); handle = undefined
-    await publishExclusiveCopy(temp, resolve(destination), { bytes: bytes.length, sha256: digest(bytes) })
-  } finally { await handle?.close().catch(() => {}); if (owns) await unlink(temp).catch(() => {}) }
+    handle = await open(temp, 'wx', 0o600)
+    owns = true
+    await handle.writeFile(bytes)
+    await handle.sync()
+    await handle.close()
+    handle = undefined
+    await publishExclusiveCopy(temp, resolve(destination), {
+      bytes: bytes.length,
+      sha256: digest(bytes),
+    })
+  } finally {
+    await handle?.close().catch(() => {})
+    if (owns) await unlink(temp).catch(() => {})
+  }
 }

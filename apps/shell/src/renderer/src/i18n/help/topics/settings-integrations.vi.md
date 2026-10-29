@@ -58,8 +58,8 @@ Dưới **Máy chủ HTTP cục bộ**, ứng dụng cũng có thể tự chạy
 
 ## Bảng tra nhanh dòng lệnh
 
-| Lệnh               | Tác dụng                     |
-| ------------------ | ---------------------------- |
+| Lệnh             | Tác dụng                     |
+| ---------------- | ---------------------------- |
 | `vantage <file>` | mở một tập tin               |
 | `vantage mcp`    | khởi động máy chủ MCP cục bộ |
 | `vantage --help` | mọi lệnh và tuỳ chọn         |

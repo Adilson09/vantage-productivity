@@ -114,9 +114,7 @@ describe('createCliSkill', () => {
       /no run_vantage call succeeded/,
     )
     expect(
-      skill.verifyResponse?.('I have saved the workbook.', [
-        { name: RUN_VANTAGE_TOOL, ok: true },
-      ]),
+      skill.verifyResponse?.('I have saved the workbook.', [{ name: RUN_VANTAGE_TOOL, ok: true }]),
     ).toBeNull()
     expect(skill.verifyResponse?.('The file was created in 2019.', [])).toBeNull()
   })

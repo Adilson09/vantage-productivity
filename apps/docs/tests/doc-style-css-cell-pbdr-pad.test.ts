@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type {
-  ParaBorderSides,
-  ParsedDocFull,
-  StyleDisplay,
-  StyleInfo,
-} from '@vantage/docx-engine'
+import type { ParaBorderSides, ParsedDocFull, StyleDisplay, StyleInfo } from '@vantage/docx-engine'
 import { docStyleCss } from '../src/renderer/doc-style-css'
 
 ;(globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s }

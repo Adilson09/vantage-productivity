@@ -58,8 +58,8 @@ Di bawah **Pelayan HTTP tempatan**, aplikasi ini juga boleh menjalankan pelayan 
 
 ## Ringkasan baris arahan
 
-| Perintah           | Fungsinya                             |
-| ------------------ | ------------------------------------- |
+| Perintah         | Fungsinya                             |
+| ---------------- | ------------------------------------- |
 | `vantage <fail>` | membuka fail                          |
 | `vantage mcp`    | memulakan pelayan MCP tempatan        |
 | `vantage --help` | memaparkan semua perintah dan pilihan |

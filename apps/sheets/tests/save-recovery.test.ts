@@ -59,7 +59,9 @@ describe('native workbook save recovery', () => {
   it('captures a first-save baseline only after the native writer publishes', async () => {
     const target = join(dir, 'new.xlsx')
     await withNativeSaveRecovery(target, () => writeFile(target, 'new'))
-    expect(await listRecoveryEntries(process.env.VANTAGE_RECOVERY_ROOT!)).toMatchObject([{ originalPath: target, kind: 'first-save' }])
+    expect(await listRecoveryEntries(process.env.VANTAGE_RECOVERY_ROOT!)).toMatchObject([
+      { originalPath: target, kind: 'first-save' },
+    ])
     expect(await readFile(target, 'utf8')).toBe('new')
   })
 

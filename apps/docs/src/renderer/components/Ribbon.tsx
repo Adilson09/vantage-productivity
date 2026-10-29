@@ -40,12 +40,7 @@ import type {
   ThemeColors,
   ThemeFonts,
 } from '@vantage/docx-engine'
-import {
-  Dropdown,
-  isSymbolFontFamily,
-  useDismissablePopover,
-  useRibbonCollapse,
-} from '@vantage/ui'
+import { Dropdown, isSymbolFontFamily, useDismissablePopover, useRibbonCollapse } from '@vantage/ui'
 import { HIGHLIGHT_CSS } from '../editor/extensions'
 import { applyCase, type CaseMode } from '../editor/case-transform'
 import { isRtlUiLang, setParagraphDirection, setSelectionAlign } from '../editor/direction'

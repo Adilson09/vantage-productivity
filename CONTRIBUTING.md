@@ -148,9 +148,9 @@ testing and local overrides:
 | Variable                                                                                          | Effect                                                                           |
 | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `BUILD_DIR`                                                                                       | Override the electron-builder output directory (default `apps/shell/release`)    |
-| `VANTAGE_USER_DATA`                                                                             | Override the Electron userData directory (test isolation)                        |
-| `VANTAGE_LANG`                                                                                  | Force the UI language instead of following the OS locale                         |
-| `VANTAGE_FAKE_UPDATE`                                                                           | Exercise the updater UI without a real release feed                              |
+| `VANTAGE_USER_DATA`                                                                               | Override the Electron userData directory (test isolation)                        |
+| `VANTAGE_LANG`                                                                                    | Force the UI language instead of following the OS locale                         |
+| `VANTAGE_FAKE_UPDATE`                                                                             | Exercise the updater UI without a real release feed                              |
 | `GSK_API_KEY`, `GSK_CLI_PATH`                                                                     | Genspark credentials / CLI location for the built-in AI provider                 |
 | `AI_SEARCH_DISABLE_GSK`, `SERPER_API_KEY`, `SERPLY_API_KEY`, `TAVILY_API_KEY`, `PARALLEL_API_KEY` | Disable the gsk search backend / supply a Serper, Serply, Tavily or Parallel key |
 | `XLSX_SIDECAR_PATH`, `XLSX_OPEN_PATH`, `XLSX_DEBUG_PORT`                                          | Point at a locally built xlsx sidecar and its debug port                         |

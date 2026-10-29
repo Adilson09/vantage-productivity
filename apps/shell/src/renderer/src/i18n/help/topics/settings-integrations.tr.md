@@ -58,8 +58,8 @@ Ayarlar, Vantage'i .docx / .xlsx / .pptx / .pdf ve benzerleri için işleyici ol
 
 ## Komut satırı kopya kağıdı
 
-| Komut              | Ne yapar                      |
-| ------------------ | ----------------------------- |
+| Komut            | Ne yapar                      |
+| ---------------- | ----------------------------- |
 | `vantage <file>` | bir dosya açar                |
 | `vantage mcp`    | yerel MCP sunucusunu başlatır |
 | `vantage --help` | tüm komutlar ve bayraklar     |

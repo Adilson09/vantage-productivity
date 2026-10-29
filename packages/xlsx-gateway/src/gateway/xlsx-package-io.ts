@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 
 import { z } from 'zod'
-import { AtomicSaveError, publishCompletedFile, withAtomicSaveQueue } from '../../../electron-utils/src/atomic-write'
+import {
+  AtomicSaveError,
+  publishCompletedFile,
+  withAtomicSaveQueue,
+} from '../../../electron-utils/src/atomic-write'
 
 import { MAX_PATCH_ENTRY_BYTES } from '../shared/edit-schemas'
 import type { WorkbookChartEdit, WorkbookVisualEdit } from '../shared/edit-schemas'
@@ -154,7 +158,9 @@ export async function saveWorkbookViaSidecar(
   return withAtomicSaveQueue(request.targetPath, () => saveWorkbookViaSidecarQueued(request))
 }
 
-async function saveWorkbookViaSidecarQueued(request: StreamingSaveRequest): Promise<StreamingSaveResult> {
+async function saveWorkbookViaSidecarQueued(
+  request: StreamingSaveRequest,
+): Promise<StreamingSaveResult> {
   const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-save-'))
   const temporaryTarget = join(
     dirname(request.targetPath),

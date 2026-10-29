@@ -12,9 +12,7 @@ export default defineConfig({
       '@vantage/docx-engine/lazy-media': local('../../packages/docx-engine/src/lazy-media.ts'),
       '@vantage/docx-engine': local('../../packages/docx-engine/src/index.ts'),
       '@vantage/font-metrics/resolve': local('../../packages/font-metrics/src/resolve.ts'),
-      '@vantage/font-metrics/word-faces.json': local(
-        '../../packages/font-metrics/word-faces.json',
-      ),
+      '@vantage/font-metrics/word-faces.json': local('../../packages/font-metrics/word-faces.json'),
       '@vantage/font-metrics': local('../../packages/font-metrics/src/index.ts'),
       // subpath before the bare name: string aliases are prefix replacements
       '@vantage/electron-utils/headless-export': local(
@@ -26,9 +24,7 @@ export default defineConfig({
       '@vantage/electron-utils/safe-external-url': local(
         '../../packages/electron-utils/src/safe-external-url.ts',
       ),
-      '@vantage/electron-utils/print-job': local(
-        '../../packages/electron-utils/src/print-job.ts',
-      ),
+      '@vantage/electron-utils/print-job': local('../../packages/electron-utils/src/print-job.ts'),
       '@vantage/electron-utils': local('../../packages/electron-utils/src/index.ts'),
       '@vantage/ai-provider/browser': local('../../packages/ai-provider/src/browser.ts'),
       '@vantage/ai-provider': local('../../packages/ai-provider/src/index.ts'),

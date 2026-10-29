@@ -29,8 +29,8 @@ macOS 和 Windows 上它位于应用包内。想直接按名字调用，先运�
 | `merge`           | 填充 `.docx`、`.pptx` 或 `.xlsx` 模板里的 `{{key}}` 占位符。                                                                           |
 | `capabilities`    | 报告本机配置了哪些云端功能。                                                                                                           |
 | `guide`           | 操作参考与设计指南，由执行器校验所依据的同一份定义生成，因此不会与 `apply` 接受的内容产生偏差。`--json` 会带上每个操作的 schema 返回。 |
-| `install-cli`     | 把 `vantage` 放进 `PATH`。                                                                                                           |
-| `skill`           | 列出本机找到的编程代理，并在其中安装或更新 Vantage 技能。                                                                            |
+| `install-cli`     | 把 `vantage` 放进 `PATH`。                                                                                                             |
+| `skill`           | 列出本机找到的编程代理，并在其中安装或更新 Vantage 技能。                                                                              |
 | `mcp`             | 把每条命令作为 Model Context Protocol 工具提供。见**连接编程代理**。                                                                   |
 
 ## 编辑：docs、sheets、slides

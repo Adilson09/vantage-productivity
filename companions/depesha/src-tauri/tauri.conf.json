@@ -55,9 +55,7 @@
     ],
     "linux": {
       "deb": {
-        "depends": [
-          "gnome-keyring | kwalletmanager | keepassxc"
-        ],
+        "depends": ["gnome-keyring | kwalletmanager | keepassxc"],
         "desktopTemplate": "depesha.desktop"
       },
       "appimage": {}
@@ -67,10 +65,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "vantage-mail",
-          "aster-mail"
-        ]
+        "schemes": ["vantage-mail", "aster-mail"]
       }
     }
   }

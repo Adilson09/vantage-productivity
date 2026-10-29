@@ -70,8 +70,7 @@ import { prefetchFaces, setFontMetricsProvider } from '../src/renderer/font-reso
 afterEach(() => setFontMetricsProvider(undefined))
 
 /** SimSun stand-in chain, hangul tail and Batang chain the substitution route emits */
-const SIMSUN =
-  "'SimSun','Vantage SimSun Latin','Vantage Songti SC','STSong','Noto Serif CJK SC'"
+const SIMSUN = "'SimSun','Vantage SimSun Latin','Vantage Songti SC','STSong','Noto Serif CJK SC'"
 const KOTAIL = "'Vantage Batang','Vantage Serif KR'"
 const KO_SERIF = "'Vantage Batang','Vantage Serif KR','Vantage Myungjo','Noto Serif KR'"
 
@@ -1048,9 +1047,7 @@ describe('cssFontFamily', () => {
       expect(cssFontFamily('Noto Sans CJK SC')).toMatch(
         /'Vantage Batang','Vantage Serif KR',serif$/,
       )
-      expect(cssDualFontFamily('Calibri', 'Noto Sans CJK SC')).toMatch(
-        /'Vantage Serif KR',serif$/,
-      )
+      expect(cssDualFontFamily('Calibri', 'Noto Sans CJK SC')).toMatch(/'Vantage Serif KR',serif$/)
       await stubInstalled(['Source Han Sans CN'])
       expect(cssFontFamily('Source Han Sans CN')).not.toContain('Vantage Serif KR')
     })

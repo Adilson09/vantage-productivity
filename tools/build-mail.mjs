@@ -63,7 +63,9 @@ const dependencies = Object.fromEntries(
   ),
 )
 // The source archive retains the exact dependency notice texts for its locked versions.
-const coverage = JSON.parse(await fs.readFile(path.join(source, 'VANTAGE_NOTICE_LOCKS.json'), 'utf8'))
+const coverage = JSON.parse(
+  await fs.readFile(path.join(source, 'VANTAGE_NOTICE_LOCKS.json'), 'utf8'),
+)
 for (const [name, sha256] of Object.entries(dependencies)) {
   if (coverage[name] !== sha256)
     throw new Error(`${name} changed: regenerate and review Mail dependency notices.`)

@@ -50,19 +50,36 @@ process.stdin.on('end', () => {
 `
 
 /** Query in a separate Node process with a wall deadline, SQLite allocator cap, JS heap cap and output bounds. */
-export async function queryDatabaseIsolated(path: string, sql: string, options: IsolatedQueryOptions = {}): Promise<IsolatedQueryResult> {
+export async function queryDatabaseIsolated(
+  path: string,
+  sql: string,
+  options: IsolatedQueryOptions = {},
+): Promise<IsolatedQueryResult> {
   const timeoutMs = options.timeoutMs ?? 3000
   const maxRows = options.maxRows ?? 1000
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30000) throw new Error('Query timeout must be 100 to 30,000 ms.')
-  if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 10000) throw new Error('Result limit must be 1 to 10,000 rows.')
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30000)
+    throw new Error('Query timeout must be 100 to 30,000 ms.')
+  if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 10000)
+    throw new Error('Result limit must be 1 to 10,000 rows.')
   if (!path || path === ':memory:') throw new Error('Isolated queries need a saved database file.')
-  if (typeof sql !== 'string' || Buffer.byteLength(sql) > 32768 || !/^\s*(SELECT|WITH)\b/i.test(sql)) throw new Error('Enter one SELECT or WITH query, at most 32 KiB.')
+  if (
+    typeof sql !== 'string' ||
+    Buffer.byteLength(sql) > 32768 ||
+    !/^\s*(SELECT|WITH)\b/i.test(sql)
+  )
+    throw new Error('Enter one SELECT or WITH query, at most 32 KiB.')
   if (options.signal?.aborted) throw new Error('Query cancelled.')
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--max-old-space-size=96', '--input-type=commonjs', '-e', QUERY_CHILD], {
-      windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_OPTIONS: '' },
-    })
+    const child = spawn(
+      process.execPath,
+      ['--max-old-space-size=96', '--input-type=commonjs', '-e', QUERY_CHILD],
+      {
+        windowsHide: true,
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_OPTIONS: '' },
+      },
+    )
     let output = ''
     let diagnostics = ''
     let settled = false
@@ -72,12 +89,25 @@ export async function queryDatabaseIsolated(path: string, sql: string, options: 
       settled = true
       clearTimeout(timer)
       options.signal?.removeEventListener('abort', cancelled)
-      if (error) { reject(error); return }
+      if (error) {
+        reject(error)
+        return
+      }
       try {
-        const parsed = JSON.parse(output) as { ok: boolean; error?: string; result: IsolatedQueryResult }
+        const parsed = JSON.parse(output) as {
+          ok: boolean
+          error?: string
+          result: IsolatedQueryResult
+        }
         if (!parsed.ok) reject(new Error(parsed.error ?? 'Database query failed.'))
         else resolve(parsed.result)
-      } catch { reject(new Error(`The database process returned no valid result.${diagnostics ? ` ${diagnostics.slice(-500)}` : ''}`)) }
+      } catch {
+        reject(
+          new Error(
+            `The database process returned no valid result.${diagnostics ? ` ${diagnostics.slice(-500)}` : ''}`,
+          ),
+        )
+      }
     }
     const stop = (error: Error): void => {
       if (settled || terminalError) return
@@ -86,18 +116,32 @@ export async function queryDatabaseIsolated(path: string, sql: string, options: 
       // Resolve only after close: on Windows the child can still hold the
       // SQLite file handle for a short interval after kill() returns.
     }
-    const timer = setTimeout(() => stop(new Error(`Query exceeded its ${timeoutMs} ms time limit.`)), timeoutMs)
+    const timer = setTimeout(
+      () => stop(new Error(`Query exceeded its ${timeoutMs} ms time limit.`)),
+      timeoutMs,
+    )
     const cancelled = (): void => stop(new Error('Query cancelled.'))
     options.signal?.addEventListener('abort', cancelled, { once: true })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => { output += chunk; if (Buffer.byteLength(output) > 3 * 1024 * 1024) stop(new Error('Database query output exceeded 3 MiB.')) })
-    child.stderr.on('data', (chunk: string) => { diagnostics = (diagnostics + chunk).slice(-2000) })
+    child.stdout.on('data', (chunk: string) => {
+      output += chunk
+      if (Buffer.byteLength(output) > 3 * 1024 * 1024)
+        stop(new Error('Database query output exceeded 3 MiB.'))
+    })
+    child.stderr.on('data', (chunk: string) => {
+      diagnostics = (diagnostics + chunk).slice(-2000)
+    })
     child.on('error', (error) => finish(error))
     child.on('close', () => finish(terminalError))
-    child.stdin.on('error', () => { /* exit/error event reports a child which closed stdin early */ })
+    child.stdin.on('error', () => {
+      /* exit/error event reports a child which closed stdin early */
+    })
     const request = JSON.stringify({ path, sql, parameters: options.parameters ?? [], maxRows })
-    if (Buffer.byteLength(request) > 262144) { stop(new Error('Query parameters exceed 256 KiB.')); return }
+    if (Buffer.byteLength(request) > 262144) {
+      stop(new Error('Query parameters exceed 256 KiB.'))
+      return
+    }
     child.stdin.end(request)
   })
 }

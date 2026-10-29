@@ -148,16 +148,28 @@ describe('isInsideRoot', () => {
   it('rejects a symlink inside the root that points outside it', (context) => {
     // Directory links require a supporting volume. The normal TEMP may be exFAT.
     if (process.platform === 'win32') {
-      if (!basename(root).startsWith('vantage-folders-')) throw new Error('Unexpected folder fixture directory')
+      if (!basename(root).startsWith('vantage-folders-'))
+        throw new Error('Unexpected folder fixture directory')
       rmSync(root, { recursive: true, force: true })
-      root = realpathSync(mkdtempSync(join(homedir(), 'AppData', 'Local', 'Temp', 'vantage-folders-')))
+      root = realpathSync(
+        mkdtempSync(join(homedir(), 'AppData', 'Local', 'Temp', 'vantage-folders-')),
+      )
     }
     const outside = mkdtempSync(join(tmpdir(), 'vantage-outside-'))
     try {
-      try { symlinkSync(outside, join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir') }
-      catch (error) {
+      try {
+        symlinkSync(
+          outside,
+          join(root, 'escape'),
+          process.platform === 'win32' ? 'junction' : 'dir',
+        )
+      } catch (error) {
         const code = (error as NodeJS.ErrnoException)?.code
-        if (['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EISDIR'].includes(code ?? ''))
+        if (
+          ['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EISDIR'].includes(
+            code ?? '',
+          )
+        )
           context.skip(`Filesystem or account does not support directory links (${code})`)
         throw error
       }

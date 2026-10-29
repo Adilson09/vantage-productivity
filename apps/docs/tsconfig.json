@@ -15,9 +15,7 @@
       "@vantage/electron-utils/headless-export": [
         "../../packages/electron-utils/src/headless-export.ts"
       ],
-      "@vantage/electron-utils/atomic-write": [
-        "../../packages/electron-utils/src/atomic-write.ts"
-      ],
+      "@vantage/electron-utils/atomic-write": ["../../packages/electron-utils/src/atomic-write.ts"],
       "@vantage/electron-utils": ["../../packages/electron-utils/src/index.ts"],
       "@vantage/ai-provider": ["../../packages/ai-provider/src/index.ts"],
       "@vantage/agent-core": ["../../packages/agent-core/src/index.ts"],

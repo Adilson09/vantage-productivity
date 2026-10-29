@@ -177,11 +177,18 @@ describe('save coordination and history', () => {
       await real.writeFile(target, 'another program changed it during the lock')
       throw error('EPERM')
     })
-    const failure = await atomicWriteFile(target, Buffer.from('my complete edits')).catch((error: unknown) => error)
-    expect(failure).toMatchObject({ code: 'VANTAGE_SAVE_CONFLICT', vantageCode: 'SAVE_NOT_PUBLISHED' })
+    const failure = await atomicWriteFile(target, Buffer.from('my complete edits')).catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toMatchObject({
+      code: 'VANTAGE_SAVE_CONFLICT',
+      vantageCode: 'SAVE_NOT_PUBLISHED',
+    })
     expect(rename).toHaveBeenCalledTimes(1)
     expect(readFileSync(target, 'utf8')).toBe('another program changed it during the lock')
-    expect(readFileSync((failure as AtomicSaveError).recoveryPath, 'utf8')).toBe('my complete edits')
+    expect(readFileSync((failure as AtomicSaveError).recoveryPath, 'utf8')).toBe(
+      'my complete edits',
+    )
   })
   it('discards incomplete stream bytes while preserving the previous document', async () => {
     const target = join(dir, 'report.pptx')

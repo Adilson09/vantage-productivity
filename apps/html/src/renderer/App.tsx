@@ -11,10 +11,7 @@ import {
   rememberAiPanelOpen,
   useAiSidebarEnabled,
 } from '@vantage/ui'
-import {
-  pollUntilReady,
-  runHeadlessRendererExport,
-} from '@vantage/electron-utils/headless-export'
+import { pollUntilReady, runHeadlessRendererExport } from '@vantage/electron-utils/headless-export'
 import { useI18n } from './i18n/locale'
 import { parseDocText, serializeDocText, type Envelope } from './document/envelope'
 import {

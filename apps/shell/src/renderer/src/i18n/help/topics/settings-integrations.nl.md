@@ -58,8 +58,8 @@ Onder **Lokale HTTP-server** kan de app de server ook zelf draaien — een insch
 
 ## Commandoregel in één oogopslag
 
-| Opdracht              | Wat het doet               |
-| --------------------- | -------------------------- |
+| Opdracht            | Wat het doet               |
+| ------------------- | -------------------------- |
 | `vantage <bestand>` | opent een bestand          |
 | `vantage mcp`       | start de lokale MCP-server |
 | `vantage --help`    | alle opdrachten en opties  |

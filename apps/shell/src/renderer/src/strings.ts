@@ -819,8 +819,7 @@ export const strings = {
     intgExample1: 'Turn ~/Downloads/report.md into a Word document',
     intgExample2: 'Make a 6-slide deck about our Q3 results',
     intgExample3: 'Convert budget.xlsx to PDF and open it in Vantage',
-    intgStep2Note:
-      'The assistant runs the vantage command line itself; you never have to type it.',
+    intgStep2Note: 'The assistant runs the vantage command line itself; you never have to type it.',
     intgCliPartTitle: 'CLI · command line + skill',
     intgCliPartDesc:
       'For assistants that can run terminal commands (Claude Code, Codex, Cursor and others). Once the skill is installed, the assistant calls the vantage command line itself to create, convert, read and edit files; you never type a command.',
@@ -1393,8 +1392,7 @@ export const strings = {
     intgSaveZipTitle: 'Lưu kỹ năng',
     intgSavedTo: 'Đã lưu vào {path}',
     intgCopied: 'Đã sao chép',
-    intgCliEphemeral:
-      'Trước tiên hãy kéo Vantage vào Applications, sau đó mới sử dụng dòng lệnh.',
+    intgCliEphemeral: 'Trước tiên hãy kéo Vantage vào Applications, sau đó mới sử dụng dòng lệnh.',
     intgCopyPath: 'Sao chép đường dẫn',
     intgCliNeedsUpdate:
       'Kỹ năng này yêu cầu dòng lệnh {v} hoặc mới hơn; vui lòng cập nhật Vantage.',
@@ -2334,8 +2332,7 @@ export const strings = {
     aiFontSizeCustom: 'カスタム',
     setAiSpellcheck: 'AI チャットのスペルチェック',
     setDefaultApp: 'Office 文書の既定のアプリ',
-    setDefaultAppDesc:
-      '.docx、.xlsx、.pptx ファイルをダブルクリックしたとき Vantage で開きます。',
+    setDefaultAppDesc: '.docx、.xlsx、.pptx ファイルをダブルクリックしたとき Vantage で開きます。',
     setDefaultAppIs: 'Vantage はすでに既定のアプリです。',
     setDefaultAppOther: '現在の既定：{app}',
     setDefaultAppSet: '既定にする',
@@ -2839,8 +2836,7 @@ export const strings = {
     docThemeFollowApp: '앱 테마 따르기',
     saveLocation: '저장 위치',
     setRestoreSession: '지난번 문서 다시 열기',
-    setRestoreSessionDesc:
-      'Vantage를 닫을 때 열려 있던 문서를 다음 실행 시 자동으로 다시 엽니다.',
+    setRestoreSessionDesc: 'Vantage를 닫을 때 열려 있던 문서를 다음 실행 시 자동으로 다시 엽니다.',
     setTabSleep: '비활성 탭 절전',
     setTabSleepDesc:
       '탭이 많이 열려 있으면 한동안 보지 않은 탭은 메모리를 해제하고 돌아올 때 파일을 다시 엽니다. 저장하지 않은 변경이 있거나 고정된 탭은 절전되지 않습니다.',
@@ -2945,8 +2941,7 @@ export const strings = {
     intgExample1: '~/Downloads/report.md를 Word 문서로 만들어 줘',
     intgExample2: '3분기 실적을 소개하는 6장짜리 슬라이드를 만들어 줘',
     intgExample3: 'budget.xlsx를 PDF로 변환해서 Vantage에서 열어 줘',
-    intgStep2Note:
-      'vantage 명령줄은 어시스턴트가 직접 실행하므로 여러분이 입력할 필요가 없습니다.',
+    intgStep2Note: 'vantage 명령줄은 어시스턴트가 직접 실행하므로 여러분이 입력할 필요가 없습니다.',
     intgCliPartTitle: 'CLI · 명령줄 + skill',
     intgCliPartDesc:
       '터미널 명령을 실행할 수 있는 어시스턴트(Claude Code, Codex, Cursor 등)용입니다. skill을 설치하면 어시스턴트가 스스로 vantage 명령줄을 호출해 파일을 만들고 변환하고 읽고 편집합니다. 명령을 직접 입력할 필요가 없습니다.',
@@ -3103,8 +3098,7 @@ export const strings = {
     intgSkillsImportDone: '{name} 가져옴',
     intgSkillsImportFailed: '가져오기 실패: {reason}',
     intgSkillsRemove: '제거',
-    intgSkillsRemoveConfirm:
-      '스킬 "{name}"을(를) 제거할까요? 해당 폴더가 Vantage에서 삭제됩니다.',
+    intgSkillsRemoveConfirm: '스킬 "{name}"을(를) 제거할까요? 해당 폴더가 Vantage에서 삭제됩니다.',
     intgSkillsRemoved: '{name} 제거됨',
     intgSkillsRead: '상세',
     intgSkillsMine: '내 스킬',
@@ -4023,8 +4017,7 @@ export const strings = {
     intgOtherDesc:
       'Wählen Sie genau einen dieser drei Wege. Alle installieren denselben Skill, mehr als einer ist nicht nötig.',
     intgOtherFolderTitle: 'Jeder Assistent, der SKILL.md-Ordner liest',
-    intgOtherFolderDesc:
-      'Wählen Sie seinen Skills-Ordner, und Vantage schreibt die Datei dorthin.',
+    intgOtherFolderDesc: 'Wählen Sie seinen Skills-Ordner, und Vantage schreibt die Datei dorthin.',
     intgOtherZipTitle: 'Datei an den Assistenten übergeben',
     intgOtherZipDesc:
       'Speichern Sie den Skill als Zip und bitten Sie den Assistenten, ihn zu installieren.',
@@ -4089,8 +4082,7 @@ export const strings = {
     intgSaveZipTitle: 'Skill speichern',
     intgSavedTo: 'Gespeichert unter {path}',
     intgCopied: 'Kopiert',
-    intgCliEphemeral:
-      'Ziehen Sie Vantage zuerst in „Programme“, dann nutzen Sie die Befehlszeile.',
+    intgCliEphemeral: 'Ziehen Sie Vantage zuerst in „Programme“, dann nutzen Sie die Befehlszeile.',
     intgCopyPath: 'Pfad kopieren',
     intgCliNeedsUpdate:
       'Dieser Skill braucht Befehlszeile {v} oder neuer; aktualisieren Sie Vantage.',
@@ -5226,8 +5218,7 @@ export const strings = {
     starOnGitHub: 'กดดาวบน GitHub',
     starPromptTitle: 'ชอบ Vantage ไหม?',
     starPromptTitleN: 'คุณเปิดเอกสารด้วย Vantage ไปแล้ว {n} ไฟล์',
-    starPromptBody:
-      'Vantage ฟรีและเป็นโอเพนซอร์ส การกดดาวบน GitHub คือกำลังใจที่ดีที่สุดสำหรับทีม',
+    starPromptBody: 'Vantage ฟรีและเป็นโอเพนซอร์ส การกดดาวบน GitHub คือกำลังใจที่ดีที่สุดสำหรับทีม',
     starPromptGo: 'กดดาวเลย',
     starPromptDone: 'กดแล้ว',
     starPromptLater: 'ไว้ทีหลัง',
@@ -6185,8 +6176,7 @@ export const strings = {
     intgExample1: 'Преврати ~/Downloads/report.md в документ Word',
     intgExample2: 'Сделай презентацию из 6 слайдов о наших результатах за 3-й квартал',
     intgExample3: 'Конвертируй budget.xlsx в PDF и открой в Vantage',
-    intgStep2Note:
-      'Ассистент сам запускает командную строку vantage; вводить её вам не придётся.',
+    intgStep2Note: 'Ассистент сам запускает командную строку vantage; вводить её вам не придётся.',
     intgCliPartTitle: 'CLI · командная строка + skill',
     intgCliPartDesc:
       'Для ассистентов, умеющих выполнять команды терминала (Claude Code, Codex, Cursor и другие). После установки skill ассистент сам вызывает командную строку vantage, чтобы создавать, конвертировать, читать и редактировать файлы; вам не нужно вводить команды.',
@@ -8471,8 +8461,7 @@ export const strings = {
     intgSkillsImportDone: 'Zaimportowano {name}',
     intgSkillsImportFailed: 'Import nie powiódł się: {reason}',
     intgSkillsRemove: 'Usuń',
-    intgSkillsRemoveConfirm:
-      'Usunąć umiejętność „{name}”? Jej folder zostanie usunięty z Vantage.',
+    intgSkillsRemoveConfirm: 'Usunąć umiejętność „{name}”? Jej folder zostanie usunięty z Vantage.',
     intgSkillsRemoved: 'Usunięto {name}',
     intgSkillsRead: 'Szczegóły',
     intgSkillsMine: 'Moje umiejętności',
@@ -9901,8 +9890,7 @@ export const strings = {
     intgExample1: 'Tukar ~/Downloads/report.md kepada dokumen Word',
     intgExample2: 'Buat pembentangan 6 slaid tentang hasil S3 kami',
     intgExample3: 'Tukar budget.xlsx kepada PDF dan buka dalam Vantage',
-    intgStep2Note:
-      'Pembantu menjalankan baris arahan vantage sendiri; anda tidak perlu menaipnya.',
+    intgStep2Note: 'Pembantu menjalankan baris arahan vantage sendiri; anda tidak perlu menaipnya.',
     intgCliPartTitle: 'CLI · baris arahan + skill',
     intgCliPartDesc:
       'Untuk pembantu yang boleh menjalankan arahan terminal (Claude Code, Codex, Cursor dan lain-lain). Setelah skill dipasang, pembantu memanggil baris arahan vantage sendiri untuk mencipta, menukar, membaca dan mengedit fail; anda tidak perlu menaip sebarang arahan.',
@@ -10320,8 +10308,7 @@ export const strings = {
     docThemeFollowApp: 'לפי ערכת הנושא של האפליקציה',
     saveLocation: 'מיקום שמירה',
     setRestoreSession: 'פתיחה מחדש של המסמכים מהפעם הקודמת',
-    setRestoreSessionDesc:
-      'מסמכים שהיו פתוחים כש-Vantage נסגרה ייפתחו מחדש אוטומטית בהפעלה הבאה.',
+    setRestoreSessionDesc: 'מסמכים שהיו פתוחים כש-Vantage נסגרה ייפתחו מחדש אוטומטית בהפעלה הבאה.',
     setTabSleep: 'השהה כרטיסיות לא פעילות',
     setTabSleepDesc:
       'כשפתוחות כרטיסיות רבות, כרטיסיות שלא נצפו זמן מה משחררות את הזיכרון ופותחות מחדש את הקובץ כשחוזרים אליהן. כרטיסיות עם שינויים שלא נשמרו או מוצמדות לעולם לא מושהות.',

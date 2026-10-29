@@ -33,10 +33,7 @@ import {
   noteSidecarCrash,
 } from './univer-sync'
 import { installGridGrowth } from './grid-growth'
-import {
-  pollUntilReady,
-  runHeadlessRendererExport,
-} from '@vantage/electron-utils/headless-export'
+import { pollUntilReady, runHeadlessRendererExport } from '@vantage/electron-utils/headless-export'
 import {
   commitActiveCellEditor,
   installJournalSuppressionUndoFilter,

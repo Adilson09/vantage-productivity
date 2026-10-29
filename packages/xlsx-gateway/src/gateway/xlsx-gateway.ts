@@ -5,7 +5,12 @@ import { basename, dirname, join } from 'node:path'
 
 import JSZip from 'jszip'
 import { atomicWriteFile, withAtomicSaveQueue } from '../../../electron-utils/src/atomic-write'
-import { assertMacroMutationPlanSafe, assertMacroStructurePreserved, assertPackageSignaturePreserved, inspectMacroPreservation } from './xlsx-macro-preservation'
+import {
+  assertMacroMutationPlanSafe,
+  assertMacroStructurePreserved,
+  assertPackageSignaturePreserved,
+  inspectMacroPreservation,
+} from './xlsx-macro-preservation'
 export { MacroPreservationError, inspectMacroPreservation } from './xlsx-macro-preservation'
 import { assertZipInflatesWithinLimits } from '@vantage/zip-gate'
 
@@ -756,7 +761,9 @@ export async function applyPlanToXlsx(
   sheetNamesById: Readonly<Record<string, string>>,
 ): Promise<XlsxMutation> {
   const entrySource = await createBufferEntrySource(source)
-  await assertMacroStructurePreserved(entrySource, { legacySheetRenames: plan.sheetRenames.length > 0 })
+  await assertMacroStructurePreserved(entrySource, {
+    legacySheetRenames: plan.sheetRenames.length > 0,
+  })
   const pkg = new PackageEditor(entrySource)
   const touchedEntries = new Set<string>()
 
@@ -973,9 +980,47 @@ export async function planCellEditsToXlsx(
   redactionStates: readonly SheetRedactionState[] | null = null,
 ): Promise<MutationPlan> {
   const macroInfo = await inspectMacroPreservation(source)
-  const requestedMutation = [edits, structuralOps, chartEdits, filterStates, hyperlinkEdits, cfStates, dvStates, sheetProtections, visualAdditions, pageSetupStates, noteStates, tableAdditions, pivotAdditions, pivotCacheRefreshPaths, pivotRefreshUpdates, visualEdits, sparklineAdditions, formulaValues, protectedRangeStates, bulkConstantFills, tabColorStates, tableEdits, cellImageAdditions].some((items) => items.length > 0) || sheetPlan !== undefined || definedNamesState !== null || themeState !== null || workbookProtectionState !== null || redactionStates !== null
+  const requestedMutation =
+    [
+      edits,
+      structuralOps,
+      chartEdits,
+      filterStates,
+      hyperlinkEdits,
+      cfStates,
+      dvStates,
+      sheetProtections,
+      visualAdditions,
+      pageSetupStates,
+      noteStates,
+      tableAdditions,
+      pivotAdditions,
+      pivotCacheRefreshPaths,
+      pivotRefreshUpdates,
+      visualEdits,
+      sparklineAdditions,
+      formulaValues,
+      protectedRangeStates,
+      bulkConstantFills,
+      tabColorStates,
+      tableEdits,
+      cellImageAdditions,
+    ].some((items) => items.length > 0) ||
+    sheetPlan !== undefined ||
+    definedNamesState !== null ||
+    themeState !== null ||
+    workbookProtectionState !== null ||
+    redactionStates !== null
   assertPackageSignaturePreserved(macroInfo, requestedMutation)
-  if (macroInfo.packageSigned && !requestedMutation) return { replaced: new Map(), added: new Map(), addedBinary: new Map(), removedEntries: [], addedEntries: [], touchedEntries: [] }
+  if (macroInfo.packageSigned && !requestedMutation)
+    return {
+      replaced: new Map(),
+      added: new Map(),
+      addedBinary: new Map(),
+      removedEntries: [],
+      addedEntries: [],
+      touchedEntries: [],
+    }
   await assertMacroStructurePreserved(source, { sheetPlan, structuralOps }, macroInfo)
   // A pending pivot pins final coordinates for its source and output; shifts
   // on either sheet, and sheet renames (worksheetSource@sheet), would desync

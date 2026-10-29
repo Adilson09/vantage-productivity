@@ -58,8 +58,8 @@ Sotto **Server HTTP locale** l'app può anche eseguire il server per conto propr
 
 ## Riepilogo rapido dei comandi
 
-| Comando            | Cosa fa                      |
-| ------------------ | ---------------------------- |
+| Comando          | Cosa fa                      |
+| ---------------- | ---------------------------- |
 | `vantage <file>` | apre un file                 |
 | `vantage mcp`    | avvia il server MCP locale   |
 | `vantage --help` | tutti i comandi e le opzioni |

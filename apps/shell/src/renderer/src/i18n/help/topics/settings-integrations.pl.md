@@ -58,8 +58,8 @@ W sekcji **Lokalny serwer HTTP** aplikacja może też sama uruchomić ten serwer
 
 ## Ściągawka z poleceń
 
-| Polecenie          | Co robi                      |
-| ------------------ | ---------------------------- |
+| Polecenie        | Co robi                      |
+| ---------------- | ---------------------------- |
 | `vantage <plik>` | otwiera plik                 |
 | `vantage mcp`    | uruchamia lokalny serwer MCP |
 | `vantage --help` | wszystkie polecenia i opcje  |

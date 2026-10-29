@@ -29,8 +29,8 @@ macOS and Windows ship it inside the app bundle. To use it by name, run `vantage
 | `merge`           | Fill `{{key}}` placeholders in a `.docx`, `.pptx` or `.xlsx` template.                                                                                                                                              |
 | `capabilities`    | Report which cloud features are configured on this machine.                                                                                                                                                         |
 | `guide`           | The op reference and design guides, generated from the same definitions the executor validates against — so it cannot drift from what `apply` accepts. `--json` returns it with each op's schema.                   |
-| `install-cli`     | Put `vantage` on the `PATH`.                                                                                                                                                                                      |
-| `skill`           | List the coding agents found on this machine and install or update the Vantage skill in them.                                                                                                                     |
+| `install-cli`     | Put `vantage` on the `PATH`.                                                                                                                                                                                        |
+| `skill`           | List the coding agents found on this machine and install or update the Vantage skill in them.                                                                                                                       |
 | `mcp`             | Serve every command as a Model Context Protocol tool. See **Connecting a coding agent**.                                                                                                                            |
 
 ## Editing: docs, sheets, slides

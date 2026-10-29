@@ -36,18 +36,31 @@ describe('scanFiles budget', () => {
 
   it('does not follow symlinked directories', (context) => {
     if (process.platform === 'win32') {
-      if (!dir.startsWith(join(tmpdir(), 'vantage-scan-'))) throw new Error('Unexpected scan fixture directory')
+      if (!dir.startsWith(join(tmpdir(), 'vantage-scan-')))
+        throw new Error('Unexpected scan fixture directory')
       rmSync(dir, { recursive: true, force: true })
       dir = mkdtempSync(join(homedir(), 'AppData', 'Local', 'Temp', 'vantage-scan-'))
     }
     mkdirSync(join(dir, 'real'))
     writeFileSync(join(dir, 'real', 'a.md'), 'x')
     try {
-      symlinkSync(join(dir, 'real'), join(dir, 'real', 'loop'), process.platform === 'win32' ? 'junction' : 'dir')
-      symlinkSync(join(dir, 'real'), join(dir, 'alias'), process.platform === 'win32' ? 'junction' : 'dir')
+      symlinkSync(
+        join(dir, 'real'),
+        join(dir, 'real', 'loop'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      )
+      symlinkSync(
+        join(dir, 'real'),
+        join(dir, 'alias'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      )
     } catch (error) {
       const code = (error as NodeJS.ErrnoException)?.code
-      if (['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EISDIR'].includes(code ?? ''))
+      if (
+        ['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EISDIR'].includes(
+          code ?? '',
+        )
+      )
         context.skip(`Filesystem or account does not support directory links (${code})`)
       throw error
     }

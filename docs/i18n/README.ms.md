@@ -309,11 +309,11 @@ setiap klien MCP.
 
 ### Memasang skill
 
-| Cara                                              | Apa yang berlaku                                                                                                                                                                                      |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cara                                              | Apa yang berlaku                                                                                                                                                                                    |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Tetapan → Integrasi** dalam aplikasi            | Menyenaraikan agen yang ditemui pada komputer ini; satu klik menulis skill ke dalam setiap satu yang anda pilih. Butang **Update** muncul apabila keluaran Vantage membawa skill yang lebih baharu. |
-| **Muat turun sebagai zip** pada halaman yang sama | Susun atur yang diterima oleh claude.ai, aplikasi desktop Claude dan pembantu lain sebagai skill yang dimuat naik.                                                                                    |
-| `npx skills add genspark-ai/vantage`            | Memasang daripada repositori ini ke dalam mana-mana agen yang serasi dengan skill.                                                                                                                    |
+| **Muat turun sebagai zip** pada halaman yang sama | Susun atur yang diterima oleh claude.ai, aplikasi desktop Claude dan pembantu lain sebagai skill yang dimuat naik.                                                                                  |
+| `npx skills add genspark-ai/vantage`              | Memasang daripada repositori ini ke dalam mana-mana agen yang serasi dengan skill.                                                                                                                  |
 
 Kemudian mulakan sembang baharu dan minta sesuatu dokumen. Skill itu mengajar
 agen bila perlu menggunakan `vantage`, cara membaca fail sebelum
@@ -372,10 +372,10 @@ untuk pembantu yang tidak boleh menjalankan terminal, atau yang anda lebih
 suka tidak diberi satu. Terdapat dua cara untuk masuk, kedua-duanya
 ditunjukkan dengan cebisan sedia salin dalam **Tetapan → Integrasi → MCP**:
 
-| Cara                                | Apa dia                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cara                              | Apa dia                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **A · `vantage mcp`** (disyorkan) | Pelayan stdio yang pembantu mulakan sendiri; Vantage tidak perlu dibuka. Satu alat bagi setiap arahan (`info`, `convert`, `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf`, `docs_read` / `docs_apply` / `docs_check`, `sheet_*`, `slides_*`, `render`, `guide`, `search`, `image`, `media`, `open`) ditambah aliran deck berperingkat `deck_start` → `deck_page` → `deck_build` → `deck_replace`. Ops, spesifikasi dan Markdown dihantar terus dalam argumen, jadi klien tanpa sistem fail tetap berfungsi. |
-| **B · Pelayan HTTP tempatan**       | Berjalan di dalam aplikasi Vantage pada `http://127.0.0.1:3093/mcp` (Streamable HTTP, dengan SSE lama). Alatnya memandu tab editor Word yang kelihatan: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, dan anda melihat dokumen itu terbentuk. Dimatikan secara lalai; hidupkan pada panel tetapan yang sama.                                                                                                                                                    |
+| **B · Pelayan HTTP tempatan**     | Berjalan di dalam aplikasi Vantage pada `http://127.0.0.1:3093/mcp` (Streamable HTTP, dengan SSE lama). Alatnya memandu tab editor Word yang kelihatan: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, dan anda melihat dokumen itu terbentuk. Dimatikan secara lalai; hidupkan pada panel tetapan yang sama.                                                                                                                                                    |
 
 ```bash
 # Claude Code
@@ -426,8 +426,8 @@ meninggalkan mesin, kepada pembekal yang dikonfigurasikan dalam Vantage.
 
 ## Muat Turun
 
-| Platform                             | Keperluan                                             | Muat Turun                                                                                |
-| ------------------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Platform                             | Keperluan                                             | Muat Turun                                                                                 |
+| ------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | **macOS** — Apple Silicon (arm64)    | macOS 11+                                             | [`.dmg` terkini (arm64)](https://github.com/Adilson09/aster-office/releases/latest)        |
 | **macOS** — Intel (x64)              | macOS 11+                                             | [`.dmg` terkini (x64)](https://github.com/Adilson09/aster-office/releases/latest)          |
 | **Windows** (x64, kebanyakan PC)     | Windows 10+, Intel/AMD                                | [Pemasang `-x64.exe` terkini](https://github.com/Adilson09/aster-office/releases/latest)   |

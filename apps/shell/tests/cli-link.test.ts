@@ -13,7 +13,9 @@ describe('Vantage launcher file', () => {
   it('lives in the fork auth directory, with explicit overrides preserved', () => {
     expect(launcherFilePath({})).toBe(join(homedir(), '.vantage-productivity', 'launcher'))
     expect(launcherFilePath({ VANTAGE_AUTH_DIR: '/tmp/x' })).toBe(join('/tmp/x', 'launcher'))
-    expect(launcherFilePath({ VANTAGE_AUTH_DIR: '/tmp/vantage' })).toBe(join('/tmp/vantage', 'launcher'))
+    expect(launcherFilePath({ VANTAGE_AUTH_DIR: '/tmp/vantage' })).toBe(
+      join('/tmp/vantage', 'launcher'),
+    )
   })
 
   it('writes one line, creates the directory, and only rewrites on change', () => {
@@ -22,9 +24,7 @@ describe('Vantage launcher file', () => {
     expect(writeLauncherFile(file, '/Applications/Vantage.app/Contents/Resources/cli')).toBe(true)
     expect(readFileSync(file, 'utf-8')).toBe('/Applications/Vantage.app/Contents/Resources/cli\n')
     const before = statSync(file).mtimeMs
-    expect(writeLauncherFile(file, '/Applications/Vantage.app/Contents/Resources/cli')).toBe(
-      false,
-    )
+    expect(writeLauncherFile(file, '/Applications/Vantage.app/Contents/Resources/cli')).toBe(false)
     expect(statSync(file).mtimeMs).toBe(before)
     expect(writeLauncherFile(file, 'C:\\Programs\\Vantage\\resources\\vantage')).toBe(true)
     expect(readFileSync(file, 'utf-8')).toBe('C:\\Programs\\Vantage\\resources\\vantage\n')

@@ -4,9 +4,17 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExtensions } from '../src/renderer/editor/extensions'
-import { parseDocText, stripLegacyFencedDivs, type DocEnvelope } from '../src/renderer/markdown/docText'
+import {
+  parseDocText,
+  stripLegacyFencedDivs,
+  type DocEnvelope,
+} from '../src/renderer/markdown/docText'
 import { buildSourceMap, spliceMarkdown } from '../src/renderer/markdown/sourceSplice'
-import { captureMarkdownSource, roundTripMarkdownEnabled, serializeMarkdownForSave } from '../src/renderer/markdown/roundtripSerializer'
+import {
+  captureMarkdownSource,
+  roundTripMarkdownEnabled,
+  serializeMarkdownForSave,
+} from '../src/renderer/markdown/roundtripSerializer'
 import { prepareAssetsForSaveAs } from '../src/main/asset-lifecycle'
 
 const editors: Editor[] = []
@@ -15,21 +23,34 @@ afterEach(async () => {
   for (const editor of editors.splice(0)) editor.destroy()
   localStorage.clear()
   for (const root of roots.splice(0)) {
-    if (!root.startsWith(join(tmpdir(), 'vantage-source-retention-'))) throw new Error('Unexpected test folder')
+    if (!root.startsWith(join(tmpdir(), 'vantage-source-retention-')))
+      throw new Error('Unexpected test folder')
     await rm(root, { recursive: true, force: true })
   }
 })
 function open(source: string) {
-  const editor = new Editor({ content: '', extensions: buildExtensions({
-    slashController: { onOpen() {}, onUpdate() {}, onClose() {}, onKeyDown: () => false }, slashItems: () => [],
-  }) })
+  const editor = new Editor({
+    content: '',
+    extensions: buildExtensions({
+      slashController: { onOpen() {}, onUpdate() {}, onClose() {}, onKeyDown: () => false },
+      slashItems: () => [],
+    }),
+  })
   editors.push(editor)
-  const envelope = parseDocText(source), body = stripLegacyFencedDivs(envelope.body)
+  const envelope = parseDocText(source),
+    body = stripLegacyFencedDivs(envelope.body)
   editor.chain().setMeta('addToHistory', false).setContent(body, { contentType: 'markdown' }).run()
   const map = buildSourceMap(editor, editor.state.doc, body)
   const original = captureMarkdownSource(source, envelope, editor.state.doc)
-  const serializeBody = vi.fn(() => map ? spliceMarkdown(editor, editor.state.doc, map) : editor.getMarkdown())
-  const save = (clean: boolean) => serializeMarkdownForSave(envelope, editor.state.doc, serializeBody, { original, clean, experimental: false })
+  const serializeBody = vi.fn(() =>
+    map ? spliceMarkdown(editor, editor.state.doc, map) : editor.getMarkdown(),
+  )
+  const save = (clean: boolean) =>
+    serializeMarkdownForSave(envelope, editor.state.doc, serializeBody, {
+      original,
+      clean,
+      experimental: false,
+    })
   return { editor, envelope, original, serializeBody, save }
 }
 
@@ -62,7 +83,8 @@ describe('default-off retention for provably unchanged Markdown', () => {
   })
 
   it.each(['frontmatter', 'eol', 'bom', 'trailingNewline'] as const)(
-    'rejects raw-source reuse when envelope %s changed', (key) => {
+    'rejects raw-source reuse when envelope %s changed',
+    (key) => {
       const opened = open('---\ntitle: Original\n---\n\nTitle\n=====\n')
       if (key === 'frontmatter') opened.envelope.frontmatter = '---\ntitle: Changed\n---\n\n'
       else if (key === 'eol') opened.envelope.eol = '\r\n'
@@ -73,7 +95,8 @@ describe('default-off retention for provably unchanged Markdown', () => {
   )
 
   it('saves a real edit, retains untouched raw syntax, and reopens with a clean exact-source baseline', () => {
-    const source = '---\ntitle: Preserve\n---\n\nTitle\n=====\n\n<div data-kind="retain">Raw HTML</div>\n\n[Manual][ref]\n\n[ref]: https://example.com  "Keep quote"\n'
+    const source =
+      '---\ntitle: Preserve\n---\n\nTitle\n=====\n\n<div data-kind="retain">Raw HTML</div>\n\n[Manual][ref]\n\n[ref]: https://example.com  "Keep quote"\n'
     const opened = open(source)
     opened.editor.commands.insertContentAt(2, 'edited ')
     const written = opened.save(false)
@@ -89,17 +112,26 @@ describe('default-off retention for provably unchanged Markdown', () => {
   it('retains original raw source before SaveAs asset relocation and rebases on the legitimate rewritten source', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vantage-source-retention-'))
     roots.push(root)
-    const sourceDir = join(root, 'source'), targetDir = join(root, 'target')
-    await mkdir(join(sourceDir, 'images'), { recursive: true }); await mkdir(targetDir)
-    const sourcePath = join(sourceDir, 'note.md'), targetPath = join(targetDir, 'copy.md')
-    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==', 'base64')
+    const sourceDir = join(root, 'source'),
+      targetDir = join(root, 'target')
+    await mkdir(join(sourceDir, 'images'), { recursive: true })
+    await mkdir(targetDir)
+    const sourcePath = join(sourceDir, 'note.md'),
+      targetPath = join(targetDir, 'copy.md')
+    const image = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==',
+      'base64',
+    )
     await writeFile(join(sourceDir, 'images', 'photo.png'), image)
-    const source = '---\r\ntitle: Keep\n---\r\n\n# Picture\r\n\r\n![sample](images/photo.png)\n\n<IMG data-kind="keep" SRC="images/photo.png">\r\n'
+    const source =
+      '---\r\ntitle: Keep\n---\r\n\n# Picture\r\n\r\n![sample](images/photo.png)\n\n<IMG data-kind="keep" SRC="images/photo.png">\r\n'
     await writeFile(sourcePath, source)
     const opened = open(source)
     const rawForSave = opened.save(true)
     expect(rawForSave).toBe(source)
-    const prepared = await prepareAssetsForSaveAs(sourcePath, targetPath, rawForSave, ['images/photo.png'])
+    const prepared = await prepareAssetsForSaveAs(sourcePath, targetPath, rawForSave, [
+      'images/photo.png',
+    ])
     expect(prepared.rewrites).toEqual([{ from: 'images/photo.png', to: 'assets/photo.png' }])
     const written = source.replaceAll('images/photo.png', 'assets/photo.png')
     expect(prepared.text).toBe(written)
