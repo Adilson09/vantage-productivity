@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { partitionFileArguments, runArgumentBatches } from './format-batches.mjs'
 
 const args = process.argv.slice(2)
 const mode = args.shift()
@@ -80,17 +81,22 @@ if (changedFiles.length === 0) {
 
 const prettierEntry = join(repoRoot, 'node_modules', 'prettier', 'bin', 'prettier.cjs')
 const prettierMode = mode === '--write' ? '--write' : '--check'
-const result = spawnSync(
-  process.execPath,
-  [prettierEntry, prettierMode, '--ignore-unknown', '--', ...changedFiles],
-  {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  },
-)
-
-if (result.error) {
-  console.error(`Unable to run Prettier: ${result.error.message}`)
+const fixedArguments = [prettierEntry, prettierMode, '--ignore-unknown', '--']
+let batches
+try {
+  batches = partitionFileArguments([process.execPath, ...fixedArguments], changedFiles)
+} catch (error) {
+  console.error(`Unable to run Prettier: ${error.message}`)
   process.exit(1)
 }
-process.exit(result.status ?? 1)
+const status = runArgumentBatches(
+  batches,
+  (files) =>
+    spawnSync(process.execPath, [...fixedArguments, ...files], {
+      cwd: repoRoot,
+      stdio: 'inherit',
+      windowsHide: true,
+    }),
+  (error) => console.error(`Unable to run Prettier: ${error.message}`),
+)
+process.exit(status)
