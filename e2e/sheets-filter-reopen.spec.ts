@@ -1,7 +1,7 @@
 // Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { execSync } from 'node:child_process'
-import { mkdtemp, readdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl } from './helpers'
@@ -23,18 +23,17 @@ test.describe('sheets: filter criteria survive save and reopen', () => {
   test('criteria restore, rows stay filtered, and re-filtering unhides', async () => {
     test.setTimeout(180_000)
     const scratch = await mkdtemp(join(tmpdir(), 'vantage-filter-reopen-'))
+    const saveDir = join(scratch, 'Vantage')
+    await mkdir(saveDir, { recursive: true })
     const launched = await launchShell({
       onboardingSeen: true,
+      settings: { defaultSaveDir: saveDir },
       videoDir: 'sheets-filter-reopen',
     })
     let savedPath = ''
     try {
       const { app, page } = launched
-      await app.evaluate(({ app: electronApp }, dir) => {
-        electronApp.setPath('documents', dir)
-      }, scratch)
-      const saveDir = join(scratch, 'Vantage')
-      // the workbook has no file yet: Save answers the Save As picker (vantage#1036)
+      // Plain first Save uses the configured folder; keep Save As local too.
       await app.evaluate(
         ({ dialog }, target) => {
           dialog.showSaveDialog = async () => ({ canceled: false, filePath: target })
