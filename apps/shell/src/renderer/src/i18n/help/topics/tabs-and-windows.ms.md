@@ -2,8 +2,6 @@
 
 Semua fail yang dibuka berkongsi satu tingkap. Baris tab di atas bertukar antara mereka, gaya pelayar.
 
-![Baris tab: Laman Utama dan dua dokumen](img/tabs.png)
-
 ## Asas
 
 - **Bertukar**: klik satu tab, atau skrol roda tetikus pada baris tab untuk berpusing.

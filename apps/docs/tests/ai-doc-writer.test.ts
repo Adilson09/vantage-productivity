@@ -6,7 +6,7 @@ import {
   BLANK_ORDERED_NUM_ID,
   buildBlankDocx,
   parseDocx,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import { blocksToPmDoc } from '../src/renderer/editor/convert'
 import {
   buildDocWriterRequest,

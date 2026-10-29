@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Aster Mail: a missing publisher registration leads to explicit local configuration.
+  // Vantage Mail: a missing publisher registration leads to explicit local configuration.
   import { api, asError } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import { googleClient, googleDesktopClient } from "../../lib/googleClient";

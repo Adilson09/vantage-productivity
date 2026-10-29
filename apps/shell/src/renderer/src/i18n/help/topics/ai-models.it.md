@@ -4,8 +4,6 @@
 
 Modelli e chiavi si configurano nelle impostazioni (la riga dell'account in basso a sinistra in Home):
 
-![La finestra Impostazioni](img/settings-general.png)
-
 - **Genspark ospitato**: effettua l'accesso (flusso con codice dispositivo) e usalo — nessuna configurazione richiesta.
 - **Endpoint personalizzati (BYOK)**: Impostazioni ▸ IA accetta un URL di base e una chiave API per ogni protocollo — compatibile con OpenAI, Anthropic, Gemini, DeepSeek, DashScope (qwen) e altro. Le chiavi sono memorizzate nel file delle impostazioni dell'app su questa macchina e inviate solo nelle intestazioni delle richieste. Atlas Cloud figura tra i protocolli integrati.
 - Puoi scegliere un modello diverso per ciascuna capacità: chat/generazione, generazione di immagini, analisi delle immagini.

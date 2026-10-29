@@ -1,0 +1,36 @@
+#!/bin/sh
+# vantage launcher. Inside a packaged Vantage it runs the bundled CLI on the
+# app's own Node runtime (ELECTRON_RUN_AS_NODE); in a dev checkout it falls
+# back to the system node and the local build output. Usually reached through
+# a symlink on the PATH, so the real location is resolved first.
+self="$0"
+while [ -L "$self" ]; do
+  target=$(readlink "$self")
+  case "$target" in
+    /*) self="$target" ;;
+    *) self="$(dirname "$self")/$target" ;;
+  esac
+done
+here=$(cd "$(dirname "$self")" && pwd)
+
+if [ -n "$VANTAGE_NODE" ]; then
+  exec "$VANTAGE_NODE" "$here/vantage.cjs" "$@"
+fi
+
+case "$here" in
+  */Contents/Resources/cli) app="$here/../../MacOS/Vantage Productivity" ;;
+  */resources/cli)
+    # Linux install, or the Windows install reached from Git Bash / MSYS
+    if [ -x "$here/../../Vantage Productivity.exe" ]; then app="$here/../../Vantage Productivity.exe"; else app="$here/../../vantage"; fi
+    ;;
+  *) app="" ;;
+esac
+
+if [ -n "$app" ] && [ -x "$app" ]; then
+  ELECTRON_RUN_AS_NODE=1 exec "$app" "$here/vantage.cjs" "$@"
+fi
+
+if [ -f "$here/vantage.cjs" ]; then
+  exec node "$here/vantage.cjs" "$@"
+fi
+exec node "$here/../dist/vantage.cjs" "$@"

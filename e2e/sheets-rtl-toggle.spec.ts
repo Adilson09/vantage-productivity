@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { execSync } from 'node:child_process'
 import { copyFile, mkdtemp } from 'node:fs/promises'
@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl, screenshotPath } from './helpers'
 
 /**
- * The View tab's Right-to-Left toggle (genoffice#1963): the checkbox flips the active
+ * The View tab's Right-to-Left toggle (vantage#1963): the checkbox flips the active
  * sheet's grid direction live (sheetView/@rightToLeft through Univer's own
  * command, mirrored by rtl-grid-mirror) and the echo follows the active
  * sheet's journal + live config. Persistence rides the save pipeline
@@ -51,7 +51,7 @@ function sheetXml(workbookPath: string): string {
  * the journaling from the mutation never runs (the review finding). */
 test('a save after toggling carries rightToLeft in the file', async () => {
   test.setTimeout(240_000)
-  const scratch = await mkdtemp(join(tmpdir(), 'genoffice-sheets-rtl-e2e-'))
+  const scratch = await mkdtemp(join(tmpdir(), 'vantage-sheets-rtl-e2e-'))
   const workbook = join(scratch, 'rtl-toggle.xlsx')
   await copyFile(FIXTURE, workbook)
   const launched = await launchShell({

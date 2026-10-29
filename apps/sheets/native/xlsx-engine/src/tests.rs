@@ -746,22 +746,51 @@ fn caps_wps_pictures_without_hiding_unrendered_cells() {
     let mut sessions = WorkbookSessions::new();
     let metadata = sessions.open(&path).unwrap();
     assert_eq!(metadata.sheets[0].cell_images.len(), MAX_CELL_IMAGES);
-    let result = sessions
-        .read_range(
-            &metadata.session_id,
-            "sheet-1",
-            &CellRange {
-                start_row: MAX_CELL_IMAGES,
-                end_row: MAX_CELL_IMAGES,
-                start_column: 0,
-                end_column: 0,
-            },
-        )
-        .unwrap();
+    let range = CellRange {
+        start_row: MAX_CELL_IMAGES,
+        end_row: MAX_CELL_IMAGES,
+        start_column: 0,
+        end_column: 0,
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    // A viewport read may return partial data after its bounded wait. This
+    // content assertion must wait for the requested row rather than assume
+    // background indexing completed within the first read under parallel IO.
+    let result = loop {
+        let result = sessions
+            .read_range(&metadata.session_id, "sheet-1", &range)
+            .unwrap();
+        if result.indexing_complete
+            || result
+                .indexed_through_row
+                .is_some_and(|row| row >= range.end_row)
+        {
+            break result;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Worksheet indexing did not reach row {} within 10 seconds: indexed_through_row={:?}, indexing_complete={}",
+            range.end_row,
+            result.indexed_through_row,
+            result.indexing_complete,
+        );
+    };
+    let cell = result
+        .cells
+        .iter()
+        .find(|cell| cell.row == range.start_row && cell.column == 0)
+        .unwrap_or_else(|| {
+            panic!(
+                "The indexed over-cap WPS picture cell is missing: indexed_through_row={:?}, indexing_complete={}, returned_cells={}",
+                result.indexed_through_row,
+                result.indexing_complete,
+                result.cells.len(),
+            )
+        });
     assert!(
-        matches!(&result.cells[0].value, Some(CellValue::String(text)) if text == "image placeholder")
+        matches!(&cell.value, Some(CellValue::String(text)) if text == "image placeholder")
     );
-    assert!(result.cells[0].formula.is_some());
+    assert!(cell.formula.is_some());
 }
 
 /// A valueMetadata bk may carry one rc per metadata type; XLRICHVALUE
@@ -1344,7 +1373,7 @@ fn opens_backslash_and_case_drifted_package() {
     assert_eq!(metadata.sheets[0].column_count, 2);
 }
 
-/// genoffice#196: a producer wrote every entry as `/xl/...`. The names never
+/// vantage#196: a producer wrote every entry as `/xl/...`. The names never
 /// leave the archive, so they only need to stay inside the package root.
 #[test]
 fn opens_leading_slash_package() {
@@ -1793,7 +1822,7 @@ fn tint_matches_excel_shades() {
 }
 
 /// Built-in family rules, per the Excel calibration workbook
-/// (genoffice-sample/sheets/calib): totals bands, dk1-gray Medium 15-21
+/// (vantage-sample/sheets/calib): totals bands, dk1-gray Medium 15-21
 /// stripes, tinted Medium 22-28, solid Dark bodies, paired Dark 8-11.
 #[test]
 fn builtin_palette_matches_calibration() {
@@ -2611,7 +2640,7 @@ fn pivot_light_low_stripes_off_stays_styled() {
     assert!(json.contains("\"styled\":true"));
 }
 
-/// Excel-calibrated pivot palettes (genoffice-sample/sheets/calib/
+/// Excel-calibrated pivot palettes (vantage-sample/sheets/calib/
 /// pivot-style-truths.json, Office 2007 theme): one representative per
 /// block of seven, exact RGB.
 #[test]
@@ -4956,12 +4985,12 @@ fn an_uncancelled_open_completes_and_keeps_its_cache_directory() {
 /// A workbook part that lies about its size inflates fully on the XML read path.
 ///
 /// `read_media` is capped by `copy_entry_bounded`, and the docx/pptx hosts run
-/// `@genoffice/zip-gate` before opening at all — but `read_zip_string` is a
+/// `@vantage/zip-gate` before opening at all — but `read_zip_string` is a
 /// plain `read_to_string`, and it is how nearly every workbook part is loaded.
 /// `validate_entries` checks the entry *count* and the paths, never the bytes.
 /// A workbook therefore gets a full unbounded allocation out of one crafted
 /// entry, where every other ingest path in the product refuses it
-/// (genoffice#781, genoffice#1386).
+/// (vantage#781, vantage#1386).
 #[test]
 fn rejects_xml_entry_that_inflates_past_its_declared_size() {
     let dir = tempfile::tempdir().unwrap();
@@ -4988,7 +5017,7 @@ fn rejects_xml_entry_that_inflates_past_its_declared_size() {
 
 /// An honestly declared metadata part still has a ceiling: a highly
 /// compressible `xl/workbook.xml` far past `MAX_METADATA_PART_BYTES` is refused
-/// before it is materialised (genoffice#1002).
+/// before it is materialised (vantage#1002).
 #[test]
 fn rejects_oversized_metadata_part_that_declares_its_size() {
     let dir = tempfile::tempdir().unwrap();
@@ -5044,7 +5073,7 @@ fn reads_xml_entry_that_matches_its_declaration() {
 
 /// A password-encrypted .xlsx is an OLE2 compound container, not a ZIP
 /// package: the open must explain that instead of surfacing the zip
-/// reader's "invalid Zip archive: Could not find EOCD" (genoffice#2076).
+/// reader's "invalid Zip archive: Could not find EOCD" (vantage#2076).
 #[test]
 fn encrypted_workbook_reports_password_protection() {
     let dir = tempfile::tempdir().unwrap();

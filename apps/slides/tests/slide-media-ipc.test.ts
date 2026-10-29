@@ -57,7 +57,7 @@ import {
   replacePictureBytes,
   type PictureElement,
   type TextElement,
-} from '@genoffice/pptx-engine'
+} from '@vantage/pptx-engine'
 import { registerSlidesIpc } from '../src/main/slides-main'
 import {
   buildAllRenderSlides,
@@ -71,7 +71,7 @@ import {
 } from '../src/main/session-state'
 import { mergeSlideUpdate } from '../src/shared/slide-update'
 import type { PasteSlideResult } from '../src/shared/ipc'
-import type { PictureRenderNode, RenderSlide } from '@genoffice/pptx-render'
+import type { PictureRenderNode, RenderSlide } from '@vantage/pptx-render'
 
 const FIT = 1280
 const WC = 1
@@ -129,7 +129,7 @@ describe('slide media IPC payload', () => {
     expect(payloadBytes).toBeLessThan(32 * 1024)
     expect(r.slides).toHaveLength(1)
     const url = (r.slides[0].nodes[0] as PictureRenderNode).dataUrl!
-    expect(url.startsWith('genoffice-slide-media://')).toBe(true)
+    expect(url.startsWith('vantage-slide-media://')).toBe(true)
     expect(readSlideMedia(url)?.body.byteLength).toBe(size)
   })
 
@@ -504,6 +504,6 @@ describe('slide media IPC payload', () => {
       (el) => el.type === 'picture',
     ) as PictureElement
     expect(makeMediaResolver(session.opened, slide.path)(restored.mediaRef!)).toBe(original)
-    expect(readSlideMedia('genoffice-slide-media://archive/unknown')).toBeNull()
+    expect(readSlideMedia('vantage-slide-media://archive/unknown')).toBeNull()
   })
 })

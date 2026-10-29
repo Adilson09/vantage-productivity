@@ -82,7 +82,7 @@ pub enum Error {
     Busy { wait: Duration, retrying: bool },
     /// The web server offers none of the login methods we speak (EWS without Basic).
     #[error(
-        "Exchange accepts only {0} on EWS; Aster Mail signs in with Basic or NTLM. Ask the administrator \
+        "Exchange accepts only {0} on EWS; Vantage Mail signs in with Basic or NTLM. Ask the administrator \
          to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true"
     )]
     HttpAuth(String),
@@ -92,12 +92,12 @@ pub enum Error {
     Paused,
     /// A link from a letter leads into a private network (loopback, LAN, link-local…):
     /// Depesha does not go there on a stranger's word.
-    #[error("{0} is an address in a private network; Aster Mail does not send requests there from a letter")]
+    #[error("{0} is an address in a private network; Vantage Mail does not send requests there from a letter")]
     PrivateAddress(String),
     /// The local cache was written by a newer version: its format number and the
     /// newest this version knows. The cache is left as it is.
     #[error(
-        "the local mail cache was saved by a newer version of Aster Mail (format {found}, this version \
+        "the local mail cache was saved by a newer version of Vantage Mail (format {found}, this version \
          reads up to {known}). Install the newer version; the cache was left as it is"
     )]
     CacheTooNew { found: i64, known: i64 },

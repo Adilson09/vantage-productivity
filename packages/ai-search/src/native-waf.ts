@@ -8,7 +8,7 @@ export function nativeWafHosts(env: NodeJS.ProcessEnv = process.env): Set<string
   } catch {
     hosts.add('www.genspark.ai')
   }
-  for (const host of (env.GENOFFICE_NATIVE_WAF_HOSTS ?? '').split(',')) {
+  for (const host of (env.VANTAGE_NATIVE_WAF_HOSTS ?? '').split(',')) {
     const trimmed = host.trim().toLowerCase()
     if (trimmed) hosts.add(trimmed)
   }

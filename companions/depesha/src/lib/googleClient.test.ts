@@ -1,4 +1,4 @@
-// Aster Mail: imported Desktop registrations stay local and cannot become a web-client flow.
+// Vantage Mail: imported Desktop registrations stay local and cannot become a web-client flow.
 import { describe, expect, it } from "vitest";
 import { googleDesktopClient } from "./googleClient";
 

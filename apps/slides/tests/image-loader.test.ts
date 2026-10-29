@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { metafileToDataUrl } from '@genoffice/docx-engine/metafile'
+import { metafileToDataUrl } from '@vantage/docx-engine/metafile'
 import {
   createImageLoader,
   MAX_METAFILE_BASE64_CHARS,
   setImageSource,
 } from '../src/renderer/image-loader'
 
-vi.mock('@genoffice/docx-engine/metafile', () => ({
+vi.mock('@vantage/docx-engine/metafile', () => ({
   metafileToDataUrl: vi.fn(async () => 'data:image/png;base64,AA=='),
 }))
 
@@ -101,7 +101,7 @@ describe('createImageLoader', () => {
 })
 
 describe('metafile rasterization waits for private fonts', () => {
-  const flag = window as { __genofficeDocFontsSynced?: boolean }
+  const flag = window as { __vantageDocFontsSynced?: boolean }
   beforeEach(() => {
     FakeImage.instances = []
     vi.stubGlobal('Image', FakeImage)
@@ -112,16 +112,16 @@ describe('metafile rasterization waits for private fonts', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
-    delete flag.__genofficeDocFontsSynced
+    delete flag.__vantageDocFontsSynced
   })
 
   it('holds the EMF until the doc-fonts sync flag flips, then rasterizes', async () => {
-    flag.__genofficeDocFontsSynced = false
+    flag.__vantageDocFontsSynced = false
     const loader = createImageLoader(vi.fn(), 16, 100)
     loader.load(['data:image/x-emf;base64,AQAAAA=='])
     await vi.advanceTimersByTimeAsync(300)
     expect(metafileToDataUrl).not.toHaveBeenCalled()
-    flag.__genofficeDocFontsSynced = true
+    flag.__vantageDocFontsSynced = true
     await vi.advanceTimersByTimeAsync(100)
     expect(metafileToDataUrl).toHaveBeenCalledTimes(1)
   })
@@ -135,7 +135,7 @@ describe('metafile rasterization waits for private fonts', () => {
 
   it('fetches lazy EMF bytes and rasterizes them under the original URL key', async () => {
     const bytes = new Uint8Array([1, 0, 0, 0])
-    const url = 'genoffice-slide-media://archive/test?mime=image%2Fx-emf'
+    const url = 'vantage-slide-media://archive/test?mime=image%2Fx-emf'
     const fetchMedia = vi.fn(async () => ({
       ok: true,
       headers: new Headers({ 'Content-Length': String(bytes.length) }),
@@ -163,7 +163,7 @@ describe('metafile rasterization waits for private fonts', () => {
       })),
     )
     const loader = createImageLoader(vi.fn())
-    loader.load(['genoffice-slide-media://archive/test?mime=image%2Fx-wmf'])
+    loader.load(['vantage-slide-media://archive/test?mime=image%2Fx-wmf'])
     await vi.advanceTimersByTimeAsync(0)
     expect(arrayBuffer).not.toHaveBeenCalled()
     expect(metafileToDataUrl).not.toHaveBeenCalled()
@@ -190,7 +190,7 @@ it('sets anonymous CORS before assigning slide media sources only', () => {
       assignments.push([url, this.crossOrigin])
     },
   }
-  setImageSource(image as HTMLImageElement, 'genoffice-slide-media://archive/image')
+  setImageSource(image as HTMLImageElement, 'vantage-slide-media://archive/image')
   const other = {
     crossOrigin: null as string | null,
     set src(url: string) {
@@ -199,7 +199,7 @@ it('sets anonymous CORS before assigning slide media sources only', () => {
   }
   setImageSource(other as HTMLImageElement, 'data:image/png;base64,AA==')
   expect(assignments).toEqual([
-    ['genoffice-slide-media://archive/image', 'anonymous'],
+    ['vantage-slide-media://archive/image', 'anonymous'],
     ['data:image/png;base64,AA==', null],
   ])
 })

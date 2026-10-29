@@ -1,10 +1,8 @@
 # Hızlı başlangıç: arayüz ve temeller
 
-GenOffice tamamen makinenizde çalışan bir ofis paketidir: tek pencere, tek sekme sırası, altı düzenleyici — Docs (kelime işlem), Sheets (elektronik tablo), Slides (sunu), PDF, Markdown ve HTML. Dosyalar gerçek .docx / .xlsx / .pptx / .pdf'dir; Word, Excel ve PowerPoint ile tamamen değiştirilebilir. Ağ gerekmez.
+Vantage tamamen makinenizde çalışan bir ofis paketidir: tek pencere, tek sekme sırası, altı düzenleyici — Docs (kelime işlem), Sheets (elektronik tablo), Slides (sunu), PDF, Markdown ve HTML. Dosyalar gerçek .docx / .xlsx / .pptx / .pdf'dir; Word, Excel ve PowerPoint ile tamamen değiştirilebilir. Ağ gerekmez.
 
 ## Arayüze genel bakış
-
-![Giriş ekranı](img/home-screen.png)
 
 Pencere üç parçadan oluşur:
 
@@ -18,7 +16,7 @@ Pencere üç parçadan oluşur:
 
 - **Giriş** ekranının [Hızlı başlangıç](help://getting-started) bölümündeki bir hızlı oluşturma kartına tıklayın (AI Docs, AI Sheets, AI Slides, ...).
 - Menü **Dosya ▸ Yeni**: Docs (⌘N/ctrl+N), Sheets, Slides, Markdown, HTML veya PDF.
-- Bir dosyayı pencereye sürükleyin ya da dosya yöneticinizde çift tıklayın (GenOffice varsayılan uygulamaysa).
+- Bir dosyayı pencereye sürükleyin ya da dosya yöneticinizde çift tıklayın (Vantage varsayılan uygulamaysa).
 
 Yeni bir belge adsız açılır; diskteki dosya ancak ilk kayıtta oluşturulur.
 
@@ -26,7 +24,7 @@ Yeni bir belge adsız açılır; diskteki dosya ancak ilk kayıtta oluşturulur.
 
 - Menü **Dosya ▸ Aç** (⌘O/ctrl+O) sistem seçicisini açar: .docx / .doc / .xlsx / .xls / .csv / .tsv / .pptx / .ppt / .pdf / .md / .html.
 - Giriş ekranının **Son Kullanılanlar** listesinde herhangi bir öğeye tıklayın.
-- Terminalden `genoffice <dosya>` da dosya açar.
+- Terminalden `vantage <dosya>` da dosya açar.
 
 ## Kayıt modeli
 
@@ -52,7 +50,7 @@ Her düzenleyicinin içindeki kısayollar (biçim boyacısı, bul ve değiştir,
 
 ## Option+Command tuş bileşimleri
 
-Option+Command, Word'ün yapısal atlamalar için ayırdığı katmandır ve GenOffice onu aynı şekilde doldurur. Çoğunu Docs alır; Sheets, Excel ile eşitlik için kendine iki tane alır; bir bileşim her yerde çalışır.
+Option+Command, Word'ün yapısal atlamalar için ayırdığı katmandır ve Vantage onu aynı şekilde doldurur. Çoğunu Docs alır; Sheets, Excel ile eşitlik için kendine iki tane alır; bir bileşim her yerde çalışır.
 
 **Docs**
 
@@ -81,7 +79,7 @@ Windows, Mac çiftinin yeniden yazımı değildir. Excel for Mac, Sheets'e **iki
 
 **Her düzenleyici**: **⌥⌘R / Ctrl+F1** şeridi katlar, yukarıda anlatıldığı gibi.
 
-Böylece ⌥⌘D, gelecekteki bir komut isterse GenOffice'in macOS'ta kullanması için boş kalır.
+Böylece ⌥⌘D, gelecekteki bir komut isterse Vantage'in macOS'ta kullanması için boş kalır.
 
 ## Sırada ne var
 

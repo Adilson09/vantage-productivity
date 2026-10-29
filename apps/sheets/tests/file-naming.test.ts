@@ -24,9 +24,9 @@
 
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryWorkbookAdapter } from '@genoffice/xlsx-gateway/domain/in-memory-workbook'
-import type { WorkbookSnapshot } from '@genoffice/xlsx-gateway/domain/workbook.types'
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+import { InMemoryWorkbookAdapter } from '@vantage/xlsx-gateway/domain/in-memory-workbook'
+import type { WorkbookSnapshot } from '@vantage/xlsx-gateway/domain/workbook.types'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 import { buildRedactionIndex, NO_REDACTIONS } from '../src/renderer/ai/redact'
 import type { WorkbookReadContext } from '../src/renderer/ai/workbook-readers'
 import { createEditJournal, recordSetRangeValues } from '../src/renderer/edit-journal'

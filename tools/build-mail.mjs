@@ -1,4 +1,4 @@
-// Aster Office addition (2026): build the pinned, isolated Windows mail companion.
+// Vantage Productivity addition (2026): build the pinned, isolated Windows mail companion.
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
@@ -11,6 +11,9 @@ if (process.platform !== 'win32' || process.arch !== 'x64') {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const source = path.join(root, 'companions', 'depesha')
 const stage = path.join(root, 'companions', 'depesha-bin')
+const appConfig = JSON.parse(
+  await fs.readFile(path.join(source, 'src-tauri', 'tauri.conf.json'), 'utf8'),
+)
 const npm = process.env.npm_execpath
 if (!npm || !npm.endsWith('npm-cli.js')) throw new Error('Run this helper with npm run build:mail.')
 // Cargo and Tauri use different working directories; share one absolute target.
@@ -60,7 +63,7 @@ const dependencies = Object.fromEntries(
   ),
 )
 // The source archive retains the exact dependency notice texts for its locked versions.
-const coverage = JSON.parse(await fs.readFile(path.join(source, 'ASTER_NOTICE_LOCKS.json'), 'utf8'))
+const coverage = JSON.parse(await fs.readFile(path.join(source, 'VANTAGE_NOTICE_LOCKS.json'), 'utf8'))
 for (const [name, sha256] of Object.entries(dependencies)) {
   if (coverage[name] !== sha256)
     throw new Error(`${name} changed: regenerate and review Mail dependency notices.`)
@@ -81,24 +84,27 @@ await run([
   '--jobs',
   '2',
 ])
-const executable = path.join(target, 'x86_64-pc-windows-msvc', 'release', 'aster-mail.exe')
+const executable = path.join(target, 'x86_64-pc-windows-msvc', 'release', 'vantage-mail.exe')
 const bytes = await fs.readFile(executable)
 await fs.mkdir(stage, { recursive: true })
-await fs.writeFile(path.join(stage, 'aster-mail.exe'), bytes)
+await fs.writeFile(path.join(stage, 'vantage-mail.exe'), bytes)
 await fs.writeFile(path.join(stage, 'THIRD-PARTY-NOTICES.txt'), notices)
 await fs.writeFile(
-  path.join(stage, 'ASTER_MAIL_BUILD.json'),
+  path.join(stage, 'VANTAGE_MAIL_BUILD.json'),
   JSON.stringify(
     {
-      product: 'Aster Mail',
+      product: appConfig.productName,
       version: '0.8.17',
       upstream: 'https://github.com/fgbm/depesha',
       commit: 'd3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4',
-      identifier: 'org.asteroffice.mail',
-      binary: 'aster-mail.exe',
+      identifier: appConfig.identifier,
+      binary: 'vantage-mail.exe',
       sha256: hash(bytes),
       bytes: bytes.length,
       dependencies,
+      noticesSha256: hash(notices),
+      profileOverride: 'VANTAGE_MAIL_PROFILE',
+      legacyProfileOverride: 'ASTER_MAIL_PROFILE',
       target: 'x86_64-pc-windows-msvc',
       staticCrt: true,
       updater: false,

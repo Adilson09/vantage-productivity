@@ -4,7 +4,7 @@
  * Used by both the App component (App.tsx) and the module-level sync
  * helpers (univer-sync.ts).
  */
-import type { SheetPasswordHash } from '@genoffice/xlsx-gateway/gateway/xlsx-protection-hash'
+import type { SheetPasswordHash } from '@vantage/xlsx-gateway/gateway/xlsx-protection-hash'
 import type { SheetProtectionInfo } from './sheet-protection'
 import { BorderType, LocalUndoRedoService, Worksheet, type IRange } from '@univerjs/core'
 import { SheetInterceptorService } from '@univerjs/sheets'

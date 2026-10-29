@@ -6,7 +6,7 @@ import {
   settleArtifact,
 } from '../src/renderer/src/ask-artifacts'
 
-const run = (id: string, args: string[]) => ({ id, name: 'run_genoffice', input: { args } })
+const run = (id: string, args: string[]) => ({ id, name: 'run_vantage', input: { args } })
 const create = (id: string, title: string, format: string) => ({
   id,
   name: 'create_document',

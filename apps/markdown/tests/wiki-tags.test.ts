@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { extractTags, wikiTags } from '../src/main/wiki-index'
 import type { VaultFs } from '../src/main/wiki-index'
+import { join } from 'node:path'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -24,7 +25,7 @@ const memFs = (files: Record<string, string>): VaultFs => ({
     files: Object.keys(files).map((f) => f.split('/').pop()!),
     dirs: [],
   }),
-  read: async (path) => files[path] ?? '',
+  read: async (path) => files[path.replace(/\\/g, '/')] ?? '',
   mtimeMs: async () => 1,
   statKind: async () => 'note',
 })
@@ -37,7 +38,7 @@ describe('wikiTags', () => {
       '/vault/C.md': 'no tags here',
     })
     const tags = await wikiTags('/vault', fs)
-    expect(tags[0]).toEqual({ tag: 'work', files: ['/vault/A.md', '/vault/B.md'] })
+    expect(tags[0]).toEqual({ tag: 'work', files: [join('/vault', 'A.md'), join('/vault', 'B.md')] })
     expect(tags[1]!.tag).toBe('urgent')
   })
 })

@@ -4,8 +4,6 @@
 
 Giriş'in sol altındaki hesap satırı ayarlar panelini açar (oturum kapalıyken Oturum aç yazar). Altı bölümü vardır: Hesap, AI Modeli, AI Medya ve Arama, Genel, Tümleştirmeler ve Hakkında.
 
-![Ayarlar ▸ Genel: dil, tema, Otomatik Kaydet ve kullanım istatistikleri anahtarının bulunduğu yer](img/settings-general.png)
-
 AI modeli yapılandırmasının kendi makalesi vardır; **AI Medya ve Arama**, görsel oluşturma, görsel analizi, video analizi, web araması ve yerel dosya aramasını sağlayıcı bazında açtığınız yerdir.
 
 ## Dil
@@ -23,7 +21,7 @@ Açık / Koyu / Sistem. Sistem, işletim sisteminin görünümünü izler ve dü
 - **AI kenar çubuğu konumu** (sol veya sağ), **AI paneli metin boyutu** ve **AI sohbetinde yazım denetimi**.
 - **Yeni belgelerde AI panelini aç** — kapalıyken yeni bir belge, panel daraltılmış ve tek tık uzakta olarak başlar.
 - **Tüm belgeleri otomatik kaydet** her düzenleyicide Otomatik Kaydet'i varsayılan olarak açar; tek bir pencere için yine de kapatabilirsiniz.
-- **Değiştir** düğmesiyle **Kayıt Konumu** ve .docx / .xlsx / .pptx dosyalarını GenOffice'e atamak için **Office belgeleri için varsayılan uygulama**.
+- **Değiştir** düğmesiyle **Kayıt Konumu** ve .docx / .xlsx / .pptx dosyalarını Vantage'e atamak için **Office belgeleri için varsayılan uygulama**.
 
 ## AI Medya ve Arama
 
@@ -39,7 +37,7 @@ Anahtar değil — her yetenek ona hizmet eden satıcıyı seçer ve bir satıc�
 
 ## Varsayılan uygulama bağlamaları
 
-Ayarlar, GenOffice'i .docx / .xlsx / .pptx / .pdf ve benzerleri için işleyici olarak kaydedebilir (platform düzeyinde varsayılan uygulama kaydı; istendiğinde onaylayın).
+Ayarlar, Vantage'i .docx / .xlsx / .pptx / .pdf ve benzerleri için işleyici olarak kaydedebilir (platform düzeyinde varsayılan uygulama kaydı; istendiğinde onaylayın).
 
 ## Üçüncü taraf bildirimleri ve güncellemeler
 
@@ -48,15 +46,13 @@ Ayarlar, GenOffice'i .docx / .xlsx / .pptx / .pdf ve benzerleri için işleyici 
 
 ## Genspark oturum açma
 
-- Oturum açma girişi (ayarlar veya bulut proje listesi) bir **cihaz kodu** akışı kullanır: GenOffice bir kod gösterir ve tarayıcıda oturum açma sayfasını açar; tamamlandığında otomatik olarak devam eder.
+- Oturum açma girişi (ayarlar veya bulut proje listesi) bir **cihaz kodu** akışı kullanır: Vantage bir kod gösterir ve tarayıcıda oturum açma sayfasını açar; tamamlandığında otomatik olarak devam eder.
 - Oturum açma yalnızca şunlar için kullanılır: bulut proje listesi ve Genspark'ın barındırılan modelleri. Onsuz her yerel özellik ve özel modeller çalışmaya devam eder.
 - Oturumu kapatmak ayarlarda tek tıktır.
 
 ## MCP tümleştirmesi (ileri düzey kullanıcılar / AI istemcileri için)
 
-**Tümleştirmeler**, GenOffice'i bir kodlama aracısına bağlayan bölmedir ve kendi makalesi vardır: Bir kodlama aracısını bağlama. Kısa sürüm — bir yol seçin (komut satırı veya MCP), o bölümü izleyin, sonra yeni bir sohbet başlatıp sorun.
-
-![Ayarlar ▸ Tümleştirmeler: üç adım, ardından beceri satırları ve MCP seçenekleri](img/settings-integrations.png)
+**Tümleştirmeler**, Vantage'i bir kodlama aracısına bağlayan bölmedir ve kendi makalesi vardır: Bir kodlama aracısını bağlama. Kısa sürüm — bir yol seçin (komut satırı veya MCP), o bölümü izleyin, sonra yeni bir sohbet başlatıp sorun.
 
 **Yerel HTTP sunucusu** altında uygulama sunucuyu kendisi çalıştırabilir — bir etkinleştirme anahtarı, bir bağlantı noktası — ve **Gelişmiş**, durum denetimi URL'si ile günlük dosyasını ekler. Yalnızca localhost üzerinde dinler.
 
@@ -64,6 +60,6 @@ Ayarlar, GenOffice'i .docx / .xlsx / .pptx / .pdf ve benzerleri için işleyici 
 
 | Komut              | Ne yapar                      |
 | ------------------ | ----------------------------- |
-| `genoffice <file>` | bir dosya açar                |
-| `genoffice mcp`    | yerel MCP sunucusunu başlatır |
-| `genoffice --help` | tüm komutlar ve bayraklar     |
+| `vantage <file>` | bir dosya açar                |
+| `vantage mcp`    | yerel MCP sunucusunu başlatır |
+| `vantage --help` | tüm komutlar ve bayraklar     |

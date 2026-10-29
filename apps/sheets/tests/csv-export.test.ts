@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { parseCsv } from '@genoffice/xlsx-gateway/gateway/csv-import'
+import { parseCsv } from '@vantage/xlsx-gateway/gateway/csv-import'
 import { INumfmtService } from '@univerjs/sheets'
 import { ConditionalFormattingService } from '@univerjs/preset-sheets-conditional-formatting'
 

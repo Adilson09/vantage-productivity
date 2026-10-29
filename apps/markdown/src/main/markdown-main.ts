@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { randomUUID } from 'node:crypto'
+import { discardDraftJournal, writeDraftJournal } from '../../../../packages/electron-utils/src/draft-journal'
 import {
   BrowserWindow,
   WebContentsView,
@@ -29,16 +31,16 @@ import {
   installRendererProtocol,
   registerRendererScheme,
   rendererUrl,
-} from '@genoffice/electron-utils'
-import { createI18n, getUiLang } from '@genoffice/i18n'
-import { generateImageTool, documentMediaRoots } from '@genoffice/ai-search'
+} from '@vantage/electron-utils'
+import { createI18n, getUiLang } from '@vantage/i18n'
+import { generateImageTool, documentMediaRoots } from '@vantage/ai-search'
 import { ImageExportSessions } from './image-export'
 import { printMarkdownPdf } from './print-pdf'
 import { atomicWriteFile } from './atomic-write'
 import {
   createDocumentDiskWatcher,
   type DocumentDiskWatcher,
-} from '@genoffice/electron-utils/disk-watch'
+} from '@vantage/electron-utils/disk-watch'
 import {
   copyImageIntoOwnedAssets,
   discardPendingOwnedAssets,
@@ -396,7 +398,7 @@ interface RuntimePaths {
   preloadPath: string
   rendererUrl?: string
   rendererFile?: string
-  /** Shell router used to open exported PDFs in a new GenOffice tab. */
+  /** Shell router used to open exported PDFs in a new Vantage tab. */
   openGeneratedPath?: (path: string) => boolean
 }
 
@@ -430,6 +432,12 @@ const savePathByWc = new Map<number, string>()
 const diskWatcherByWc = new Map<number, DocumentDiskWatcher>()
 /** Unsaved-changes flags mirrored from the renderer; drives the save prompt before closing a tab/window */
 const dirtyByWc = new Set<number>()
+const draftByWc = new Map<number, string>()
+const draftRoot = () => process.env.VANTAGE_RECOVERY_ROOT || join(app.getPath('userData'), 'recovery')
+async function clearMarkdownDraft(wcId: number): Promise<void> {
+  const id = draftByWc.get(wcId)
+  if (id) await discardDraftJournal(draftRoot(), id)
+}
 const closeSaveWaiters = new Map<number, (ok: boolean) => void>()
 /** Resolvers for menu-triggered saves, resolved when the renderer's save invoke completes */
 const saveWaiters = new Map<number, (ok: boolean) => void>()
@@ -519,6 +527,8 @@ export async function requestMarkdownClose(
       : await dialog.showMessageBox(options)
   if (response === 2) return false
   if (response === 1) {
+    dirtyByWc.delete(contents.id)
+    await clearMarkdownDraft(contents.id)
     const documentPath = savePathByWc.get(contents.id)
     if (documentPath) {
       const discarded = await discardPendingOwnedAssets(documentPath)
@@ -547,6 +557,8 @@ export async function requestMarkdownClose(
  * runs when the user picks "Don't Save".
  */
 export async function markdownDiscardPendingAssets(contents: WebContents): Promise<void> {
+  dirtyByWc.delete(contents.id)
+  await clearMarkdownDraft(contents.id)
   const documentPath = savePathByWc.get(contents.id)
   if (!documentPath) return
   const discarded = await discardPendingOwnedAssets(documentPath)
@@ -1050,7 +1062,7 @@ function registerMarkdownIpc(): void {
       ),
   )
 
-  // ---- image host (genoffice#388): bring-your-own storage for pasted images,
+  // ---- image host (vantage#388): bring-your-own storage for pasted images,
   // with the local assets/ copy kept as the renderer's fallback ----
   const imageHostConfigPath = (): string => join(app.getPath('userData'), 'markdown-settings.json')
 
@@ -1198,7 +1210,7 @@ function registerMarkdownIpc(): void {
           configuredDefaultSaveDir(app),
         )
         if (picked.canceled || !picked.filePath) return { ok: true, canceled: true }
-        // Aster Office: protected publication also covers document exports.
+        // Vantage Productivity: protected publication also covers document exports.
         await atomicWriteFile(picked.filePath, bytes)
         return { ok: true, path: picked.filePath }
       } catch (err) {
@@ -1301,9 +1313,26 @@ function registerMarkdownIpc(): void {
     },
   )
 
+  ipcMain.handle(MARKDOWN_CHANNELS.writeDraft, async (event, text: unknown) => {
+    try {
+      const id = draftByWc.get(event.sender.id)
+      if (!id || event.sender.isDestroyed()) throw new Error('Draft recording is unavailable for this view')
+      if (typeof text !== 'string' || text.length > 16 * 1024 * 1024) throw new Error('Draft exceeds its 16 MiB limit')
+      if (!dirtyByWc.has(event.sender.id)) return { ok: true }
+      const documentPath = savePathByWc.get(event.sender.id) ?? null
+      const extension = documentPath && ['.txt', '.json'].includes(extname(documentPath).toLowerCase())
+        ? extname(documentPath).toLowerCase() : '.md'
+      await writeDraftJournal(draftRoot(), { id, module: 'markdown', documentPath, extension, bytes: Buffer.from(text, 'utf8') })
+      return { ok: true }
+    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
+  })
+
   ipcMain.on(MARKDOWN_CHANNELS.dirtyChanged, (e, dirty: unknown) => {
     if (dirty === true) dirtyByWc.add(e.sender.id)
-    else dirtyByWc.delete(e.sender.id)
+    else {
+      dirtyByWc.delete(e.sender.id)
+      void clearMarkdownDraft(e.sender.id).catch((error) => console.warn('[markdown] draft cleanup:', error))
+    }
   })
 
   ipcMain.on(MARKDOWN_CHANNELS.closeSaveResult, (e, ok: unknown) => {
@@ -1338,6 +1367,7 @@ function registerMarkdownIpc(): void {
 
 function grantAndTrack(wc: WebContents, openPath?: string | null): void {
   const wcId = wc.id
+  draftByWc.set(wcId, randomUUID())
   const watcher = createDocumentDiskWatcher((path) => {
     if (!wc.isDestroyed()) wc.send(MARKDOWN_CHANNELS.fileChangedOnDisk, path)
   })
@@ -1354,6 +1384,10 @@ function grantAndTrack(wc: WebContents, openPath?: string | null): void {
     return { action: 'deny' }
   })
   wc.once('destroyed', () => {
+    // A crash leaves dirty drafts available from Workspace Recovery. Explicit
+    // discard and clean/save notifications clear them before the view goes away.
+    if (!dirtyByWc.has(wcId)) void clearMarkdownDraft(wcId).catch(() => {})
+    draftByWc.delete(wcId)
     void imageExports
       .dispose(wcId)
       .catch((err) => console.warn('[markdown] image export cleanup:', err))
@@ -1443,7 +1477,7 @@ export function createMarkdownView(openPath?: string | null): WebContentsView {
   return view
 }
 
-/** Standalone window mode: `npm run dev -w @genoffice/markdown`, md path passed via argv */
+/** Standalone window mode: `npm run dev -w @vantage/markdown`, md path passed via argv */
 export function startMarkdownStandalone(): void {
   registerRendererScheme()
   installNavigationGuard(app)

@@ -40,8 +40,6 @@ Co očekávat:
   1. Karta Anotace ▸ klikněte na **Začernit oblast** (nástroj se zapne).
   2. **Přetáhněte rameček přes obsah** — bude překryt kresbou šrafování a na liště nástrojů se objeví tlačítka **vymazat značky / použít začernění**:
 
-  ![Stránka po označení začernění](img/pdf-redact.png)
-
   3. Klikněte na **Použít začernění** a potvrďte — výsledkem je pracovní kopie, ve které je zakrytý text a obrázky fyzicky odstraněny (nikoli jen překryty), a operaci nelze vzít zpět; původní dokument zůstane nedotčen.
 
   Udělali jste chybu? Tlačítko pro vymazání značek smaže aktuální značky, takže můžete kreslit znovu.

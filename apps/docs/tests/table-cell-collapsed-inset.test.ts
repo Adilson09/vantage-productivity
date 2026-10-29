@@ -1,6 +1,6 @@
 import { Editor } from '@tiptap/core'
-import { parseDocx } from '@genoffice/docx-engine'
-import type { TableModel } from '@genoffice/docx-engine'
+import { parseDocx } from '@vantage/docx-engine'
+import type { TableModel } from '@vantage/docx-engine'
 import { describe, expect, it } from 'vitest'
 import { buildDocx } from '../../../packages/docx-engine/tests/helpers/build-docx'
 import { cellPadPx, collapsedEdgePx } from '../src/renderer/editor/border-metrics'

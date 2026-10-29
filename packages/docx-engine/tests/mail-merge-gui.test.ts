@@ -10,7 +10,7 @@ import {
  * The two halves the Docs mail-merge GUI needs from the engine: the field code
  * a template carries (so a template built in the app is interchangeable with
  * one built in Word) and the file name a merged record is written under.
- * genoffice#2097.
+ * vantage#2097.
  */
 
 const record: MergeRecord = {

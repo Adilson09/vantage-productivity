@@ -1,9 +1,9 @@
-import type { AiPanelPrefs } from '@genoffice/ui'
+import type { AiPanelPrefs } from '@vantage/ui'
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Lang } from '@genoffice/i18n'
-import type { AiStreamChunk } from '@genoffice/ai-provider'
-import type { ProjectApi } from '@genoffice/project-store'
-import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
+import type { Lang } from '@vantage/i18n'
+import type { AiStreamChunk } from '@vantage/ai-provider'
+import type { ProjectApi } from '@vantage/project-store'
+import { installDropOpenBridge } from '@vantage/electron-utils/drop-open'
 import { AI_CHANNELS, MARKDOWN_CHANNELS } from '../shared/ipc'
 import { normalizeMarkdownTheme, type MarkdownTheme } from '../shared/markdown-theme'
 import type {
@@ -33,6 +33,7 @@ const api: MarkdownApi = {
   readFile: (path) => ipcRenderer.invoke(MARKDOWN_CHANNELS.readFile, path),
   save: (request) => ipcRenderer.invoke(MARKDOWN_CHANNELS.save, request),
   setDirty: (dirty) => ipcRenderer.send(MARKDOWN_CHANNELS.dirtyChanged, dirty),
+  writeDraft: (text) => ipcRenderer.invoke(MARKDOWN_CHANNELS.writeDraft, text),
   onSaveRequest: (handler) => {
     const listener = (_e: Electron.IpcRendererEvent, mode: SaveMode) => handler(mode)
     ipcRenderer.on(MARKDOWN_CHANNELS.saveRequest, listener)

@@ -13,7 +13,7 @@ import {
   parseMindMapTree,
   wrapLabel,
 } from '../src/renderer/ai/mind-map'
-import type { MindMapTreeNode } from '@genoffice/agent-core'
+import type { MindMapTreeNode } from '@vantage/agent-core'
 
 // Undestroyed views leave DOMObserver flush timers that fire after jsdom teardown
 // ("document is not defined" unhandled error) — destroy every editor we create.
@@ -416,7 +416,7 @@ describe('generate_mindmap tool', () => {
 
 describe('MIND_MAP_TOOL schema', () => {
   it('gives every array an items schema (Gemini refuses the whole request without one)', () => {
-    // genoffice#2059: the leaf `children` array carried only a description,
+    // vantage#2059: the leaf `children` array carried only a description,
     // and the API answered "...properties[children].items: missing field".
     const walk = (node: unknown): void => {
       if (typeof node !== 'object' || node === null) return

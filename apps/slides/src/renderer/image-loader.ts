@@ -4,11 +4,11 @@
  * until the last one settled). Loaded/in-flight urls are tracked across calls
  * so re-collecting urls after an edit never reloads or discards progress.
  */
-import { metafileToDataUrl } from '@genoffice/docx-engine/metafile'
+import { metafileToDataUrl } from '@vantage/docx-engine/metafile'
 
 /** Slide media is cross-origin: without CORS a canvas that draws it is tainted (cutout, export). */
 export function setImageSource(img: HTMLImageElement, url: string): void {
-  if (url.startsWith('genoffice-slide-media:')) img.crossOrigin = 'anonymous'
+  if (url.startsWith('vantage-slide-media:')) img.crossOrigin = 'anonymous'
   img.src = url
 }
 
@@ -16,7 +16,7 @@ export type ApplyImages = (entries: ReadonlyArray<readonly [string, HTMLImageEle
 
 /** EMF/WMF data URLs: browsers cannot decode metafiles — rasterize to PNG first (keyed by the original url). */
 const METAFILE_RE = /^data:(image\/x-(?:emf|wmf)|image\/(?:emf|wmf));base64,/
-const LAZY_METAFILE_RE = /^genoffice-slide-media:.*[?&]mime=image%2F(?:x-)?(emf|wmf)(?:&|$)/i
+const LAZY_METAFILE_RE = /^vantage-slide-media:.*[?&]mime=image%2F(?:x-)?(emf|wmf)(?:&|$)/i
 
 /**
  * EMF headers size the raster from their device bounds, up to the converter's 8192px cap:
@@ -34,12 +34,12 @@ export const MAX_METAFILE_BASE64_CHARS = 56 * 1024 * 1024
  * Meiryo UI came out in the browser's default sans). `false` = a sync is in flight.
  */
 function waitForDocFonts(timeoutMs = 4000): Promise<void> {
-  if (typeof window === 'undefined' || window.__genofficeDocFontsSynced !== false)
+  if (typeof window === 'undefined' || window.__vantageDocFontsSynced !== false)
     return Promise.resolve()
   return new Promise((resolve) => {
     const started = Date.now()
     const tick = () => {
-      if (window.__genofficeDocFontsSynced !== false || Date.now() - started >= timeoutMs) resolve()
+      if (window.__vantageDocFontsSynced !== false || Date.now() - started >= timeoutMs) resolve()
       else setTimeout(tick, 50)
     }
     setTimeout(tick, 50)

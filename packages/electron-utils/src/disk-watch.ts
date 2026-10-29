@@ -61,7 +61,14 @@ export function createDocumentDiskWatcher(
   }
 
   const onTick = (watched: string) => (curr: StatsLike) => {
-    if (muted || watched !== path || isGone(curr)) return
+    if (muted || watched !== path) return
+    if (isGone(curr)) {
+      if (baseline !== null && !sameStamp(reported, curr)) {
+        reported = { mtimeMs: curr.mtimeMs, size: curr.size }
+        onChanged(watched)
+      }
+      return
+    }
     if (sameStamp(baseline, curr) || sameStamp(reported, curr)) return
     // the baseline stays put until the renderer acknowledges, so a save landing
     // in between is refused as a conflict instead of clobbering the file
@@ -93,20 +100,21 @@ export function createDocumentDiskWatcher(
         return
       }
       const s = await fs.stat(written)
-      if (s && !isGone(s)) baseline = { mtimeMs: s.mtimeMs, size: s.size }
+      baseline = s && !isGone(s) ? { mtimeMs: s.mtimeMs, size: s.size } : null
       reported = null
       muted = false
     },
     async acknowledge() {
       if (!path) return
       const s = await fs.stat(path)
-      if (s && !isGone(s)) baseline = { mtimeMs: s.mtimeMs, size: s.size }
+      baseline = s && !isGone(s) ? { mtimeMs: s.mtimeMs, size: s.size } : null
       reported = null
     },
     async isCurrent() {
-      if (!path || !baseline) return true
+      if (!path) return true
       const s = await fs.stat(path)
-      return !s || isGone(s) || sameStamp(baseline, s)
+      if (!baseline) return !s || isGone(s)
+      return !!s && !isGone(s) && sameStamp(baseline, s)
     },
     dispose() {
       stop()

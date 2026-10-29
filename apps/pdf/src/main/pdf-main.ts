@@ -27,11 +27,11 @@ import {
   installRendererProtocol,
   registerRendererScheme,
   rendererUrl,
-} from '@genoffice/electron-utils'
-import { createI18n, getUiLang } from '@genoffice/i18n'
-import { generateImageTool, documentMediaRoots } from '@genoffice/ai-search'
+} from '@vantage/electron-utils'
+import { createI18n, getUiLang } from '@vantage/i18n'
+import { generateImageTool, documentMediaRoots } from '@vantage/ai-search'
 import { PDF_CHANNELS } from '../shared/ipc'
-import { printJobOptions } from '@genoffice/electron-utils/print-job'
+import { printJobOptions } from '@vantage/electron-utils/print-job'
 import { buildExportImagePaths, hasValidExportPageNumbers } from './export-images'
 import type {
   ExportImagesRequest,
@@ -619,7 +619,7 @@ interface RuntimePaths {
   preloadPath: string
   rendererUrl?: string
   rendererFile?: string
-  /** Shell router used to open generated PDFs in a new GenOffice tab. */
+  /** Shell router used to open generated PDFs in a new Vantage tab. */
   openGeneratedPath?: (path: string) => boolean
   /** Host-owned cross-app document creator (the shell routes DOCX into Docs). */
   createDocument?: (request: CreateDocumentRequest) => Promise<CreateDocumentResult>
@@ -676,7 +676,7 @@ async function createStandaloneDocument(
   if (request.type === 'docx') {
     return {
       ok: false,
-      error: 'Creating DOCX files requires the GenOffice shell or Docs app.',
+      error: 'Creating DOCX files requires the Vantage shell or Docs app.',
     }
   }
   const title = sanitizeGeneratedDocumentTitle(request.title)
@@ -1543,7 +1543,7 @@ function registerPdfIpc(): void {
           configuredDefaultSaveDir(app),
           String(suggestedName || 'pages.pdf'),
         )
-        // Aster Office: derived document outputs use protected publication too.
+        // Vantage Productivity: derived document outputs use protected publication too.
         await writePdfAtomically(targetPath, bytes)
         openGeneratedPdf(targetPath)
         return { ok: true, savedPath: targetPath }
@@ -1886,7 +1886,7 @@ function registerPdfIpc(): void {
         // pdf keeps its media (exported/edited images) beside the open file
         mediaRoots: documentMediaRoots(
           openPathByWc.get(e.sender.id),
-          join(app.getPath('temp'), 'genoffice-pasted'),
+          join(app.getPath('temp'), 'vantage-pasted'),
         ),
       },
     ),
@@ -2153,7 +2153,7 @@ export function createPdfView(openPath?: string | null): WebContentsView {
   return view
 }
 
-/** Standalone window mode: `npm run dev -w @genoffice/pdf`, pdf path passed via argv */
+/** Standalone window mode: `npm run dev -w @vantage/pdf`, pdf path passed via argv */
 export function startPdfStandalone(): void {
   registerRendererScheme()
   installNavigationGuard(app)

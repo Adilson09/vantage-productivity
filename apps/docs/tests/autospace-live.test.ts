@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { Editor } from '@tiptap/core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { Run } from '@genoffice/docx-engine'
+import type { Run } from '@vantage/docx-engine'
 import { autospaceRanges, editorExtensions } from '../src/renderer/editor/extensions'
 import {
   renderTableSpec,
@@ -16,7 +16,7 @@ import {
   setStaticAsciiResolver,
 } from '../src/renderer/editor/protected-render'
 import { DOMSerializer } from '@tiptap/pm/model'
-import type { TableModel, TextboxDisplay } from '@genoffice/docx-engine'
+import type { TableModel, TextboxDisplay } from '@vantage/docx-engine'
 import {
   autospacePadScale,
   codePointLengthAt,
@@ -255,12 +255,12 @@ describe('hangul-space advance', () => {
 
   it('draws the wrapped space from the fixed half-width (0.5em) space face', () => {
     const rule = /\.doc-hangul-space\s*\{([^}]*)\}/.exec(read('../src/renderer/styles.css'))
-    expect(rule?.[1]).toContain("font-family: 'GenOffice Hangul Space'")
-    const face = /font-family: 'GenOffice Hangul Space';([^}]*)\}/.exec(
+    expect(rule?.[1]).toContain("font-family: 'Vantage Hangul Space'")
+    const face = /font-family: 'Vantage Hangul Space';([^}]*)\}/.exec(
       read('../src/renderer/fonts/fonts.css'),
     )
-    // GenOfficeCheLatinKR advances every glyph 0.5em (tools/build-kr-che-latin-font.py)
-    expect(face?.[1]).toContain('GenOfficeCheLatinKR.woff2')
+    // VantageCheLatinKR advances every glyph 0.5em (tools/build-kr-che-latin-font.py)
+    expect(face?.[1]).toContain('VantageCheLatinKR.woff2')
     expect(face?.[1]).toContain('unicode-range: U+0020;')
   })
 })

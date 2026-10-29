@@ -4,8 +4,6 @@ Este capítulo cubre las operaciones de archivo comunes a todos los editores; la
 
 El **menú ⋯** de la fila (pase el cursor por una fila de archivo) reúne estas acciones:
 
-![El menú ⋯ de una fila de archivo](img/file-ops.png)
-
 ## Cambiar nombre
 
 Dos puntos de entrada, un mismo conjunto de comprobaciones:
@@ -17,7 +15,7 @@ Reglas: la extensión se conserva automáticamente; los caracteres no permitidos
 
 ## Eliminar
 
-- **⋯ ▸ Eliminar** en Inicio: pregunta qué archivos y luego los mueve a la **papelera del sistema**, desde donde el sistema operativo puede restaurarlos. GenOffice no guarda ningún deshacer propio para esto — la recuperación es cosa de la papelera, no de una notificación.
+- **⋯ ▸ Eliminar** en Inicio: pregunta qué archivos y luego los mueve a la **papelera del sistema**, desde donde el sistema operativo puede restaurarlos. Vantage no guarda ningún deshacer propio para esto — la recuperación es cosa de la papelera, no de una notificación.
 
 ## Duplicar
 

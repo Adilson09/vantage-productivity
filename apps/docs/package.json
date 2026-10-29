@@ -1,6 +1,6 @@
 {
-  "name": "@genoffice/docs",
-  "productName": "GenOffice Docs",
+  "name": "@vantage/docs",
+  "productName": "Vantage Docs",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
@@ -18,14 +18,14 @@
     "dist:dir": "electron-vite build && electron-builder --dir"
   },
   "devDependencies": {
-    "@genoffice/agent-core": "*",
-    "@genoffice/i18n": "*",
-    "@genoffice/ai-provider": "*",
-    "@genoffice/ai-search": "*",
-    "@genoffice/docx-engine": "*",
-    "@genoffice/file-parse": "*",
-    "@genoffice/project-store": "*",
-    "@genoffice/ui": "*",
+    "@vantage/agent-core": "*",
+    "@vantage/i18n": "*",
+    "@vantage/ai-provider": "*",
+    "@vantage/ai-search": "*",
+    "@vantage/docx-engine": "*",
+    "@vantage/file-parse": "*",
+    "@vantage/project-store": "*",
+    "@vantage/ui": "*",
     "@tiptap/core": "3.31.0",
     "@tiptap/extensions": "3.31.0",
     "@tiptap/pm": "3.31.0",
@@ -46,10 +46,10 @@
     "vite": "^7.3.7",
     "vitest": "^4.1.12"
   },
-  "author": "GenOffice",
+  "author": "Vantage",
   "build": {
-    "appId": "com.genoffice.docs",
-    "productName": "GenOffice Docs",
+    "appId": "com.vantage.docs",
+    "productName": "Vantage Docs",
     "electronVersion": "43.3.0",
     "artifactName": "AIDocx-${version}-${arch}.${ext}",
     "directories": {
@@ -90,13 +90,13 @@
     }
   },
   "dependencies": {
-    "@genoffice/electron-utils": "*",
-    "@genoffice/font-metrics": "*",
+    "@vantage/electron-utils": "*",
+    "@vantage/font-metrics": "*",
     "electron-updater": "^6.8.9",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
-    "@genoffice/pptx-render": "*",
-    "@genoffice/xlsx-gateway": "*",
-    "@genoffice/agent-core": "*"
+    "@vantage/pptx-render": "*",
+    "@vantage/xlsx-gateway": "*",
+    "@vantage/agent-core": "*"
   }
 }

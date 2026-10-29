@@ -1,9 +1,9 @@
-// Aster Office modification (2026): verify the six named launchers and retained navigation.
+// Vantage Productivity modification (2026): verify the six named launchers and retained navigation.
 import { test, expect } from '@playwright/test'
 import { launchShell, closeAndSaveVideo, screenshotPath } from './helpers'
 
 test.describe('home screen', () => {
-  test('shows the Aster workspace, six creation launchers and tab bar', async () => {
+  test('shows the Vantage workspace, six creation launchers and tab bar', async () => {
     const launched = await launchShell({ onboardingSeen: true, videoDir: 'home-basics' })
     const { page } = launched
     try {
@@ -28,7 +28,7 @@ test.describe('home screen', () => {
     }
   })
 
-  test('renders localized UI when GENOFFICE_LANG=zh-CN', async () => {
+  test('renders localized UI when VANTAGE_LANG=zh-CN', async () => {
     const launched = await launchShell({
       onboardingSeen: true,
       lang: 'zh-CN',

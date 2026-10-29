@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HeaderFooter } from '@genoffice/docx-engine'
+import type { HeaderFooter } from '@vantage/docx-engine'
 import { hfReservedHeightPx, hfTabSegments, makeGapHfEl } from '../src/renderer/editor/hf-dom'
 
 // Letter page, 1417-twip side margins: 9406-twip column (627 px)

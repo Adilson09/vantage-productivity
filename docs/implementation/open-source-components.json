@@ -1,0 +1,40 @@
+{
+  "reviewedAt": "2026-10-29",
+  "scope": "Engineering distribution record; exact third-party notices remain in the release.",
+  "components": [
+    {
+      "name": "ICAL.js",
+      "version": "2.2.1",
+      "use": "Local ICS recurrence, embedded time zones and vCard import/export",
+      "license": "MPL-2.0",
+      "modified": false,
+      "source": "https://registry.npmjs.org/ical.js/-/ical.js-2.2.1.tgz",
+      "upstream": "https://github.com/kewisch/ical.js",
+      "integrity": "sha512-yK/UlPbEs316igb/tjRgbFA8ZV75rCsBJp/hWOatpyaPNlgw0dGDmU+FoicOcwX4xXkeXOkYiOmCqNPFpNPkQg==",
+      "distribution": "Retain full MPL license, attribution and an unmodified source archive alongside the preview. Changes to MPL-covered files would require their own source release. Vantage integration code remains separately licensed."
+    },
+    {
+      "name": "SQLite",
+      "use": "Local application database through Node's built-in node:sqlite binding",
+      "license": "SQLite public-domain core; Node binding and runtime terms remain applicable",
+      "upstream": "https://www.sqlite.org/copyright.html",
+      "distribution": "Retain Node/Electron runtime notices; do not claim Access compatibility."
+    },
+    {
+      "name": "pdf-lib",
+      "version": "1.17.1",
+      "use": "PDF object and page-tree parsing in workspace inspection",
+      "license": "MIT",
+      "upstream": "https://github.com/Hopding/pdf-lib"
+    },
+    {
+      "name": "LibreOffice and qpdf",
+      "use": "Optional separate local conversion and PDF diagnostics processes",
+      "distribution": "The engine manifest pins executable hashes and versions. Include exact vendor archives, notices and license/source links when distributing these optional binaries. They do not replace Vantage's native editing model.",
+      "upstreams": [
+        "https://www.libreoffice.org/about-us/licenses/",
+        "https://github.com/qpdf/qpdf"
+      ]
+    }
+  ]
+}

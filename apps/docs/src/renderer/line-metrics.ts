@@ -23,8 +23,8 @@
  *   - space-before/space-after keep their face value (Word does not grid-snap them)
  */
 
-import type { DocGrid, Run } from '@genoffice/docx-engine'
-import { latinSlotSubstitute, type ResolvedFace } from '@genoffice/font-metrics/resolve'
+import type { DocGrid, Run } from '@vantage/docx-engine'
+import { latinSlotSubstitute, type ResolvedFace } from '@vantage/font-metrics/resolve'
 
 import {
   recordResolveDiff,
@@ -188,7 +188,7 @@ const JA_FONT_RE =
 
 /** Korean font names (Windows/Noto/Source Han/Nanum faces + bundled subsets) */
 const KO_FONT_RE =
-  /malgun|맑은|batang|바탕|myeongjo|myungjo|명조|gungsuh|궁서|gulim|굴림|dotum|돋움|nanum|나눔|genoffice (sans|serif) kr|(noto|source han) (sans|serif)[^,]*\bk(r|orean)?\b/i
+  /malgun|맑은|batang|바탕|myeongjo|myungjo|명조|gungsuh|궁서|gulim|굴림|dotum|돋움|nanum|나눔|vantage (sans|serif) kr|(noto|source han) (sans|serif)[^,]*\bk(r|orean)?\b/i
 
 /**
  * Per-font single-spacing line-height factor. Re-baselined against Word for
@@ -673,16 +673,16 @@ export function computeLineHeight(
 export const BUNDLED_FONTS = new Set([
   'Noto Sans CJK SC',
   'Noto Serif CJK SC',
-  'GenOffice Sans KR',
-  'GenOffice Serif KR',
-  'GenOffice Gothic KR',
-  'GenOffice Poppins',
-  'GenOffice DM Sans',
-  'GenOffice Tamil',
-  'GenOffice Bengali',
-  'GenOffice Fullwidth TC',
-  'GenOffice Songti SC',
-  'GenOffice Songti TC',
+  'Vantage Sans KR',
+  'Vantage Serif KR',
+  'Vantage Gothic KR',
+  'Vantage Poppins',
+  'Vantage DM Sans',
+  'Vantage Tamil',
+  'Vantage Bengali',
+  'Vantage Fullwidth TC',
+  'Vantage Songti SC',
+  'Vantage Songti TC',
   'Carlito GO',
   'Aptos GO',
   'Aptos Display GO',
@@ -751,7 +751,7 @@ const GENERIC_FAMILIES = new Set([
  * Bundled web face that leads a chain but has not loaded yet: canvas measures
  * the next installed family instead (an unloaded font-display:block face is
  * skipped), so the strut would carry e.g. Apple SD Gothic Neo's 0.90/0.30
- * under GenOffice Sans KR spans (1.16/0.29) and every hangul line unions
+ * under Vantage Sans KR spans (1.16/0.29) and every hangul line unions
  * ~1.5px past its line-height (+1pt per Korean table row vs Word).
  */
 export function unloadedBundledPrimary(chain: string): string | null {
@@ -779,7 +779,7 @@ export function unloadedBundledPrimary(chain: string): string | null {
  * while layout later resolves the loaded alias (0.69/0.25em) as primary.
  */
 function isWebFace(family: string): boolean {
-  return isBundledFont(family) || / GO$/.test(family) || /^GenOffice /.test(family)
+  return isBundledFont(family) || / GO$/.test(family) || /^Vantage /.test(family)
 }
 
 /** bundled web face a chain resolves to before any installed family or generic */
@@ -1000,11 +1000,11 @@ export function wordMetricAliasFace(font: string): string | null {
 
 const CJK_SERIF = 'Noto Serif CJK SC'
 const CJK_SANS = 'Noto Sans CJK SC'
-const BOX = 'GenOffice Box Drawing'
-const JA_SANS = ['Yu Gothic', 'GenOffice Hiragino Sans', 'Meiryo', 'Noto Sans JP']
-const JA_SERIF = ['Yu Mincho', 'GenOffice Hiragino Mincho', 'GenOffice MS Mincho', 'Noto Serif JP']
-const KO_SANS = ['Malgun Gothic', 'GenOffice Sans KR', 'Apple SD Gothic Neo', 'Noto Sans KR']
-const KO_SERIF = ['GenOffice Batang', 'GenOffice Serif KR', 'GenOffice Myungjo', 'Noto Serif KR']
+const BOX = 'Vantage Box Drawing'
+const JA_SANS = ['Yu Gothic', 'Vantage Hiragino Sans', 'Meiryo', 'Noto Sans JP']
+const JA_SERIF = ['Yu Mincho', 'Vantage Hiragino Mincho', 'Vantage MS Mincho', 'Noto Serif JP']
+const KO_SANS = ['Malgun Gothic', 'Vantage Sans KR', 'Apple SD Gothic Neo', 'Noto Sans KR']
+const KO_SERIF = ['Vantage Batang', 'Vantage Serif KR', 'Vantage Myungjo', 'Noto Serif KR']
 
 type Generic = 'serif' | 'sans-serif' | 'monospace'
 
@@ -1019,7 +1019,7 @@ const STAND_IN_CHAINS: Record<string, [string[], Generic]> = {
   cambria: [['Caladea', BOX, CJK_SERIF], 'serif'],
   'times new roman': [['Liberation Serif', BOX, CJK_SERIF], 'serif'],
   consolas: [['Consolas GO', CJK_SANS], 'monospace'],
-  'segoe ui': [['Segoe UI GO', 'Noto Sans CJK GO', 'GenOffice PUA Blank'], 'sans-serif'],
+  'segoe ui': [['Segoe UI GO', 'Noto Sans CJK GO', 'Vantage PUA Blank'], 'sans-serif'],
   'ms gothic': [['MS Gothic GO', ...JA_SANS], 'sans-serif'],
   'ms \u30b4\u30b7\u30c3\u30af': [['MS Gothic GO', ...JA_SANS], 'sans-serif'],
   'ms pgothic': [['MS PGothic GO', 'MS PGothic JA GO', ...JA_SANS], 'sans-serif'],
@@ -1052,22 +1052,22 @@ const STAND_IN_CHAINS: Record<string, [string[], Generic]> = {
   dotum: [KO_SANS, 'sans-serif'],
   '\ub3cb\uc6c0': [KO_SANS, 'sans-serif'],
   // the OS asset Chromium cannot see; the bundled real-metric subset leads
-  nanumgothic: [['GenOffice Gothic KR', ...KO_SANS], 'sans-serif'],
-  'nanum gothic': [['GenOffice Gothic KR', ...KO_SANS], 'sans-serif'],
-  '\ub098\ub214\uace0\ub515': [['GenOffice Gothic KR', ...KO_SANS], 'sans-serif'],
-  'nanumgothic extrabold': [['GenOffice Gothic KR', ...KO_SANS], 'sans-serif'],
-  '\ub098\ub214\uace0\ub515 extrabold': [['GenOffice Gothic KR', ...KO_SANS], 'sans-serif'],
+  nanumgothic: [['Vantage Gothic KR', ...KO_SANS], 'sans-serif'],
+  'nanum gothic': [['Vantage Gothic KR', ...KO_SANS], 'sans-serif'],
+  '\ub098\ub214\uace0\ub515': [['Vantage Gothic KR', ...KO_SANS], 'sans-serif'],
+  'nanumgothic extrabold': [['Vantage Gothic KR', ...KO_SANS], 'sans-serif'],
+  '\ub098\ub214\uace0\ub515 extrabold': [['Vantage Gothic KR', ...KO_SANS], 'sans-serif'],
   nanummyeongjo: [KO_SERIF, 'serif'],
   'nanum myeongjo': [KO_SERIF, 'serif'],
   '\ub098\ub214\uba85\uc870': [KO_SERIF, 'serif'],
   nanummyeongjoextrabold: [KO_SERIF, 'serif'],
   '\ub098\ub214\uba85\uc870 extrabold': [KO_SERIF, 'serif'],
   simsun: [
-    ['GenOffice SimSun Latin', 'GenOffice Songti SC', 'STSong', 'SimSun', CJK_SERIF],
+    ['Vantage SimSun Latin', 'Vantage Songti SC', 'STSong', 'SimSun', CJK_SERIF],
     'serif',
   ],
   '\u5b8b\u4f53': [
-    ['GenOffice SimSun Latin', 'GenOffice Songti SC', 'STSong', 'SimSun', CJK_SERIF],
+    ['Vantage SimSun Latin', 'Vantage Songti SC', 'STSong', 'SimSun', CJK_SERIF],
     'serif',
   ],
   simhei: [['Heiti SC', 'STHeiti', 'SimHei', 'PingFang SC', CJK_SANS], 'sans-serif'],
@@ -1114,7 +1114,7 @@ function latinSlotHead(sub: string): string[] {
   const k = sub.normalize('NFKC').toLowerCase()
   if (k === 'calibri') return ['Carlito GO']
   if (k === 'cambria') return ['KR Theme Latin GO']
-  if (k === 'simsun' || k === '\u5b8b\u4f53') return ['GenOffice SimSun Latin']
+  if (k === 'simsun' || k === '\u5b8b\u4f53') return ['Vantage SimSun Latin']
   return latinChainHead(sub)
 }
 
@@ -1166,7 +1166,7 @@ function substituteFontFamily(font: string): string | null {
   // SimSun chain carries none, so the 1em hangul faces close it
   const hangulTail =
     /^(simsun|\u5b8b\u4f53)$/i.test(face.family.normalize('NFKC')) && !/[\uac00-\ud7a3]/.test(nfkc)
-      ? `,'GenOffice Batang','GenOffice Serif KR'`
+      ? `,'Vantage Batang','Vantage Serif KR'`
       : ''
   const generic = target.lastIndexOf(',')
   const chain = `${target.slice(0, generic)}${hangulTail}${target.slice(generic)}`
@@ -1187,7 +1187,7 @@ export function cssFontFamily(font: string): string {
   // Aptos (M365 cloud face, never installed locally): line metrics equal
   // Calibri's (Word probe 2026-08-22) but its advances do not, so the
   // size-adjusted Carlito aliases in fonts.css stand in (probe 2026-09-03).
-  // 'GenOffice PUA Blank' keeps AI-residue PUA tokens invisible like Word
+  // 'Vantage PUA Blank' keeps AI-residue PUA tokens invisible like Word
   // (Carlito would otherwise supply a box .notdef for them).
   if (f.includes('aptos')) {
     // body, Display and Narrow cuts have fitted aliases; Mono/Serif are unprobed
@@ -1198,7 +1198,7 @@ export function cssFontFamily(font: string): string {
         : f.includes('narrow')
           ? 'Aptos Narrow GO'
           : 'Aptos GO'
-    return `${chain(font, alias, 'GenOffice PUA Blank', CJK_SANS)},sans-serif`
+    return `${chain(font, alias, 'Vantage PUA Blank', CJK_SANS)},sans-serif`
   }
   // Cambria Math text runs lay out with Cambria's advances in Word (fonts.css
   // alias); only the symbols need a math face
@@ -1234,7 +1234,7 @@ export function cssFontFamily(font: string): string {
   // Segoe UI is an M365 cloud font Word renders real; where it is missing the
   // size-adjusted Helvetica alias (fonts.css) carries its narrower advances
   if (SEGOE_UI_TEXT_RE.test(f))
-    return `${chain(font, 'Segoe UI GO', 'Noto Sans CJK GO', 'GenOffice PUA Blank')},sans-serif`
+    return `${chain(font, 'Segoe UI GO', 'Noto Sans CJK GO', 'Vantage PUA Blank')},sans-serif`
   // Consolas is Office-only: the size-adjusted Menlo alias (fonts.css) carries its advances
   if (f.includes('consolas')) return `${chain(font, 'Consolas GO', CJK_SANS)},monospace`
   // Century Gothic is Office-only too: the per-case size-adjusted Liberation
@@ -1252,10 +1252,10 @@ export function cssFontFamily(font: string): string {
   if (f.includes('nunito')) return `${chain(font, 'Nunito Sans GO', CJK_SANS)},sans-serif`
   // Poppins is an M365 cloud font Word renders real; the bundled Latin subset
   // (fonts.css) carries its true advances (probe 2026-09-01)
-  if (f.includes('poppins')) return `${chain(font, 'GenOffice Poppins', CJK_SANS)},sans-serif`
+  if (f.includes('poppins')) return `${chain(font, 'Vantage Poppins', CJK_SANS)},sans-serif`
   // DM Sans renders real in Word when installed; the bundled Latin subset
   // (fonts.css) carries its true advances (corpus 2026-09-30)
-  if (f.includes('dm sans')) return `${chain(font, 'GenOffice DM Sans', CJK_SANS)},sans-serif`
+  if (f.includes('dm sans')) return `${chain(font, 'Vantage DM Sans', CJK_SANS)},sans-serif`
   // Montserrat is an M365 cloud font Word renders real, ignoring its fontTable
   // altName; the per-class size-adjusted Liberation Sans alias (fonts.css)
   // carries its wide advances. Only the cloud family names qualify: a
@@ -1268,12 +1268,12 @@ export function cssFontFamily(font: string): string {
   // ZhongSong (STZhongsong, gov-document title font) before the generic SimSun branch
   if (f.includes('中宋') || f.includes('zhongsong'))
     return `${chain(font, 'STZhongsong', 'Songti SC', 'STSong', 'SimSun', CJK_SERIF)},serif`
-  // 'GenOffice Songti SC' (fonts.css local() alias of Songti SC): macOS Chromium
+  // 'Vantage Songti SC' (fonts.css local() alias of Songti SC): macOS Chromium
   // refuses synthetic bold for 'Songti SC' by name at weight 600/700; the alias,
   // registered weight-normal only, lets Blink synthesize. Unresolvable elsewhere.
   // SimSun's ASCII is half-width fixed pitch (0.5em); the Songti stand-in is proportional
   if (/simsun|\u5b8b\u4f53|nsimsun/.test(f)) {
-    return `${chain(font, 'GenOffice SimSun Latin', 'GenOffice Songti SC', 'STSong', 'SimSun', CJK_SERIF)},serif`
+    return `${chain(font, 'Vantage SimSun Latin', 'Vantage Songti SC', 'STSong', 'SimSun', CJK_SERIF)},serif`
   }
   if (f.includes('simhei') || f.includes('黑体') || f.includes('细黑') || f.includes('xihei'))
     return `${chain(font, 'Heiti SC', 'STHeiti', 'SimHei', 'PingFang SC', CJK_SANS)},sans-serif`
@@ -1288,20 +1288,20 @@ export function cssFontFamily(font: string): string {
   if (f.includes('隶书') || f.includes('lisu'))
     return `${chain(font, 'Baoli SC', 'LiSu', CJK_SERIF)},serif`
   // Japanese/Korean/Traditional Chinese: fall back within the same script (win/mac family names as mutual backups) so Han glyphs don't render with Simplified forms.
-  // 'GenOffice *' entries are CJK-only local() aliases (fonts.css): the underlying
+  // 'Vantage *' entries are CJK-only local() aliases (fonts.css): the underlying
   // system faces draw Cyrillic/Greek fullwidth, so those scripts must pass through
-  const TC_SANS = ['Microsoft JhengHei', 'PingFang TC', 'GenOffice Heiti TC', 'Noto Sans TC']
-  // 'GenOffice Fullwidth TC' (fonts.css): fullwidth U+FF0D/FF0F/FF3C/FF3F/FF5E whose Songti TC glyphs look half-width
-  // 'GenOffice Songti TC' (fonts.css): weight-normal alias so bold synthesizes like Word's faux-bold PMingLiU
+  const TC_SANS = ['Microsoft JhengHei', 'PingFang TC', 'Vantage Heiti TC', 'Noto Sans TC']
+  // 'Vantage Fullwidth TC' (fonts.css): fullwidth U+FF0D/FF0F/FF3C/FF3F/FF5E whose Songti TC glyphs look half-width
+  // 'Vantage Songti TC' (fonts.css): weight-normal alias so bold synthesizes like Word's faux-bold PMingLiU
   const TC_SERIF = [
-    'GenOffice MingLiU',
-    'GenOffice Fullwidth TC',
-    'GenOffice Songti TC',
+    'Vantage MingLiU',
+    'Vantage Fullwidth TC',
+    'Vantage Songti TC',
     'Songti TC',
     'Noto Serif TC',
   ]
   const SC_SANS = ['PingFang SC', 'Microsoft YaHei', CJK_SANS]
-  const SC_SERIF = ['GenOffice Songti SC', 'STSong', 'SimSun', CJK_SERIF]
+  const SC_SERIF = ['Vantage Songti SC', 'STSong', 'SimSun', CJK_SERIF]
   const nfkc = font.normalize('NFKC')
   // Arabic: bundled Noto subsets stand in for missing fonts; Chromium's silent
   // fallback is a Geeza Pro-style UI face, larger and heavier than the naskh
@@ -1435,7 +1435,7 @@ export function cssFontFamily(font: string): string {
     if (/(?:batang|gulim|dotum|gungsuh) ?che\b|(?:바탕|굴림|돋움|궁서)체/i.test(nfkc)) {
       const cheGungsuh = /gungsuh|궁서/i.test(nfkc)
       const cheSerif = cheGungsuh || /batang|바탕/i.test(nfkc)
-      return `${chain(font, 'GenOffice Che Latin KR', ...(cheGungsuh ? ['GungSeo'] : []), ...(cheSerif ? KO_SERIF : KO_SANS))},${cheSerif ? 'serif' : 'sans-serif'}`
+      return `${chain(font, 'Vantage Che Latin KR', ...(cheGungsuh ? ['GungSeo'] : []), ...(cheSerif ? KO_SERIF : KO_SANS))},${cheSerif ? 'serif' : 'sans-serif'}`
     }
     // Gungsuh ships with Office (batang.ttc) and Word renders it real; its
     // Latin is typewriter-slab at ~0.58em advances — Courier New is the
@@ -1452,7 +1452,7 @@ export function cssFontFamily(font: string): string {
   // where YaHei itself is missing. Not gated on availability: macOS lists the
   // name for Apple's on-demand BiauKai asset while drawing nothing with it
   if (/\u6a19\u6977|dfkai/.test(f))
-    return `${chain(font, 'Microsoft YaHei', 'GenOffice YaHei Latin', 'PingFang SC', CJK_SANS)},sans-serif`
+    return `${chain(font, 'Microsoft YaHei', 'Vantage YaHei Latin', 'PingFang SC', CJK_SANS)},sans-serif`
   if (
     /jhenghei|p?mingliu|biaukai|dfkai|kaiu|正黑|細明|標楷|蘋方|-繁|繁體|pingfang (tc|hk)|(heiti|songti|kaiti) tc/i.test(
       nfkc,
@@ -1466,21 +1466,21 @@ export function cssFontFamily(font: string): string {
   // Kefa alias (fonts.css) re-centers Chromium's ~1.35x-wide Kefa fallback. On
   // Windows the declared name resolves natively ahead of the alias.
   if (/nyala|ebrima|abyssinica|ethiopic/i.test(nfkc)) {
-    return `${chain(font, 'GenOffice Ethiopic')},sans-serif`
+    return `${chain(font, 'Vantage Ethiopic')},sans-serif`
   }
   // Bengali: Nirmala UI is an M365 cloud face Word renders real; macOS has no
   // twin and Chromium's Kohinoor Bangla shapes ~8% narrower, so the bundled
   // Nirmala-metric face (fonts.css) leads. On Windows the declared name
   // resolves natively ahead of the chain.
   if (/nirmala/i.test(nfkc)) {
-    return `${chain(font, 'GenOffice Bengali', 'Kohinoor Bangla', 'Bangla Sangam MN')},sans-serif`
+    return `${chain(font, 'Vantage Bengali', 'Kohinoor Bangla', 'Bangla Sangam MN')},sans-serif`
   }
   // Tamil: Latha renders through the bundled Latha-metric face (fonts.css);
   // Vijaya and missing Tamil names lay out as Vijaya on Word for Mac (probe
   // 2026-09-30), whose advances InaiMathi matches within 1 % (Latha is 44 %
   // wider). On Windows the declared name resolves natively ahead of the chain.
   if (/latha/i.test(nfkc)) {
-    return `${chain(font, 'GenOffice Tamil', 'InaiMathi', 'Tamil MN', 'Tamil Sangam MN')},sans-serif`
+    return `${chain(font, 'Vantage Tamil', 'InaiMathi', 'Tamil MN', 'Tamil Sangam MN')},sans-serif`
   }
   if (TAMIL_FONT_RE.test(nfkc)) {
     return `${chain(font, 'Vijaya', 'InaiMathi', 'Tamil Sangam MN', 'Tamil MN')},sans-serif`
@@ -1503,7 +1503,7 @@ export function cssFontFamily(font: string): string {
       : CJK_SANS
   // the GO aliases exclude PUA, so the blank face keeps those codepoints
   // invisible (the full subsets' blank .notdef used to catch them)
-  const pua = latinNamed ? ['GenOffice PUA Blank'] : []
+  const pua = latinNamed ? ['Vantage PUA Blank'] : []
   return `${chain(font, tail, ...pua)},${serifLike ? 'serif' : 'sans-serif'}`
 }
 

@@ -1,5 +1,5 @@
 /**
- * Shared main-process state for GenOffice Slides, extracted from slides-main.ts so
+ * Shared main-process state for Vantage Slides, extracted from slides-main.ts so
  * the IPC modules (slides-main, ai-ipc, presenter-show) can share it:
  * per-renderer sessions, snapshot undo/redo history, runtime paths, window
  * references, and RenderSlide rebuild helpers.
@@ -17,12 +17,12 @@ import {
   type Slide,
   type SlideElement,
   type TextElement,
-} from '@genoffice/pptx-engine'
+} from '@vantage/pptx-engine'
 import {
   buildRenderSlide,
   type FontMetricsProvider,
   type RenderSlide,
-} from '@genoffice/pptx-render'
+} from '@vantage/pptx-render'
 import { createSystemFontMetrics, resetFontRegistry } from './fonts'
 import { tiffToPng } from './tiff-decode'
 import { neutralizeJpegOrientation } from './jpeg-orientation'
@@ -33,7 +33,7 @@ export interface RuntimePaths {
   preloadPath: string
   rendererDevUrl?: string | undefined
   rendererFilePath?: string | undefined
-  /** Shell router used to open exported PDFs in a new GenOffice tab. */
+  /** Shell router used to open exported PDFs in a new Vantage tab. */
   openGeneratedPath?: (path: string) => boolean
 }
 
@@ -589,7 +589,7 @@ export function makeMediaResolver(opened: OpenedPptx, slidePath?: string) {
     const key = `${byteVersion(bytes)}:${mime}:${context}`
     let url = urls.get(key)
     if (!url) {
-      url = `genoffice-slide-media://archive/${randomUUID()}?mime=${encodeURIComponent(mime)}`
+      url = `vantage-slide-media://archive/${randomUUID()}?mime=${encodeURIComponent(mime)}`
       urls.set(key, url)
       mediaSources.set(url, {
         opened: new WeakRef(opened),

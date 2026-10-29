@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import type { HfImage, HfParagraph, HfTextBox } from '@genoffice/docx-engine'
+import type { HfImage, HfParagraph, HfTextBox } from '@vantage/docx-engine'
 import { HfContent, hfEditorSlot } from '../src/renderer/components/HeaderFooterArea'
 import type { HfStripGeom } from '../src/renderer/editor/hf-dom'
 

@@ -124,7 +124,55 @@ export {
   type RendererHost,
 } from './renderer-scheme'
 export { installRendererProtocol, registerRendererScheme } from './renderer-protocol'
-export { atomicCopyFile, atomicWriteFile, atomicWriteVia, writeJsonAtomic } from './atomic-write'
+export {
+  atomicCopyFile,
+  atomicWriteFile,
+  atomicWriteVia,
+  writeJsonAtomic,
+  publishCompletedFile,
+  withAtomicSaveQueue,
+  readAtomicFileVersion,
+  getLastAtomicSaveReport,
+  getAtomicSaveReports,
+  AtomicSaveError,
+  AtomicSaveConflictError,
+  type AtomicFileVersion,
+  type AtomicSaveOptions,
+  type AtomicSaveReport,
+} from './atomic-write'
+export {
+  captureRecoverySnapshot,
+  listRecoveryEntries,
+  readRecoveryEntry,
+  previewRecoveryEntry,
+  restoreRecoveryCopy,
+  getRecoveryPolicy,
+  setRecoveryPolicy,
+  getRecoveryVaultStatus,
+  type RecoveryPolicy,
+  type RecoveryEntry,
+} from './recovery-vault'
+export {
+  writeDraftJournal,
+  listDraftJournal,
+  readDraftJournal,
+  restoreDraftCopy,
+  discardDraftJournal,
+  type DraftEntry,
+} from './draft-journal'
+export { exportRecoveryBackup, inspectRecoveryBackup, restoreBackupCopy } from './recovery-backup'
+export {
+  enableRecoveryEncryption,
+  createRecoveryCipher,
+  setRecoveryCipher,
+} from './recovery-encryption'
+export {
+  networkDecision,
+  normalizeNetworkPolicy,
+  requireRemoteFeature,
+  type NetworkPolicy,
+  type RemoteFeature,
+} from './network-policy'
 export {
   PRINT_READY_SCRIPT,
   printHtmlDocument,

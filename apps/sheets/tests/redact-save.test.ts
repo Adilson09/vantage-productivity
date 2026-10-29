@@ -15,13 +15,13 @@ import { describe, expect, it, vi, afterAll, beforeAll, beforeEach } from 'vites
 import { handleSave, type SaveContext } from '../src/renderer/save-actions'
 import { workbookSaveRequestSchema } from '../src/shared/desktop-api'
 import { createEditJournal, recordSetRangeValues } from '../src/renderer/edit-journal'
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 import {
   REDACTION_PART_PATH,
   parseRedactionPart,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
-import { saveWorkbookViaSidecar } from '@genoffice/xlsx-gateway/gateway/xlsx-package-io'
-import type { SheetEditPlan } from '@genoffice/xlsx-gateway/gateway/xlsx-sheets'
+} from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
+import { saveWorkbookViaSidecar } from '@vantage/xlsx-gateway/gateway/xlsx-package-io'
+import type { SheetEditPlan } from '@vantage/xlsx-gateway/gateway/xlsx-sheets'
 import { buildEditFixture, buildStructureFixture } from './fixture-builder'
 import { XlsxSidecarClient } from '../src/main/xlsx-sidecar-client'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'

@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Word's Multiple Pages: zooming out flows the pages into columns, the live
  * editor sits on the active page and follows clicks and caret moves, and

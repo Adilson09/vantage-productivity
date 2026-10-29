@@ -2,7 +2,16 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const permission = vi.hoisted(() => ({ refusedPath: '' }))
+vi.mock('node:fs', async (original) => {
+  const real = await original<typeof import('node:fs')>()
+  return { ...real, accessSync: (...args: Parameters<typeof real.accessSync>) => {
+    if (String(args[0]) === permission.refusedPath) throw Object.assign(new Error('Permission denied'), { code: 'EACCES' })
+    return real.accessSync(...args)
+  } }
+})
 
 import {
   configuredDefaultSaveDir,
@@ -13,7 +22,8 @@ import {
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'genoffice-save-dir-'))
+  root = mkdtempSync(join(tmpdir(), 'vantage-save-dir-'))
+  permission.refusedPath = ''
 })
 
 afterEach(() => {
@@ -53,7 +63,7 @@ describe('resolveDefaultSaveDir', () => {
   })
 
   it('creates and returns the fallback when nothing is configured', () => {
-    const fallback = join(root, 'Documents', 'GenOffice')
+    const fallback = join(root, 'Documents', 'Vantage')
     expect(resolveDefaultSaveDir(null, fallback)).toBe(fallback)
     expect(existsSync(fallback)).toBe(true)
   })
@@ -61,12 +71,14 @@ describe('resolveDefaultSaveDir', () => {
   it('degrades to the fallback when the configured folder is not writable', () => {
     const readOnly = join(root, 'read-only')
     mkdirSync(readOnly)
-    chmodSync(readOnly, 0o500)
+    // chmod does not revoke Windows directory write permissions (and root can
+    // bypass it on Unix). Inject the actual EACCES boundary deterministically.
+    permission.refusedPath = readOnly
     const fallback = join(root, 'fallback')
     try {
       expect(resolveDefaultSaveDir(readOnly, fallback)).toBe(fallback)
     } finally {
-      chmodSync(readOnly, 0o700)
+      permission.refusedPath = ''
     }
   })
 
@@ -90,14 +102,14 @@ describe('configuredDefaultSaveDir', () => {
     expect(configuredDefaultSaveDir(app)).toBe(custom)
   })
 
-  it('falls back to <Documents>/GenOffice without a setting', () => {
+  it('falls back to <Documents>/Vantage without a setting', () => {
     const userData = join(root, 'userData')
     const documents = join(root, 'Documents')
     mkdirSync(userData, { recursive: true })
     const app = {
       getPath: (name: 'userData' | 'documents') => (name === 'userData' ? userData : documents),
     }
-    expect(configuredDefaultSaveDir(app)).toBe(join(documents, 'GenOffice'))
-    expect(existsSync(join(documents, 'GenOffice'))).toBe(true)
+    expect(configuredDefaultSaveDir(app)).toBe(join(documents, 'Vantage'))
+    expect(existsSync(join(documents, 'Vantage'))).toBe(true)
   })
 })

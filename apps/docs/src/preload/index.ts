@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { VIEW_IMAGE_CHANNEL, type MarkdownImage, type PdfInternalLink } from '../shared/ipc'
-import type { AiPanelPrefs } from '@genoffice/ui'
+import type { AiPanelPrefs } from '@vantage/ui'
 import type {
   AiChatRequest,
   AiSettings,
@@ -17,8 +17,8 @@ import type {
   ZoteroRendererRequest,
   MergeOutputRequest,
 } from '../shared/ipc'
-import type { ProjectApi } from '@genoffice/project-store'
-import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
+import type { ProjectApi } from '@vantage/project-store'
+import { installDropOpenBridge } from '@vantage/electron-utils/drop-open'
 
 const api: DesktopApi = {
   getLanguage: () => ipcRenderer.invoke('app:get-language'),

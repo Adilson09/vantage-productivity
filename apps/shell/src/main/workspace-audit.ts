@@ -1,10 +1,15 @@
-// Aster Office addition: bounded local structural/accessibility spot checks.
+// Vantage Productivity addition: bounded local structural/accessibility spot checks.
 import { open } from 'node:fs/promises'
-import { basename, extname, resolve } from 'node:path'
+import { basename, extname, resolve, posix } from 'node:path'
 import JSZip from 'jszip'
 import { XMLValidator } from 'fast-xml-parser'
 import { assertZipInflatesWithinLimits } from '../../../../packages/zip-gate/src/index'
-import type { AuditedFormat, WorkspaceAuditCheck, WorkspaceAuditResult } from '../shared/aster-api'
+import type {
+  AuditedFormat,
+  WorkspaceAuditCheck,
+  WorkspaceAuditResult,
+} from '../shared/vantage-api'
+import { inspectPdfStructure } from './pdf-structure-audit'
 
 export const AUDIT_MAX_FILE_BYTES = 32 * 1024 * 1024
 const XML_INSPECTION_LIMIT = 4 * 1024 * 1024
@@ -188,10 +193,45 @@ async function officeChecks(
       : 'No VBA/ActiveX part names were found.',
     active.length,
   )
-  let external = 0
+  let external = 0,
+    internal = 0,
+    missingTargets = 0
+  const missingTargetNames: string[] = []
   for (const name of names.filter((name) => name.endsWith('.rels'))) {
     const rels = await xmlPart(zip, name, checks)
-    if (rels) external += count(rels, /\bTargetMode\s*=\s*["']External["']/gi)
+    if (rels) {
+      for (const [tag] of rels.matchAll(/<(?:[\w.-]+:)?Relationship\b[^>]*>/g)) {
+        if (attribute(tag, 'TargetMode').toLowerCase() === 'external') {
+          external += 1
+          continue
+        }
+        const target = unescapeXml(attribute(tag, 'Target'))
+        internal += 1
+        // A relationship belongs to the source part beside its _rels directory.
+        const sourceDir = name === '_rels/.rels' ? '' : posix.dirname(posix.dirname(name))
+        let resolvedTarget = ''
+        try {
+          const decoded = decodeURIComponent(target.split('#')[0]!)
+          if (
+            !decoded ||
+            decoded.includes('\\') ||
+            /[\x00-\x1f]/.test(decoded) ||
+            /^[a-z][a-z0-9+.-]*:/i.test(decoded)
+          )
+            throw new Error('Invalid internal target')
+          resolvedTarget = posix.normalize(
+            decoded.startsWith('/') ? decoded.slice(1) : posix.join(sourceDir, decoded),
+          )
+        } catch {
+          /* Invalid internal URI counts as a missing target below. */
+        }
+        if (!resolvedTarget || resolvedTarget.startsWith('../') || !zip.file(resolvedTarget)) {
+          missingTargets += 1
+          if (missingTargetNames.length < 8)
+            missingTargetNames.push(`${name} → ${target.slice(0, 160)}`)
+        }
+      }
+    }
   }
   add(
     checks,
@@ -202,6 +242,19 @@ async function officeChecks(
       ? `${external} relationships point outside the file. They were not fetched; review them before sharing.`
       : 'No external relationships were found in the inspected relationship parts.',
     external,
+  )
+  const incompleteRels = checks.some(
+    (check) =>
+      (check.id.startsWith('limit:') || check.id.startsWith('invalid:')) &&
+      check.id.endsWith('.rels'),
+  )
+  add(
+    checks,
+    'relationship-targets',
+    'Internal package relationships',
+    missingTargets ? 'fail' : incompleteRels ? 'warning' : 'pass',
+    `${internal} internal relationships checked; ${missingTargets} missing, invalid or out-of-package targets.${missingTargetNames.length ? ` ${missingTargetNames.join('; ')}` : ''}${incompleteRels ? ' Some relationship parts were invalid or exceeded the inspection limit; coverage is incomplete.' : ''}`,
+    missingTargets,
   )
   const core = await xmlPart(zip, 'docProps/core.xml', checks)
   const title = core
@@ -499,12 +552,21 @@ export async function auditFile(filePath: string): Promise<WorkspaceAuditResult>
         ? 'An end marker is present near the end of the file.'
         : 'No end marker was found in the last 1 KiB. Check for a truncated file.',
     )
+    const parsed = await inspectPdfStructure(bytes!)
+    add(
+      checks,
+      'pdf-structure',
+      'PDF object tree and pages',
+      parsed.status,
+      parsed.detail,
+      parsed.pages,
+    )
     add(
       checks,
       'pdf-scope',
       'PDF inspection scope',
       'info',
-      'PDF object streams, tags, page rendering and accessibility were not parsed or certified by this spot check.',
+      'PDF object/page parsing runs separately with a heap budget and deadline. Page rendering, tags, accessibility and PDF/A or PDF/UA conformance are not parsed or certified by this spot check.',
     )
   } else if (bytes!.length > TEXT_INSPECTION_LIMIT)
     add(

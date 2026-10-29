@@ -4,8 +4,6 @@
 
 Os modelos e as chaves configuram-se nas Configurações (a linha da conta no canto inferior esquerdo do ecrã Início):
 
-![A janela de configurações](img/settings-general.png)
-
 - **Genspark alojado**: entre (com o fluxo de código de dispositivo) e use — sem configuração nenhuma.
 - **Endpoints personalizados (BYOK)**: em Configurações ▸ Modelo de IA indicam-se a URL base e a chave de API de cada protocolo — o compatível com OpenAI, Anthropic, Gemini, DeepSeek, DashScope (qwen) e outros. As chaves ficam guardadas no ficheiro de definições da aplicação nesta máquina e são enviadas apenas nos cabeçalhos dos pedidos. Atlas Cloud está entre os protocolos embutidos.
 - Pode escolher um modelo diferente para cada capacidade: conversação/geração, geração de imagens, análise de imagens.

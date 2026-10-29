@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Find & Replace panel: highlight-all with a live count, Word wildcards,
  * regex Replace All with groups, the Go To tab, and the Home ▸ Editing group.

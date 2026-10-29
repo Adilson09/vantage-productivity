@@ -3,14 +3,14 @@
 use crate::error::{CmdError, CmdResult};
 use crate::tr;
 
-// Aster Office fork: never look up the upstream credential namespace.
+// Vantage Productivity fork: never look up the upstream credential namespace.
 const SERVICE: &str = crate::aster_profile::IDENTIFIER;
 
 fn service_for(profile: Option<&std::path::Path>) -> String {
     let Some(profile) = profile else {
         return SERVICE.to_owned();
     };
-    // A scratch profile must not share credentials with the normal Aster profile.
+    // A scratch profile must not share credentials with the normal Vantage profile.
     let digest = ring::digest::digest(&ring::digest::SHA256, profile.to_string_lossy().as_bytes());
     let suffix = digest.as_ref().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     format!("{SERVICE}.profile.{suffix}")

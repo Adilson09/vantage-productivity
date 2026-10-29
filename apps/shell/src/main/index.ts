@@ -1,5 +1,6 @@
-// Aster Office modification (2026): independent identity, profile, and local workspace tools.
-import { registerAsterIpc } from './aster-ipc'
+// Vantage Productivity modification (2026): independent identity, profile, and local workspace tools.
+import { registerVantageIpc } from './vantage-ipc'
+import { currentNetworkPolicy, installPrivacyRuntime } from './privacy-runtime'
 import { execSync, spawn } from 'node:child_process'
 import {
   cpSync,
@@ -56,7 +57,7 @@ import menuHtmlIcon1x from './assets/menu-html.png?asset'
 import menuHtmlIcon2x from './assets/menu-html@2x.png?asset'
 import menuHomeIcon1x from './assets/menu-home.png?asset'
 import menuHomeIcon2x from './assets/menu-home@2x.png?asset'
-import { createI18n, isLang, normalizeLang, setUiLang, type Lang } from '@genoffice/i18n'
+import { createI18n, isLang, normalizeLang, setUiLang, type Lang } from '@vantage/i18n'
 import {
   DEFAULT_SAVE_DIR_KEY,
   DROP_OPEN_CHANNEL,
@@ -87,8 +88,8 @@ import {
   readAuthorNameSetting,
   sanitizeAuthorName,
   systemAuthorName,
-} from '@genoffice/electron-utils'
-import { createMainProcessProxyDispatcher } from '@genoffice/electron-utils/main-proxy'
+} from '@vantage/electron-utils'
+import { createMainProcessProxyDispatcher } from '@vantage/electron-utils/main-proxy'
 import {
   readAppSettings,
   writeAppSetting,
@@ -138,13 +139,13 @@ import {
 import { handleDroppedFiles } from './dropped-files'
 import { collectLaunchPaths } from './launch-paths'
 import {
-  genofficeLogout,
+  vantageLogout,
   gskLoginInfo,
-  loadGenofficeAuth,
+  loadVantageAuth,
   setGskProxyUrl,
-  startGenofficeLogin,
+  startVantageLogin,
   watchGskApiKey,
-} from '@genoffice/ai-search'
+} from '@vantage/ai-search'
 
 import {
   buildDocsMenu,
@@ -179,7 +180,7 @@ import {
   uniquePathIn,
   authorizeMcpDocWrite,
 } from '../../../docs/src/main/docs-main'
-import { blankXlsxBuffer } from '@genoffice/xlsx-gateway/gateway/csv-import'
+import { blankXlsxBuffer } from '@vantage/xlsx-gateway/gateway/csv-import'
 import { blankPdfBuffer } from '../../../pdf/src/main/blank-pdf'
 import {
   applyMcpSettings,
@@ -309,7 +310,7 @@ import {
   normalizeAiPanelPrefs,
   sameAiPanelPrefs,
   type AiPanelPrefs,
-} from '@genoffice/ui/ai-panel-prefs'
+} from '@vantage/ui/ai-panel-prefs'
 import type { TabKind } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
@@ -411,7 +412,7 @@ import { applyUpdateChannel, checkForUpdatesNow, initAutoUpdater } from './updat
 import { isUpdateChannel, type UpdateChannel } from '../shared/update-api'
 
 /**
- * GenOffice unified shell: ONE Electron app, ONE BrowserWindow, hosting the
+ * Vantage unified shell: ONE Electron app, ONE BrowserWindow, hosting the
  * docs and sheets modules as WebContentsView tabs behind a WPS-style tab
  * strip. The shell owns the lifecycle — single-instance lock, file-
  * association routing by extension, and per-active-tab menu switching.
@@ -430,20 +431,19 @@ for (const stream of [process.stdout, process.stderr]) {
   })
 }
 
-// Aster owns a separate profile and single-instance lock. Never migrate or
-// modify an existing GenOffice/AI Office installation or its settings.
-app.setName('Aster Office')
-const asterProfileOverride =
-  process.env.ASTER_USER_DATA || (!app.isPackaged ? process.env.GENOFFICE_USER_DATA : undefined)
+// The renamed suite owns its profile and single-instance lock.
+// Explicit launchers can retain the user's established profile without copying credentials.
+app.setName('Vantage Productivity')
+const vantageProfileOverride = process.env.VANTAGE_USER_DATA
 app.setPath(
   'userData',
-  asterProfileOverride ||
-    join(app.getPath('appData'), app.isPackaged ? 'AsterOffice' : 'AsterOffice-Dev'),
+  vantageProfileOverride ||
+    join(app.getPath('appData'), app.isPackaged ? 'VantageProductivity' : 'VantageProductivity-Dev'),
 )
-process.env.ASTER_RECOVERY_ROOT = join(app.getPath('userData'), 'recovery')
-process.env.ASTER_RECOVERY_EXCLUDE_ROOT = app.getPath('userData')
-// Child CLI/control clients must discover this fork's instance, never GenOffice's.
-process.env.GENOFFICE_USER_DATA = app.getPath('userData')
+process.env.VANTAGE_RECOVERY_ROOT = join(app.getPath('userData'), 'recovery')
+process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT = app.getPath('userData')
+// Child CLI/control clients discover the same running suite profile.
+process.env.VANTAGE_USER_DATA = app.getPath('userData')
 
 /**
  * `--headless-export <file> --to <format> --out <path> [--json]`: one document, no
@@ -475,13 +475,13 @@ const PDF_OUT = app.isPackaged
   ? join(process.resourcesPath, 'modules', 'pdf')
   : join(APPS_ROOT, 'pdf', 'out')
 let cliRunner: ReturnType<typeof createCliRunner> | null = null
-/** the bundled genoffice CLI on the app's own Node runtime (MCP headless tools, Ask AI create_document) */
+/** the bundled vantage CLI on the app's own Node runtime (MCP headless tools, Ask AI create_document) */
 function bundledCliRunner(): ReturnType<typeof createCliRunner> {
   cliRunner ??= createCliRunner({
     executable: process.execPath,
     entry: app.isPackaged
-      ? join(process.resourcesPath, 'cli', 'genoffice.cjs')
-      : join(APPS_ROOT, '..', 'packages', 'cli', 'dist', 'genoffice.cjs'),
+      ? join(process.resourcesPath, 'cli', 'vantage.cjs')
+      : join(APPS_ROOT, '..', 'packages', 'cli', 'dist', 'vantage.cjs'),
     // the sheets engine the app itself runs; the CLI's own lookup only knows the packaged layout and a checkout
     env: existsSync(SIDECAR_BIN) ? { XLSX_SIDECAR_PATH: SIDECAR_BIN } : {},
   })
@@ -543,7 +543,7 @@ registerPrivilegedSchemes()
 
 // ---- UI language ----
 // Persisted in userData/app-settings.json so the editor modules can read the
-// same file when they pick up i18n later. GENOFFICE_LANG overrides for tests.
+// same file when they pick up i18n later. VANTAGE_LANG overrides for tests.
 
 const APP_SETTINGS_PATH = () => join(app.getPath('userData'), 'app-settings.json')
 const OPEN_DOCUMENTS_PATH = () => join(app.getPath('userData'), OPEN_DOCUMENTS_FILE)
@@ -564,8 +564,8 @@ let uiLang: Lang | null = null
 
 function currentLang(): Lang {
   if (uiLang) return uiLang
-  if (process.env.GENOFFICE_LANG) {
-    uiLang = normalizeLang(process.env.GENOFFICE_LANG)
+  if (process.env.VANTAGE_LANG) {
+    uiLang = normalizeLang(process.env.VANTAGE_LANG)
     setUiLang(uiLang)
     return uiLang
   }
@@ -597,6 +597,8 @@ function currentUpdateChannel(): UpdateChannel {
 let cachedAutoUpdateCheck: boolean | null = null
 
 function autoUpdateCheckEnabled(): boolean {
+  const networkPolicy = currentNetworkPolicy()
+  if (networkPolicy.localOnly || !networkPolicy.features.updates) return false
   cachedAutoUpdateCheck ??= readAppSettings(APP_SETTINGS_PATH()).autoUpdateCheck !== false
   return cachedAutoUpdateCheck
 }
@@ -717,7 +719,7 @@ function initAnalytics(): void {
     analytics = createAnalytics({
       keys: resolveAnalyticsKeys(),
       getClientId: () => getClientState().clientId,
-      isEnabled: analyticsEnabled,
+      isEnabled: () => !currentNetworkPolicy().localOnly && currentNetworkPolicy().features.telemetry && analyticsEnabled(),
       shouldTrackFirstLaunch: () => getClientState().firstLaunchPending,
       onFirstLaunchSent: () => markAnalyticsFirstLaunchSent(APP_SETTINGS_PATH()),
       // Country-only approximation from OS regional settings. This avoids an
@@ -738,9 +740,8 @@ function initAnalytics(): void {
 
 // ---- first-run onboarding ----
 // The GenTeam community page opened from the onboarding's second slide.
-// Stable short link served by the genoffice.ai site; it 302s to the tokened
-// invite link, which stays out of this repo and rotates server-side.
-const GENTEAM_URL = 'https://genoffice.ai/join'
+// This independently maintained preview links to its actual source repository.
+const GENTEAM_URL = 'https://github.com/Adilson09/aster-office'
 
 // Genspark credit-usage page opened from the account menu's credits row.
 // Kept main-side so the renderer never supplies the URL.
@@ -781,7 +782,7 @@ let cachedGithubStars: number | null = null
 async function fetchGithubStars(): Promise<number | null> {
   if (cachedGithubStars !== null) return cachedGithubStars
   try {
-    const response = await fetch('https://api.github.com/repos/genspark-ai/genoffice', {
+    const response = await fetch('https://api.github.com/repos/Adilson09/aster-office', {
       headers: { Accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(5000),
     })
@@ -4018,7 +4019,7 @@ function withViewMenu(): void {
   else menu.insert(helpIdx, viewItem)
 }
 
-/// Interface scale (genoffice#1913). Read once at boot, then replaced by the View menu.
+/// Interface scale (vantage#1913). Read once at boot, then replaced by the View menu.
 let currentUiScale = 1
 
 /**
@@ -4066,7 +4067,7 @@ function createShellWindow(): void {
     ...(restored ? { x: restored.x, y: restored.y } : {}),
     minWidth: SHELL_WINDOW_MIN_WIDTH,
     minHeight: SHELL_WINDOW_MIN_HEIGHT,
-    title: 'Aster Office',
+    title: 'Vantage Productivity',
     // Paint the theme's surface before the renderer's first frame so the window
     // does not flash white in dark mode. nativeTheme.themeSource is already set
     // from the saved theme in app.whenReady, before this window is created.
@@ -4504,7 +4505,7 @@ async function newSheetTab(recoverAs?: string): Promise<void> {
     suggestedPath = uniquePathIn(dir, `${tm('untitledSheet')} ${i}.xlsx`)
   try {
     // under the import root so the session-close cleanup removes it like an import copy
-    const tempDir = join(app.getPath('temp'), 'genoffice-imports', randomUUID())
+    const tempDir = join(app.getPath('temp'), 'vantage-imports', randomUUID())
     mkdirSync(tempDir, { recursive: true })
     const backingPath = join(tempDir, basename(suggestedPath))
     // reserve the name before the first await so a second new tab picks another;
@@ -4570,7 +4571,7 @@ function newDocTab(): void {
 
 /** MCP: open a blank docs tab and return its webContents id, for the visible-editor bridge */
 function openBlankDocsTabForMcp(): number {
-  if (!tabManager) throw new Error('Aster Office is not ready')
+  if (!tabManager) throw new Error('Vantage Productivity is not ready')
   const tabId = tabManager.openDocsTab(undefined, { newBlank: true })
   const view = tabManager.docsTabs().find((t) => t.id === tabId)
   if (!view) throw new Error('the new document tab could not be opened')
@@ -4587,7 +4588,7 @@ function openBlankDocsTabForMcp(): number {
  * marking is skipped, the file name is the agent's business.
  */
 async function openBlankSheetsTabForMcp(): Promise<number> {
-  if (!tabManager) throw new Error('Aster Office is not ready')
+  if (!tabManager) throw new Error('Vantage Productivity is not ready')
   const filePath = uniquePathIn(defaultSaveDir(), `${tm('untitledSheet')}.xlsx`)
   await atomicWriteFile(filePath, await blankXlsxBuffer())
   const tabId = tabManager.openSheetsTab(filePath)
@@ -4658,7 +4659,7 @@ function abandonBlankTabForMcp(
 
 /** MCP: open a blank slides tab and return its webContents id, for the visible-deck bridge */
 function openBlankSlidesTabForMcp(): number {
-  if (!tabManager) throw new Error('Aster Office is not ready')
+  if (!tabManager) throw new Error('Vantage Productivity is not ready')
   const tabId = tabManager.openSlidesTab()
   const view = tabManager.slidesTabs().find((t) => t.id === tabId)
   if (!view) throw new Error('the new presentation tab could not be opened')
@@ -4753,15 +4754,15 @@ function statEntries(paths: string[]): RecentEntry[] {
 }
 
 function registerHomeIpc(): void {
-  // signed-in means GenOffice's own device-code login; the shared gsk CLI key
+  // signed-in means Vantage's own device-code login; the shared gsk CLI key
   // is only a silent fallback, deliberately not shown here to nudge users onto our key
   ipcMain.handle(HOME_CHANNELS.accountStatus, async () => {
-    if (!loadGenofficeAuth()) return { loggedIn: false }
+    if (!loadVantageAuth()) return { loggedIn: false }
     await proxyBootstrap
     const info = await gskLoginInfo()
     if (info) return { loggedIn: true, email: info.email, creditBalance: info.creditBalance }
     // login-info answering 401 drops an expired key: report signed-out right away
-    return { loggedIn: !!loadGenofficeAuth() }
+    return { loggedIn: !!loadVantageAuth() }
   })
 
   // login progress is streamed to the requesting renderer; the auth URL is
@@ -4777,7 +4778,7 @@ function registerHomeIpc(): void {
     }
     // open the browser on the first url event only; later events refresh the rescue URL
     let opened = false
-    const launched = startGenofficeLogin((progress) => {
+    const launched = startVantageLogin((progress) => {
       if (progress.url) {
         pendingLoginUrl = progress.url
         if (!opened) {
@@ -4797,7 +4798,7 @@ function registerHomeIpc(): void {
   })
 
   ipcMain.handle(HOME_CHANNELS.accountLogout, async () => {
-    await genofficeLogout()
+    await vantageLogout()
     // the cloud projects cache belongs to the account that just signed out
     clearCloudProjectsStore(cloudProjectsStorePath())
   })
@@ -5482,7 +5483,7 @@ function registerHomeIpc(): void {
       const displaced: string[] = []
       const result = movePathsInto(sources, targetDir, conflictPolicy, folderErrors(), {
         replaceExisting: (path) => {
-          const parked = join(dirname(path), `.genoffice-replaced-${Date.now()}-${basename(path)}`)
+          const parked = join(dirname(path), `.vantage-replaced-${Date.now()}-${basename(path)}`)
           const files = isDir(path) ? trackedFilesUnder(path) : [path]
           renameSync(path, parked)
           return {
@@ -5581,8 +5582,8 @@ function registerHomeIpc(): void {
     const state = readStarPrompt()
     const docOpens = state.docOpens ?? 0
     // dev preview of the card without waiting out the value thresholds
-    // (same pattern as GENOFFICE_FAKE_UPDATE); nothing is recorded
-    if (!app.isPackaged && process.env.GENOFFICE_FORCE_STAR_PROMPT) return { show: true, docOpens }
+    // (same pattern as VANTAGE_FAKE_UPDATE); nothing is recorded
+    if (!app.isPackaged && process.env.VANTAGE_FORCE_STAR_PROMPT) return { show: true, docOpens }
     const grant = (): StarPromptShow => {
       writeStarPrompt(withShown(state, now))
       starPromptSessionGrant = { show: true, docOpens }
@@ -6563,7 +6564,7 @@ async function exportDocxBytesHeadless(
   format: 'md' | 'html',
   sourceName: string,
 ): Promise<void> {
-  const dir = await mkdtemp(join(tmpdir(), 'genoffice-pdf-convert-'))
+  const dir = await mkdtemp(join(tmpdir(), 'vantage-pdf-convert-'))
   try {
     const docxPath = join(dir, sourceName.replace(/\.pdf$/i, '') + '.docx')
     await atomicWriteFile(docxPath, docx)
@@ -6893,7 +6894,7 @@ async function installMainProcessProxy(): Promise<void> {
   try {
     const { setGlobalDispatcher } = await import('undici')
     // loopback stays direct: a Custom provider on 127.0.0.1 must not ride
-    // the proxy as an absolute-form request (genoffice#2084)
+    // the proxy as an absolute-form request (vantage#2084)
     setGlobalDispatcher(await createMainProcessProxyDispatcher(proxyUrl))
     // strip user:pass credentials before logging
     console.log('[proxy] main-process fetch via', proxyUrl.replace(/\/\/[^@/]*@/, '//***@'))
@@ -6970,8 +6971,8 @@ registerIntegrationsIpc({
     ? join(process.resourcesPath, 'cli')
     : join(APPS_ROOT, '..', 'packages', 'cli', 'bin'),
   skillPath: app.isPackaged
-    ? join(process.resourcesPath, 'cli', 'skills', 'aster-office', 'SKILL.md')
-    : join(APPS_ROOT, '..', 'skills', 'aster-office', 'SKILL.md'),
+    ? join(process.resourcesPath, 'cli', 'skills', 'vantage-productivity', 'SKILL.md')
+    : join(APPS_ROOT, '..', 'skills', 'vantage-productivity', 'SKILL.md'),
   cliPackageJson: app.isPackaged
     ? join(process.resourcesPath, 'cli', 'package.json')
     : join(APPS_ROOT, '..', 'packages', 'cli', 'package.json'),
@@ -7006,7 +7007,7 @@ const headlessExporters: HeadlessExporters = {
 /**
  * The whole `--headless-export` run: no shell window, no menus, no updater,
  * no single-instance lock (a GUI instance may well be running). Prints
- * exactly one line and exits with the genoffice convention (0/1/2/3).
+ * exactly one line and exits with the vantage convention (0/1/2/3).
  */
 async function runHeadlessExportEntry(
   parsed: Exclude<HeadlessArgvParse, { kind: 'none' }>,
@@ -7028,14 +7029,15 @@ async function runHeadlessExportEntry(
       resolve()
     })
   })
-  // app.quit() always exits 0; the genoffice envelope needs the real code, and
+  // app.quit() always exits 0; the vantage envelope needs the real code, and
   // every teardown this run owns has already happened.
   app.exit(headlessExitCode(outcome))
 }
 
 app.whenReady().then(async () => {
-  registerAsterIpc(() => shellWindow)
-  if (process.platform === 'win32') app.setAppUserModelId('org.asteroffice.desktop')
+  installPrivacyRuntime()
+  registerVantageIpc(() => shellWindow)
+  if (process.platform === 'win32') app.setAppUserModelId('org.vantageproductivity.desktop')
   // first scan waits for the windows to come up; later ones follow folder changes
   setTimeout(() => ensureFileIndexer()?.refresh(), 4000)
   installRendererProtocol({
@@ -7084,15 +7086,15 @@ app.whenReady().then(async () => {
     app.quit()
     return
   }
-  // another GenOffice-family app re-logging in rotates the shared key; the
+  // another Vantage-family app re-logging in rotates the shared key; the
   // home page re-reads its account status. A logout that leaves only the
   // gsk CLI fallback key is not a login
   stopAuthWatch = watchGskApiKey(() => {
-    if (!loadGenofficeAuth()) return
+    if (!loadVantageAuth()) return
     for (const w of BrowserWindow.getAllWindows())
       w.webContents.send(HOME_CHANNELS.accountLoginEvent, { phase: 'success' })
   })
-  // a registry left by a crashed instance must not block genoffice writes
+  // a registry left by a crashed instance must not block vantage writes
   ownsOpenDocumentsRegistry = true
   publishOpenDocuments(OPEN_DOCUMENTS_PATH(), [])
   if (!app.isPackaged) {
@@ -7200,7 +7202,7 @@ app.whenReady().then(async () => {
         discard: htmlDiscardPendingAssets,
       },
     }),
-    // the headless create_*/read_* tools delegate to the bundled genoffice CLI
+    // the headless create_*/read_* tools delegate to the bundled vantage CLI
     // (the same engines, no second implementation); it runs on the app's own
     // Node runtime via ELECTRON_RUN_AS_NODE
     cliRunner: bundledCliRunner(),

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { parseRange } from '@genoffice/xlsx-gateway/domain/cell-address'
+import { parseRange } from '@vantage/xlsx-gateway/domain/cell-address'
 import { aggregateWorkbookRange } from '../src/renderer/ai/aggregate-range'
 import type { WorkbookReadContext } from '../src/renderer/ai/workbook-readers'
 import { NO_REDACTIONS, buildRedactionIndex, type RedactionIndex } from '../src/renderer/ai/redact'
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 
 /// A mark over a cell of the fixture sheet, which the file calls `Data`.
 function markOnData(

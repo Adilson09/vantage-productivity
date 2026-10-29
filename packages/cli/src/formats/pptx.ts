@@ -15,7 +15,7 @@ import {
   type Paragraph,
   type Slide,
   type SlideElement,
-} from '@genoffice/pptx-engine'
+} from '@vantage/pptx-engine'
 import {
   elementDurableId,
   listSlideAnimations,
@@ -24,7 +24,7 @@ import {
   type AnimationEntry,
   type Op,
   type TxnResult,
-} from '@genoffice/pptx-ops'
+} from '@vantage/pptx-ops'
 import { CliError, EXIT } from '../result'
 import { clipText } from '../preview'
 import { fromEmu, type ReadUnit } from '../length-units'

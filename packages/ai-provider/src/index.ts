@@ -105,7 +105,7 @@ export type {
 } from './registry'
 export { sanitizeAiSettings, sanitizeCliPath, validCliPath } from './ai-settings-guard'
 export { chatForProvider } from './chat'
-export { setAiUserAgent, setRescueFetch } from './fetch'
+export { setAiUserAgent, setRescueFetch, setAiRequestGuard } from './fetch'
 export { isAiNetworkError } from './network-error'
 export { isAiOverloadedError } from './overload-error'
 export { isAiRegionBlockedError } from './region-error'

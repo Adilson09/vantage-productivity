@@ -2,8 +2,6 @@
 
 Alle geopende bestanden delen één venster; de tabbladenbalk bovenaan wisselt tussen ze, op de manier van een browser.
 
-![De tabbladenbalk: Start plus twee documenten](img/tabs.png)
-
 ## De basis
 
 - **Wisselen**: klik op een tabblad of scroll met het muiswiel over de balk om ze af te wisselen.

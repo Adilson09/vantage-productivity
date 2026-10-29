@@ -1,12 +1,12 @@
 import { useState } from 'react'
 
-import { Dropdown } from '@genoffice/ui'
+import { Dropdown } from '@vantage/ui'
 
 import {
   comboSeriesSetDefaults,
   transposeChartSeries,
   type ChartVisualState,
-} from '@genoffice/xlsx-gateway/domain/chart-visual'
+} from '@vantage/xlsx-gateway/domain/chart-visual'
 import { ColorDropdown } from './ColorDropdown'
 import { useI18n, type StringKey, type TFunc } from './i18n/locale'
 import {

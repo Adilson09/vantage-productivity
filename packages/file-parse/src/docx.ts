@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { assertZipInflatesWithinLimits, assertZipWithinLimits } from '@genoffice/docx-engine'
+import { assertZipInflatesWithinLimits, assertZipWithinLimits } from '@vantage/docx-engine'
 
 export interface DocxTextOptions {
   /** stop once this many characters have been collected (the caller slices anyway) */

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { defaultAiSettings } from '@genoffice/ai-provider'
+import { defaultAiSettings } from '@vantage/ai-provider'
 import { Home } from '../src/renderer/src/Home'
 import { LocaleProvider } from '../src/renderer/src/locale'
 import type { RecentEntry } from '../src/shared/home-api'

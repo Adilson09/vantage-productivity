@@ -4,8 +4,6 @@ Bu bölüm her düzenleyicinin paylaştığı dosya işlemlerini kapsar; her dü
 
 Satırın **⋯ menüsü** (bir dosya satırının üzerine gelin) bu eylemleri toplar:
 
-![Bir dosya satırının ⋯ menüsü](img/file-ops.png)
-
 ## Yeniden adlandırma
 
 İki giriş noktası, tek denetim kümesi:
@@ -17,7 +15,7 @@ Kurallar: uzantı otomatik olarak korunur; geçersiz karakterler, sondaki noktal
 
 ## Silme
 
-- Giriş **⋯ ▸ Sil**: hangi dosyaların silineceğini sorar, ardından onları işletim sisteminin geri yükleyebileceği **sistem çöp kutusuna** taşır. GenOffice bunun için kendi geri alma mekanizmasını tutmaz — kurtarma çöp kutusunun işidir, bir bildirimin değil.
+- Giriş **⋯ ▸ Sil**: hangi dosyaların silineceğini sorar, ardından onları işletim sisteminin geri yükleyebileceği **sistem çöp kutusuna** taşır. Vantage bunun için kendi geri alma mekanizmasını tutmaz — kurtarma çöp kutusunun işidir, bir bildirimin değil.
 
 ## Çoğaltma
 

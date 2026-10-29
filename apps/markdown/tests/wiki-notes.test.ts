@@ -7,7 +7,7 @@ import type { WikiFs } from '../src/main/wiki-resolve'
 
 /** a flat in-memory tree: `list` answers files and dirs per directory */
 function fakeFs(tree: Record<string, string[]>): WikiFs {
-  const norm = (dir: string): string => dir.replace(/\/+$/, '') || '/'
+  const norm = (dir: string): string => dir.replace(/\\/g, '/').replace(/\/+$/, '') || '/'
   return {
     isFile: async () => true,
     list: async (dir) => {

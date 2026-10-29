@@ -40,8 +40,6 @@ Zes gereedschappen: **inkt, rechthoek, ellips, pijl, notitie**, plus de **zwartm
   1. Tabblad Annoteren ▸ klik op **Gebied zwart maken** (het gereedschap wordt actief).
   2. **Sleep een vlak over de inhoud** — die wordt bedekt met een gearceerd merkteken en op de werkbalk verschijnen de knoppen **markeringen wissen / zwart maken toepassen**:
 
-  ![De pagina na het markeren voor zwart maken](img/pdf-redact.png)
-
   3. Klik op **Zwart maken toepassen** en bevestig — het resultaat is een werkexemplaar waarin de bedekte tekst en afbeeldingen fysiek zijn verwijderd (niet alleen bedekt) en dit kan niet ongedaan worden gemaakt; het oorspronkelijke document blijft ongewijzigd.
 
   Een fout gemaakt? De knop om markeringen te wissen haalt de huidige markeringen weg, zodat je opnieuw kunt tekenen.

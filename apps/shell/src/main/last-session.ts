@@ -2,7 +2,7 @@ import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 
 /**
- * Reopen the documents of the previous session at launch (genoffice#2162).
+ * Reopen the documents of the previous session at launch (vantage#2162).
  * Off by default; when on, the shell window's file tabs are stored in
  * app-settings.json as it closes and reopened at the next launch.
  */

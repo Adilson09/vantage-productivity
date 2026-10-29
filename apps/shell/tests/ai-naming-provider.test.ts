@@ -66,7 +66,7 @@ describe('resolveNamingProvider', () => {
   })
 
   it("resolves a custom endpoint's key from the environment", () => {
-    process.env.GENOFFICE_NAMING_TEST_KEY = 'from-env'
+    process.env.VANTAGE_NAMING_TEST_KEY = 'from-env'
     try {
       const resolved = resolveNamingProvider(
         {
@@ -76,7 +76,7 @@ describe('resolveNamingProvider', () => {
               apiKey: '',
               model: 'local-model',
               baseUrl: 'http://127.0.0.1:11434/v1',
-              profile: { apiKeyEnv: 'GENOFFICE_NAMING_TEST_KEY' },
+              profile: { apiKeyEnv: 'VANTAGE_NAMING_TEST_KEY' },
             },
           },
         },
@@ -85,7 +85,7 @@ describe('resolveNamingProvider', () => {
       expect(resolved?.provider).toBe('custom')
       expect(resolved?.config.apiKey).toBe('from-env')
     } finally {
-      delete process.env.GENOFFICE_NAMING_TEST_KEY
+      delete process.env.VANTAGE_NAMING_TEST_KEY
     }
   })
 })

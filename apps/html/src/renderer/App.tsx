@@ -10,11 +10,11 @@ import {
   aiPanelInitiallyOpen,
   rememberAiPanelOpen,
   useAiSidebarEnabled,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 import {
   pollUntilReady,
   runHeadlessRendererExport,
-} from '@genoffice/electron-utils/headless-export'
+} from '@vantage/electron-utils/headless-export'
 import { useI18n } from './i18n/locale'
 import { parseDocText, serializeDocText, type Envelope } from './document/envelope'
 import {
@@ -44,7 +44,7 @@ import {
   type CanvasMode,
   type ViewMode,
 } from './components/Ribbon'
-import { CropDialog, CutoutDialog, type ImageDialogLabels } from '@genoffice/ui'
+import { CropDialog, CutoutDialog, type ImageDialogLabels } from '@vantage/ui'
 import { FloatToolbar } from './components/FloatToolbar'
 import { RedactDialog } from './components/RedactDialog'
 import { redactClearPlan, redactMarkPlan, type RedactPlan } from './document/redact-edit'
@@ -134,7 +134,7 @@ export default function App() {
   const [text, setText] = useState('')
   const [savedText, setSavedText] = useState('')
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  // Aster Office: retain actionable storage errors and rescue paths for the reader.
+  // Vantage Productivity: retain actionable storage errors and rescue paths for the reader.
   const [saveError, setSaveError] = useState<string | null>(null)
   const [view, setView] = useState<ViewMode>(readViewMode)
   const [canvasMode, setCanvasModeState] = useState<CanvasMode>('edit')
@@ -1761,7 +1761,7 @@ export default function App() {
         </div>
         <div className="app-content">
           {saveError && (
-            <div className="disk-notice aster-save-error" role="alert">
+            <div className="disk-notice vantage-save-error" role="alert">
               <span>{saveError}</span>
               <button
                 type="button"

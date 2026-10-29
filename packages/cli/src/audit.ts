@@ -1,12 +1,12 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-// Aster Office: keep audit data beside this fork's auth and launcher record.
-import { asterCliStateDir } from '../../ai-search/src/aster-profile'
+// Vantage Productivity: keep audit data beside this fork's auth and launcher record.
+import { vantageCliStateDir } from '../../ai-search/src/vantage-profile'
 
 /**
  * One JSON line per executed command, so the person who let an agent loose
- * with genoffice can see afterwards what it touched. Default location
- * ~/.aster-office/cli-audit.jsonl; GENOFFICE_AUDIT_LOG=<path> redirects, `off`
+ * with vantage can see afterwards what it touched. Default location
+ * ~/.vantage-productivity/cli-audit.jsonl; VANTAGE_AUDIT_LOG=<path> redirects, `off`
  * disables. Never throws: a failed audit write must not fail the command.
  */
 export interface AuditRecord {
@@ -22,10 +22,10 @@ export interface AuditRecord {
 const MAX_BYTES = 2_000_000
 
 export function auditLogPath(env: NodeJS.ProcessEnv): string | null {
-  const raw = env.GENOFFICE_AUDIT_LOG?.trim()
+  const raw = env.VANTAGE_AUDIT_LOG?.trim()
   if (raw?.toLowerCase() === 'off') return null
   if (raw) return raw
-  return join(asterCliStateDir(env), 'cli-audit.jsonl')
+  return join(vantageCliStateDir(env), 'cli-audit.jsonl')
 }
 
 export function appendAudit(env: NodeJS.ProcessEnv, record: AuditRecord): void {

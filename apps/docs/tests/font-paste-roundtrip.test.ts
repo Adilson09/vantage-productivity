@@ -81,9 +81,9 @@ describe('fontAttrsFromFamilyChain', () => {
     })
   })
 
-  it('skips internal GenOffice aliases even at the chain head', () => {
+  it('skips internal Vantage aliases even at the chain head', () => {
     expect(
-      fontAttrsFromFamilyChain("'GenOffice Songti SC','STSong','SimSun','Noto Serif CJK SC',serif"),
+      fontAttrsFromFamilyChain("'Vantage Songti SC','STSong','SimSun','Noto Serif CJK SC',serif"),
     ).toEqual({ font: 'STSong' })
   })
 
@@ -93,7 +93,7 @@ describe('fontAttrsFromFamilyChain', () => {
       fontAscii: 'SomeCustomFont',
     })
     expect(
-      fontAttrsFromFamilyChain("'PT Serif Custom','Noto Serif CJK GO','GenOffice PUA Blank',serif"),
+      fontAttrsFromFamilyChain("'PT Serif Custom','Noto Serif CJK GO','Vantage PUA Blank',serif"),
     ).toEqual({ font: 'PT Serif Custom', fontAscii: 'PT Serif Custom' })
   })
 

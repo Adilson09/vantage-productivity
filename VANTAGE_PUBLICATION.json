@@ -1,0 +1,17 @@
+{
+  "product": "Vantage Productivity",
+  "version": "0.15.0-dev.1",
+  "kind": "Current development source snapshot",
+  "capturedAt": "2026-10-29T20:52:30.389609+00:00",
+  "sourceFiles": 6519,
+  "baseCommit": "fb95a4057cd810fe5a65bef9a3f7496bcb638b02",
+  "excluded": [
+    "Restricted ee source and upstream Git history",
+    "Installed dependencies and build outputs",
+    "Compiled companions and local engine configuration",
+    "Mailbox profiles, sign-in credentials and owner OAuth JSON",
+    "Workstation logs and personal launchers"
+  ],
+  "publicationAdjustment": "Ignore restricted ee/ and Cargo target/ outputs in fresh clones.",
+  "ci": "Snapshot publication skips inherited CI; validation evidence identifies the locally tested scope and separately sealed Windows build."
+}

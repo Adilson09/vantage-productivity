@@ -1,4 +1,4 @@
-// Aster Office packaging helper. Reads dependency metadata and copies notices only.
+// Vantage Productivity packaging helper. Reads dependency metadata and copies notices only.
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -129,7 +129,7 @@ export async function collect({ sourceRoot, nodeModules, cargoHome, metadataPath
     if (!item.source && inside(sourceRoot, directory) && !files.length) {
       files = await noticeFiles(sourceRoot, null, [sourceRoot], 0, /^(?:licen[cs]e|copying|copyright|notice)(?:[._-]|$)/i);
     }
-    components.push({ ecosystem: "Cargo", name: item.name, version: item.version, authors: item.authors, declaredLicense: item.license, selectedLicense: selectedLicense(item.license, files), repository: item.repository, source: item.source ?? "local workspace or vendor", sourceArchive: item.source?.startsWith("registry+") ? `https://crates.io/api/v1/crates/${encodeURIComponent(item.name)}/${encodeURIComponent(item.version)}/download` : "Modified workspace/vendor source accompanies the Aster source archive", sourceDirectory: directory, files });
+    components.push({ ecosystem: "Cargo", name: item.name, version: item.version, authors: item.authors, declaredLicense: item.license, selectedLicense: selectedLicense(item.license, files), repository: item.repository, source: item.source ?? "local workspace or vendor", sourceArchive: item.source?.startsWith("registry+") ? `https://crates.io/api/v1/crates/${encodeURIComponent(item.name)}/${encodeURIComponent(item.version)}/download` : "Modified workspace/vendor source accompanies the Vantage source archive", sourceDirectory: directory, files });
   }
   for (const { directory, manifest } of (await installedNpmPackages(nodeModules)).sort((a, b) => `${a.manifest.name}@${a.manifest.version}`.localeCompare(`${b.manifest.name}@${b.manifest.version}`))) {
     const files = await noticeFiles(directory);
@@ -156,13 +156,13 @@ export async function collect({ sourceRoot, nodeModules, cargoHome, metadataPath
   const missing = components.filter((component) => component.files.every((file) => file.kind === "package-attribution" || /(?:^|\/)authors(?:\.|$)/i.test(file.path))).map(({ecosystem, name, version, declaredLicense}) => ({ ecosystem, name, version, declaredLicense }));
   const standardTextSupplemented = components.filter((component) => component.files.some((file) => file.kind === "canonical-spdx"));
   const heading = [
-    "ASTER MAIL — THIRD-PARTY NOTICES",
+    "VANTAGE MAIL — THIRD-PARTY NOTICES",
     "Pinned upstream: https://github.com/fgbm/depesha at d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4 (0.8.17).",
     "These notices reproduce license and attribution files from the fetched Windows-target Cargo graph and installed frontend/build dependencies. Build/test-only components are included conservatively; inclusion does not assert that every listed component is linked in the executable.",
     "Where a simple MIT OR Apache-2.0 option offers a captured MIT permission text, the MIT option is selected; both original license files are preserved below. Other expressions are retained as declared.",
     missing.length ? `INCOMPLETE: ${missing.length} component(s) have no captured standalone license/notice text; see the accompanying inventory before redistribution.` : "All discovered components have captured license or notice texts.",
     `${standardTextSupplemented.length} packages omit standalone license text in their published package/source revision. For these, the declared SPDX license's standard text and original package attribution/metadata are supplied and explicitly marked; no copyright year or owner has been invented.`,
-    "Original Depesha project and vendored imap-proto licenses are included separately with the companion. Aster fork changes are described in ASTER_MAIL_FORK_NOTICE.txt.",
+    "Original Depesha project and vendored imap-proto licenses are included separately with the companion. Vantage fork changes are described in VANTAGE_MAIL_FORK_NOTICE.txt.",
     "",
   ];
   for (const component of components) {
@@ -174,8 +174,8 @@ export async function collect({ sourceRoot, nodeModules, cargoHome, metadataPath
   await fs.writeFile(path.join(outputDirectory, "THIRD-PARTY-NOTICES.txt"), heading.join("\n"), "utf8");
   const inventory = { generatedUtc: new Date().toISOString(), metadataPath, sourceRoot, nodeModules, cargoHome, complete: missing.length === 0, counts: { cargo: components.filter((c) => c.ecosystem === "Cargo").length, npm: components.filter((c) => c.ecosystem === "npm").length, noticeFiles: components.reduce((count, component) => count + component.files.length, 0), standardTextSupplemented: standardTextSupplemented.length, missing: missing.length }, missing, components: components.map(({ files, ...component }) => ({ ...component, files: files.map(({ text, ...file }) => file) })) };
   await fs.writeFile(path.join(outputDirectory, "depesha-license-inventory.json"), JSON.stringify(inventory, null, 2) + "\n", "utf8");
-  await fs.writeFile(path.join(outputDirectory, "ASTER_NOTICE_LOCKS.json"), JSON.stringify(lockHashes, null, 2) + "\n", "utf8");
-  await fs.writeFile(path.join(outputDirectory, "ASTER_NOTICE_PROVENANCE.json"), JSON.stringify({ generatedUtc: inventory.generatedUtc, upstreamCommit: "d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4", upstreamVersion: "0.8.17", completeTextCollection: inventory.complete, counts: inventory.counts, standardTextSupplemented: standardTextSupplemented.map(({ ecosystem, name, version }) => ({ ecosystem, name, version })), locks: lockHashes, noticesSha256: hash(await fs.readFile(path.join(outputDirectory, "THIRD-PARTY-NOTICES.txt"))), generatorSha256: hash(await fs.readFile(new URL(import.meta.url))) }, null, 2) + "\n", "utf8");
+  await fs.writeFile(path.join(outputDirectory, "VANTAGE_NOTICE_LOCKS.json"), JSON.stringify(lockHashes, null, 2) + "\n", "utf8");
+  await fs.writeFile(path.join(outputDirectory, "VANTAGE_NOTICE_PROVENANCE.json"), JSON.stringify({ generatedUtc: inventory.generatedUtc, upstreamCommit: "d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4", upstreamVersion: "0.8.17", completeTextCollection: inventory.complete, counts: inventory.counts, standardTextSupplemented: standardTextSupplemented.map(({ ecosystem, name, version }) => ({ ecosystem, name, version })), locks: lockHashes, noticesSha256: hash(await fs.readFile(path.join(outputDirectory, "THIRD-PARTY-NOTICES.txt"))), generatorSha256: hash(await fs.readFile(new URL(import.meta.url))) }, null, 2) + "\n", "utf8");
   return inventory;
 }
 

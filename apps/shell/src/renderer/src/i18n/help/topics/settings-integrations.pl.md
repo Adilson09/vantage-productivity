@@ -4,8 +4,6 @@
 
 Wiersz konta w lewym dolnym rogu strony głównej otwiera panel ustawień (gdy nie jesteś zalogowany, pokazuje Zaloguj się). Ma sześć sekcji: Konto, Model AI, Media i wyszukiwanie AI, Ogólne, Integracje i O aplikacji.
 
-![Ustawienia ▸ Ogólne, gdzie znajdują się język, motyw, automatyczny zapis i przełącznik statystyk użycia](img/settings-general.png)
-
 Konfiguracja modeli ma własny artykuł; w sekcji **Media i wyszukiwanie AI** włączasz dla każdego dostawcy generowanie obrazów, analizę obrazów, analizę wideo, wyszukiwanie w sieci i wyszukiwanie plików lokalnych.
 
 ## Język
@@ -23,7 +21,7 @@ Jasny / Ciemny / Zgodnie z systemem. Opcja Zgodnie z systemem podąża za wyglą
 - **Położenie panelu bocznego AI** (po lewej lub po prawej), **Rozmiar tekstu panelu AI** i **Sprawdzanie pisowni w czacie AI**.
 - **Otwieraj panel AI w nowych dokumentach** — wyłączone, nowy dokument zaczyna się ze zwiniętym panelem, jedno kliknięcie stąd.
 - **Automatycznie zapisuj wszystkie dokumenty** włącza AutoSave domyślnie w każdym edytorze; nadal można je wyłączyć dla jednego okna.
-- **Lokalizacja zapisu** z przyciskiem **Zmień** oraz **Domyślna aplikacja dla dokumentów Office**, aby przejąć .docx / .xlsx / .pptx dla GenOffice.
+- **Lokalizacja zapisu** z przyciskiem **Zmień** oraz **Domyślna aplikacja dla dokumentów Office**, aby przejąć .docx / .xlsx / .pptx dla Vantage.
 
 ## Media i wyszukiwanie AI
 
@@ -39,7 +37,7 @@ To nie są przełączniki — każda możliwość wybiera dostawcę, który ją 
 
 ## Powiązanie z aplikacją domyślną
 
-Ustawienia mogą zarejestrować GenOffice jako obsługę plików .docx / .xlsx / .pptx / .pdf i podobnych (rejestracja aplikacji domyślnej na poziomie systemu; potwierdzenie, gdy aplikacja o to poprosi).
+Ustawienia mogą zarejestrować Vantage jako obsługę plików .docx / .xlsx / .pptx / .pdf i podobnych (rejestracja aplikacji domyślnej na poziomie systemu; potwierdzenie, gdy aplikacja o to poprosi).
 
 ## Informacje o oprogramowaniu innych firm i aktualizacje
 
@@ -48,15 +46,13 @@ Ustawienia mogą zarejestrować GenOffice jako obsługę plików .docx / .xlsx /
 
 ## Logowanie do Genspark
 
-- Punkt logowania (w ustawieniach lub na liście projektów w chmurze) korzysta z przepływu z **kodem urządzenia**: GenOffice pokazuje kod i otwiera stronę logowania w przeglądarce; po zakończeniu proces przebiega dalej automatycznie.
+- Punkt logowania (w ustawieniach lub na liście projektów w chmurze) korzysta z przepływu z **kodem urządzenia**: Vantage pokazuje kod i otwiera stronę logowania w przeglądarce; po zakończeniu proces przebiega dalej automatycznie.
 - Logowanie służy wyłącznie do: listy projektów w chmurze i modeli hostowanych przez Genspark. Bez niego wszystkie funkcje lokalne i modele niestandardowe działają dalej.
 - Wylogowanie to jedno kliknięcie w ustawieniach.
 
 ## Integracja MCP (dla zaawansowanych użytkowników i klientów AI)
 
-Do **Integracji** łączy GenOffice z agentem programistycznym i ma własny artykuł: Podłączenie z agentem programistycznym. Wersja skrócona — wybierz drogę (wiersz poleceń albo MCP), przejdź tę część, a potem rozpocznij nową rozmowę i zapytaj.
-
-![Ustawienia ▸ Integracje: trzy kroki, potem wiersze umiejętności i opcje MCP](img/settings-integrations.png)
+Do **Integracji** łączy Vantage z agentem programistycznym i ma własny artykuł: Podłączenie z agentem programistycznym. Wersja skrócona — wybierz drogę (wiersz poleceń albo MCP), przejdź tę część, a potem rozpocznij nową rozmowę i zapytaj.
 
 W sekcji **Lokalny serwer HTTP** aplikacja może też sama uruchomić ten serwer — przełącznik włączania i port —, a **Zaawansowane** dodaje adres sprawdzenia stanu i plik dziennika, zamiast zostawiać serwer asystentowi. Nasłuchuje wyłącznie na localhost.
 
@@ -64,6 +60,6 @@ W sekcji **Lokalny serwer HTTP** aplikacja może też sama uruchomić ten serwer
 
 | Polecenie          | Co robi                      |
 | ------------------ | ---------------------------- |
-| `genoffice <plik>` | otwiera plik                 |
-| `genoffice mcp`    | uruchamia lokalny serwer MCP |
-| `genoffice --help` | wszystkie polecenia i opcje  |
+| `vantage <plik>` | otwiera plik                 |
+| `vantage mcp`    | uruchamia lokalny serwer MCP |
+| `vantage --help` | wszystkie polecenia i opcje  |

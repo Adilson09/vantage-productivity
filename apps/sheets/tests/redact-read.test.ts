@@ -14,7 +14,7 @@ import {
   redactionsOf,
   type WorkbookReadContext,
 } from '../src/renderer/ai/workbook-readers'
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 
 const SHEETS = [
   { id: 'sh1', name: 'Customers' },

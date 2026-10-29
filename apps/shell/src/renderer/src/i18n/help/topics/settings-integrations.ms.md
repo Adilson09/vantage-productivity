@@ -4,8 +4,6 @@
 
 Baris akaun di penjuru kiri bawah pada Laman Utama akan membuka panel tetapan. Ia memaparkan Log masuk apabila anda belum log masuk. Panel ini mempunyai enam bahagian: Akaun, Model AI, Media & Carian AI, Umum, Integrasi dan Perihal.
 
-![Tetapan ▸ Umum, tempat bahasa, tema, autosimpan dan suis statistik penggunaan berada](img/settings-general.png)
-
 Konfigurasi model mempunyai babnya sendiri; dalam **Media & Carian AI** anda menghidupkan penjanaan imej, analisis imej, analisis video, carian web dan carian fail tempatan bagi setiap pembekal.
 
 ## Bahasa
@@ -23,7 +21,7 @@ Tiga pilihan ialah Cerah, Gelap, dan Ikut Sistem. Mod Ikut Sistem mengikut rupa 
 - **Kedudukan bar sisi AI** (kiri atau kanan), **Saiz teks panel AI** dan **Semakan ejaan dalam sembang AI**.
 - **Buka panel AI dalam dokumen baharu** — dimatikan, dokumen baharu bermula dengan panel tertutup, sekali klik sahaja.
 - **Simpan automatik semua dokumen** membolehkan AutoSave secara lalai dalam setiap editor; anda masih boleh mematikannya untuk satu tetingkap sahaja.
-- **Lokasi simpanan** dengan butang **Tukar**, dan **Apl lalai untuk dokumen Office** untuk menuntut .docx / .xlsx / .pptx bagi GenOffice.
+- **Lokasi simpanan** dengan butang **Tukar**, dan **Apl lalai untuk dokumen Office** untuk menuntut .docx / .xlsx / .pptx bagi Vantage.
 
 ## Media & Carian AI
 
@@ -39,7 +37,7 @@ Ia bukan suis — setiap keupayaan memilih pembekal yang menyediakannya, dan kun
 
 ## Penetapan sebagai aplikasi lalai
 
-Tetapan boleh mendaftar GenOffice sebagai aplikasi yang mengendalikan fail .docx, .xlsx, .pptx, .pdf, dan yang lain. Pendaftaran ini dilakukan pada peringkat sistem, dan pengesahan diperlukan apabila diminta.
+Tetapan boleh mendaftar Vantage sebagai aplikasi yang mengendalikan fail .docx, .xlsx, .pptx, .pdf, dan yang lain. Pendaftaran ini dilakukan pada peringkat sistem, dan pengesahan diperlukan apabila diminta.
 
 ## Notis perisian pihak ketiga dan kemas kini
 
@@ -48,15 +46,13 @@ Tetapan boleh mendaftar GenOffice sebagai aplikasi yang mengendalikan fail .docx
 
 ## Log masuk ke Genspark
 
-- Kemasukan log masuk, sama ada melalui tetapan atau senarai projek awan, menggunakan aliran **kod peranti**. GenOffice memaparkan kod tersebut dan membuka halaman log masuk dalam pelayar, dan aliran ini akan diteruskan secara automatik selepas selesai.
+- Kemasukan log masuk, sama ada melalui tetapan atau senarai projek awan, menggunakan aliran **kod peranti**. Vantage memaparkan kod tersebut dan membuka halaman log masuk dalam pelayar, dan aliran ini akan diteruskan secara automatik selepas selesai.
 - Log masuk hanya digunakan untuk dua perkara, iaitu senarai projek awan dan model yang dihoskan oleh Genspark. Tanpa log masuk, setiap fungsi setempat dan model tersuai akan terus berfungsi.
 - Log keluar boleh dilakukan dengan satu klik dalam tetapan.
 
 ## Integrasi MCP
 
-**Integrasi** ialah panel yang menyambungkan GenOffice kepada ejen penulisan kod, dan ia ada babnya sendiri: Menyambungkan ejen penulisan kod. Versi ringkas — pilih satu laluan (baris arahan, atau MCP), ikut bahagian itu, kemudian mulakan sembang baharu dan bertanya.
-
-![Tetapan ▸ Integrasi: tiga langkah, kemudian baris kemahiran dan pilihan MCP](img/settings-integrations.png)
+**Integrasi** ialah panel yang menyambungkan Vantage kepada ejen penulisan kod, dan ia ada babnya sendiri: Menyambungkan ejen penulisan kod. Versi ringkas — pilih satu laluan (baris arahan, atau MCP), ikut bahagian itu, kemudian mulakan sembang baharu dan bertanya.
 
 Di bawah **Pelayan HTTP tempatan**, aplikasi ini juga boleh menjalankan pelayan itu sendiri — suis pendayakan dan port — dan **Lanjutan** menambah URL semakan kesihatan serta fail log, dan bukannya meninggalkannya kepada pembantu. Ia hanya mendengarkan pada localhost.
 
@@ -64,6 +60,6 @@ Di bawah **Pelayan HTTP tempatan**, aplikasi ini juga boleh menjalankan pelayan 
 
 | Perintah           | Fungsinya                             |
 | ------------------ | ------------------------------------- |
-| `genoffice <fail>` | membuka fail                          |
-| `genoffice mcp`    | memulakan pelayan MCP tempatan        |
-| `genoffice --help` | memaparkan semua perintah dan pilihan |
+| `vantage <fail>` | membuka fail                          |
+| `vantage mcp`    | memulakan pelayan MCP tempatan        |
+| `vantage --help` | memaparkan semua perintah dan pilihan |

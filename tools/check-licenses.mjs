@@ -37,6 +37,17 @@ const EXCEPTIONS = {
   khroma: 'MIT',
 }
 
+// Explicit selection for the local calendar engine. ICAL.js is shipped unchanged;
+// its MPL source and license are retained in the release component record.
+// This is a version-specific exception, not a blanket copyleft allowlist.
+const REVIEWED_COMPONENTS = {
+  'ical.js': {
+    version: '2.2.1',
+    license: 'MPL-2.0',
+    record: 'docs/implementation/open-source-components.json',
+  },
+}
+
 /** Minimal SPDX expression check: OR passes if any branch is allowed,
  * AND requires every branch, WITH falls back to the base license. */
 function isAllowed(expr) {
@@ -91,7 +102,13 @@ for (const [path, info] of Object.entries(lock.packages)) {
   const license = info.license || EXCEPTIONS[name]
   if (!license) {
     violations.push(`${name}: no license field in lockfile (add to EXCEPTIONS after verifying)`)
-  } else if (!isAllowed(license)) {
+  } else if (
+    !isAllowed(license) &&
+    !(
+      REVIEWED_COMPONENTS[name]?.version === info.version &&
+      REVIEWED_COMPONENTS[name]?.license === license
+    )
+  ) {
     violations.push(`${name}: ${license}`)
   }
 }

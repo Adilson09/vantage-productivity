@@ -1,0 +1,5 @@
+Original engine project: GenOffice
+Repository: https://github.com/genspark-ai/genoffice
+Source revision: b239d2e591d3fe2e7f079354f4f3d5b61f598800
+Copyright 2026 Mainfunc, Inc. Apache-2.0. See original NOTICE and LICENSE.
+Mail foundation: Depesha, https://github.com/fgbm/depesha, revision d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4, MIT OR Apache-2.0.

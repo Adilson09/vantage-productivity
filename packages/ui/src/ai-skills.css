@@ -1,5 +1,5 @@
 /* Composer "+" menu (add file / skills) and attached-skill chips. Chrome tokens
- * only; each app imports this next to its other @genoffice/ui sheets. */
+ * only; each app imports this next to its other @vantage/ui sheets. */
 
 .ai-plus {
   display: inline-flex;

@@ -2,8 +2,6 @@
 
 Semua file yang terbuka berbagi satu jendela; bilah tab di atas berpindah di antaranya, ala peramban.
 
-![Bilah tab: Beranda dan dua dokumen](img/tabs.png)
-
 ## Dasar-dasar
 
 - **Berpindah**: klik sebuah tab, atau gulir roda mouse di atas bilah untuk memutar satu per satu.

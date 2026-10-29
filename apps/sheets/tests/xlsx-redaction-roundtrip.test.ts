@@ -6,15 +6,15 @@ import {
   assertOnlyTouchedEntriesChanged,
   type CellEdit,
   type SheetStructuralOps,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-gateway'
-import type { SheetEditPlan } from '@genoffice/xlsx-gateway/gateway/xlsx-sheets'
+} from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
+import type { SheetEditPlan } from '@vantage/xlsx-gateway/gateway/xlsx-sheets'
 import {
   REDACTION_MIRROR_PREFIX,
   REDACTION_PART_PATH,
   parseRedactionNameMirror,
   parseRedactionPart,
   type SheetRedactionState,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+} from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">

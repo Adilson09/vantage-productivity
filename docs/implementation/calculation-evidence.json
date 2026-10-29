@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-10-29T16:34:08.286Z",
+  "binary": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\apps\\sheets\\native\\xlsx-engine\\target\\release\\xlsx-sidecar.exe",
+  "binarySha256": "66b9fd9d7a0ffe9eb316f84e38cc3b2c71f9bea097b63d6ceb440f5a01b77bcd",
+  "caseCount": 1200,
+  "categories": [
+    "arithmetic",
+    "sum-range",
+    "average",
+    "product",
+    "financial-rounding",
+    "logical-if",
+    "logical-boolean",
+    "text",
+    "date-serial",
+    "error-recovery",
+    "financial-pmt",
+    "typed-error"
+  ],
+  "reference": "Independent exact arithmetic/date/text/error/zero-rate-finance expectations, not an installed Excel reference run.",
+  "liveDependencyRefresh": true,
+  "passed": true
+}

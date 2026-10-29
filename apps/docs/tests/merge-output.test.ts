@@ -7,7 +7,7 @@ import { mergeOutputFileName, mergeOutputPath } from '../src/main/merge-output'
 /**
  * Where a merged document is written: the name comes from the record, so the
  * main process keeps only its last part and gives two records of the same
- * name two different files. genoffice#2097.
+ * name two different files. vantage#2097.
  */
 
 describe('mergeOutputFileName', () => {
@@ -34,14 +34,14 @@ describe('mergeOutputFileName', () => {
 
 describe('mergeOutputPath', () => {
   it('gives two records of the same name two different files', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'genoffice-merge-out-'))
+    const dir = await mkdtemp(join(tmpdir(), 'vantage-merge-out-'))
     await writeFile(join(dir, 'Ada.docx'), 'first')
     const second = mergeOutputPath(dir, 'Ada')
     expect(basename(second)).toBe('Ada-2.docx')
   })
 
   it('keeps the file inside the folder the user chose', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'genoffice-merge-out-'))
+    const dir = await mkdtemp(join(tmpdir(), 'vantage-merge-out-'))
     const path = mergeOutputPath(dir, '../escape')
     expect(path.startsWith(dir)).toBe(true)
   })

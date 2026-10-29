@@ -23,16 +23,16 @@ describe('cellContextMenuLayout', () => {
     expect(new Set(ids).size).toBe(ids.length)
     const others = nodes.filter((node) => node.group === ContextMenuGroup.OTHERS)
     expect(others.map((node) => node.id)).toEqual([
-      'genoffice.ctx.new-comment',
-      'genoffice.ctx.reply-comment',
-      'genoffice.ctx.delete-comment',
-      'genoffice.ctx.resolve-comment',
+      'vantage.ctx.new-comment',
+      'vantage.ctx.reply-comment',
+      'vantage.ctx.delete-comment',
+      'vantage.ctx.resolve-comment',
       NUMBER_FORMAT_MENU_ID,
-      'genoffice.ctx.format-cells',
+      'vantage.ctx.format-cells',
       PICK_FROM_LIST_COMMAND_ID,
-      'genoffice.ctx.define-name',
-      'genoffice.ctx.link',
-      'genoffice.ctx.insert-function',
+      'vantage.ctx.define-name',
+      'vantage.ctx.link',
+      'vantage.ctx.insert-function',
     ])
     expect(others.map((node) => node.order)).toEqual(
       [...others.map((n) => n.order)].sort((a, b) => a - b),

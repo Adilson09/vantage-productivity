@@ -1,6 +1,6 @@
-# GenOffice'i yükleme
+# Vantage'i yükleme
 
-Her derleme [Sürümler sayfasında](https://github.com/genspark-ai/genoffice/releases/latest) yayımlanır. Hepsi `main` dalından gelir; macOS ve Windows yükleyicileri imzalıdır.
+Her derleme [Sürümler sayfasında](https://github.com/Adilson09/aster-office/releases/latest) yayımlanır. Hepsi `main` dalından gelir; macOS ve Windows yükleyicileri imzalıdır.
 
 ## Makineniz için doğru dosyayı seçin
 
@@ -18,32 +18,32 @@ Eski sürümler Sürümler sayfasında kalmaya devam eder.
 
 ## macOS'te
 
-`.dmg` dosyasını açın ve **GenOffice**'i Uygulamalar klasörüne sürükleyin. Intel derlemesinde ilk açılışta uygulamayı açmayı onaylamanız istenir: Uygulamalar'da uygulamaya sağ tıklayın ▸ Aç. Bu, Gatekeeper'ın imzasız görünen bir disk görüntüsüyle karşılaşmasıdır; bozuk bir indirme değildir.
+`.dmg` dosyasını açın ve **Vantage**'i Uygulamalar klasörüne sürükleyin. Intel derlemesinde ilk açılışta uygulamayı açmayı onaylamanız istenir: Uygulamalar'da uygulamaya sağ tıklayın ▸ Aç. Bu, Gatekeeper'ın imzasız görünen bir disk görüntüsüyle karşılaşmasıdır; bozuk bir indirme değildir.
 
 ## Windows'ta
 
-`.exe` yükleyicisini çalıştırın. GenOffice'i Başlat menüsüne ekler ve `.docx`, `.xlsx`, `.pptx`, `.pdf` ve benzeri uzantıları kaydeder; böylece bir dosyaya çift tıklamak onu açar.
+`.exe` yükleyicisini çalıştırın. Vantage'i Başlat menüsüne ekler ve `.docx`, `.xlsx`, `.pptx`, `.pdf` ve benzeri uzantıları kaydeder; böylece bir dosyaya çift tıklamak onu açar.
 
 ## Linux'ta
 
 **Debian / Ubuntu**
 
 ```sh
-sudo apt install ./genoffice_<version>_amd64.deb
+sudo apt install ./vantage_<version>_amd64.deb
 ```
 
 **Fedora / RHEL / openSUSE**
 
 ```sh
-sudo dnf install ./genoffice-<version>.x86_64.rpm     # Fedora / RHEL family
-sudo zypper install ./genoffice-<version>.x86_64.rpm  # openSUSE
+sudo dnf install ./vantage-<version>.x86_64.rpm     # Fedora / RHEL family
+sudo zypper install ./vantage-<version>.x86_64.rpm  # openSUSE
 ```
 
 **AppImage** — bulunduğu yerden, yükleme adımı olmadan çalışır:
 
 ```sh
-chmod +x GenOffice-<version>.AppImage
-./GenOffice-<version>.AppImage
+chmod +x Vantage-<version>.AppImage
+./Vantage-<version>.AppImage
 ```
 
 FUSE 2 çalışma zamanına ihtiyaç duyar. Onu yüklemek istemiyorsanız `--appimage-extract-and-run` ile çalıştırın; korumalı alan, çıkarılan dizinden çalışır.
@@ -51,8 +51,6 @@ FUSE 2 çalışma zamanına ihtiyaç duyar. Onu yüklemek istemiyorsanız `--app
 ## Çalıştırdığınız derleme
 
 **Ayarlar ▸ Hakkında**, uygulamanın sahip olduğunuz derlemeyi, izlediği kanalı ve projenin nerede bulunduğunu bildirdiği yerdir. O kanalda daha yeni bir derleme yayımlandığında aynı bölme güncellemeyi sunar; Flatpak, Nix veya Docker kurulumu sunmaz, çünkü bunlar onları yerleştiren araç tarafından değiştirilir.
-
-![Ayarlar ▸ Hakkında: yüklü sürüm, uygulamanın izlediği güncelleme kanalı ve projenin GitHub bağlantısı](img/install.png)
 
 ## Üç yol daha
 
@@ -64,4 +62,4 @@ FUSE 2 çalışma zamanına ihtiyaç duyar. Onu yüklemek istemiyorsanız `--app
 
 ## Komut satırı da birlikte gelir
 
-Her kurulum, pencerenin konuştuğu motorlarla aynı motorlarla konuşan bir `genoffice` komutuyla gelir; böylece ikisi bir dosya hakkında asla anlaşmazlığa düşmez. macOS ve Windows'ta uygulama paketinin içindedir; `genoffice install-cli` onu `PATH` değişkeninize ekler. Neler yapabildiği için **Komut satırı ve aracılar** bölümüne bakın.
+Her kurulum, pencerenin konuştuğu motorlarla aynı motorlarla konuşan bir `vantage` komutuyla gelir; böylece ikisi bir dosya hakkında asla anlaşmazlığa düşmez. macOS ve Windows'ta uygulama paketinin içindedir; `vantage install-cli` onu `PATH` değişkeninize ekler. Neler yapabildiği için **Komut satırı ve aracılar** bölümüne bakın.

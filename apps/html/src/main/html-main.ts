@@ -41,16 +41,16 @@ import {
   readBodyCapped,
   printHtmlDocument,
   type PrintDialogOutcome,
-} from '@genoffice/electron-utils'
-import { createI18n, getUiLang } from '@genoffice/i18n'
-import { generateImageTool, documentMediaRoots } from '@genoffice/ai-search'
-import { parseFileToText } from '@genoffice/file-parse'
+} from '@vantage/electron-utils'
+import { createI18n, getUiLang } from '@vantage/i18n'
+import { generateImageTool, documentMediaRoots } from '@vantage/ai-search'
+import { parseFileToText } from '@vantage/file-parse'
 import { convertHtmlToDocx } from '../../../../packages/html2docx/src'
 import { atomicWriteFile } from './atomic-write'
 import {
   createDocumentDiskWatcher,
   type DocumentDiskWatcher,
-} from '@genoffice/electron-utils/disk-watch'
+} from '@vantage/electron-utils/disk-watch'
 import { ElectronBrowserDriver } from '../../../../packages/html2docx/src/drivers/electron'
 import {
   copyImageIntoOwnedAssets,
@@ -706,7 +706,7 @@ const TEXT_EXTS = new Set([
   'sql',
   'css',
 ])
-/** office/pdf formats get text extracted via @genoffice/file-parse; images skip extraction and go multimodal */
+/** office/pdf formats get text extracted via @vantage/file-parse; images skip extraction and go multimodal */
 const ATTACHMENT_EXTS = new Set([
   ...TEXT_EXTS,
   'doc',
@@ -796,7 +796,7 @@ function savePastedImage(data: unknown, ext: unknown): string | null {
         ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
         : null
   if (!bytes || bytes.byteLength === 0) return null
-  const dir = join(app.getPath('temp'), 'genoffice-pasted')
+  const dir = join(app.getPath('temp'), 'vantage-pasted')
   mkdirSync(dir, { recursive: true })
   prunePastedImages(dir)
   const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
@@ -827,7 +827,7 @@ interface RuntimePaths {
   preloadPath: string
   rendererUrl?: string
   rendererFile?: string
-  /** Shell router used to open exported PDFs in a new GenOffice tab. */
+  /** Shell router used to open exported PDFs in a new Vantage tab. */
   openGeneratedPath?: (path: string) => boolean
 }
 
@@ -1009,7 +1009,7 @@ function printHtml(html: string, docPath: string | undefined): Promise<PrintDial
     html: buildPreviewDocument(html, base),
     window: new BrowserWindow({ show: false, webPreferences: { sandbox: true } }),
     fileName: 'print.html',
-    dirPrefix: 'genoffice-html-print-',
+    dirPrefix: 'vantage-html-print-',
   })
 }
 
@@ -1636,7 +1636,7 @@ function registerHtmlIpc(): void {
         {
           mediaRoots: documentMediaRoots(
             htmlFilePath(e.sender.id),
-            join(app.getPath('temp'), 'genoffice-pasted'),
+            join(app.getPath('temp'), 'vantage-pasted'),
           ),
         },
       ),
@@ -1710,7 +1710,7 @@ function registerHtmlIpc(): void {
       if (docxExportPrepareHook && !(await docxExportPrepareHook(picked.filePath))) {
         return { ok: true, canceled: true }
       }
-      const workDir = await mkdtemp(join(tmpdir(), 'genoffice-html-docx-'))
+      const workDir = await mkdtemp(join(tmpdir(), 'vantage-html-docx-'))
       let driver: ElectronBrowserDriver | null = null
       try {
         // Same document the preview shows (scripts on, relative assets via html-asset://):
@@ -1738,7 +1738,7 @@ function registerHtmlIpc(): void {
             }, HTML_EXPORT_TIMEOUT_MS)
           }),
         ]).finally(() => clearTimeout(watchdog))
-        // Aster Office: protected publication also covers document exports.
+        // Vantage Productivity: protected publication also covers document exports.
         await atomicWriteFile(picked.filePath, Buffer.from(docx))
         openExportedDocx(picked.filePath)
         return { ok: true, path: picked.filePath }
@@ -1773,7 +1773,7 @@ function registerHtmlIpc(): void {
               configuredDefaultSaveDir(app),
             )
       if (picked.canceled || !picked.filePath) return { ok: true, canceled: true }
-      const workDir = await mkdtemp(join(tmpdir(), 'genoffice-html-pdf-'))
+      const workDir = await mkdtemp(join(tmpdir(), 'vantage-html-pdf-'))
       try {
         const docPath = savePathByWc.get(e.sender.id)
         await atomicWriteFile(picked.filePath, await renderPrintPdf(request.html, docPath, workDir))
@@ -2017,7 +2017,7 @@ export function createHtmlView(openPath?: string | null): WebContentsView {
   return view
 }
 
-/** Standalone window mode: `npm run dev -w @genoffice/html`, md path passed via argv */
+/** Standalone window mode: `npm run dev -w @vantage/html`, md path passed via argv */
 export function startHtmlStandalone(): void {
   registerPrivilegedSchemes()
   installNavigationGuard(app)

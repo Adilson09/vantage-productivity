@@ -1,4 +1,4 @@
-// Aster Office addition: recovery provenance, bounded retention and copy-only restore tests.
+// Vantage Productivity addition: recovery provenance, bounded retention and copy-only restore tests.
 import { createHash, randomUUID } from 'node:crypto'
 import {
   existsSync,
@@ -20,7 +20,7 @@ import {
   restoreRecoveryCopy,
 } from '../src/recovery-vault'
 
-const prefix = join(tmpdir(), 'aster-vault-')
+const prefix = join(tmpdir(), 'vantage-vault-')
 let dir = '',
   root = '',
   target = ''
@@ -58,7 +58,7 @@ describe('bounded local recovery vault', () => {
   })
 
   it('excludes application-data documents and caches without excluding similarly named sibling folders', async () => {
-    const previous = process.env.ASTER_RECOVERY_EXCLUDE_ROOT
+    const previous = process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT
     const dataRoot = join(dir, 'app-data')
     const siblingRoot = `${dataRoot}-documents`
     mkdirSync(dataRoot)
@@ -67,7 +67,7 @@ describe('bounded local recovery vault', () => {
     const document = join(siblingRoot, 'report.docx')
     writeFileSync(cached, 'temporary crash cache')
     writeFileSync(document, 'real document')
-    process.env.ASTER_RECOVERY_EXCLUDE_ROOT = dataRoot
+    process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT = dataRoot
     try {
       expect(await captureRecoverySnapshot(cached, root)).toBeNull()
       expect(await captureRecoverySnapshot(document, root)).toMatchObject({
@@ -75,8 +75,8 @@ describe('bounded local recovery vault', () => {
       })
       expect(await listRecoveryEntries(root)).toHaveLength(1)
     } finally {
-      if (previous === undefined) delete process.env.ASTER_RECOVERY_EXCLUDE_ROOT
-      else process.env.ASTER_RECOVERY_EXCLUDE_ROOT = previous
+      if (previous === undefined) delete process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT
+      else process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT = previous
     }
   })
 

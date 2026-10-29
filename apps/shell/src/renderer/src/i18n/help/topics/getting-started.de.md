@@ -1,10 +1,8 @@
 # Schnellstart: die Oberfläche und die Grundlagen
 
-GenOffice ist ein Office-Paket, das vollständig auf Ihrem Rechner läuft: ein Fenster, eine Reihe von Tabs, darin sechs Editoren — Docs (Textverarbeitung), Sheets (Tabellenkalkulation), Slides (Präsentationen), PDF, Markdown und HTML. Die Dateien sind echte .docx / .xlsx / .pptx / .pdf und lassen sich vollständig mit Word, Excel und PowerPoint austauschen. Kein Netzwerk nötig.
+Vantage ist ein Office-Paket, das vollständig auf Ihrem Rechner läuft: ein Fenster, eine Reihe von Tabs, darin sechs Editoren — Docs (Textverarbeitung), Sheets (Tabellenkalkulation), Slides (Präsentationen), PDF, Markdown und HTML. Die Dateien sind echte .docx / .xlsx / .pptx / .pdf und lassen sich vollständig mit Word, Excel und PowerPoint austauschen. Kein Netzwerk nötig.
 
 ## Überblick über die Oberfläche
-
-![Der Startbildschirm](img/home-screen.png)
 
 Das Fenster besteht aus drei Teilen:
 
@@ -18,7 +16,7 @@ Eines davon genügt:
 
 - Klicken Sie auf eine Schnellerstellungskarte im Bereich [Schnellstart](help://getting-started) der **Startseite** (AI Docs, AI Sheets, AI Slides, …).
 - Menü **Datei ▸ Neu**: Docs (⌘N/ctrl+N), Sheets, Slides, Markdown, HTML oder PDF.
-- Ziehen Sie eine Datei auf das Fenster oder doppelklicken Sie sie im Dateimanager (wenn GenOffice die Standard-App ist).
+- Ziehen Sie eine Datei auf das Fenster oder doppelklicken Sie sie im Dateimanager (wenn Vantage die Standard-App ist).
 
 Ein neues Dokument öffnet sich ohne Namen; die Datei auf dem Datenträger entsteht erst beim ersten Speichern.
 
@@ -26,7 +24,7 @@ Ein neues Dokument öffnet sich ohne Namen; die Datei auf dem Datenträger entst
 
 - Menü **Datei ▸ Öffnen** (⌘O/ctrl+O) öffnet die Systemauswahl: .docx / .doc / .xlsx / .xls / .csv / .tsv / .pptx / .ppt / .pdf / .md / .html.
 - Klicken Sie auf einen Eintrag in der Liste **Zuletzt verwendet** auf der Startseite.
-- `genoffice <file>` in einem Terminal öffnet Dateien ebenfalls.
+- `vantage <file>` in einem Terminal öffnet Dateien ebenfalls.
 
 ## Das Speichermodell
 
@@ -52,7 +50,7 @@ Tastenkürzel innerhalb der einzelnen Editoren (Format übertragen, Suchen und E
 
 ## Die Tastenkürzel mit Option+Befehl
 
-Option+Befehl ist die Ebene, die Word für strukturierte Sprünge reserviert, und GenOffice füllt sie auf dieselbe Weise. Docs nimmt den größten Teil davon, Sheets zwei eigene für die Excel-Parität; eine Kombination funktioniert überall.
+Option+Befehl ist die Ebene, die Word für strukturierte Sprünge reserviert, und Vantage füllt sie auf dieselbe Weise. Docs nimmt den größten Teil davon, Sheets zwei eigene für die Excel-Parität; eine Kombination funktioniert überall.
 
 **Docs**
 
@@ -81,7 +79,7 @@ Beachten Sie, dass **⌥⌘0 in Docs „Standard" und in Sheets „Äußere Rahm
 
 **Jeder Editor**: **⌥⌘R / Ctrl+F1** klappt das Menüband zu, wie oben beschrieben.
 
-Damit bleibt ⌥⌘D auf macOS frei, falls GenOffice ihn irgendwann für einen neuen Befehl braucht.
+Damit bleibt ⌥⌘D auf macOS frei, falls Vantage ihn irgendwann für einen neuen Befehl braucht.
 
 ## Wie Sie weiterfahren
 

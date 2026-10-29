@@ -6,7 +6,7 @@ import {
   upsertCustomEndpoint,
   type AiProviderId,
   type AiSettings,
-} from '@genoffice/ai-provider/browser'
+} from '@vantage/ai-provider/browser'
 
 export interface AiModelPickerGroup {
   readonly id: AiProviderId

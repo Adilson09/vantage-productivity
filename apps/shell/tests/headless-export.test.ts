@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import { join, relative, resolve, sep } from 'node:path'
 
 import {
   runHeadlessExport,
   validateHeadlessPaths,
   type HeadlessExporters,
 } from '../src/main/headless-export'
-import type { HeadlessExportRequest } from '@genoffice/electron-utils'
+import type { HeadlessExportRequest } from '@vantage/electron-utils'
 
 /**
  * The `--headless-export` host (src/main/headless-export.ts): input checks,
@@ -18,15 +19,15 @@ const request = (
   outPath = '/out/a.pdf',
   targetFormat: HeadlessExportRequest['targetFormat'] = 'pdf',
 ): HeadlessExportRequest => ({
-  input,
+  input: resolve(input),
   targetFormat,
-  outPath,
+  outPath: resolve(outPath),
   json: false,
 })
 
 /** Every path in `present` exists and is a file; everything else does not. */
 const fsWith = (present: readonly string[], isFile = true) => ({
-  exists: (path: string) => present.includes(path),
+  exists: (path: string) => present.some((candidate) => resolve(candidate) === resolve(path)),
   isFile: () => isFile,
 })
 
@@ -52,8 +53,8 @@ describe('validateHeadlessPaths', () => {
     const result = validateHeadlessPaths(request('/docs/a.docx'), fsWith(['/docs/a.docx', '/out']))
     expect(result).toEqual({
       ok: true,
-      input: '/docs/a.docx',
-      outPath: '/out/a.pdf',
+      input: resolve('/docs/a.docx'),
+      outPath: resolve('/out/a.pdf'),
       module: 'docs',
     })
   })
@@ -72,7 +73,7 @@ describe('validateHeadlessPaths', () => {
     expect(validateHeadlessPaths(request('/nope.docx'), fsWith([]))).toEqual({
       ok: false,
       code: 2,
-      message: expect.stringContaining('/nope.docx'),
+      message: expect.stringContaining(resolve('/nope.docx')),
     })
   })
 
@@ -92,7 +93,8 @@ describe('validateHeadlessPaths', () => {
   it('rejects an output path that is the input file, also through a symlink', () => {
     const fs = {
       ...fsWith(['/docs/a.docx', '/docs', '/link/a.docx', '/link']),
-      realpath: (path: string) => path.replace(/^\/link/, '/docs'),
+      realpath: (path: string) => path === resolve('/link') || path.startsWith(resolve('/link') + sep)
+        ? join(resolve('/docs'), relative(resolve('/link'), path)) : path,
     }
     expect(
       validateHeadlessPaths(request('/docs/a.docx', '/docs/a.docx', 'html'), fs),
@@ -102,13 +104,13 @@ describe('validateHeadlessPaths', () => {
     ).toMatchObject({ ok: false, code: 1, message: expect.stringContaining('differ') })
     expect(
       validateHeadlessPaths(request('/docs/a.docx', '/link/b.docx', 'html'), fs),
-    ).toMatchObject({ ok: true, outPath: '/link/b.docx' })
+    ).toMatchObject({ ok: true, outPath: resolve('/link/b.docx') })
   })
 
   it('rejects an output path that is an existing directory (exit 1)', () => {
     const fs = {
-      exists: (path: string) => ['/docs/a.docx', '/out', '/out/a.pdf'].includes(path),
-      isFile: (path: string) => path === '/docs/a.docx',
+      exists: (path: string) => ['/docs/a.docx', '/out', '/out/a.pdf'].some((candidate) => resolve(candidate) === path),
+      isFile: (path: string) => path === resolve('/docs/a.docx'),
     }
     expect(validateHeadlessPaths(request('/docs/a.docx', '/out/a.pdf'), fs)).toMatchObject({
       ok: false,
@@ -122,7 +124,7 @@ describe('validateHeadlessPaths', () => {
       request('/docs/a.docx', '/gone/a.pdf'),
       fsWith(['/docs/a.docx']),
     )
-    expect(result).toMatchObject({ ok: false, code: 1, message: expect.stringContaining('/gone') })
+    expect(result).toMatchObject({ ok: false, code: 1, message: expect.stringContaining(resolve('/gone')) })
   })
 })
 
@@ -134,8 +136,8 @@ describe('runHeadlessExport', () => {
       exporters,
       fsWith(['/decks/a.pptx', '/out', '/out/a.pdf']),
     )
-    expect(calls).toEqual(['slides:/decks/a.pptx->/out/a.pdf:pdf'])
-    expect(outcome).toEqual({ ok: true, input: '/decks/a.pptx', outPath: '/out/a.pdf' })
+    expect(calls).toEqual([`slides:${resolve('/decks/a.pptx')}->${resolve('/out/a.pdf')}:pdf`])
+    expect(outcome).toEqual({ ok: true, input: resolve('/decks/a.pptx'), outPath: resolve('/out/a.pdf') })
   })
 
   it.each([
@@ -171,7 +173,7 @@ describe('runHeadlessExport', () => {
     expect(outcome).toMatchObject({
       ok: false,
       code: 3,
-      message: expect.stringContaining('/out/a.pdf'),
+      message: expect.stringContaining(resolve('/out/a.pdf')),
     })
   })
 
@@ -182,8 +184,8 @@ describe('runHeadlessExport', () => {
       present.push('/out/a.pdf')
     }
     const outcome = await runHeadlessExport(request('/a.docx'), exporters, {
-      exists: (path) => present.includes(path),
-      isFile: (path) => path === '/a.docx',
+      exists: (path) => present.some((candidate) => resolve(candidate) === path),
+      isFile: (path) => path === resolve('/a.docx'),
     })
     expect(outcome).toMatchObject({ ok: false, code: 3 })
   })

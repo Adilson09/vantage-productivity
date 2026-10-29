@@ -40,8 +40,6 @@ Six outils : **Dessin, Rectangle, Ellipse, Flèche, Note**, plus le **Caviarder 
   1. Onglet Annoter ▸ cliquez sur **Caviarder une zone** (l’outil s’arme).
   2. **Faites glisser un rectangle sur le contenu** — il est couvert d’une marque hachurée, et la barre d’outils gagne les boutons **effacer les marques / appliquer le caviardage** :
 
-  ![La page après avoir marqué un caviardage](img/pdf-redact.png)
-
   3. Cliquez sur **Appliquer le caviardage** et confirmez — le résultat est une copie de travail où le texte et les images couverts sont physiquement supprimés (et non masqués), et cela est irréversible ; le document d’origine reste intact.
 
   Une erreur ? Le bouton effacer les marques supprime les marques actuelles pour vous permettre de redessiner.

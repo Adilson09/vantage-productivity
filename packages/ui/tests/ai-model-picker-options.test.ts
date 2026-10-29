@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AI_PROVIDERS, defaultAiSettings } from '@genoffice/ai-provider'
+import { AI_PROVIDERS, defaultAiSettings } from '@vantage/ai-provider'
 import {
   aiModelPickerGroups,
   aiModelPickerSelection,

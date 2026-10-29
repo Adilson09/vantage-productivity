@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { AgentToolDef } from '@genoffice/agent-core'
+import type { AgentToolDef } from '@vantage/agent-core'
 import { MAX_STREAM_TOOL_CALLS, MAX_TOOL_JSON_CHARS } from '../src/protocols/shared'
 import {
   activePermissionProfileId,
@@ -56,7 +56,7 @@ const tools: AgentToolDef[] = [
 
 describe('Codex app-server bridge', () => {
   it('automatically selects the newest complete desktop-managed Codex install', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'genoffice-codex-discovery-'))
+    const root = await mkdtemp(join(tmpdir(), 'vantage-codex-discovery-'))
     try {
       const older = join(root, 'old-release')
       const newer = join(root, 'new-release')
@@ -66,10 +66,14 @@ describe('Codex app-server bridge', () => {
         await writeFile(join(directory, 'codex.exe'), '')
         await writeFile(join(directory, 'codex-code-mode-host.exe'), '')
       }
-      await utimes(join(older, 'codex.exe'), new Date(1_000), new Date(1_000))
-      await utimes(join(newer, 'codex.exe'), new Date(2_000), new Date(2_000))
-      await utimes(older, new Date(1_000), new Date(1_000))
-      await utimes(newer, new Date(2_000), new Date(2_000))
+      // Modern, widely separated dates also work on exFAT's timestamp range
+      // and coarse precision; dates near the Unix epoch are not portable.
+      const olderTime = new Date('2025-01-01T12:00:00Z')
+      const newerTime = new Date('2025-02-01T12:00:00Z')
+      await utimes(join(older, 'codex.exe'), olderTime, olderTime)
+      await utimes(join(newer, 'codex.exe'), newerTime, newerTime)
+      await utimes(older, olderTime, olderTime)
+      await utimes(newer, newerTime, newerTime)
 
       await expect(
         resolveCodexCliPath('', { platform: 'win32', managedInstallRoot: root, env: {} }),
@@ -80,7 +84,7 @@ describe('Codex app-server bridge', () => {
   })
 
   it('migrates a stale saved hash path to the current managed install', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'genoffice-codex-migration-'))
+    const root = await mkdtemp(join(tmpdir(), 'vantage-codex-migration-'))
     try {
       const current = join(root, 'current-release')
       await mkdir(current)
@@ -105,22 +109,22 @@ describe('Codex app-server bridge', () => {
 
   it('confines Codex tool reads to the temp dir through a permission profile', () => {
     const config = { apiKey: '', model: 'gpt-5.6-terra' }
-    const params = codexThreadStartParams(config, '/tmp/genoffice-codex-x', 'profile')
+    const params = codexThreadStartParams(config, '/tmp/vantage-codex-x', 'profile')
     expect(params).not.toHaveProperty('sandbox')
     expect(params.approvalPolicy).toBe('never')
     expect(params.config).toEqual({
-      default_permissions: 'genoffice',
+      default_permissions: 'vantage',
       permissions: {
-        genoffice: {
-          filesystem: { ':minimal': 'read', '/tmp/genoffice-codex-x': 'read' },
+        vantage: {
+          filesystem: { ':minimal': 'read', '/tmp/vantage-codex-x': 'read' },
         },
       },
     })
-    expect(codexThreadStartParams(config, '/tmp/genoffice-codex-x', 'read-only')).toMatchObject({
+    expect(codexThreadStartParams(config, '/tmp/vantage-codex-x', 'read-only')).toMatchObject({
       sandbox: 'read-only',
     })
-    expect(activePermissionProfileId({ activePermissionProfile: { id: 'genoffice' } })).toBe(
-      'genoffice',
+    expect(activePermissionProfileId({ activePermissionProfile: { id: 'vantage' } })).toBe(
+      'vantage',
     )
     expect(activePermissionProfileId({ activePermissionProfile: null })).toBeUndefined()
   })
@@ -156,7 +160,7 @@ describe('Codex app-server bridge', () => {
     expect(prompt).toContain('8192 output tokens')
   })
 
-  it('parses text and JSON-encoded GenOffice tool arguments', () => {
+  it('parses text and JSON-encoded Vantage tool arguments', () => {
     expect(
       parseCodexAppServerTurn(
         JSON.stringify({
@@ -248,7 +252,7 @@ describe('Codex app-server bridge', () => {
     ).resolves.toBe('done')
   })
 
-  it('interrupts the server turn when the abort lands before the turn id is known (genoffice#1110)', async () => {
+  it('interrupts the server turn when the abort lands before the turn id is known (vantage#1110)', async () => {
     const calls: { method: string; params: unknown }[] = []
     let releaseStart: (() => void) | undefined
     const transport: CodexTurnTransport = {

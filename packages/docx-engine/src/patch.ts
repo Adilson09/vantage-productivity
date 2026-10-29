@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { REDACT_EL, REDACT_NS, REDACT_PREFIX } from '@genoffice/agent-core/redact-range'
+import { REDACT_EL, REDACT_NS, REDACT_PREFIX } from '@vantage/agent-core/redact-range'
 import {
   applyImageWrap,
   generateParagraphXml,
@@ -2982,7 +2982,7 @@ function maxBookmarkId(documentXml: string): number {
 /**
  * Seed for the docPr sequence counter, which new pictures pre-increment to mint
  * `DOCPR_ID_BASE + ++docPrSeq`. The media count says nothing about the ids the
- * original producer used: seeded from it alone, a document with no GenOffice
+ * original producer used: seeded from it alone, a document with no Vantage
  * media always started at the base, so a save that inserted one picture next to
  * an existing <wp:docPr id="9002"> emitted a second id 9002, and Word flags the
  * duplicate drawing id for repair. Start above both floors instead.

@@ -1,4 +1,4 @@
-// Aster Mail fork: translated product-name assertions.
+// Vantage Mail fork: translated product-name assertions.
 // @vitest-environment jsdom
 // «Own limit» is a list (0.8.12, screen 8): as in the settings, an own limit with its field, or
 // no warnings. A limit typed (or loaded) turns the list to it, and emptying the field turns it back.
@@ -85,7 +85,7 @@ describe("the room of the mailbox as rows of the page (0.8.12, screen 8)", () =>
     expect(target.querySelector("h4")).toBeNull();
     expect(row("acc-sizes")?.querySelector(".t")?.textContent).toContain("Размер папок");
     expect(row("acc-sizes")?.querySelector(".c [data-action='sizes-count']")?.textContent).toBe("Посчитать");
-    expect(row("acc-cache")?.querySelector(".t")?.textContent).toContain("Кэш Aster Mail");
+    expect(row("acc-cache")?.querySelector(".t")?.textContent).toContain("Кэш Vantage Mail");
     expect(row("acc-cache")?.querySelector(".c")?.textContent).toContain("0 МБ");
     expect(row("acc-cache")?.textContent).toContain("не входит в квоту");
   });

@@ -3,22 +3,22 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 
 export default defineConfig({
   main: {
-    // @genoffice/* workspace packages ship TS source (no build step, no
+    // @vantage/* workspace packages ship TS source (no build step, no
     // compiled entry point) — externalizing them makes Node's ESM loader try
     // to resolve their relative imports at runtime and fail. Bundle those;
     // externalize everything else (Electron, zod, node builtins).
     plugins: [
       externalizeDepsPlugin({
         exclude: [
-          '@genoffice/ai-provider',
-          '@genoffice/agent-core',
-          '@genoffice/ai-search',
-          '@genoffice/docx-engine',
-          '@genoffice/file-parse',
-          '@genoffice/electron-utils',
-          '@genoffice/i18n',
-          '@genoffice/pptx-render',
-          '@genoffice/xlsx-gateway',
+          '@vantage/ai-provider',
+          '@vantage/agent-core',
+          '@vantage/ai-search',
+          '@vantage/docx-engine',
+          '@vantage/file-parse',
+          '@vantage/electron-utils',
+          '@vantage/i18n',
+          '@vantage/pptx-render',
+          '@vantage/xlsx-gateway',
         ],
       }),
     ],
@@ -26,7 +26,7 @@ export default defineConfig({
   preload: {
     // Sandboxed preload scripts cannot require arbitrary npm packages at
     // runtime, so the drop-open bridge must be bundled, not externalized.
-    plugins: [externalizeDepsPlugin({ exclude: ['@genoffice/electron-utils'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['@vantage/electron-utils'] })],
   },
   renderer: {
     plugins: [react()],

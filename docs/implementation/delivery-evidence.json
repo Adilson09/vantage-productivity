@@ -1,0 +1,215 @@
+{
+  "product": "Vantage Productivity",
+  "candidate": "0.15.0-dev.1",
+  "updatedAt": "2026-10-29T17:48:18.552Z",
+  "status": "unsigned-preview-assembled-selected-validation-passed",
+  "scope": "Concrete subsets across the 32 review areas have been implemented and validated at their stated scopes. This unsigned development preview is not a production-ready release, complete Office replacement or accepted release.",
+  "choices": "docs/implementation/choices.json",
+  "passedScopes": [
+    {
+      "area": "Live spreadsheet calculation",
+      "result": "1,200 fresh native cases in 12 categories matched installed Excel 16.0 build 20527, including exact financial display, typed results and live dependency refresh.",
+      "evidence": [
+        "docs/implementation/calculation-evidence.json",
+        "docs/implementation/excel-calculation-evidence.json"
+      ]
+    },
+    {
+      "area": "Macro preservation",
+      "result": "17 targeted checks passed: ten inert synthetic XLSM part/relationship fixtures and seven refusal/pure-note VML regressions. No macro execution or valid-signature certification.",
+      "evidence": [
+        "docs/implementation/macro-preservation-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/advanced-repaired-gateway.log"
+      ]
+    },
+    {
+      "area": "Native format corpus and raster smoke",
+      "result": "82 native no-op cases, 79 targeted edits, and five independent Office raster smoke pairs passed; the broad rendering oracle was interrupted and the PPTX set includes synthetic decks.",
+      "evidence": [
+        "docs/implementation/inspection-evidence.json",
+        "docs/implementation/native-corpus-evidence.json",
+        "docs/implementation/office-reference-smoke-raster.json"
+      ]
+    },
+    {
+      "area": "Pivots and playback boundaries",
+      "result": "Ten changed-source pivot aggregation/definition-reopen fixtures and ten deterministic playback-boundary fixtures passed; these are narrower than full Excel pivot and physical-media playback acceptance.",
+      "evidence": [
+        "docs/implementation/advanced-evidence.json",
+        "packages/xlsx-gateway/tests/review-pivot-refresh-corpus.test.ts",
+        "apps/slides/tests/review-playback-boundaries.test.ts"
+      ]
+    },
+    {
+      "area": "Selected real desktop tools",
+      "result": "The final selected rebuilt desktop suite passed 11/11, covering calendar creation/recurring import, SQLite entry/query/reopen, qpdf, privacy persistence/blocking/200% focus, command keyboard focus, inspection, saved-version restore, default-off Markdown retention and draft crash recovery.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "docs/implementation/recovery-evidence.json"
+      ]
+    },
+    {
+      "area": "Markdown retained source and crash recovery",
+      "result": "Unchanged raw SaveAs plus actual edit/save/reload passed with the existing experimental round-trip preference off. Separate unnamed-draft crash/relaunch, exact-byte recovery and discard passed.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-source-retention-repaired.log",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-recovery-retention.log"
+      ]
+    },
+    {
+      "area": "Calendar data path",
+      "result": "Actual rebuilt GUI recurring-calendar import returned three events and left source bytes unchanged; the matching direct-library fixture also passed. This supersedes the initial startup-before-import timeout for that selected task.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/advanced-calendar-import-proof.log",
+        "packages/productivity-engine/tests/calendar.test.ts"
+      ]
+    },
+    {
+      "area": "Save/recovery and local data contracts",
+      "result": "Source contract and targeted real-filesystem checks cover safe publication, rescue files, first-save history, retention, encrypted history/drafts/backup, typed SQLite records/reports and isolated read-only queries.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "docs/implementation/save-recovery-contract.md",
+        "docs/implementation/advanced-evidence.json"
+      ]
+    },
+    {
+      "area": "Cooperative checkouts and optional provider adapters",
+      "result": "Local two-session lease/conflict trials, an independent-process check, mock-only bounded Graph/Gmail/Google Calendar adapters and explicit --enable/environment-token CLI behavior passed. No real account was contacted.",
+      "evidence": [
+        "docs/implementation/advanced-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/advanced-repaired-help-sync.log",
+        "packages/productivity-engine/README.md"
+      ]
+    },
+    {
+      "area": "Bundled Node 24 search/indexing",
+      "result": "Source SQLite FTS5 store/decision/worker/OOM/truncated-scan checks passed after targeted index-fixture repair. Actual packaged Electron 43.8.3/Node 24.22.0 also passed FTS5 smoke.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/file-index-node24.log",
+        "D:/Codex-builds/vantage-implementation-validation/file-index-indexer-repaired.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json"
+      ]
+    },
+    {
+      "area": "Source verification and command documentation",
+      "result": "The root typecheck across all configured workspaces passed (26 scoped workspaces plus the root wrapper). Selected privacy/workspace checks passed 75 tests; repaired gateway/CLI scopes, help-sync/provider checks and skill 2.68.0 validation passed. Historical whole-suite results remain distinct; no full broad unit-suite rerun is claimed.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/all-workspace-types.log",
+        "D:/Codex-builds/vantage-implementation-validation/final-shell-targeted.log",
+        "docs/implementation/advanced-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/advanced-repaired-help-sync.log",
+        "D:/Codex-builds/vantage-implementation-validation/advanced-repaired-skill.log"
+      ]
+    },
+    {
+      "area": "Corrected actual unsigned Windows package",
+      "result": "All 12 recorded smoke checks passed: package launch, FTS5, isolated audit/qpdf, database record/isolated query, local-mode blocking, CLI version/native workbook inspection and each of the six editor loads. Editor checks prove load only, not editing/failure acceptance, rendering parity, interoperability or release acceptance.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json"
+      ]
+    },
+    {
+      "area": "Packaged open source notices",
+      "result": "The complete qpdf distribution contains 293 files with matching copied hashes and staged license/notices. ICAL.js 2.2.1 unmodified source archive, full matching MPL license and component record are staged; generated packaged notices match source and include ICAL/Rust crate/license text.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/qpdf-preview-staging.json",
+        "D:/Codex-builds/vantage-implementation-validation/source-notices-evidence.json",
+        "docs/implementation/open-source-components.json"
+      ]
+    },
+    {
+      "area": "Package inventory and built-output equality",
+      "result": "Inventory records 3,204 files (760,572,309 bytes); 1,097 packaged source-build output files matched with allMatch=true. This is integrity/provenance evidence, not signed provenance or full functional acceptance.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/package-inventory.json",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-build-matches.json"
+      ]
+    }
+  ],
+  "pendingCoordinatorValidation": [
+    "Independent full packaged create/open/edit/save/reopen, export and fault acceptance for every editor and clean-machine acceptance remain. The 12-check packaged smoke proves all six editor loads plus its named local workflows only.",
+    "Historical broad-suite failures and interrupted runs remain recorded; targeted repairs, source typechecks and matching package smoke do not constitute a full broad unit-suite rerun or release acceptance."
+  ],
+  "externalAcceptanceRequirements": [
+    "LibreOffice runtime conversion is unavailable on this host after timeouts despite pinned extracted binaries; veraPDF runtime is not installed/validated.",
+    "Signing identity/certificate and independent clean-machine Windows acceptance, signed installer/update/uninstall/migration trials.",
+    "OAuth application registration, explicit user consent, refresh flows and live mail/calendar interoperability; no real message sends or account reads were performed.",
+    "Full independent DOCX/PPTX rendered corpus with human critical-layout/repair review; two-screen-reader/editor/output-document accessibility tasks.",
+    "Whole-process blocked-network acceptance, cold/warm performance and memory statistics, same-machine regression/comparative confidence intervals, and model-specific blinded AI evaluation."
+  ],
+  "unimplementedRequirements": [
+    "Full VBA/XLM execution and Office object models, DOCM/PPTM macro acceptance, Power Query/OLAP/Data Model/external connection parity.",
+    "Authenticated real-time coauthoring with per-editor shared models and actual multi-user network/reconnect acceptance; current checkouts are cooperative local/shared-registry coordination.",
+    "Complete draft-state recovery for the five other editor formats and a complete current-file/application/system backup and key-migration workflow.",
+    "Full calendar invitation/delegation/offline write queues/CalDAV-CardDAV coverage and complete IANA time-zone data.",
+    "Access file/form/report/VBA compatibility, full visual database designers and DuckDB analytics.",
+    "Local AI model/runtime/weight selection and managed provider gateway, broader localization, compressed content-addressed history and formal compliance certification."
+  ],
+  "sourceAndLicensing": [
+    "docs/implementation/open-source-components.json",
+    "packages/productivity-engine/README.md",
+    "packages/cli/README.md",
+    "skills/vantage-productivity/SKILL.md"
+  ],
+  "coordinatorEvidence": "D:/Codex-builds/vantage-implementation-validation/Vantage-Implementation-Validation-Final.json",
+  "interpretation": "Counts describe different workloads and are not summed into quality, completeness or parity. The final records establish selected source/desktop/package checks and integrity only. This remains an unsigned development preview with explicit external and unimplemented gates, not a production-ready or accepted Office-equivalent release.",
+  "releaseAccepted": false,
+  "packageSmoke": {
+    "report": "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json",
+    "passed": 12,
+    "checks": 12,
+    "editorScope": "All six editor loads only",
+    "releaseAccepted": false
+  },
+  "sourceDesktop": {
+    "report": "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+    "passed": 11,
+    "checks": 11,
+    "scope": "Selected rebuilt desktop workflows, not all editor/clean-machine tasks"
+  },
+  "workspaceTypechecks": {
+    "report": "D:/Codex-builds/vantage-implementation-validation/all-workspace-types.log",
+    "scope": "Root typecheck across all configured workspaces",
+    "scopedWorkspaces": 26,
+    "rootWrapper": true,
+    "status": "passed"
+  },
+  "privacySourceChecks": {
+    "report": "D:/Codex-builds/vantage-implementation-validation/final-shell-targeted.log",
+    "passedTests": 75,
+    "scope": "Selected privacy/workspace tests"
+  },
+  "coordinatorEvidenceStatus": "available",
+  "packageInventory": "D:/Codex-builds/vantage-implementation-validation/package-inventory.json",
+  "packageInventoryStatus": "verified",
+  "historicalEvidence": [
+    {
+      "path": "D:/Codex-builds/vantage-implementation-validation/final-source/Vantage-Implementation-Validation.json",
+      "scope": "Earlier broad source report, including the initial missing-cargo-PATH build failure and source-suite platform/fixture failures; do not reinterpret it as a passed final aggregate."
+    },
+    {
+      "path": "D:/Codex-builds/vantage-implementation-validation/final-source/desktop-workflows.log",
+      "scope": "Initial selected batch was seven passed/three failed; the later desktop-final.log establishes the corrected selected 11-test result."
+    },
+    {
+      "path": "D:/Codex-builds/vantage-implementation-validation/packaged-smoke.log",
+      "scope": "Initial package smoke included qpdf-path and editor-view detection failures; the later packaged-corrected/packaged-smoke.json supersedes only its corrected named scopes."
+    }
+  ],
+  "packageInventoryResult": {
+    "report": "D:/Codex-builds/vantage-implementation-validation/package-inventory.json",
+    "files": 3204,
+    "bytes": 760572309,
+    "status": "verified"
+  },
+  "packagedBuildMatches": {
+    "report": "D:/Codex-builds/vantage-implementation-validation/packaged-build-matches.json",
+    "files": 1097,
+    "allMatch": true,
+    "scope": "Every generated editor/shell file, CLI entry, native spreadsheet helper, native Mail companion and generated notices compared byte-for-byte with packaged counterpart."
+  }
+}

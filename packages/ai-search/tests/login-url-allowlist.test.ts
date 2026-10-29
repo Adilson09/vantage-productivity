@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isAllowedAuthUrl, startGenofficeLogin } from '../src/genoffice-auth'
+import { isAllowedAuthUrl, startVantageLogin } from '../src/vantage-auth'
 
 describe('isAllowedAuthUrl', () => {
   const BASE = 'https://www.genspark.ai'
@@ -57,7 +57,7 @@ describe('isAllowedAuthUrl', () => {
   })
 })
 
-describe('startGenofficeLogin auth_url allowlist', () => {
+describe('startVantageLogin auth_url allowlist', () => {
   let savedBase: string | undefined
   let savedFetch: typeof fetch | undefined
 
@@ -95,7 +95,7 @@ describe('startGenofficeLogin auth_url allowlist', () => {
   it('emits error "auth_url_rejected" and never a url event for a file:// auth_url', async () => {
     stubDeviceCode('file:///etc/passwd')
     const events: { phase: string; error?: string }[] = []
-    startGenofficeLogin((p) => events.push(p))
+    startVantageLogin((p) => events.push(p))
     await vi.waitFor(() => expect(events.at(-1)?.phase).toBe('error'))
     expect(events).toEqual([{ phase: 'error', error: 'auth_url_rejected' }])
   })
@@ -103,7 +103,7 @@ describe('startGenofficeLogin auth_url allowlist', () => {
   it('opens a sibling-host auth_url (auth.genspark.ai) end-to-end', async () => {
     stubDeviceCode('https://auth.genspark.ai/device?code=abc')
     const events: { phase: string; url?: string }[] = []
-    startGenofficeLogin((p) => events.push(p))
+    startVantageLogin((p) => events.push(p))
     await vi.waitFor(() => expect(events.at(-1)?.phase).toBe('error')) // poll stub answers 'expired'
     expect(events[0]).toEqual({
       phase: 'url',

@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl } from './helpers'
 
-process.env.GENOFFICE_DEBUG_HOOKS = '1'
+process.env.VANTAGE_DEBUG_HOOKS = '1'
 
 /**
  * Excel selection / editing chords added on top of Univer: Ctrl+Shift+*
@@ -43,7 +43,7 @@ interface DebugApi {
 // evaluated inside the page: no closure over spec-file helpers
 const DEBUG_API = 'debugApi'
 declare function debugApi(): DebugApi
-const INSTALL_DEBUG_API = `window.${DEBUG_API} = () => window.__genofficeDebug`
+const INSTALL_DEBUG_API = `window.${DEBUG_API} = () => window.__vantageDebug`
 
 async function selection(sheets: Page): Promise<Range | null> {
   return sheets.evaluate(() => {
@@ -61,7 +61,7 @@ async function selection(sheets: Page): Promise<Range | null> {
 
 test.describe('sheets: Excel selection and editing chords', () => {
   test('current region, shift+home extension, ctrl+2 bold, ctrl+quote', async () => {
-    const scratch = await mkdtemp(join(tmpdir(), 'genoffice-xl-keys-'))
+    const scratch = await mkdtemp(join(tmpdir(), 'vantage-xl-keys-'))
     const launched = await launchShell({ onboardingSeen: true, videoDir: 'sheets-xl-keys' })
     try {
       const { app, page } = launched

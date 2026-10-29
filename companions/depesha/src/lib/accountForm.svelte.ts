@@ -1,4 +1,4 @@
-// Aster Mail fork: Gmail defaults to Google's real browser sign-in and explicit client setup.
+// Vantage Mail fork: Gmail defaults to Google's real browser sign-in and explicit client setup.
 // A mailbox being set up or edited: the fields, the detection and sign-in steps, the
 // check against the server and the save. The wizard (a new mailbox) and the mailbox's
 // page in the settings both drive one of these; their fields are shared components.

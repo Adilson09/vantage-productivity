@@ -1,9 +1,9 @@
 import { app, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
-import type { AgentMessage } from '@genoffice/agent-core'
-import { streamForProvider } from '@genoffice/ai-provider'
-import { gskApiKey } from '@genoffice/ai-search'
+import type { AgentMessage } from '@vantage/agent-core'
+import { streamForProvider } from '@vantage/ai-provider'
+import { gskApiKey } from '@vantage/ai-search'
 import { buildNamingInstruction, excerptForNaming, sanitizeFileStem } from './ai-naming'
 import { resolveNamingProvider } from './ai-naming-provider'
 

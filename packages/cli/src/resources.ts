@@ -1,4 +1,4 @@
-// Aster Office modification (2026): target this fork runtime and isolated profile.
+// Vantage Productivity modification (2026): target this fork runtime and isolated profile.
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { SKILL_NAME } from './integration-identity'
 
 /**
- * Two layouts: packaged (Resources/cli/genoffice.cjs next to Resources/wasm,
+ * Two layouts: packaged (Resources/cli/vantage.cjs next to Resources/wasm,
  * Resources/native, Resources/ocr — see apps/shell/electron-builder.cjs) and
  * the dev checkout (packages/cli/{src,dist} inside the monorepo).
  */
@@ -32,7 +32,7 @@ export function repoRoot(): string | null {
     const pkg = join(dir, 'package.json')
     if (existsSync(pkg)) {
       try {
-        if (JSON.parse(readFileSync(pkg, 'utf-8')).name === 'genoffice') {
+        if (['vantage-productivity', 'vantage'].includes(JSON.parse(readFileSync(pkg, 'utf-8')).name)) {
           cachedRepo = dir
           return dir
         }
@@ -47,7 +47,7 @@ export function repoRoot(): string | null {
 }
 
 export function pdfiumWasmPath(): string {
-  if (process.env.GENOFFICE_PDFIUM_WASM) return process.env.GENOFFICE_PDFIUM_WASM
+  if (process.env.VANTAGE_PDFIUM_WASM) return process.env.VANTAGE_PDFIUM_WASM
   const packaged = packagedResourcesDir()
   if (packaged) return join(packaged, 'wasm', 'pdfium.wasm')
   const root = repoRoot()
@@ -56,7 +56,7 @@ export function pdfiumWasmPath(): string {
       return createRequire(join(root, 'package.json')).resolve('@embedpdf/pdfium/pdfium.wasm')
     } catch {}
   }
-  throw new Error('pdfium.wasm not found (set GENOFFICE_PDFIUM_WASM)')
+  throw new Error('pdfium.wasm not found (set VANTAGE_PDFIUM_WASM)')
 }
 
 export function xlsxSidecarPath(): string | null {
@@ -97,9 +97,9 @@ export interface AppLaunch {
   args: string[]
 }
 
-/** How to start the GenOffice GUI: the app binary that hosts this CLI, an installed app, or the dev checkout. */
+/** How to start the Vantage GUI: the app binary that hosts this CLI, an installed app, or the dev checkout. */
 export function appLaunch(env: NodeJS.ProcessEnv = process.env): AppLaunch | null {
-  if (env.GENOFFICE_APP_BIN) return { command: env.GENOFFICE_APP_BIN, args: [] }
+  if (env.VANTAGE_APP_BIN) return { command: env.VANTAGE_APP_BIN, args: [] }
   if (packagedResourcesDir() && process.versions.electron) {
     return { command: process.execPath, args: [] }
   }
@@ -124,27 +124,27 @@ function installedAppBinaries(
     case 'darwin':
       return [
         ...(shipped ? [shipped] : []),
-        '/Applications/Aster Office.app/Contents/MacOS/Aster Office',
-        join(homedir(), 'Applications/Aster Office.app/Contents/MacOS/Aster Office'),
+        '/Applications/Vantage Productivity.app/Contents/MacOS/Vantage Productivity',
+        join(homedir(), 'Applications/Vantage Productivity.app/Contents/MacOS/Vantage Productivity'),
       ]
     case 'win32':
       return [
         ...(shipped ? [shipped] : []),
         env.LOCALAPPDATA
-          ? join(env.LOCALAPPDATA, 'Programs', 'Aster Office', 'Aster Office.exe')
+          ? join(env.LOCALAPPDATA, 'Programs', 'Vantage Productivity', 'Vantage Productivity.exe')
           : '',
-        env.ProgramFiles ? join(env.ProgramFiles, 'Aster Office', 'Aster Office.exe') : '',
+        env.ProgramFiles ? join(env.ProgramFiles, 'Vantage Productivity', 'Vantage Productivity.exe') : '',
       ].filter(Boolean)
     default:
-      return [...(shipped ? [shipped] : []), '/opt/GenOffice/genoffice', '/usr/bin/genoffice']
+      return [...(shipped ? [shipped] : []), '/opt/Vantage/vantage', '/usr/bin/vantage']
   }
 }
 
 export function appBinaryForResources(resources: string, platform: NodeJS.Platform): string {
   const install = dirname(resources)
-  if (platform === 'darwin') return join(install, 'MacOS', 'Aster Office')
-  if (platform === 'win32') return join(install, 'Aster Office.exe')
-  return join(install, 'genoffice')
+  if (platform === 'darwin') return join(install, 'MacOS', 'Vantage Productivity')
+  if (platform === 'win32') return join(install, 'Vantage Productivity.exe')
+  return join(install, 'vantage')
 }
 
 /**

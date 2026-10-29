@@ -2,8 +2,6 @@
 
 Alle geöffneten Dateien teilen sich ein Fenster; die Tab-Leiste oben wechselt wie im Browser zwischen ihnen.
 
-![Die Tab-Leiste: Startseite plus zwei Dokumente](img/tabs.png)
-
 ## Grundlagen
 
 - **Wechseln**: Klicken Sie auf einen Tab oder scrollen Sie mit dem Mausrad über die Leiste, um der Reihe nach durchzugehen.

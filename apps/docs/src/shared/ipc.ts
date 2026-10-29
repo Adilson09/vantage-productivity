@@ -33,7 +33,7 @@ export interface PickImageResult {
   name: string
 }
 
-// ---- mail merge (genoffice#2097) ----
+// ---- mail merge (vantage#2097) ----
 
 /** a recipient list read from a local .xlsx or .csv */
 export interface MergeDataSource {
@@ -80,7 +80,7 @@ export interface MergeOutputResponse {
   error?: string
 }
 
-// ---- AI provider settings/config/streaming: canonical types live in @genoffice/ai-provider ----
+// ---- AI provider settings/config/streaming: canonical types live in @vantage/ai-provider ----
 
 import type {
   AiChatRequest,
@@ -89,10 +89,10 @@ import type {
   AiStreamChunk,
   AiStreamRequest,
   GenSparkAccountStatus,
-} from '@genoffice/ai-provider'
-import type { HeadlessExportTarget } from '@genoffice/electron-utils/headless-export'
-import type { FaceVerticalMetrics } from '@genoffice/font-metrics'
-import type { AiPanelPrefs } from '@genoffice/ui'
+} from '@vantage/ai-provider'
+import type { HeadlessExportTarget } from '@vantage/electron-utils/headless-export'
+import type { FaceVerticalMetrics } from '@vantage/font-metrics'
+import type { AiPanelPrefs } from '@vantage/ui'
 
 export type { FaceVerticalMetrics }
 
@@ -106,17 +106,17 @@ export type {
   AiStreamChunk,
   AiStreamRequest,
   GenSparkAccountStatus,
-} from '@genoffice/ai-provider'
-export { AI_PROVIDERS } from '@genoffice/ai-provider/browser'
+} from '@vantage/ai-provider'
+export { AI_PROVIDERS } from '@vantage/ai-provider/browser'
 
-// ---- agent protocol: canonical types live in @genoffice/agent-core ----
+// ---- agent protocol: canonical types live in @vantage/agent-core ----
 
 export type {
   AgentMessage,
   AgentToolCall,
   AgentToolDef,
   AgentToolResult,
-} from '@genoffice/agent-core'
+} from '@vantage/agent-core'
 
 // ---- PDF export ----
 
@@ -149,7 +149,7 @@ export interface MarkdownImage {
  * for the real `<file>_files` folder once the save path is known. User text
  * can never spell it: `_` is escaped on the way out.
  */
-export const MARKDOWN_MEDIA_DIR_TOKEN = '__genoffice_media__'
+export const MARKDOWN_MEDIA_DIR_TOKEN = '__vantage_media__'
 
 // ---- chat attachments (local files fed to the agent via tools) ----
 
@@ -273,7 +273,7 @@ export type MenuCommand =
 export type UiTheme = 'light' | 'dark' | 'system'
 
 /**
- * Document page theme preference (genoffice#1811): what the canvas/paper does relative
+ * Document page theme preference (vantage#1811): what the canvas/paper does relative
  * to the UI theme. 'follow' keeps the previous single-theme behavior.
  */
 export type DocTheme = 'follow' | 'light' | 'dark'
@@ -412,7 +412,7 @@ export interface DesktopApi {
   getTheme(): Promise<UiTheme>
   /** theme switched from the shell home page */
   onThemeChanged(handler: (theme: UiTheme) => void): () => void
-  /** current document page theme preference (genoffice#1811, persisted by the shell in app-settings.json) */
+  /** current document page theme preference (vantage#1811, persisted by the shell in app-settings.json) */
   getDocumentTheme(): Promise<DocTheme>
   /** document page theme switched from the shell home page */
   onDocumentThemeChanged(handler: (theme: DocTheme) => void): () => void
@@ -718,7 +718,7 @@ export interface DesktopApi {
   skillsList(): Promise<UserSkillEntry[]>
   /** the body of one installed skill, by name — the main process resolves the path */
   skillText(name: string): Promise<string>
-  /** run the bundled genoffice CLI; failures come back as ok:false, never a throw */
+  /** run the bundled vantage CLI; failures come back as ok:false, never a throw */
   runCli(args: string[]): Promise<UserCliRun>
 }
 
@@ -748,5 +748,5 @@ export interface UserCliRun {
   allowedRoots?: string[]
 }
 
-/** mirrors VIEW_IMAGE_CHANNEL in @genoffice/electron-utils (kept literal so the preload stays free of main-only deps) */
-export const VIEW_IMAGE_CHANNEL = 'genoffice:view-image'
+/** mirrors VIEW_IMAGE_CHANNEL in @vantage/electron-utils (kept literal so the preload stays free of main-only deps) */
+export const VIEW_IMAGE_CHANNEL = 'vantage:view-image'

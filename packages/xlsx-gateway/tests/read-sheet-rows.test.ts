@@ -6,7 +6,7 @@ import { readSheetRows } from '../src/gateway/xlsx-gateway'
 /**
  * Reading a worksheet as plain text rows: the reader a data source (a mail
  * merge recipient list) needs — the values as the file stores them, not the
- * workbook's editable model. genoffice#2097.
+ * workbook's editable model. vantage#2097.
  */
 
 /** a workbook whose cells live in the shared string table, as Excel writes them */

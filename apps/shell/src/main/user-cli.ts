@@ -8,7 +8,7 @@ import { createCliRunner, type CliRunner } from './mcp/cli-runner'
  * The AI panel's door to the skills a user installed, and to the CLI those
  * skills teach.
  *
- * genoffice#1895 shipped the first half: a person can import a skill into
+ * vantage#1895 shipped the first half: a person can import a skill into
  * `<userData>/skills` and read it in Integrations. This is the second half —
  * what the model gets, and what it may execute:
  *
@@ -17,7 +17,7 @@ import { createCliRunner, type CliRunner } from './mcp/cli-runner'
  *   not chosen, and until they click Import the model does not see them.
  *   `ai:skill-text` takes a name, never a path: the model cannot name a file,
  *   it can only pick an entry from the list this process vouched for.
- * - `ai:run-cli` spawns the bundled `genoffice` CLI and nothing else — the
+ * - `ai:run-cli` spawns the bundled `vantage` CLI and nothing else — the
  *   executable is resolved here, so an argv is a command line for our own
  *   document tool, not a general shell. `--json` is appended by the runner,
  *   which is also what keeps the result a single parseable object instead of
@@ -43,7 +43,7 @@ export interface UserSkillsDeps {
   senderFile: (webContentsId: number) => string | undefined
 }
 
-/** PATH-style GENOFFICE_ALLOWED_ROOTS: the open document's folder plus the user's roots */
+/** PATH-style VANTAGE_ALLOWED_ROOTS: the open document's folder plus the user's roots */
 export function allowedRootsFor(
   folderRoots: readonly string[],
   senderFile: string | undefined,
@@ -117,7 +117,7 @@ export function registerUserSkillsIpc(deps: UserSkillsDeps): void {
     const out = await runner().run(argv, {
       timeoutMs: 120_000,
       ...(cwd ? { cwd } : {}),
-      env: { GENOFFICE_ALLOWED_ROOTS: allowedRootsFor(roots, file) },
+      env: { VANTAGE_ALLOWED_ROOTS: allowedRootsFor(roots, file) },
     })
     return {
       ok: out.ok,
@@ -134,8 +134,8 @@ export function registerUserSkillsIpc(deps: UserSkillsDeps): void {
 /** the CLI entry the app ships, dev or packaged — the same one MCP delegates to */
 export function bundledCliEntry(): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'cli', 'genoffice.cjs')
-    : join(app.getAppPath(), '..', 'packages', 'cli', 'dist', 'genoffice.cjs')
+    ? join(process.resourcesPath, 'cli', 'vantage.cjs')
+    : join(app.getAppPath(), '..', 'packages', 'cli', 'dist', 'vantage.cjs')
 }
 
 export function makeUserCliRunner(): CliRunner {

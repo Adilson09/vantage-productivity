@@ -10,7 +10,7 @@
  */
 import { app, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { imageSearchTool, webSearchTool } from '@genoffice/ai-search'
+import { imageSearchTool, webSearchTool } from '@vantage/ai-search'
 
 const AI_SETTINGS_PATH = () => join(app.getPath('userData'), 'ai-settings.json')
 

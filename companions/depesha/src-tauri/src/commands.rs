@@ -1494,7 +1494,7 @@ pub async fn label_check(
     // A fresh Message-ID every run, so a leftover from an interrupted check is not reused.
     let stamp = chrono::Utc::now().timestamp_millis();
     let message_id = format!("depesha-test-{stamp}@depesha.local");
-    let subject = pick("Aster Mail: label check", "Aster Mail: проверка меток").to_owned();
+    let subject = pick("Vantage Mail: label check", "Vantage Mail: проверка меток").to_owned();
     let worker = state.worker(&account_id)?;
     let out = worker
         .run(Work::CheckLabels {
@@ -2993,7 +2993,7 @@ pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> Cm
         return Ok(());
     }
     let title = if title.trim().is_empty() {
-        "Aster Mail".to_owned()
+        "Vantage Mail".to_owned()
     } else {
         title
     };
@@ -3006,7 +3006,7 @@ pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> Cm
     .inner_size(960.0, 760.0)
     .min_inner_size(560.0, 420.0)
     .decorations(false);
-    // Aster Office fork: message windows share only this profile's browser data.
+    // Vantage Productivity fork: message windows share only this profile's browser data.
     #[cfg(any(windows, target_os = "linux"))]
     let builder = match crate::aster_profile::directory("webview") {
         Some(path) => builder.data_directory(path),

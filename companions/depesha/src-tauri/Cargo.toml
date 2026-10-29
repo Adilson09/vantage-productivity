@@ -1,6 +1,6 @@
 [package]
 name = "depesha"
-description = "Aster Mail — the email client for the Aster Office suite, based on Depesha"
+description = "Vantage Mail — the email client for the Vantage Productivity suite, based on Depesha"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

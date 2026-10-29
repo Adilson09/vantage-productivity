@@ -1,8 +1,6 @@
 # Layar Beranda: tempat file Anda berada
 
-Beranda adalah halaman awal GenOffice: bilah navigasi di sebelah kiri, daftar file dan kartu pembuatan cepat di sebelah kanan.
-
-![Layar Beranda](img/home-screen.png)
+Beranda adalah halaman awal Vantage: bilah navigasi di sebelah kiri, daftar file dan kartu pembuatan cepat di sebelah kanan.
 
 ## Navigasi bilah sisi
 
@@ -36,7 +34,7 @@ Centang kotak pada sebuah baris, atau ⌘/ctrl-klik, untuk menyusun sebuah pilih
 Kotak pencarian di atas mencocokkan dua hal sekaligus:
 
 - **Nama file**: penyaringan cepat berdasarkan nama.
-- **Isi file**: GenOffice mengindeks file Anda di latar belakang (teks di dalam docx/xlsx/pptx/pdf/md/html), sehingga mencari teks isi pun menemukan file. Cakupan dan sakelarnya ada di pengaturan pencarian.
+- **Isi file**: Vantage mengindeks file Anda di latar belakang (teks di dalam docx/xlsx/pptx/pdf/md/html), sehingga mencari teks isi pun menemukan file. Cakupan dan sakelarnya ada di pengaturan pencarian.
 
 ## Kartu Mulai cepat
 
@@ -66,6 +64,6 @@ Apa yang dilakukan tiap kartu:
 
 ## Proyek cloud (Genspark Projects)
 
-- Penggunaan pertama memerlukan masuk ke akun Genspark Anda (alur device-code: GenOffice menampilkan kode, Anda menyelesaikan login di browser).
+- Penggunaan pertama memerlukan masuk ke akun Genspark Anda (alur device-code: Vantage menampilkan kode, Anda menyelesaikan login di browser).
 - Daftar proyek tersinkron dengan versi web; Buka di browser melompat ke sana untuk melanjutkan.
 - Tidak masuk tidak memengaruhi satu pun fitur lokal.

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
  * Electron main module, which no unit test can import without standing up the
  * whole editor. savePptxToFile streams into the path it is given and truncates
  * it first, so a deck saved onto its own path is cut off for as long as the
- * stream runs and stays cut off if the process dies (genoffice#2123). Every save has to
+ * stream runs and stays cut off if the process dies (vantage#2123). Every save has to
  * hand it the sibling temp that atomicWriteVia renames over the deck afterwards.
  */
 describe('deck saves in the Slides main module', () => {
@@ -15,7 +15,7 @@ describe('deck saves in the Slides main module', () => {
 
   it('stream the package into the temp that atomicWriteVia publishes', () => {
     expect(source).toContain(
-      "import { atomicWriteFile, atomicWriteVia } from '@genoffice/electron-utils/atomic-write'",
+      "import { atomicWriteFile, atomicWriteVia } from '@vantage/electron-utils/atomic-write'",
     )
     expect(source).toContain('atomicWriteVia(filePath, (tmp) => savePptxToFile(opened, tmp))')
   })

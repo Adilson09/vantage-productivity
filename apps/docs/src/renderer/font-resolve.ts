@@ -3,7 +3,7 @@
  * the main process's installed-font index (IPC docs:font-metrics), prefetched
  * at document open so every later call is synchronous.
  */
-import type { FaceVerticalMetrics } from '@genoffice/font-metrics'
+import type { FaceVerticalMetrics } from '@vantage/font-metrics'
 import {
   faceKey,
   resolveFace,
@@ -13,8 +13,8 @@ import {
   type ResolvedFace,
   type StoredFace,
   type WordFacesData,
-} from '@genoffice/font-metrics/resolve'
-import wordFaces from '@genoffice/font-metrics/word-faces.json'
+} from '@vantage/font-metrics/resolve'
+import wordFaces from '@vantage/font-metrics/word-faces.json'
 
 const EA_CODE_PAGES = 0x3e0000 // ulCodePageRange1 bits 17-21
 

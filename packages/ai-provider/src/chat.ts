@@ -1,4 +1,5 @@
 import { chatAnthropic } from './protocols/anthropic'
+import { checkAiRequestPermission } from './fetch'
 import { chatGemini } from './protocols/gemini'
 import { chatOpenAiCompatible } from './protocols/openai-compatible'
 import { ResponseBodyTooLargeError } from './protocols/shared'
@@ -22,6 +23,10 @@ export async function chatForProvider(
   let endpoint: ResolvedEndpoint
   try {
     endpoint = getProviderAdapter(provider).resolveEndpoint(config)
+    checkAiRequestPermission(
+      endpoint.baseUrl,
+      endpoint.protocol === 'codex-app-server' ? 'command' : 'http',
+    )
   } catch (e) {
     return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
   }

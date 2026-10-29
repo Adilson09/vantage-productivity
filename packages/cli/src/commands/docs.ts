@@ -1,5 +1,5 @@
 import { basename, dirname } from 'node:path'
-import { DEFAULT_COMPARE_AUTHOR } from '@genoffice/docx-engine'
+import { DEFAULT_COMPARE_AUTHOR } from '@vantage/docx-engine'
 import { flagBool, flagString } from '../args'
 import {
   PREVIEW_CHARS,
@@ -87,7 +87,7 @@ export const docsCommand: CommandDef = {
       name: 'ops',
       value: 'file',
       description:
-        'apply: JSON array of ops (apply_ops entries, plus insert_content / replace_blocks with an html field, insert_image / insert_picture / insert_text_box, insert_chart / edit_chart, set_header_footer, set_page_setup / insert_section_break, set_watermark, define_style, add_comment / reply_comment / resolve_comment / delete_comment, accept_changes / reject_changes, insert_footnote / insert_endnote / delete_note, wrap_content_control / unwrap_content_control); "-" reads stdin. See `genoffice guide docs`.',
+        'apply: JSON array of ops (apply_ops entries, plus insert_content / replace_blocks with an html field, insert_image / insert_picture / insert_text_box, insert_chart / edit_chart, set_header_footer, set_page_setup / insert_section_break, set_watermark, define_style, add_comment / reply_comment / resolve_comment / delete_comment, accept_changes / reject_changes, insert_footnote / insert_endnote / delete_note, wrap_content_control / unwrap_content_control); "-" reads stdin. See `vantage guide docs`.',
     },
     {
       name: 'track',
@@ -98,7 +98,7 @@ export const docsCommand: CommandDef = {
       name: 'author',
       value: 'name',
       description:
-        'apply --track / compare: author of the tracked changes (compare default: GenOffice)',
+        'apply --track / compare: author of the tracked changes (compare default: Vantage)',
     },
     {
       name: 'date',
@@ -129,7 +129,7 @@ export const docsCommand: CommandDef = {
     {
       name: 'force',
       description:
-        'apply / compare: overwrite an existing --out file, or write while GenOffice has the file open',
+        'apply / compare: overwrite an existing --out file, or write while Vantage has the file open',
     },
   ],
   async run(args, ctx) {
@@ -150,7 +150,7 @@ export const docsCommand: CommandDef = {
           undefined,
           {
             reason: verb === undefined ? 'missing_argument' : 'invalid_argument',
-            suggestion: 'run `genoffice help docs`',
+            suggestion: 'run `vantage help docs`',
           },
         )
     }

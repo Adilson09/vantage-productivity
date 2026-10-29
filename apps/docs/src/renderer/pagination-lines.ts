@@ -63,7 +63,7 @@ const PATCH_KEYS = [
 
 /**
  * Carry the previous pass's line/row samples onto the freshly measured blocks
- * of a streaming open's pass (genoffice#526): only the appended tail can
+ * of a streaming open's pass (vantage#526): only the appended tail can
  * change layout, and fillLineBoxes skips blocks that already carry samples, so
  * the unchanged prefix pays no DOM sampling at all — the sampler's own
  * per-element cache still charges a full subtree signature per block per pass.
@@ -1396,7 +1396,7 @@ function cellContentBottom(cell: Element): number {
  * spans below it: the row sits inside a vertical merge. Height added inside one
  * of its cells then shifts every row the merge covers, the next measure sees
  * the shifted rows as new content, another boundary lands inside, another band
- * is anchored — the row inflates page by page (genoffice#2114). Such rows take
+ * is anchored — the row inflates page by page (vantage#2114). Such rows take
  * the zero-height cut marker, never an in-cell gap band.
  */
 function insideVerticalMerge(row: Element): boolean {
@@ -1432,7 +1432,7 @@ export function singleCutCell(row: Element | null, anchor?: LineAnchor | null): 
   if (cells.length === 0) return null
   // a row inside a vertical merge never hosts an in-cell band: the band's
   // height shifts every row the merge covers and feeds back into the next
-  // measure (genoffice#2114) — the zero-height cut marker carries the break
+  // measure (vantage#2114) — the zero-height cut marker carries the break
   if (insideVerticalMerge(row as HTMLTableRowElement)) return null
   if (cells.length === 1) return cells[0]
   if (!anchor) return null

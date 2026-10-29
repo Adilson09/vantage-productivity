@@ -10,12 +10,12 @@ import type { TFunc } from './locale'
 
 /**
  * mcp.json snippet a client needs to reach the local server. Named apart from
- * the stdio `genoffice` entry (part A) so both can live in one config file.
+ * the stdio `vantage` entry (part A) so both can live in one config file.
  */
 export function mcpConfigExample(port: string): string {
   return JSON.stringify(
-    // Aster Office: the visible-editor endpoint must coexist with upstream registrations too.
-    { mcpServers: { 'aster-office-editor': { url: `http://127.0.0.1:${port}/mcp` } } },
+    // Vantage Productivity: the visible-editor endpoint must coexist with upstream registrations too.
+    { mcpServers: { 'vantage-productivity-editor': { url: `http://127.0.0.1:${port}/mcp` } } },
     null,
     2,
   )

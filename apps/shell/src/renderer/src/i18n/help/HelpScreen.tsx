@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { Markdown } from '@genoffice/ui'
+import { Markdown } from '@vantage/ui'
 import { HELP_GROUPS, HELP_TOPICS, helpBody, helpImage, searchTopics } from './help-registry'
 import { useI18n } from '../../locale'
 import { groupTitle, topicTitle } from './help-titles'
@@ -179,6 +179,12 @@ export function HelpScreen(): React.ReactElement {
         {active ? (
           <article className="help-article" key={active.id}>
             <h1>{topicTitle(active.id, lang)}</h1>
+            <p className="help-preview-scope" lang="en">
+              Development preview: this manual includes inherited features and translations that
+              have not all been validated in Vantage Productivity. File compatibility, offline
+              behavior and save/recovery limits depend on the tested workflow; consult the release
+              validation record for current scope.
+            </p>
             {toc.length > 1 && (
               <nav className="help-toc" aria-label={t('helpOnThisPage')}>
                 <div className="help-toc-title">{t('helpOnThisPage')}</div>

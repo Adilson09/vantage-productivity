@@ -40,8 +40,6 @@ Altı araç: **mürekkep, dikdörtgen, elips, ok, not** ve Açıklama sekmesinde
   1. Açıklama sekmesi ▸ **Alanı karart**'a tıklayın (araç etkinleşir).
   2. **İçeriğin üzerine bir kutu sürükleyin** — taralı bir işaretle örtülür ve araç çubuğuna **işaretleri temizle / karartmayı uygula** düğmeleri eklenir:
 
-  ![Bir karartma işaretlendikten sonra sayfa](img/pdf-redact.png)
-
   3. **Karartmayı uygula**'ya tıklayıp onaylayın — sonuç, örtülen metin ve görsellerin (örtülmek yerine) fiziksel olarak kaldırıldığı bir çalışma kopyasıdır ve geri alınamaz; özgün belge dokunulmadan kalır.
 
   Hata mı yaptınız? İşaretleri temizle düğmesi geçerli işaretleri siler, böylece yeniden çizebilirsiniz.

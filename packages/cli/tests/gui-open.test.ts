@@ -1,8 +1,8 @@
-// Aster Office modification (2026): independent profile expectations.
+// Vantage Productivity modification (2026): independent profile expectations.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { genofficeUserDataDir, genofficeUserDataDirs, guiOpenDocuments } from '../src/gui'
+import { vantageUserDataDir, vantageUserDataDirs, guiOpenDocuments } from '../src/gui'
 import { run, tempDir } from './helpers'
 
 function writeRegistry(dir: string, pid: number, paths: string[]): void {
@@ -15,7 +15,7 @@ function writeRegistry(dir: string, pid: number, paths: string[]): void {
 
 function registry(dir: string, pid: number, paths: string[]): Record<string, string> {
   writeRegistry(dir, pid, paths)
-  return { ...process.env, GENOFFICE_AUDIT_LOG: 'off', GENOFFICE_USER_DATA: dir }
+  return { ...process.env, VANTAGE_AUDIT_LOG: 'off', VANTAGE_USER_DATA: dir }
 }
 
 async function workbook(dir: string): Promise<string> {
@@ -23,7 +23,7 @@ async function workbook(dir: string): Promise<string> {
   writeFileSync(table, JSON.stringify([['a'], [1]]))
   const xlsx = join(dir, 't.xlsx')
   const r = await run(['create', '--type', 'xlsx', '--from', table, '--out', xlsx], {
-    env: { ...process.env, GENOFFICE_AUDIT_LOG: 'off' },
+    env: { ...process.env, VANTAGE_AUDIT_LOG: 'off' },
   })
   expect(r.code).toBe(0)
   return xlsx
@@ -31,22 +31,22 @@ async function workbook(dir: string): Promise<string> {
 
 describe('GUI-open documents', () => {
   it('locates the shell userData directory and honours the override', () => {
-    expect(genofficeUserDataDir({ GENOFFICE_USER_DATA: '/u' })).toBe('/u')
-    expect(genofficeUserDataDir({}).endsWith('AsterOffice')).toBe(true)
-    const forkOverride = { ASTER_USER_DATA: '/aster', GENOFFICE_USER_DATA: '/legacy' }
-    expect(genofficeUserDataDir(forkOverride)).toBe('/aster')
-    expect(genofficeUserDataDirs(forkOverride)).toEqual(['/aster'])
+    expect(vantageUserDataDir({ VANTAGE_USER_DATA: '/u' })).toBe('/u')
+    expect(vantageUserDataDir({}).endsWith('VantageProductivity')).toBe(true)
+    const forkOverride = { VANTAGE_USER_DATA: '/vantage', APPDATA: '/default-app-data' }
+    expect(vantageUserDataDir(forkOverride)).toBe('/vantage')
+    expect(vantageUserDataDirs(forkOverride)).toEqual(['/vantage'])
   })
 
   it('ignores a missing, malformed or crash-leftover registry', () => {
     const dir = tempDir()
-    expect(guiOpenDocuments({ GENOFFICE_USER_DATA: dir })).toEqual([])
+    expect(guiOpenDocuments({ VANTAGE_USER_DATA: dir })).toEqual([])
     writeFileSync(join(dir, 'open-documents.json'), '{not json')
-    expect(guiOpenDocuments({ GENOFFICE_USER_DATA: dir })).toEqual([])
+    expect(guiOpenDocuments({ VANTAGE_USER_DATA: dir })).toEqual([])
     registry(dir, 2 ** 22 + 12345, ['/x.docx'])
-    expect(guiOpenDocuments({ GENOFFICE_USER_DATA: dir })).toEqual([])
+    expect(guiOpenDocuments({ VANTAGE_USER_DATA: dir })).toEqual([])
     registry(dir, process.pid, ['/x.docx'])
-    expect(guiOpenDocuments({ GENOFFICE_USER_DATA: dir })).toEqual([
+    expect(guiOpenDocuments({ VANTAGE_USER_DATA: dir })).toEqual([
       { pid: process.pid, paths: ['/x.docx'] },
     ])
   })
@@ -60,12 +60,12 @@ describe('GUI-open documents', () => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       APPDATA: appRoot,
-      GENOFFICE_AUDIT_LOG: 'off',
+      VANTAGE_AUDIT_LOG: 'off',
       HOME: appRoot,
       XDG_CONFIG_HOME: appRoot,
     }
-    delete env.GENOFFICE_USER_DATA
-    const packagedDir = genofficeUserDataDir(env)
+    delete env.VANTAGE_USER_DATA
+    const packagedDir = vantageUserDataDir(env)
     // The in-process CLI must resolve userData from this env, never the real home directory.
     expect(packagedDir.startsWith(appRoot)).toBe(true)
     writeRegistry(packagedDir, process.pid, [join(dir, 'packaged.xlsx')])

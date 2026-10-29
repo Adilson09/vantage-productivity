@@ -33,7 +33,7 @@ describe('blank header/footer parts', () => {
     expect(parsed.footerParas![1].runs).toEqual([])
   })
 
-  it('a paragraph of empty runs keeps its blank line like a bare w:p (genoffice#2116)', async () => {
+  it('a paragraph of empty runs keeps its blank line like a bare w:p (vantage#2116)', async () => {
     const bytes = await buildDocx({
       bodyXml: '<w:p><w:r><w:t>body</w:t></w:r></w:p>',
       extraRels:

@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { scanFiles } from '../src/main/file-index/scan'
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'genoffice-scan-'))
+  dir = mkdtempSync(join(tmpdir(), 'vantage-scan-'))
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -34,11 +34,23 @@ describe('scanFiles budget', () => {
     expect(scanFiles(dir, { maxFiles: 10 }).truncated).toBe(false)
   })
 
-  it('does not follow symlinked directories', () => {
+  it('does not follow symlinked directories', (context) => {
+    if (process.platform === 'win32') {
+      if (!dir.startsWith(join(tmpdir(), 'vantage-scan-'))) throw new Error('Unexpected scan fixture directory')
+      rmSync(dir, { recursive: true, force: true })
+      dir = mkdtempSync(join(homedir(), 'AppData', 'Local', 'Temp', 'vantage-scan-'))
+    }
     mkdirSync(join(dir, 'real'))
     writeFileSync(join(dir, 'real', 'a.md'), 'x')
-    symlinkSync(join(dir, 'real'), join(dir, 'real', 'loop'), 'dir')
-    symlinkSync(join(dir, 'real'), join(dir, 'alias'), 'dir')
+    try {
+      symlinkSync(join(dir, 'real'), join(dir, 'real', 'loop'), process.platform === 'win32' ? 'junction' : 'dir')
+      symlinkSync(join(dir, 'real'), join(dir, 'alias'), process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code
+      if (['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EISDIR'].includes(code ?? ''))
+        context.skip(`Filesystem or account does not support directory links (${code})`)
+      throw error
+    }
     expect(scanFiles(dir).files.map((f) => f.path)).toEqual([join(dir, 'real', 'a.md')])
   })
 })

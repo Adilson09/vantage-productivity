@@ -1,6 +1,6 @@
 {
-  "name": "@genoffice/html",
-  "productName": "GenOffice HTML",
+  "name": "@vantage/html",
+  "productName": "Vantage HTML",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
@@ -21,14 +21,14 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
-    "@genoffice/agent-core": "*",
-    "@genoffice/ai-provider": "*",
-    "@genoffice/ai-search": "*",
-    "@genoffice/electron-utils": "*",
-    "@genoffice/file-parse": "*",
-    "@genoffice/i18n": "*",
-    "@genoffice/project-store": "*",
-    "@genoffice/ui": "*",
+    "@vantage/agent-core": "*",
+    "@vantage/ai-provider": "*",
+    "@vantage/ai-search": "*",
+    "@vantage/electron-utils": "*",
+    "@vantage/file-parse": "*",
+    "@vantage/i18n": "*",
+    "@vantage/project-store": "*",
+    "@vantage/ui": "*",
     "@lezer/highlight": "^1.2.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -43,5 +43,5 @@
     "vite": "^7.3.7",
     "vitest": "^4.1.12"
   },
-  "author": "GenOffice"
+  "author": "Vantage"
 }

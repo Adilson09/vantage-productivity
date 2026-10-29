@@ -12,7 +12,7 @@ import {
 } from '../src/renderer/line-metrics'
 
 const KR_CHAIN =
-  '"맑은 고딕", "Malgun Gothic", "GenOffice Sans KR", "Apple SD Gothic Neo", sans-serif'
+  '"맑은 고딕", "Malgun Gothic", "Vantage Sans KR", "Apple SD Gothic Neo", sans-serif'
 
 function stubFonts(loaded: Set<string>) {
   const load = vi.fn((spec: string) => {
@@ -47,11 +47,11 @@ describe('unloadedBundledPrimary', () => {
   it('names the bundled face that leads a chain of missing families until it loads', () => {
     stubFonts(new Set())
     stubCanvas({ ascent: 900, descent: 300 })
-    expect(unloadedBundledPrimary(KR_CHAIN)).toBe('GenOffice Sans KR')
+    expect(unloadedBundledPrimary(KR_CHAIN)).toBe('Vantage Sans KR')
   })
 
   it('null once the face is loaded, for generic-only chains and without FontFaceSet', () => {
-    stubFonts(new Set(['GenOffice Sans KR']))
+    stubFonts(new Set(['Vantage Sans KR']))
     expect(unloadedBundledPrimary(KR_CHAIN)).toBeNull()
     expect(unloadedBundledPrimary('serif')).toBeNull()
     Reflect.deleteProperty(document, 'fonts')
@@ -61,15 +61,15 @@ describe('unloadedBundledPrimary', () => {
 
 describe('unloadedBundledPrimary with range aliases', () => {
   const JA_CHAIN =
-    '"\uff2d\uff33 \u660e\u671d", "MS Mincho GO", "Yu Mincho", "GenOffice Hiragino Mincho", "GenOffice MS Mincho", serif'
+    '"\uff2d\uff33 \u660e\u671d", "MS Mincho GO", "Yu Mincho", "Vantage Hiragino Mincho", "Vantage MS Mincho", serif'
 
   it('names the alias leading the chain, then the bundled face behind it', () => {
     stubFonts(new Set())
     stubCanvas({ ascent: 900, descent: 300 })
     expect(unloadedBundledPrimary(JA_CHAIN)).toBe('MS Mincho GO')
     stubFonts(new Set(['MS Mincho GO']))
-    expect(unloadedBundledPrimary(JA_CHAIN)).toBe('GenOffice Hiragino Mincho')
-    stubFonts(new Set(['MS Mincho GO', 'GenOffice Hiragino Mincho', 'GenOffice MS Mincho']))
+    expect(unloadedBundledPrimary(JA_CHAIN)).toBe('Vantage Hiragino Mincho')
+    stubFonts(new Set(['MS Mincho GO', 'Vantage Hiragino Mincho', 'Vantage MS Mincho']))
     expect(unloadedBundledPrimary(JA_CHAIN)).toBeNull()
   })
 })
@@ -82,7 +82,7 @@ describe('fontChainMetricsPct with a pending bundled face', () => {
     stubCanvas(metrics)
     const chain = `${KR_CHAIN}, "probe-a"`
     expect(fontChainMetricsPct(chain)).toEqual({ ascentPct: 90, descentPct: 30 })
-    expect(load).toHaveBeenCalledWith('16px "GenOffice Sans KR"')
+    expect(load).toHaveBeenCalledWith('16px "Vantage Sans KR"')
     // the stub resolves the load synchronously: the face is in now
     expect(takeSettledMetricFaces()).toBe(true)
     expect(takeSettledMetricFaces()).toBe(false)

@@ -6,7 +6,7 @@ import {
   parseDocx,
   readSections,
   saveDocx,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import { editorExtensions } from '../src/renderer/editor/extensions'
 import { blocksToPmDoc, pmDocToSavePlan, type PmNode } from '../src/renderer/editor/convert'
 import { substituteMergeFields } from '../src/renderer/mail-merge/template'
@@ -14,7 +14,7 @@ import { substituteMergeFields } from '../src/renderer/mail-merge/template'
 /**
  * The merged document, end to end: a template with a merge field in it, the
  * field filled from a record, and the .docx that comes out — the values in
- * place, no «FieldName» left. genoffice#2097.
+ * place, no «FieldName» left. vantage#2097.
  */
 
 const live: Editor[] = []

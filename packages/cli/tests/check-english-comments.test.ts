@@ -1,13 +1,23 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { tempDir } from './helpers'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 const SCRIPT = join(__dirname, '../../../tools/check-english-comments.mjs')
 const HAN = String.fromCharCode(0x4e2d, 0x6587)
 
 let repo: string
+const fixtureRoot =
+  process.platform === 'win32' && process.env.LOCALAPPDATA
+    ? join(process.env.LOCALAPPDATA, 'Temp', 'vantage-comment-check-fixtures')
+    : join(tmpdir(), 'vantage-comment-check-fixtures')
+afterEach(() => {
+  if (!repo) return
+  if (!resolve(repo).startsWith(resolve(fixtureRoot) + sep))
+    throw new Error('Refusing fixture cleanup outside the test root')
+  rmSync(repo, { recursive: true, force: true })
+})
 
 function commit(files: Record<string, string>): void {
   for (const [name, body] of Object.entries(files)) writeFileSync(join(repo, name), body)
@@ -21,7 +31,8 @@ function check(): { ok: boolean; stderr: string } {
 
 describe('check-english-comments', () => {
   beforeEach(() => {
-    repo = tempDir()
+    mkdirSync(fixtureRoot, { recursive: true })
+    repo = mkdtempSync(join(fixtureRoot, 'repo-'))
     execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' })
   })
 

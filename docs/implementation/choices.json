@@ -1,0 +1,394 @@
+{
+  "product": "Vantage Productivity",
+  "candidate": "0.15.0-dev.1",
+  "updatedAt": "2026-10-29T17:48:18.551Z",
+  "scope": "The 32 review areas are workstreams. Mutually exclusive A/B/C alternatives are selected deliberately, not represented as simultaneous implementations. Implemented components do not imply that every independent acceptance gate has passed.",
+  "choices": [
+    {
+      "id": 1,
+      "area": "Product scope",
+      "status": "selected",
+      "choice": "Develop the native six-editor engine and add selective open source specialists; retain development-preview labeling and per-workflow support claims.",
+      "remaining": "No complete Office replacement, overall superiority or production-ready claim. Each independent gate remains separately tracked.",
+      "evidence": ["docs/implementation/choices.json"]
+    },
+    {
+      "id": 2,
+      "area": "Editing foundation",
+      "status": "implemented-subset",
+      "choice": "Retain the six native editors and a callable local LibreOffice conversion adapter with isolated profiles/source hashes/separate copies. qpdf 12.4.2 is packaged as its complete 293-file distribution with matching copied hashes and passes actual packaged IPC structural checks.",
+      "remaining": "LibreOffice runtime/version/conversion probes timed out on this host and it is excluded from the validated package, as is unvalidated veraPDF. No replacement editing foundation or universal format compatibility is certified.",
+      "evidence": [
+        "docs/implementation/inspection-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/qpdf-preview-staging.json",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json"
+      ]
+    },
+    {
+      "id": 3,
+      "area": "PDF, Markdown and HTML",
+      "status": "implemented-subset",
+      "choice": "Retain PDF.js/PDFium/pdf-lib, Tiptap Markdown and HTML source/preview. Add stronger isolated PDF parsing and Markdown draft recovery; preserve unchanged Markdown source bytes without enabling experimental round trips.",
+      "remaining": "Six-editor asset/export/reopen/failure coverage is incomplete. Dirty Markdown keeps the existing serializer unless the user separately enables the prior experimental preference; no Monaco migration was needed for a demonstrated failure.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "docs/implementation/inspection-evidence.json"
+      ]
+    },
+    {
+      "id": 4,
+      "area": "Bounded inspection",
+      "status": "implemented-subset",
+      "choice": "Run bounded document inspection in a child process with hard file/archive/actual expanded-byte limits, deadline/cancellation/output failure and internal OOXML relationship target checks; the isolated audit path passed in the actual package.",
+      "remaining": "No complete OOXML schema certification or OS sandbox. JavaScript heap ceilings do not bound every native allocation. Deeper profiles remain bounded rather than silently accepting exhausted checks.",
+      "evidence": [
+        "docs/implementation/inspection-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json"
+      ]
+    },
+    {
+      "id": 5,
+      "area": "PDF inspection",
+      "status": "implemented-subset",
+      "choice": "Parse PDF objects/page trees in an isolated bounded worker. qpdf 12.4.2 passes source GUI malformed-input handling and corrected actual-package audit/valid-PDF structural smoke; its complete distribution and hashes are staged.",
+      "remaining": "veraPDF runtime is not installed/validated. A parse or qpdf structural result is not visual, PDF/A, PDF/UA or human accessibility certification.",
+      "evidence": [
+        "docs/implementation/inspection-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json",
+        "D:/Codex-builds/vantage-implementation-validation/qpdf-preview-staging.json"
+      ]
+    },
+    {
+      "id": 6,
+      "area": "First-save and drafts",
+      "status": "implemented-subset",
+      "choice": "Capture first-save baselines after shared publication. Journal dirty named/unnamed Markdown text every 15 seconds and on blur; actual process crash/relaunch, exact-byte separate-copy recovery and discard passed.",
+      "remaining": "DOCX/XLSX/PPTX/PDF/HTML draft-state integration and crash acceptance remain. Markdown drafts do not bundle newly pasted assets. Clean-source retention is independently verified with the experimental preference still off.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-recovery-retention.log",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-source-retention-repaired.log"
+      ]
+    },
+    {
+      "id": 7,
+      "area": "Vault retention",
+      "status": "implemented-subset",
+      "choice": "Persist bounded user retention choices, payload/occupied/free-space status, pruning ceilings and minimum free space; expose the storage budget in Tools and privacy.",
+      "remaining": "Compressed content-addressed blobs and a transactional metadata redesign are deferred. Storage bounds and skipped/pruned history must stay visible.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "docs/implementation/save-recovery-contract.md"
+      ]
+    },
+    {
+      "id": 8,
+      "area": "Restore integrity",
+      "status": "implemented-subset",
+      "choice": "Keep verified separate-file restore and bounded text preview; add authenticated draft and portable saved-history recovery with exclusive new destinations on NTFS/exFAT.",
+      "remaining": "No arbitrary original replacement or full graphical document diff. An exFAT crash during exclusive copy may leave a partial new destination; success requires complete hash verification and existing files remain protected.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "docs/implementation/save-recovery-contract.md"
+      ]
+    },
+    {
+      "id": 9,
+      "area": "Encryption and backup",
+      "status": "implemented-subset",
+      "choice": "Offer an OS-protected application key and AES-GCM for new snapshots/drafts, plus password-protected portable saved-history export and verified separate-copy restore.",
+      "remaining": "Existing plaintext/metadata are not migrated or encrypted. Key migration, drive-loss recovery and complete current-file/application/system backups require separate work; same-user software is outside the OS-keystore protection boundary.",
+      "evidence": ["docs/implementation/recovery-evidence.json"]
+    },
+    {
+      "id": 10,
+      "area": "Save contract",
+      "status": "implemented-subset",
+      "choice": "Share completed-temp publication, conflict fingerprints, per-path serialization, rescue errors and history warnings across JavaScript and native Sheets save publication; remove the in-place truncate fallback.",
+      "remaining": "The final fingerprint check plus rename is not an OS compare-and-swap. All-editor OS-lock/disk-full/process-termination stress and larger-file semantics remain independent acceptance work.",
+      "evidence": [
+        "docs/implementation/save-recovery-contract.md",
+        "docs/implementation/recovery-evidence.json"
+      ]
+    },
+    {
+      "id": 11,
+      "area": "Build and provenance",
+      "status": "implemented-subset",
+      "choice": "Assemble a matching unsigned development-preview package with candidate-specific evidence. The root typecheck across all configured workspaces passed; selected rebuilt desktop 11/11 and corrected actual-package smoke 12/12 passed. Inventory covers 3,204 files and 1,097 packaged build outputs match their source-build bytes.",
+      "remaining": "These scoped checks do not establish CI execution, independent reproducibility, signed provenance, a full broad unit-suite rerun or release acceptance. Independent full editor/failure and clean-machine acceptance remain.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/Vantage-Implementation-Validation-Final.json",
+        "D:/Codex-builds/vantage-implementation-validation/package-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/all-workspace-types.log",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json",
+        "D:/Codex-builds/vantage-implementation-validation/package-inventory.json",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-build-matches.json"
+      ]
+    },
+    {
+      "id": 12,
+      "area": "Desktop acceptance",
+      "status": "implemented-subset",
+      "choice": "The final selected rebuilt desktop suite passed 11/11: calendar create/import, SQLite entry/query/reopen, qpdf, privacy/200% focus, Markdown retained source and crash recovery, command focus, inspection and saved-version restore. Corrected actual-package smoke passed 12/12, including all six editor loads only.",
+      "remaining": "Full create/open/edit/save/reopen and failure acceptance in each packaged format, clean-VM acceptance and broader interaction coverage remain. Historical failed/interrupted batches are retained; no full unit-suite rerun or release acceptance is claimed.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json",
+        "docs/implementation/recovery-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/Vantage-Implementation-Validation-Final.json"
+      ]
+    },
+    {
+      "id": 13,
+      "area": "Failure injection",
+      "status": "implemented-subset",
+      "choice": "Test real-filesystem publication conflicts, first-save history, corrupt vault/backup/draft bytes, quota/exclusion paths, rescue retention, and native Sheets safe publication; verify restored bytes and separate destinations.",
+      "remaining": "Full failure injection through every editor, disposable-VM disk-full/OS-lock trials and crash stress remain. Helper/contract coverage is not all-format GUI acceptance.",
+      "evidence": ["docs/implementation/recovery-evidence.json"]
+    },
+    {
+      "id": 14,
+      "area": "Interaction and display",
+      "status": "implemented-subset",
+      "choice": "Extend modal focus to selects/textareas, status/error controls and 200% zoom; actual privacy-dialog focus and repaired command-palette keyboard/focus restoration passed in the final selected desktop batch.",
+      "remaining": "Complete editor keyboard tasks, multi-display/DPI/high-contrast assisted passes, two screen readers and output-document accessibility remain.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/final-shell-targeted.log",
+        "apps/shell/tests/privacy-runtime.test.ts"
+      ]
+    },
+    {
+      "id": 15,
+      "area": "Support claims",
+      "status": "implemented-subset",
+      "choice": "Publish all 32 choices with per-scope evidence/remaining gates, updated CLI/skill documentation and a delivery record distinguishing source, reference, selected desktop and packaged-load smoke results.",
+      "remaining": "New tools remain English-language UI. Full localization, all content-specific support disclosures and any professional/Office-equivalence claim need additional acceptance.",
+      "evidence": [
+        "docs/implementation/choices.json",
+        "docs/implementation/delivery-evidence.json",
+        "packages/cli/README.md",
+        "skills/vantage-productivity/SKILL.md",
+        "D:/Codex-builds/vantage-implementation-validation/Vantage-Implementation-Validation-Final.json"
+      ]
+    },
+    {
+      "id": 16,
+      "area": "Distribution",
+      "status": "implemented-subset",
+      "choice": "Assemble a separate complete unsigned Windows development-preview directory, retain prior releases, and pass the corrected actual-package 12-check smoke selection.",
+      "remaining": "Inventory and packaged build-byte equality are verified. Six editor loads are not full editing/failure acceptance; signed NSIS/MSIX, updates/uninstall, independent clean-machine portability and profile migration remain unvalidated. The unsigned preview is not an accepted release.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/package-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json",
+        "D:/Codex-builds/vantage-implementation-validation/package-inventory.json",
+        "D:/Codex-builds/vantage-implementation-validation/Vantage-Implementation-Validation-Final.json",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-build-matches.json"
+      ]
+    },
+    {
+      "id": 17,
+      "area": "Signing and clean machines",
+      "status": "external-acceptance",
+      "choice": "Keep unsigned-preview labeling and candidate-specific hashes/provenance instead of implying a trusted publisher or clean-machine certificate.",
+      "remaining": "A signing certificate/HSM/cloud identity and independent clean-machine Windows acceptance are not configured; no signed installer result is claimed.",
+      "evidence": ["docs/implementation/delivery-evidence.json"]
+    },
+    {
+      "id": 18,
+      "area": "Reference environment",
+      "status": "implemented-subset",
+      "choice": "Capture Office/runtime/corpus environment and run scratch-only Excel reference calculations using a new owned instance with macros disabled: Excel 16.0 build 20527 matched 1,200 native cases and live dependency refresh.",
+      "remaining": "The wider Word/PowerPoint reference run was interrupted by COM/resource failures. Fully pinned activation/channel, fonts/display/printer, external baseline and clean-machine reproduction remain.",
+      "evidence": [
+        "docs/implementation/excel-calculation-evidence.json",
+        "docs/implementation/office-reference-evidence.json",
+        "docs/implementation/inspection-evidence.json"
+      ]
+    },
+    {
+      "id": 19,
+      "area": "DOCX/PPTX fidelity",
+      "status": "implemented-subset",
+      "choice": "Validate 82 native no-op cases and 79 target edits across 50 existing DOCX and 32 PPTX (including 30 synthetic decks); implement page/dimension/non-antialias comparison and pass five Office raster smoke pairs.",
+      "remaining": "The full independent 50-DOCX/30-PPTX rendered comparison and zero critical human-reviewed layout/repair defects are not established. The broader COM oracle was interrupted; synthetic part preservation is narrower evidence.",
+      "evidence": [
+        "docs/implementation/native-corpus-evidence.json",
+        "docs/implementation/office-reference-smoke-raster.json",
+        "docs/implementation/inspection-evidence.json"
+      ]
+    },
+    {
+      "id": 20,
+      "area": "Live calculation",
+      "status": "implemented-subset",
+      "choice": "Pass 1,200 fresh native-sidecar formulas across 12 categories against independent expected results and installed Excel 16.0 build 20527, using numeric tolerance, exact financial display and typed results; both live models recomputed a changed dependency.",
+      "remaining": "This is not every advertised function, volatile/external model, locale/date edge, full financial category or universal Excel parity. Expand the corpus before widening claims.",
+      "evidence": [
+        "docs/implementation/calculation-evidence.json",
+        "docs/implementation/excel-calculation-evidence.json"
+      ]
+    },
+    {
+      "id": 21,
+      "area": "Macros",
+      "status": "preserve-only",
+      "choice": "Pass 17 macro-preservation checks over ten inert synthetic XLSM packages and seven guards/regressions: retain VBA/project signatures/control bindings; refuse OPC document-signature invalidation and unsupported destructive edits; distinguish editable pure-note VML from protected controls.",
+      "remaining": "No VBA/XLM runtime, object-model execution or valid-certificate signature acceptance. Synthetic sentinel preservation does not replace ten real executable XLSM reference fixtures. DOCM/PPTM macro flows remain outside demonstrated support.",
+      "evidence": [
+        "docs/implementation/macro-preservation-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/advanced-repaired-gateway.log"
+      ]
+    },
+    {
+      "id": 22,
+      "area": "Pivot refresh",
+      "status": "implemented-subset",
+      "choice": "Strengthen existing pivot recompute/refresh with ten changed-source aggregation fixtures, known independent results and OOXML definition serialize/reopen checks.",
+      "remaining": "Full independent pivot-cache/Excel refresh corpus, Power Query, OLAP/Data Model and external connections are not established by these fixtures.",
+      "evidence": [
+        "packages/xlsx-gateway/tests/review-pivot-refresh-corpus.test.ts",
+        "docs/implementation/advanced-evidence.json"
+      ]
+    },
+    {
+      "id": 23,
+      "area": "Slideshow playback",
+      "status": "implemented-subset",
+      "choice": "Fix effects/media to start at the exact scheduled clock boundary; ten deterministic timing fixtures and existing playback checks passed.",
+      "remaining": "Ten real imported timed/interactive decks, codec support, physical audio offset/drift, pause/seek and human playback acceptance remain separate from deterministic clock tests.",
+      "evidence": [
+        "apps/slides/tests/review-playback-boundaries.test.ts",
+        "docs/implementation/advanced-evidence.json"
+      ]
+    },
+    {
+      "id": 24,
+      "area": "Collaboration",
+      "status": "implemented-subset",
+      "choice": "Implement SQLite-serialized cooperative checkout/renew/release, bearer leases, fingerprints and separate conflict publication; verify 100 deterministic two-session disconnect/expiry/conflict scenarios and one independent-process check.",
+      "remaining": "No authenticated service, CRDT real-time coauthoring or 100 real multi-user network/reconnect trials. Desktop saves do not automatically join the protocol; cooperating writers must share its registry.",
+      "evidence": [
+        "packages/productivity-engine/README.md",
+        "packages/productivity-engine/tests/collaboration.test.ts",
+        "docs/implementation/advanced-evidence.json"
+      ]
+    },
+    {
+      "id": 25,
+      "area": "Mail providers",
+      "status": "implemented-subset",
+      "choice": "Retain the isolated native Mail companion and launch permission. Add callable bounded read-only Graph mail delta and Gmail metadata/history adapters, mock-only tests and CLI sync requiring explicit --enable plus a consented environment token.",
+      "remaining": "OAuth application registration/consent/refresh, live inbox/attachment/send/sync interoperability and native-profile Graph migration remain. No real account was read or test message sent; an adapter does not certify EWS replacement.",
+      "evidence": [
+        "packages/productivity-engine/src/providers.ts",
+        "packages/cli/src/commands/provider.ts",
+        "packages/cli/tests/checkout-provider.test.ts"
+      ]
+    },
+    {
+      "id": 26,
+      "area": "Calendar and contacts",
+      "status": "implemented-subset",
+      "choice": "Implement ICAL.js local create/import/export, embedded-zone DST recurrence/exceptions and vCard contacts. Actual rebuilt GUI calendar creation and recurring-calendar import of three events with unchanged source bytes passed. The Google Calendar sync adapter remains read-only, explicit --enable and mock-verified.",
+      "remaining": "Live provider consent/refresh, invitations/delegation, offline write queues, contact-provider sync and full timezone database support remain. Passing local calendar GUI tasks does not establish provider interoperability.",
+      "evidence": [
+        "packages/productivity-engine/README.md",
+        "docs/implementation/advanced-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/advanced-calendar-import-proof.log"
+      ]
+    },
+    {
+      "id": 27,
+      "area": "Database application",
+      "status": "implemented-subset",
+      "choice": "Implement SQLite typed tables/records, optimistic conflicts, saved form definitions, escaped reports/CSV and bounded isolated queries. Rebuilt desktop entry/query/reopen and corrected actual-package database-record/isolated-query smoke passed; source CLI workflows also passed.",
+      "remaining": "Access file/form/report/VBA compatibility, a full visual form/report designer, DuckDB analytics and broader database workflow acceptance are not implemented or claimed.",
+      "evidence": [
+        "packages/productivity-engine/README.md",
+        "docs/implementation/advanced-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json"
+      ]
+    },
+    {
+      "id": 28,
+      "area": "Accessibility",
+      "status": "implemented-subset",
+      "choice": "Provide semantic tables, named inputs/status/errors and high-contrast styling for new tools. Real privacy-modal focus at 200% zoom and command-palette keyboard restoration passed; the final selected 75-case privacy/workspace source check passed.",
+      "remaining": "Narrator plus NVDA/JAWS, every editor task, high-contrast assisted tasks and output-document accessibility need human evidence. No compliance certification is claimed.",
+      "evidence": [
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/final-shell-targeted.log",
+        "apps/shell/tests/privacy-runtime.test.ts"
+      ]
+    },
+    {
+      "id": 29,
+      "area": "Offline and privacy",
+      "status": "implemented-subset",
+      "choice": "Default to local mode with per-feature/exact-origin approval, Chromium/main-fetch gating, redirect rechecks/credential stripping, cloud-AI/Mail launch gates and explicit --enable provider reads. Policy persistence and blocking passed in rebuilt desktop and actual-package smoke; 75 selected privacy/workspace source tests passed.",
+      "remaining": "This is not a system firewall: raw sockets/native helpers/existing mail clients remain separate. Five blocked-network cycles in each editor with whole-process observation and all remote-feature data flows remain unverified.",
+      "evidence": [
+        "apps/shell/src/main/privacy-runtime.ts",
+        "apps/shell/tests/privacy-runtime.test.ts",
+        "D:/Codex-builds/vantage-implementation-validation/final-shell-targeted.log",
+        "D:/Codex-builds/vantage-implementation-validation/desktop-final.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json"
+      ]
+    },
+    {
+      "id": 30,
+      "area": "Performance evidence",
+      "status": "implemented-subset",
+      "choice": "Expose workspace process memory/CPU and raw timings. Source SQLite FTS5 store/search-worker/OOM/truncated-scan behavior is verified on Node 24 after index-fixture repairs; the actual Electron 43.8.3/Node 24.22.0 package also passes FTS5 smoke.",
+      "remaining": "Repeated cold/warm quality-equivalent workloads, p50/p95 all-process memory, the same-machine upstream regression gate and Office confidence intervals remain unmeasured; FTS correctness is not a speed-superiority claim.",
+      "evidence": [
+        "docs/implementation/recovery-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/file-index-node24.log",
+        "D:/Codex-builds/vantage-implementation-validation/file-index-indexer-repaired.log",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-corrected/packaged-smoke.json"
+      ]
+    },
+    {
+      "id": 31,
+      "area": "Optional AI",
+      "status": "implemented-subset",
+      "choice": "Keep core local workflows useful without AI, block cloud AI until enabled, and allow explicitly configured loopback model services through the existing custom-provider UI; guard native AI command permission.",
+      "remaining": "Local model/runtime/weight selection, licensed downloads, managed routing and the 30-task x five-run blinded quality/latency evaluation remain. No local-model quality or entitlement equivalence is claimed.",
+      "evidence": [
+        "apps/shell/src/main/privacy-runtime.ts",
+        "apps/shell/tests/privacy-runtime.test.ts",
+        "D:/Codex-builds/vantage-implementation-validation/final-shell-targeted.log",
+        "docs/implementation/delivery-evidence.json"
+      ]
+    },
+    {
+      "id": 32,
+      "area": "Open source and notices",
+      "status": "implemented-subset",
+      "choice": "Retain inherited notices/product identity. Package the unmodified ICAL.js 2.2.1 source tgz, complete archive-identical MPL license and component record; verify generated packaged notices match source and include ICAL plus Rust crate/license texts. Stage the complete hash-verified qpdf distribution and its notices.",
+      "remaining": "Source/license inclusion and inventory/hash checks are verified at their recorded scopes; they are not legal/trademark certification, signed provenance or an independent-implementation claim. Unvalidated LibreOffice/veraPDF runtimes remain excluded.",
+      "evidence": [
+        "docs/implementation/open-source-components.json",
+        "D:/Codex-builds/vantage-implementation-validation/source-notices-evidence.json",
+        "D:/Codex-builds/vantage-implementation-validation/qpdf-preview-staging.json",
+        "D:/Codex-builds/vantage-implementation-validation/package-inventory.json",
+        "D:/Codex-builds/vantage-implementation-validation/Vantage-Implementation-Validation-Final.json",
+        "D:/Codex-builds/vantage-implementation-validation/packaged-build-matches.json"
+      ]
+    }
+  ],
+  "validationNote": "Selected rebuilt desktop 11/11, corrected actual-package smoke 12/12 (six editor loads only), root typecheck across all configured workspaces and the selected 75-case privacy/workspace check passed. Package inventory and matching built-output bytes are verified. Historical broad-suite failures/interrupted runs remain preserved; no full broad unit-suite rerun, production readiness, complete Office parity, signing or release acceptance is claimed. Counts describe separate scopes, not a quality score.",
+  "coordinatorEvidence": "D:/Codex-builds/vantage-implementation-validation/Vantage-Implementation-Validation-Final.json",
+  "coordinatorEvidenceStatus": "available",
+  "packageInventory": "D:/Codex-builds/vantage-implementation-validation/package-inventory.json",
+  "packageInventoryStatus": "verified",
+  "releaseAccepted": false,
+  "packagedBuildMatches": "D:/Codex-builds/vantage-implementation-validation/packaged-build-matches.json",
+  "packagedBuildMatchesStatus": "verified"
+}

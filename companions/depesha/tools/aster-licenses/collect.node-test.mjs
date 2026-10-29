@@ -31,7 +31,7 @@ async function fixture(t) {
 
 test("a workspace crate inherits real root license files and npm notices retain hashes", async (t) => {
   const { opts } = await fixture(t);
-  await fs.writeFile(path.join(opts.sourceRoot, "ASTER_NOTICE_PROVENANCE.json"), "Generated bookkeeping, not a project license");
+  await fs.writeFile(path.join(opts.sourceRoot, "VANTAGE_NOTICE_PROVENANCE.json"), "Generated bookkeeping, not a project license");
   await fs.writeFile(path.join(opts.sourceRoot, "THIRD-PARTY-NOTICES.txt"), "Previously generated dependency notices, not the workspace license");
   const dependency = path.join(opts.nodeModules, "example");
   await fs.mkdir(dependency);

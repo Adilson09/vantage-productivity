@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { textboxOrderedMarkerTexts } from '../src/renderer/editor/extensions'
-import type { TextboxListMarker } from '@genoffice/docx-engine'
+import type { TextboxListMarker } from '@vantage/docx-engine'
 
 const item = (ilvl: number, numId = '7'): TextboxListMarker => ({
   text: '',

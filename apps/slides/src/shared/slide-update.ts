@@ -1,4 +1,4 @@
-import type { RenderSlide } from '@genoffice/pptx-render'
+import type { RenderSlide } from '@vantage/pptx-render'
 import type { SlideUpdate } from './ipc'
 
 /** Merge by stable part identity, including when a full broadcast arrived first. */

@@ -1,4 +1,4 @@
-// Aster Office fork: configuration regressions must not reclaim Depesha identities.
+// Vantage Productivity fork: configuration regressions must not reclaim Depesha identities.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "vitest";
@@ -8,7 +8,7 @@ const config = JSON.parse(readFileSync(new URL("src-tauri/tauri.conf.json", root
 
 test("the companion has its own application and executable identity", () => {
   assert.equal(config.identifier, "org.asteroffice.mail");
-  assert.equal(config.productName, "Aster Mail");
+  assert.equal(config.productName, "Vantage Mail");
   assert.equal(config.mainBinaryName, "aster-mail");
   const windows = JSON.parse(readFileSync(new URL("src-tauri/tauri.windows.conf.json", root), "utf8"));
   assert.equal(windows.app.windows[0].title, config.productName);

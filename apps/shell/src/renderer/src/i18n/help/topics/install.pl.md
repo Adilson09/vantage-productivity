@@ -1,6 +1,6 @@
-# Instalacja GenOffice
+# Instalacja Vantage
 
-Każda kompilacja jest publikowana na [stronie Releases](https://github.com/genspark-ai/genoffice/releases/latest). Wszystkie pochodzą z `main`; instalatory dla macOS i Windows są podpisane.
+Każda kompilacja jest publikowana na [stronie Releases](https://github.com/Adilson09/aster-office/releases/latest). Wszystkie pochodzą z `main`; instalatory dla macOS i Windows są podpisane.
 
 ## Wybierz plik dla swojego komputera
 
@@ -18,32 +18,32 @@ Starsze wersje pozostają na stronie Releases.
 
 ## W systemie macOS
 
-Otwórz plik `.dmg` i przeciągnij **GenOffice** do katalogu Aplikacje. W kompilacji Intel przy pierwszym uruchomieniu trzeba potwierdzić otwarcie: kliknij prawym przyciskiem aplikację w Aplikacjach ▸ Otwórz. To Gatekeeper reaguje na obraz dysku wyglądający na niepodpisany, a nie uszkodzone pobranie.
+Otwórz plik `.dmg` i przeciągnij **Vantage** do katalogu Aplikacje. W kompilacji Intel przy pierwszym uruchomieniu trzeba potwierdzić otwarcie: kliknij prawym przyciskiem aplikację w Aplikacjach ▸ Otwórz. To Gatekeeper reaguje na obraz dysku wyglądający na niepodpisany, a nie uszkodzone pobranie.
 
 ## W systemie Windows
 
-Uruchom instalator `.exe`. Umieszcza GenOffice w menu Start i rejestruje `.docx`, `.xlsx`, `.pptx`, `.pdf` i podobne, więc dwuklik na plik go otwiera.
+Uruchom instalator `.exe`. Umieszcza Vantage w menu Start i rejestruje `.docx`, `.xlsx`, `.pptx`, `.pdf` i podobne, więc dwuklik na plik go otwiera.
 
 ## W systemie Linux
 
 **Debian / Ubuntu**
 
 ```sh
-sudo apt install ./genoffice_<version>_amd64.deb
+sudo apt install ./vantage_<version>_amd64.deb
 ```
 
 **Fedora / RHEL / openSUSE**
 
 ```sh
-sudo dnf install ./genoffice-<version>.x86_64.rpm     # Fedora / RHEL family
-sudo zypper install ./genoffice-<version>.x86_64.rpm  # openSUSE
+sudo dnf install ./vantage-<version>.x86_64.rpm     # Fedora / RHEL family
+sudo zypper install ./vantage-<version>.x86_64.rpm  # openSUSE
 ```
 
 **AppImage** — działa tam, gdzie leży, bez żadnego etapu instalacji:
 
 ```sh
-chmod +x GenOffice-<version>.AppImage
-./GenOffice-<version>.AppImage
+chmod +x Vantage-<version>.AppImage
+./Vantage-<version>.AppImage
 ```
 
 Wymaga środowiska uruchomieniowego FUSE 2. Jeśli wolisz go nie instalować, uruchom go z `--appimage-extract-and-run`, a sandbox zadziała z katalogu wypakowanego.
@@ -51,8 +51,6 @@ Wymaga środowiska uruchomieniowego FUSE 2. Jeśli wolisz go nie instalować, ur
 ## Kompilacja, którą uruchamiasz
 
 **Ustawienia ▸ O aplikacji** to miejsce, w którym aplikacja zgłasza posiadaną kompilację, kanał, za którym podąża, i to, gdzie mieszka projekt. Gdy na tym kanale pojawi się nowsza kompilacja, to samo okno zaproponuje aktualizację; instalacja przez Flatpak, Nix albo Docker tego nie robi, bo zastępuje je narzędzie, które je tam umieściło.
-
-![Ustawienia ▸ O aplikacji — zainstalowana wersja, kanał aktualizacji, za którym podąża aplikacja, oraz link do projektu na GitHubie](img/install.png)
 
 ## Trzy inne drogi
 
@@ -64,4 +62,4 @@ Wszystkie trzy opakowują opublikowane artefakty zamiast przebudowywać aplikacj
 
 ## Wiersz poleceń jest w zestawie
 
-Każda instalacja zawiera polecenie `genoffice`, które komunikuje się z tymi samymi silnikami co okno, więc nigdy nie rozbieżą się w ocenie pliku. W systemach macOS i Windows znajduje się w pakiecie aplikacji; `genoffice install-cli` umieszcza je w `PATH`. Co potrafi, dowiesz się w rozdziale **Wiersz poleceń i agenci**.
+Każda instalacja zawiera polecenie `vantage`, które komunikuje się z tymi samymi silnikami co okno, więc nigdy nie rozbieżą się w ocenie pliku. W systemach macOS i Windows znajduje się w pakiecie aplikacji; `vantage install-cli` umieszcza je w `PATH`. Co potrafi, dowiesz się w rozdziale **Wiersz poleceń i agenci**.

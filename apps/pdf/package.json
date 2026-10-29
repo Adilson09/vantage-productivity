@@ -1,6 +1,6 @@
 {
-  "name": "@genoffice/pdf",
-  "productName": "GenOffice PDF",
+  "name": "@vantage/pdf",
+  "productName": "Vantage PDF",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
@@ -15,13 +15,13 @@
   },
   "devDependencies": {
     "@embedpdf/pdfium": "^2.15.1",
-    "@genoffice/agent-core": "*",
-    "@genoffice/ai-provider": "*",
-    "@genoffice/ai-search": "*",
-    "@genoffice/electron-utils": "*",
-    "@genoffice/font-metrics": "*",
-    "@genoffice/i18n": "*",
-    "@genoffice/ui": "*",
+    "@vantage/agent-core": "*",
+    "@vantage/ai-provider": "*",
+    "@vantage/ai-search": "*",
+    "@vantage/electron-utils": "*",
+    "@vantage/font-metrics": "*",
+    "@vantage/i18n": "*",
+    "@vantage/ui": "*",
     "@types/node-forge": "^1.3.14",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -40,5 +40,5 @@
     "vite-plugin-static-copy": "^3.0.0",
     "vitest": "^4.1.12"
   },
-  "author": "GenOffice"
+  "author": "Vantage"
 }

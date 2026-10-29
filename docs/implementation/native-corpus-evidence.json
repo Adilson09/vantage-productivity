@@ -1,0 +1,2136 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-29T16:30:33.989Z",
+  "environment": {
+    "node": "v22.13.0",
+    "platform": "win32",
+    "architecture": "x64",
+    "corpusSeed": "vantage-corpus-2026-10-29-v1"
+  },
+  "scope": "Native engine parsing, no-op part preservation, targeted text replacement, save and reopen. Synthetic PPTX variants are explicitly identified. These results do not meet independent Office visual-fidelity acceptance gates.",
+  "unavailable": [
+    "Pinned Microsoft Office visual references and repair-prompt acceptance",
+    "Human layout/accessibility review",
+    "One-percent non-antialias pixel acceptance"
+  ],
+  "cases": [
+    {
+      "id": "docx-01",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\arabic-cs-calibri-pitch\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "08d616c0139649ab3e1400872df30216f6e64cb4884106a51005654af632c33c",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-01.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-01.edited.docx"
+      }
+    },
+    {
+      "id": "docx-02",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\arabic-cs-face-pitch\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "49fd99cc8ae18c0071917b411a7793a1aec4f0a5d3ce04002685309ec68f2305",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-02.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-02.edited.docx"
+      }
+    },
+    {
+      "id": "docx-03",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\atleast-row-margins\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "193a4e34c2f6f6c98fb640f7b39e4319884b89484514f068c6a49f7d4bef086f",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-03.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-03.edited.docx"
+      }
+    },
+    {
+      "id": "docx-04",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\atleast-zero-no-snap\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "b3b335623d90bfe2f1f9c1fb310a9b3e6748f412c4f8eba3a52752a4e7dd4c10",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-04.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-04.edited.docx"
+      }
+    },
+    {
+      "id": "docx-05",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\autofit-overwide-shrink\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "32a2b112462d8df4ec6360305c12fa048511730e6659278a48ebd40330a1e668",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-05.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-05.edited.docx"
+      }
+    },
+    {
+      "id": "docx-06",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\autospace-gap-xavg\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "ed1da63df22e4dbcde0499c1e4e107dbf9acfcef183fc1eb353eb01988400293",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-06.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-06.edited.docx"
+      }
+    },
+    {
+      "id": "docx-07",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\autospace-switches-marker-tab\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "7774d3404305c6969f7a866f8fa2e1ef57833ba25844fcd760d2b7bdbd3a201a",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-07.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-07.edited.docx"
+      }
+    },
+    {
+      "id": "docx-08",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\autospacing-fixed\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "688858607f43806767b3e095965fc0c7c486f13698033d9d5adbc9ba9773b004",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-08.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-08.edited.docx"
+      }
+    },
+    {
+      "id": "docx-09",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\bidi-level-ind-start-end\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "064cfc877dd2ebd06be27af0734dc67643092f7ad6aa3b18f28832530fe0836b",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-09.noop.docx"
+      },
+      "edit": {
+        "status": "unavailable",
+        "reason": "No top-level paragraph in this fixture"
+      }
+    },
+    {
+      "id": "docx-10",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\br-only-line-size\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "27495b112d4333e42d99b02e68b99eea53f6737577d8b75687a5ee3fb0819f0d",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-10.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-10.edited.docx"
+      }
+    },
+    {
+      "id": "docx-11",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\builtin-normal-no-styles\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "07e0dff9d0d3265c92adb0184ba2a0c0161066f8725909c0abb3d00b75198e29",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-11.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-11.edited.docx"
+      }
+    },
+    {
+      "id": "docx-12",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\bullet-marker-lift\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "c4550e6266976245e77cb2b844275eaa83e6df14ed2cd70ec915f70de12dba19",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-12.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-12.edited.docx"
+      }
+    },
+    {
+      "id": "docx-13",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\cellspacing-grid-shares\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "7672867b630d02be6afb7d959fb4ecfaaa7c050fe3934e2eca64c41af7d67cd2",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-13.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-13.edited.docx"
+      }
+    },
+    {
+      "id": "docx-14",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\charspace-balanced\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "555378849e7221b5d098dfa67e4f412061f9b05b1b97857eafcd70d1655d0bff",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-14.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-14.edited.docx"
+      }
+    },
+    {
+      "id": "docx-15",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\charspace-latin-full-delta\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "0855261facca343ed31c6f4daa1c26717e79faf38988b239455cbf1617373ebc",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-15.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-15.edited.docx"
+      }
+    },
+    {
+      "id": "docx-16",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\cjk-face-factors\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "65fc8ca5ff4cd754296c7f619e12bd72a11720261c5a24c6fad31cf4b70038c1",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-16.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-16.edited.docx"
+      }
+    },
+    {
+      "id": "docx-17",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\cr-pairs-one-blank-line\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "fef9e66ae01ab993ddfccd457ff03875fa22fc2df6c358ebf5b39d05153cd083",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-17.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-17.edited.docx"
+      }
+    },
+    {
+      "id": "docx-18",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\dfkai-yahei-factor\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "8ab59cfc7d421f0583d21b59ba0ff64da4051a9ee989be0e53f093972033ccfe",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-18.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-18.edited.docx"
+      }
+    },
+    {
+      "id": "docx-19",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\dnu-additive-spacing\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "d1927dcc252dbc9ce2d031cedc2b27de3d1c633baddcecea463714e7d32d1e27",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-19.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-19.edited.docx"
+      }
+    },
+    {
+      "id": "docx-20",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\ea-only-normal-latin-line\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "4b1e40af24916f7627c5f0dbfda91356c5c1cf7bc568659218b3279033137cea",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-20.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-20.edited.docx"
+      }
+    },
+    {
+      "id": "docx-21",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\embedded-face-hhea\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "560b9b4827f0ec34823115e8d101d8990ed6e097619c3f411dc73301bd5c52b3",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-21.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-21.edited.docx"
+      }
+    },
+    {
+      "id": "docx-22",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\empty-mark-ea-hint-ignored\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "47995412aa4287d3f44d5553a74814ef7e3337daeacf31d69f96b07b131cf447",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-22.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-22.edited.docx"
+      }
+    },
+    {
+      "id": "docx-23",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\exact-row-advance\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "44cf55516559fc3a81484a7909c0a54731330bcb518ff4dd9734c2a907ed46ee",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-23.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-23.edited.docx"
+      }
+    },
+    {
+      "id": "docx-24",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\exact-row-margins\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "02190155a7d904148c4477480df0ef4baded2f95da54b600a36a9d32746010fc",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-24.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-24.edited.docx"
+      }
+    },
+    {
+      "id": "docx-25",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\font-table-altname-alias\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "8fc7b0ea29525a7c8b398e5f9bb24f5897c82221419895e8e79c94108259dba2",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-25.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-25.edited.docx"
+      }
+    },
+    {
+      "id": "docx-26",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\fractional-twips\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "523dde6f98ffa02d73c02a90fd4721107a9ed4701ba7a4fa13913d8e57a94043",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-26.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-26.edited.docx"
+      }
+    },
+    {
+      "id": "docx-27",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\grid-line-rules\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "29a888239763aa3e9754a2732999b95104d8018bd71ee7b9d189b94f4e0aa508",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-27.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-27.edited.docx"
+      }
+    },
+    {
+      "id": "docx-28",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\grid-saved-layout-wins\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "f9f4a4c376b52509691734dd8f40cf6158a78bddd8f7bd4146d4671d22db08af",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-28.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-28.edited.docx"
+      }
+    },
+    {
+      "id": "docx-29",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\heading-theme-font-refs\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "0ecc546342d4cf5a45b1813900910c1d7e3adb46a13097439a1d262c41821b0d",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-29.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-29.edited.docx"
+      }
+    },
+    {
+      "id": "docx-30",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\hg-missing-substitution\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "a44ed60a48e48d503e749e5e54be2e6eff351e1833946a40a339a22a71d9dd5b",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-30.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-30.edited.docx"
+      }
+    },
+    {
+      "id": "docx-31",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\hidden-paragraph-collapse\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "3b067868338c456f517e0c5d648b3720938eef62aa5b92585d127feef3c9f355",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-31.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-31.edited.docx"
+      }
+    },
+    {
+      "id": "docx-32",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\jp-face-substitution\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "16bcda03e03ba895f2200fa51153779e8ba86e10fcd01abc03867b3093517bd2",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-32.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-32.edited.docx"
+      }
+    },
+    {
+      "id": "docx-33",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\jp-noto-missing-routes\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "97b12a8e07c1194ff82246ac3a9f30e9121a3b6af482dcd7485535f82d8cc9e2",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-33.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-33.edited.docx"
+      }
+    },
+    {
+      "id": "docx-34",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\keepnext-chain-split-demand\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "9bc48703492983883420b427c980f5d9537538a2c6e934be9505c4c76f94bfee",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-34.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-34.edited.docx"
+      }
+    },
+    {
+      "id": "docx-35",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\keepnext-empty-paragraphs\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "0d6f8be4bd352949c5358a514722887da19b979e7bfdabf92e5ffb3953275a0f",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-35.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-35.edited.docx"
+      }
+    },
+    {
+      "id": "docx-36",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\keepnext-table-head-chain\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "15fe2a9445c0afa9b7fd2fca37cc81892d13e5045735fac2c971b3536ee68b2f",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-36.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-36.edited.docx"
+      }
+    },
+    {
+      "id": "docx-37",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\kr-charset-81-route\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "71faf6647c102cf67ff059e213ea2e788fbe68f55e5f14517a909dc84db25c54",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-37.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-37.edited.docx"
+      }
+    },
+    {
+      "id": "docx-38",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\kr-middot-nobreak\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "027d3eddfcda59cc2b7a0e6174ee798242f0e9559f22bad7785d685d26cccea8",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-38.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-38.edited.docx"
+      }
+    },
+    {
+      "id": "docx-39",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\latin-face-factors\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "8a9f26f293f1b175e772c5b6d6ef21e5d1e703d6b478d6d0781e7061c205a1b5",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-39.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-39.edited.docx"
+      }
+    },
+    {
+      "id": "docx-40",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\latin-pitch-faces\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "726fa3e97df07f3d5b5bbf38757a69ec2ad020551a5f4885da681bfa6ef1b62c",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-40.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-40.edited.docx"
+      }
+    },
+    {
+      "id": "docx-41",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\lead-placement-atleast-auto\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "0fe790f3a1edc8f9a0d9691da765120791fbfa5a9e98b793edfb1633b1c09f14",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-41.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-41.edited.docx"
+      }
+    },
+    {
+      "id": "docx-42",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\line-numbering-defaults\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "d8c28f2d11c6bfebbb80387339b586ab950b1605faa3c42e94da962f72938cfc",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-42.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-42.edited.docx"
+      }
+    },
+    {
+      "id": "docx-43",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\malgun-line-pitch-sizes\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "5946ead8dd3c861e0d854bb0465b43657e31fdce31bd28acf18d33f182367cbf",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-43.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-43.edited.docx"
+      }
+    },
+    {
+      "id": "docx-44",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\malgun-rebaseline-1-7305\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "044fa8858b5d76f6a8affc438f26885a666f27e900e44f8406e88144a2d0c110",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-44.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-44.edited.docx"
+      }
+    },
+    {
+      "id": "docx-45",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\marker-tab-no-hanging\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "0fceec4151d60e07d433eacf7aa4039abe8feb3a83918d84c69c262b7e7b0acb",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-45.noop.docx"
+      },
+      "edit": {
+        "status": "unavailable",
+        "reason": "No top-level paragraph in this fixture"
+      }
+    },
+    {
+      "id": "docx-46",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\missing-latin-substitute\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "c8f016a3e98969b25bfcbe161b72d5c3e53e55a749d7497c5c3584250bc104c0",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-46.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-46.edited.docx"
+      }
+    },
+    {
+      "id": "docx-47",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\numbering-ind-merge-precedence\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "7532a919aa518a5a19beaa8aca7754a6d41744f6cd731cce3caa8ff2dce5f24b",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-47.noop.docx"
+      },
+      "edit": {
+        "status": "unavailable",
+        "reason": "No top-level paragraph in this fixture"
+      }
+    },
+    {
+      "id": "docx-48",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\office-private-cjk-alias\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "2beebdcf3459ef86a7813566ea79949f0b6c207f6e9f06861d8710c0e082aaa3",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-48.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-48.edited.docx"
+      }
+    },
+    {
+      "id": "docx-49",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\page-bottom-space-after-fit\\probe.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "cd7ac4fa54747cae4779c20b3a92e848106729b9db58c59946c3d692f376b97a",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-49.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-49.edited.docx"
+      }
+    },
+    {
+      "id": "docx-50",
+      "kind": "docx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\docx-engine\\tests\\fixtures\\truths\\parity-blank-restart\\probe-off.docx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "add2901e28cd4ef7032bf176a49e2a206b8b5d1b5f7c02be7bf8e423bd92d994",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-50.noop.docx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "word/document.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\docx-50.edited.docx"
+      }
+    },
+    {
+      "id": "pptx-01",
+      "kind": "pptx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\pptx-engine\\tests\\fixtures\\01_standard_business.pptx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "faddc03270215218e78720f1c8f6e3aa862891a432f71e7ec9f3d13ea7902048",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-01.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-01.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-02",
+      "kind": "pptx",
+      "source": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\aster-office\\packages\\pptx-engine\\tests\\fixtures\\05_unicode_cjk_emoji.pptx",
+      "provenance": "Existing native engine fixture",
+      "sourceSha256": "be477a0d22331578bf4f8766aa9608b781882745c9281204ce89c3e5cac364d8",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-02.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-02.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-03",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-01.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "2016f669c155024e4f49b4f063b31a5cd2d0a9669c3ba46c07ba2aa97ecb2336",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-03.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-03.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-04",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-02.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "6868565ed6d79f5ac42f868271aad47bb1f4059e198ef6a52bfd720eabffbbe8",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-04.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-04.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-05",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-03.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "6fe2d35df7f7a03a3923dfe607b80bf7017fab59cf552f12f37719a156a7e3e0",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-05.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-05.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-06",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-04.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "7ad8e8596273af3df6240cae22346b311adbb9fcb6b865cad460a083715ac87e",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-06.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-06.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-07",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-05.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "91921c48db4a1c9cf0e2259fc5428456ef48498d3f05533a2e2a5bcdaa8d316e",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-07.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-07.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-08",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-06.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "f3987681b734c9532ab5d39748ee419a57eddd58dbb94d115ca6a129b38039a2",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-08.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-08.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-09",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-07.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "efc76deec6efa04a44ad7d7b94e8006f9d59f5063449511c16f3f55a35689110",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-09.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-09.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-10",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-08.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "152497252564d0e7787d32b54af150e298ad8ead693d1316e7084a47f0fbc79d",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-10.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-10.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-11",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-09.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "7ca36b435f1faaf52df2d1ec7c2faf813e002db40345ab439dedc99323c5d33c",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-11.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-11.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-12",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-10.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "129b45033d4e7bc5dc850f760aac1a3832fd3322590b98da5daee525682dd6d1",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-12.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-12.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-13",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-11.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "d6359ab5bb6f373e972e5cecc4a6774959602484745dc316cb2f361edf99f9a5",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-13.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-13.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-14",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-12.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "39cc331ae3c614a1037913ab97cdf52669035a1ff35fd20ac8efd5eea6eca17b",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-14.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-14.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-15",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-13.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "4f32ccb71169454bcaf4d392b5ac2ec8594e55d1fd98400485a05cab933854da",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-15.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-15.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-16",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-14.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "cf562e6e7e66848236b7b4ae7c86a770ebab82202208772eabfd0fbfd38bff59",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-16.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-16.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-17",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-15.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "6833501e08378a583af2b2652abf625b226e7fd1f2938c5f7c8b664307aa30a7",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-17.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-17.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-18",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-16.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "b78142053e0ec75e1f6a4a28d61a0112cf617f021cf32953c2697fda8954f244",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-18.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-18.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-19",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-17.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "241fd9471499cbbfc0a785b6e9f9aec59e2efc58edc4bab50e216edf21525ec1",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-19.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-19.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-20",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-18.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "2c0d223bd45fa99ccd066367ffc37e07acffe8f9fda9f636a162f26e4611fe10",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-20.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-20.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-21",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-19.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "6226571e3045883e0bc3ac9fb0c7491fbc71306b1d5269bd5bbd3882eba68a18",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-21.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-21.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-22",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-20.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "107fa531963e3802ab74430e9f839919c34e65b54c642be80b5d16ad7cb59b29",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-22.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-22.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-23",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-21.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "117ddcf75a6859ec23d9501fd76b4121be813fc7cbde7b7b89d7ef8da0c7986c",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-23.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-23.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-24",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-22.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "221a496b5293b5ff22c2010945e7c39e0431fd3971ec56aa14e646f7ccdf09a0",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-24.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-24.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-25",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-23.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "5306721b1c63acd9e815dbea1629f097a9e6e4644814ca125f4d80509c32ae1b",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-25.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-25.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-26",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-24.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "de6a5b045f1acd43173a1c6bff6192c6325bd8bb465068070f14528c88c52aab",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-26.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-26.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-27",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-25.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "f9e411f97194bc37b879ee2308c4566964b6965034eb1c7fa42bcf737737c146",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-27.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-27.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-28",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-26.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "9db771d79a732e8309174a44b20211ef49f3de14aaa95561cd90705d8d517079",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-28.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-28.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-29",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-27.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "568f0827bac067540b68ac1530d24ba3e4a87605d4aab2eab9a40173ee010ff9",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-29.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-29.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-30",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-28.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "c404849437a408d00b02a8d64248778af9bc075c315e36de369c377a115ea22d",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-30.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-30.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-31",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-29.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "a28c5234f1d169e79bc4868d01d3412014dd7d80d4791e14e5b693fe897829e7",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-31.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-31.edited.pptx"
+      }
+    },
+    {
+      "id": "pptx-32",
+      "kind": "pptx",
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-synthetic-30.source.pptx",
+      "provenance": "Generated deterministic synthetic variant",
+      "sourceSha256": "4a72cc48b3c37db5b5922d914babc01d1dd1de13f8f129f9b4a4ff84e663cacb",
+      "noOp": {
+        "status": "passed",
+        "passed": true,
+        "changed": [],
+        "removed": [],
+        "added": [],
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-32.noop.pptx"
+      },
+      "edit": {
+        "status": "passed",
+        "passed": true,
+        "changed": [
+          "ppt/slides/slide1.xml"
+        ],
+        "removed": [],
+        "added": [],
+        "markerFound": true,
+        "output": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\pptx-32.edited.pptx"
+      }
+    }
+  ],
+  "totals": {
+    "docx": 50,
+    "pptx": 32,
+    "failed": 0,
+    "passedNoOp": 82,
+    "passedEdits": 79
+  }
+}

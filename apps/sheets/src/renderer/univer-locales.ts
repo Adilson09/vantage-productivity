@@ -7,7 +7,7 @@
  * (cs/he/hi/ms/nl/th/tr/zh-TW, plus en, which boots directly) stay English.
  */
 import { LocaleService, LocaleType, mergeLocales, type ILocales } from '@univerjs/core'
-import type { Lang } from '@genoffice/i18n'
+import type { Lang } from '@vantage/i18n'
 
 import { translateFor } from './i18n/locale'
 import type { UniverRuntime } from './univer-state'

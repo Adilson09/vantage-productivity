@@ -71,10 +71,30 @@ export interface SheetRedactionState {
 
 export const REDACTION_PART_PATH = 'xl/gxRedactions.json'
 const REDACTION_CONTENT_TYPE = 'application/json'
-const REDACTION_REL_TYPE = 'https://schemas.genspark.ai/genoffice/2026/relationships/redactions'
+const REDACTION_REL_TYPE = 'https://schemas.genspark.ai/vantage/2026/relationships/redactions'
+// Persistent file-format identifier from earlier documents, retained only for compatibility.
+const LEGACY_REDACTION_REL_TYPE =
+  'https://schemas.genspark.ai/genoffice/2026/relationships/redactions'
 const WORKBOOK_RELS_PATH = 'xl/_rels/workbook.xml.rels'
 const CONTENT_TYPES_PATH = '[Content_Types].xml'
 const PART_VERSION = 1
+
+/** Keep one declaration under the current type, or remove both generations when clearing. */
+function rewriteRedactionRelationships(
+  xml: string,
+  keepOne: boolean,
+): { xml: string; retained: boolean } {
+  let retained = false
+  const rewritten = xml.replace(/<Relationship\b[^>]*\/?>/g, (relationship) => {
+    const type = /\bType=(["'])([^"']+)\1/.exec(relationship)
+    if (!type || (type[2] !== REDACTION_REL_TYPE && type[2] !== LEGACY_REDACTION_REL_TYPE))
+      return relationship
+    if (!keepOne || retained) return ''
+    retained = true
+    return relationship.replace(type[0], `Type=${type[1]}${REDACTION_REL_TYPE}${type[1]}`)
+  })
+  return { xml: rewritten, retained }
+}
 
 /// The slice of `PackageEditor` this module needs. Declared structurally (as
 /// `xlsx-notes.ts` does for its own) so importing the editor here would not
@@ -116,7 +136,7 @@ export function parseRedactionPart(text: string): SheetRedactionState[] {
   if (root.version !== PART_VERSION) {
     throw new RedactionError(
       `${REDACTION_PART_PATH} has version ${JSON.stringify(root.version)}, but this ` +
-        `version of GenOffice only understands ${PART_VERSION}. Refusing to save.`,
+        `version of Vantage only understands ${PART_VERSION}. Refusing to save.`,
     )
   }
   const sheets = root.sheets
@@ -276,10 +296,7 @@ async function removeRedactionPart(
   touchedEntries.add(REDACTION_PART_PATH)
 
   const relationships = await pkg.readText(WORKBOOK_RELS_PATH)
-  const withoutRel = relationships.replace(
-    new RegExp(`<Relationship\\b[^>]*Type="${REDACTION_REL_TYPE}"[^>]*/?>`),
-    '',
-  )
+  const withoutRel = rewriteRedactionRelationships(relationships, false).xml
   if (withoutRel !== relationships) {
     pkg.write(WORKBOOK_RELS_PATH, withoutRel)
     touchedEntries.add(WORKBOOK_RELS_PATH)
@@ -326,14 +343,19 @@ export async function applyRedactionPart(
   touchedEntries.add(REDACTION_PART_PATH)
 
   const relationships = await pkg.readText(WORKBOOK_RELS_PATH)
-  if (!relationships.includes(`Type="${REDACTION_REL_TYPE}"`)) {
+  const normalized = rewriteRedactionRelationships(relationships, true)
+  let nextRelationships = normalized.xml
+  if (!normalized.retained) {
     const relationship =
-      `<Relationship Id="${nextFreeRelationshipId(relationships)}" ` +
+      `<Relationship Id="${nextFreeRelationshipId(nextRelationships)}" ` +
       `Type="${REDACTION_REL_TYPE}" Target="gxRedactions.json"/>`
-    pkg.write(
-      WORKBOOK_RELS_PATH,
-      relationships.replace('</Relationships>', `${relationship}</Relationships>`),
+    nextRelationships = nextRelationships.replace(
+      '</Relationships>',
+      `${relationship}</Relationships>`,
     )
+  }
+  if (nextRelationships !== relationships) {
+    pkg.write(WORKBOOK_RELS_PATH, nextRelationships)
     touchedEntries.add(WORKBOOK_RELS_PATH)
   }
 
@@ -349,7 +371,7 @@ export async function applyRedactionPart(
 ///
 /// ## Why a second copy
 ///
-/// The part survives Excel and GenOffice. It does not survive everything. A
+/// The part survives Excel and Vantage. It does not survive everything. A
 /// reader that rebuilds the package from its own model discards parts it does
 /// not model, along with their relationships and content-type overrides, and
 /// LibreOffice does exactly that: `soffice --convert-to xlsx` over a workbook
@@ -365,7 +387,7 @@ export async function applyRedactionPart(
 ///
 /// It buys the coordinates, which are what withhold a cell. It does not buy
 /// the sheet *name*: the sheet is recorded by position in workbook order, so a
-/// workbook reordered outside GenOffice can point a mark at the wrong table.
+/// workbook reordered outside Vantage can point a mark at the wrong table.
 /// That is the trade, and the direction it fails in is the safe one — a mark
 /// that lands on the wrong table withholds something the reader never hid,
 /// which they can undo, where a mark that is not recorded at all hands the
@@ -538,7 +560,7 @@ function mirrorMarkOf(
   if (record.v !== MIRROR_VERSION) {
     throw new RedactionError(
       `${where} holds mirror version ${JSON.stringify(record.v)}, but this version of ` +
-        `GenOffice only understands ${MIRROR_VERSION}. Refusing to open the workbook.`,
+        `Vantage only understands ${MIRROR_VERSION}. Refusing to open the workbook.`,
     )
   }
   if (!isNonNegativeInteger(record.sheet)) {

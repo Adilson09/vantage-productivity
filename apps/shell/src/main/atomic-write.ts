@@ -1,10 +1,10 @@
-// Aster Office modification: share fail-safe replacement and recovery snapshots,
+// Vantage Productivity modification: share fail-safe replacement and recovery snapshots,
 // while preserving the shell's post-rename directory durability flush.
 import { open, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { atomicWriteVia } from '@genoffice/electron-utils/atomic-write'
+import { atomicWriteVia } from '@vantage/electron-utils/atomic-write'
 
-export { atomicCopyFile } from '@genoffice/electron-utils/atomic-write'
+export { atomicCopyFile } from '@vantage/electron-utils/atomic-write'
 
 // cloud-sync folders, AV locks and fsync-less filesystems refuse the flush after a
 // successful write; that only weakens power-loss durability, so the save proceeds

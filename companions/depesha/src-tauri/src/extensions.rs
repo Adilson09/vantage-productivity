@@ -266,7 +266,7 @@ impl Manifest {
 }
 
 fn root(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
-    // Aster Office fork: extensions follow the same isolated mail profile.
+    // Vantage Productivity fork: extensions follow the same isolated mail profile.
     let dir = crate::aster_paths::data(app)?.join("extensions");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)

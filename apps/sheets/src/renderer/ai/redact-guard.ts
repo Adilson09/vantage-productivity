@@ -32,7 +32,7 @@ import {
   parseAddress,
   parseRange,
   type RangeBounds,
-} from '@genoffice/xlsx-gateway/domain/cell-address'
+} from '@vantage/xlsx-gateway/domain/cell-address'
 import { placeholderSource, type CellMark, type RedactionIndex } from './redact'
 
 export interface RedactionRefusal {

@@ -4,8 +4,6 @@ Tato kapitola popisuje práci se soubory společnou všem editorům; vlastní mo
 
 Nabídka **⋯** na řádku (objeví se po najetí na řádek souboru) sdružuje tyto akce:
 
-![Nabídka ⋯ na řádku souboru](img/file-ops.png)
-
 ## Přejmenování
 
 Dvě vstupní místa, jedna sada kontrol:
@@ -17,7 +15,7 @@ Pravidla: přípona se zachovává automaticky; nepovolené znaky, tečky na kon
 
 ## Odstranění
 
-- **⋯ ▸ Odstranit** na domovské stránce: zeptá se, které soubory, a přesune je do **systémového koše**, odkud je může obnovit operační systém. GenOffice si pro tuto věc nepřidržuje vlastní zpět — obnova je v kompetenci koše, ne oznámení.
+- **⋯ ▸ Odstranit** na domovské stránce: zeptá se, které soubory, a přesune je do **systémového koše**, odkud je může obnovit operační systém. Vantage si pro tuto věc nepřidržuje vlastní zpět — obnova je v kompetenci koše, ne oznámení.
 
 ## Duplikování
 

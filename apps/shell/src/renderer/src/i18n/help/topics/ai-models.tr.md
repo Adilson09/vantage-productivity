@@ -4,8 +4,6 @@
 
 Modeller ve anahtarlar Ayarlar'da yapılandırılır (Giriş ekranının sol altındaki hesap satırı):
 
-![Ayarlar penceresi](img/settings-general.png)
-
 - **Genspark barındırmalı**: oturum açın (cihaz kodu akışı) ve kullanın — sıfır yapılandırma.
 - **Özel uç noktalar (BYOK)**: Ayarlar ▸ AI, her protokol için bir temel URL ve API anahtarı alır — OpenAI uyumlu, Anthropic, Gemini, DeepSeek, DashScope (qwen) ve daha fazlası. Anahtarlar bu makinedeki uygulama ayar dosyasında saklanır ve yalnızca istek başlıklarında gönderilir. Atlas Cloud yerleşik protokoller arasındadır.
 - Her yetenek için farklı bir model seçilebilir: sohbet/üretim, görsel oluşturma, görsel analizi.

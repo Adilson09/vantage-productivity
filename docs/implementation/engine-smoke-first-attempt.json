@@ -1,0 +1,77 @@
+{
+  "createdAt": "2026-10-29T16:41:39.025Z",
+  "engines": [
+    {
+      "id": "libreoffice",
+      "name": "LibreOffice",
+      "available": true,
+      "path": "D:\\Codex-builds\\vantage-engine-tools\\libreoffice-26.8.2\\SourceDir\\LibreOffice\\program\\soffice.com",
+      "executableSha256": "4f133aba4d8db66122ec34bc17eeaa8b274cfa5ded03feb384953f6ae357d4cf",
+      "version": "LibreOffice 26.8.2.2 9dea406ab7695df6325b11b0e19fdca8db4b7276",
+      "license": "MPL-2.0 and bundled component licenses",
+      "url": "https://www.libreoffice.org/about-us/licenses/",
+      "capabilities": [
+        "convert-local",
+        "render-reference-pdf"
+      ]
+    },
+    {
+      "id": "qpdf",
+      "name": "qpdf",
+      "available": true,
+      "path": "D:\\Codex-builds\\vantage-engine-tools\\qpdf-12.4.2\\qpdf-12.4.2-msvc64\\bin\\qpdf.exe",
+      "executableSha256": "1bdaf878f37eaffea1ea3c30591214c77636a0f2fc7432427516b6e22e36c0ff",
+      "version": "qpdf version 12.4.2\r\nRun qpdf --copyright to see copyright and license information.",
+      "license": "Apache-2.0 (verify installed version notices)",
+      "url": "https://qpdf.readthedocs.io/en/stable/",
+      "capabilities": [
+        "pdf-structural-check"
+      ]
+    },
+    {
+      "id": "verapdf",
+      "name": "veraPDF",
+      "available": false,
+      "reason": "Not installed or not found. Configure VANTAGE_VERAPDF_PATH with a local executable path.",
+      "license": "GPL-3.0-or-later / MPL-2.0 (verify selected distribution)",
+      "url": "https://docs.verapdf.org/cli/validation/",
+      "capabilities": [
+        "pdf-conformance-report"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\sample.docx",
+      "passed": false,
+      "error": "Error: LibreOffice conversion did not complete: timeout"
+    },
+    {
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\sample.xlsx",
+      "passed": false,
+      "error": "Error: The configured executable did not complete its version probe."
+    },
+    {
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\sample.pptx",
+      "passed": false,
+      "error": "Error: The configured executable did not complete its version probe."
+    },
+    {
+      "source": "D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\malformed.pdf",
+      "passed": true,
+      "expected": "fail",
+      "qpdf": {
+        "engine": "qpdf",
+        "version": "qpdf version 12.4.2\r\nRun qpdf --copyright to see copyright and license information.",
+        "filePath": "D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\malformed.pdf",
+        "status": "fail",
+        "code": 2,
+        "stdout": "",
+        "stderr": "WARNING: D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\malformed.pdf: file is damaged\r\nWARNING: D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\malformed.pdf: can't find startxref\r\nWARNING: D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\malformed.pdf: Attempting to reconstruct cross-reference table\r\nqpdf: D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\malformed.pdf: unable to find trailer dictionary while recovering damaged file\r\n",
+        "scope": "Structural diagnostics only; visual fidelity and accessibility are not certified."
+      }
+    }
+  ],
+  "scope": "Real local LibreOffice conversion and qpdf structural diagnostics on three deterministic fixtures. Same-renderer no-op comparisons are supplementary and do not establish Microsoft Office equivalence.",
+  "passed": false
+}

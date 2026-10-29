@@ -4,7 +4,7 @@ import { redactionStatesSchema } from '../src/shared/desktop-api'
 import {
   parseRedactionPart,
   serializeRedactionPart,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+} from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 
 /**
  * The boundary the fill crosses on its way into the file: the renderer's mark

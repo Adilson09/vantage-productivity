@@ -3,7 +3,7 @@
  * are the whole behaviour, so the fixture is a real tree on disk rather than a
  * stubbed fs.
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -102,8 +102,11 @@ describe('resolveWikiLinks', () => {
     })
   })
 
-  it('prefers .md over .txt for a bare name', async () => {
-    const map = await resolve(['Beta'], join(root, 'note.md'))
+  it.each(['root document', 'untitled document', 'another folder'])(
+    'prefers .md over .txt for a bare name from %s', async (location) => {
+    const fromPath = location === 'untitled document' ? '' : location === 'another folder'
+      ? join(root, 'sub', 'note.md') : join(root, 'note.md')
+    const map = await resolve(['Beta'], fromPath)
     expect(map.get('Beta')?.path).toBe(join(root, 'Beta.md'))
   })
 
@@ -158,12 +161,15 @@ describe('listing cache', () => {
     try {
       writeFileSync(join(dir, 'One.md'), '# one\n')
       const first = await fs.list(dir)
+      const timestamp = statSync(dir)
       expect(first.files).toEqual(['One.md'])
       writeFileSync(join(dir, 'Two.md'), '# two\n')
+      // Simulate the unchanged/coarse directory mtime seen on exFAT/network drives.
+      utimesSync(dir, timestamp.atime, timestamp.mtime)
       // inside the trust window the listing is served from memory
       expect(await fs.list(dir)).toBe(first)
       ;(first as { checkedAt: number }).checkedAt = 0
-      // past it, the directory's mtime tells the cache the listing moved on
+      // Past it, refresh even when the directory timestamp did not advance.
       const second = await fs.list(dir)
       expect(second.files.sort()).toEqual(['One.md', 'Two.md'])
     } finally {

@@ -2,7 +2,7 @@
  * Plain-text Markdown paste. Clipboards that carry only text/plain (fenced
  * code blocks, terminals, .md files in a text editor, LLM output) lose all
  * structure when pasted literally: "## Heading" keeps its hashes, "**bold**"
- * its asterisks. When such text looks like Markdown, it is converted to HTML
+ * its vantageisks. When such text looks like Markdown, it is converted to HTML
  * and inserted through the same pipeline as an HTML paste. Clipboards that
  * already carry text/html never reach this path.
  *

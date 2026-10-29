@@ -3,13 +3,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import JSZip from 'jszip'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   agentConfigDir,
   agentTarget,
@@ -24,14 +25,28 @@ import {
   type SkillLedger,
 } from '../src/agent-skills'
 
-const skillText = (version: string, body = 'Run `genoffice --version` first.') =>
-  `---\nname: aster-office\ndescription: test\nmetadata:\n  version: ${version}\n  cli: '>=0.4.0'\n---\n\n${body}\n`
+const skillText = (version: string, body = 'Run `vantage --version` first.') =>
+  `---\nname: vantage-productivity\ndescription: test\nmetadata:\n  version: ${version}\n  cli: '>=0.4.0'\n---\n\n${body}\n`
 
 const bundled = (version = '1.2.0') => bundledSkillFrom(Buffer.from(skillText(version)))
 
+const fixtureBase =
+  process.platform === 'win32'
+    ? join(process.env.LOCALAPPDATA ?? homedir(), 'Temp', 'vantage-cli-link-fixtures')
+    : tmpdir()
+const fixtureRoots: string[] = []
 function home(): string {
-  return mkdtempSync(join(tmpdir(), 'genoffice-skills-'))
+  mkdirSync(fixtureBase, { recursive: true })
+  const root = mkdtempSync(join(fixtureBase, 'vantage-skills-'))
+  fixtureRoots.push(root)
+  return root
 }
+afterEach(() => {
+  for (const root of fixtureRoots.splice(0)) {
+    if (dirname(root) !== fixtureBase) throw new Error('Unexpected skill fixture root')
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 describe('detectAgents', () => {
   it('lists the tools whose dotfolder exists, honouring the env overrides', () => {
@@ -63,7 +78,7 @@ describe('detectAgents', () => {
     expect(agentTarget('gemini', {}, h)).toBeNull()
     expect(agentTarget('copilot', {}, h)).toBeNull()
     expect(agentTarget('opencode', {}, h)).toBeNull()
-    // `genoffice mcp` still reaches the per-tool dotfolders
+    // `vantage mcp` still reaches the per-tool dotfolders
     expect(agentConfigDir('codex', {}, h)).toBe(join(h, '.codex'))
     expect(agentConfigDir('cursor', {}, h)).toBe(join(h, '.cursor'))
     expect(agentConfigDir('gemini', {}, h)).toBe(join(h, '.gemini'))
@@ -93,7 +108,7 @@ describe('detectAgents', () => {
 describe('parseSkillFrontmatter / compareVersions', () => {
   it('reads name and metadata.version', () => {
     expect(parseSkillFrontmatter(skillText('2.1.0'))).toEqual({
-      name: 'aster-office',
+      name: 'vantage-productivity',
       version: '2.1.0',
     })
     expect(parseSkillFrontmatter('---\nname: other\n---\nx')).toEqual({
@@ -120,7 +135,7 @@ describe('readInstallState', () => {
 
     // our install, current
     const path = installSkill(dir, b, ledger)
-    expect(path).toBe(join(dir, 'aster-office', 'SKILL.md'))
+    expect(path).toBe(join(dir, 'vantage-productivity', 'SKILL.md'))
     expect(readFileSync(path, 'utf-8')).toBe(b.text)
     expect(ledger[path]).toMatchObject({ version: '1.2.0', sha256: b.sha256, channel: 'app' })
     expect(readInstallState(dir, b, ledger)).toMatchObject({
@@ -159,7 +174,7 @@ describe('readInstallState', () => {
     // the folder holds something else
     writeFileSync(path, '---\nname: other-skill\n---\n')
     expect(readInstallState(dir, b, ledger).status).toBe('occupied')
-    mkdirSync(join(dir, 'aster-office', 'nested'))
+    mkdirSync(join(dir, 'vantage-productivity', 'nested'))
     writeFileSync(path, 'not a skill at all')
     expect(readInstallState(dir, b, ledger).status).toBe('occupied')
   })
@@ -168,18 +183,18 @@ describe('readInstallState', () => {
 describe('uninstallSkill', () => {
   it('refuses a fork skill directory linked to an existing upstream skill', () => {
     const dir = join(home(), 'skills')
-    const upstreamDir = join(dir, 'genoffice')
+    const upstreamDir = join(dir, 'vantage')
     mkdirSync(upstreamDir, { recursive: true })
     const originalPath = join(upstreamDir, 'SKILL.md')
-    const upstream = '---\nname: genoffice\n---\nKeep this upstream skill.\n'
+    const upstream = '---\nname: vantage\n---\nKeep this upstream skill.\n'
     writeFileSync(originalPath, upstream)
     symlinkSync(
       upstreamDir,
-      join(dir, 'aster-office'),
+      join(dir, 'vantage-productivity'),
       process.platform === 'win32' ? 'junction' : 'dir',
     )
     const ledger: SkillLedger = {
-      [join(dir, 'aster-office', 'SKILL.md')]: {
+      [join(dir, 'vantage-productivity', 'SKILL.md')]: {
         version: '1.0.0',
         sha256: '',
         at: '',
@@ -191,16 +206,16 @@ describe('uninstallSkill', () => {
     expect(readFileSync(originalPath, 'utf8')).toBe(upstream)
   })
 
-  it('installs and removes Aster beside an existing upstream skill without changing it', () => {
+  it('installs and removes Vantage beside an existing upstream skill without changing it', () => {
     const dir = join(home(), 'skills')
-    const upstreamDir = join(dir, 'genoffice')
+    const upstreamDir = join(dir, 'vantage')
     mkdirSync(upstreamDir, { recursive: true })
-    const upstream = '---\nname: genoffice\n---\nOriginal upstream skill, including local edits.\n'
+    const upstream = '---\nname: vantage\n---\nOriginal upstream skill, including local edits.\n'
     const originalPath = join(upstreamDir, 'SKILL.md')
     writeFileSync(originalPath, upstream)
     const ledger: SkillLedger = {}
     const path = installSkill(dir, bundled(), ledger)
-    expect(path).toBe(join(dir, 'aster-office', 'SKILL.md'))
+    expect(path).toBe(join(dir, 'vantage-productivity', 'SKILL.md'))
     expect(readFileSync(originalPath, 'utf8')).toBe(upstream)
     expect(uninstallSkill(dir, ledger)).toBe(true)
     expect(readFileSync(originalPath, 'utf8')).toBe(upstream)
@@ -212,16 +227,16 @@ describe('uninstallSkill', () => {
     const b = bundled()
     const ledger: SkillLedger = {}
     // foreign file: never touched
-    mkdirSync(join(dir, 'aster-office'), { recursive: true })
-    writeFileSync(join(dir, 'aster-office', 'SKILL.md'), skillText('1.0.0'))
+    mkdirSync(join(dir, 'vantage-productivity'), { recursive: true })
+    writeFileSync(join(dir, 'vantage-productivity', 'SKILL.md'), skillText('1.0.0'))
     expect(uninstallSkill(dir, ledger)).toBe(false)
-    expect(existsSync(join(dir, 'aster-office', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(dir, 'vantage-productivity', 'SKILL.md'))).toBe(true)
 
     const path = installSkill(dir, b, ledger)
-    writeFileSync(join(dir, 'aster-office', 'notes.txt'), 'mine')
+    writeFileSync(join(dir, 'vantage-productivity', 'notes.txt'), 'mine')
     expect(uninstallSkill(dir, ledger)).toBe(true)
     expect(existsSync(path)).toBe(false)
-    expect(existsSync(join(dir, 'aster-office', 'notes.txt'))).toBe(true)
+    expect(existsSync(join(dir, 'vantage-productivity', 'notes.txt'))).toBe(true)
     expect(ledger[path]).toBeUndefined()
 
     installSkill(dir, b, ledger)
@@ -229,18 +244,18 @@ describe('uninstallSkill', () => {
     const dir2 = join(home(), 'skills')
     const p2 = installSkill(dir2, b, ledger)
     expect(uninstallSkill(dir2, ledger)).toBe(true)
-    expect(existsSync(join(dir2, 'aster-office'))).toBe(false)
+    expect(existsSync(join(dir2, 'vantage-productivity'))).toBe(false)
     expect(existsSync(p2)).toBe(false)
   })
 })
 
 describe('buildSkillZip', () => {
-  it('holds aster-office/SKILL.md with the exact bundled bytes', async () => {
+  it('holds vantage-productivity/SKILL.md with the exact bundled bytes', async () => {
     const b = bundled('1.2.0')
     const zip = await JSZip.loadAsync(await buildSkillZip(b))
     expect(Object.keys(zip.files).filter((f) => !zip.files[f]!.dir)).toEqual([
-      'aster-office/SKILL.md',
+      'vantage-productivity/SKILL.md',
     ])
-    expect(await zip.file('aster-office/SKILL.md')!.async('string')).toBe(b.text)
+    expect(await zip.file('vantage-productivity/SKILL.md')!.async('string')).toBe(b.text)
   })
 })

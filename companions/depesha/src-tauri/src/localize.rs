@@ -68,7 +68,7 @@ fn error_ru(err: &Error) -> String {
         Error::NotFound => "письмо не найдено".into(),
         Error::Unreadable => "сохранённые данные не читаются".into(),
         Error::CacheTooNew { found, known } => format!(
-            "локальный кэш почты сохранён более новой версией Aster Mail (формат {found}, эта версия \
+            "локальный кэш почты сохранён более новой версией Vantage Mail (формат {found}, эта версия \
              читает до {known}). Установите новую версию; кэш оставлен как есть"
         ),
         Error::FolderChanged => {
@@ -83,7 +83,7 @@ fn error_ru(err: &Error) -> String {
         Error::CopyUnchecked(e) => format!("не удалось проверить, есть ли копия в «Отправленных»: {}", error_ru(e)),
         Error::Parse => "не удалось разобрать письмо".into(),
         Error::PrivateAddress(host) => {
-            format!("{host} — адрес во внутренней сети; по ссылке из письма Aster Mail туда не обращается")
+            format!("{host} — адрес во внутренней сети; по ссылке из письма Vantage Mail туда не обращается")
         }
         Error::Ews {
             code,
@@ -100,7 +100,7 @@ fn error_ru(err: &Error) -> String {
             )
         }
         Error::HttpAuth(offered) => format!(
-            "Exchange принимает на EWS только {offered}, а Aster Mail входит через Basic или NTLM. Попросите \
+            "Exchange принимает на EWS только {offered}, а Vantage Mail входит через Basic или NTLM. Попросите \
              администратора включить один из них: Set-WebServicesVirtualDirectory -WindowsAuthentication $true"
         ),
         Error::Said(say) => {
@@ -347,8 +347,8 @@ impl Words for Phrases {
     }
     fn not_on_time(&self) -> String {
         crate::tr!(
-            "not sent on time: Aster Mail was closed or the computer was asleep",
-            "не ушло вовремя: Aster Mail была закрыта или компьютер спал"
+            "not sent on time: Vantage Mail was closed or the computer was asleep",
+            "не ушло вовремя: Vantage Mail была закрыта или компьютер спал"
         )
     }
     fn account_removed(&self) -> String {
@@ -370,8 +370,8 @@ pub fn sign_in_pages() -> depesha_core::oauth::PageWords {
     depesha_core::oauth::PageWords {
         signed_in: lang::pick("Authorization received", "Разрешение получено").into(),
         close_tab: lang::pick(
-            "You can close this tab and return to Aster Mail while it finishes connecting.",
-            "Вкладку можно закрыть и вернуться в Aster Mail, пока подключение завершается.",
+            "You can close this tab and return to Vantage Mail while it finishes connecting.",
+            "Вкладку можно закрыть и вернуться в Vantage Mail, пока подключение завершается.",
         )
         .into(),
         failed: lang::pick("Sign-in failed", "Вход не выполнен").into(),

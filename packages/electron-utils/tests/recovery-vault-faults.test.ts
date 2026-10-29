@@ -1,4 +1,4 @@
-// Aster Office: interrupted recovery-copy writes must never publish partial data or leave debris.
+// Vantage Productivity: interrupted recovery-copy writes must never publish partial data or leave debris.
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -42,7 +42,7 @@ import {
   restoreRecoveryCopy,
 } from '../src/recovery-vault'
 
-const prefix = join(tmpdir(), 'aster-restore-fault-')
+const prefix = join(tmpdir(), 'vantage-restore-fault-')
 let dir: string
 beforeEach(async () => {
   dir = await mkdtemp(prefix)

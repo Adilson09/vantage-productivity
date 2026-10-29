@@ -1,4 +1,4 @@
-// Aster Mail fork: own registrations, Google desktop callback, and redacted client diagnostics.
+// Vantage Mail fork: own registrations, Google desktop callback, and redacted client diagnostics.
 //! OAuth 2.0 sign-in for desktop apps (RFC 8252): the system browser opens the
 //! provider's page, the answer comes back to a one-shot HTTP server on the loopback
 //! interface, and PKCE (RFC 7636) protects the code. IMAP and SMTP then log in

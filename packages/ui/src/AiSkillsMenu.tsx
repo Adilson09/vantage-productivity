@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Lang } from '@genoffice/i18n'
+import type { Lang } from '@vantage/i18n'
 import { AI_SKILLS_LABELS } from './strings-ai-skills'
 import { useDismissablePopover } from './popover-dismiss'
 import './ai-skills.css'

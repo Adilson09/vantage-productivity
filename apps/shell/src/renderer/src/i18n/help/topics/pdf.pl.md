@@ -40,8 +40,6 @@ Sześć narzędzi: **tusz, prostokąt, elipsa, strzałka, notatka**, a ponadto *
   1. Karta Adnotacje ▸ kliknij **Zaczernij obszar** (narzędzie się włącza).
   2. **Przeciągnij ramkę na treść** — zostanie zakryta znacznikiem kreskowanym, a na pasku narzędzi pojawią się przyciski **wyczyść oznaczenia / zastosuj zaczernienia**:
 
-  ![Strona po zaznaczeniu zaciemnienia](img/pdf-redact.png)
-
   3. Kliknij **Zastosuj zaczernienia** i potwierdź — powstanie kopia robocza, w której zakryty tekst i obrazy są fizycznie usunięte (a nie tylko przykryte), a operacji nie można cofnąć; oryginalny dokument pozostaje nietknięty.
 
   Pomyliłeś się? Przycisk wyczyszczenia oznaczeń kasuje bieżące oznaczenia, więc możesz narysować od nowa.

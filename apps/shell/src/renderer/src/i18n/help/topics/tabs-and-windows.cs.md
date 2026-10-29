@@ -2,8 +2,6 @@
 
 Všechny otevřené soubory sdílejí jedno okno; pruh karet nahoře se mezi nimi přepíná jako v prohlížeči.
 
-![Pruh karet: Domů a dva dokumenty](img/tabs.png)
-
 ## Základy
 
 - **Přepnout**: klikněte na kartu nebo otáčejte kolečkem nad páskem a projděte karty.

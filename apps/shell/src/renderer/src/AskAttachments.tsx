@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ATTACHMENT_IMAGE_EXTS, formatKbSize, type AttachmentInfo } from '@genoffice/agent-core'
+import { ATTACHMENT_IMAGE_EXTS, formatKbSize, type AttachmentInfo } from '@vantage/agent-core'
 import { FileBadge } from './file-badge'
 
 /**

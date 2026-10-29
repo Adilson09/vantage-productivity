@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-// Aster Office: preserve existing PDF destinations and capture their previous version.
-import { atomicWriteFile } from '@genoffice/electron-utils/atomic-write'
+// Vantage Productivity: preserve existing PDF destinations and capture their previous version.
+import { atomicWriteFile } from '@vantage/electron-utils/atomic-write'
 import type { ExportPdfLink, ExportPdfPage } from '../shared/ipc'
 
 export interface PdfExportWindow {
@@ -155,7 +155,7 @@ export async function exportSlidesPdf({
   let tempDir: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    tempDir = await mkdtemp(join(tmpdir(), 'genoffice-slides-pdf-'))
+    tempDir = await mkdtemp(join(tmpdir(), 'vantage-slides-pdf-'))
     const htmlPath = join(tempDir, 'slides.html')
     await writeFile(htmlPath, buildPdfExportHtml(pages, widthIn, heightIn, links, fontCss), 'utf8')
     const result = await Promise.race([

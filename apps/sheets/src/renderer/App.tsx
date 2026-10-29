@@ -36,7 +36,7 @@ import { installGridGrowth } from './grid-growth'
 import {
   pollUntilReady,
   runHeadlessRendererExport,
-} from '@genoffice/electron-utils/headless-export'
+} from '@vantage/electron-utils/headless-export'
 import {
   commitActiveCellEditor,
   installJournalSuppressionUndoFilter,
@@ -54,7 +54,7 @@ import {
 import {
   hashSheetPassword,
   type SheetPasswordHash,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-protection-hash'
+} from '@vantage/xlsx-gateway/gateway/xlsx-protection-hash'
 import { applyChangePlan, planFromOps, type OpExecutorContext } from './op-executor'
 import { installSheetsMcpBridge, type McpSheetHandlers } from './mcp-bridge'
 import { renameChartRefsForSheet } from './workbook-ops'
@@ -79,7 +79,7 @@ import {
   ImageViewer,
   type AiTokenUsageView,
   type AiScopeQuoteData,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 
 import {
   CellValueType,
@@ -147,14 +147,14 @@ import {
   composeSkills,
   withAttachedSkills,
   type AgentImage,
-} from '@genoffice/agent-core'
-import { imageGenerationAvailable, type AiSettings } from '@genoffice/ai-provider/browser'
-import { type WorkbookOperation } from '@genoffice/xlsx-gateway/domain/workbook-dsl'
+} from '@vantage/agent-core'
+import { imageGenerationAvailable, type AiSettings } from '@vantage/ai-provider/browser'
+import { type WorkbookOperation } from '@vantage/xlsx-gateway/domain/workbook-dsl'
 import {
   columnLabel,
   parseAddress,
   rangeCellCount,
-} from '@genoffice/xlsx-gateway/domain/cell-address'
+} from '@vantage/xlsx-gateway/domain/cell-address'
 import { aggregateWorkbookRange } from './ai/aggregate-range'
 import { collectCellFormulaTexts, quadraticFormulaError } from './formula-cost'
 import {
@@ -163,10 +163,10 @@ import {
   chartSupportsSeriesReplace,
   withDefaultBarLabels,
   type CellBounds,
-} from '@genoffice/xlsx-gateway/domain/chart-visual'
-import { InMemoryWorkbookAdapter } from '@genoffice/xlsx-gateway/domain/in-memory-workbook'
-import { cfRuleUnsaveableReason, iconSetSaveable } from '@genoffice/xlsx-gateway/gateway/xlsx-cf'
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+} from '@vantage/xlsx-gateway/domain/chart-visual'
+import { InMemoryWorkbookAdapter } from '@vantage/xlsx-gateway/domain/in-memory-workbook'
+import { cfRuleUnsaveableReason, iconSetSaveable } from '@vantage/xlsx-gateway/gateway/xlsx-cf'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 import { statesOnScreen } from './redact-marks-shift'
 import { installLazyFindBridge } from './lazy-find'
 import { startFullLoad } from './full-load'
@@ -187,7 +187,7 @@ import {
   toggleOutlineGroup,
 } from './outline-actions'
 import { moveOutlineEntries, shiftOutlineEntries } from './outline-model'
-import type { ApplyOutcome, ChangePlan } from '@genoffice/xlsx-gateway/domain/workbook.types'
+import type { ApplyOutcome, ChangePlan } from '@vantage/xlsx-gateway/domain/workbook.types'
 import { createElectronTransport } from './ai/transport'
 import {
   MAX_READ_RANGE_CELLS,
@@ -318,7 +318,7 @@ import {
   type SlicerPickerState,
   type TimelinePickerState,
 } from './pivot-actions'
-import type { ChartRecommendations } from '@genoffice/xlsx-gateway/domain/chart-recommend'
+import type { ChartRecommendations } from '@vantage/xlsx-gateway/domain/chart-recommend'
 import {
   cellAtClientPoint,
   handleInsertChart as handleInsertChartImpl,
@@ -365,7 +365,7 @@ import { installCfFormulaFold } from './cf-formula-fold'
 import { installSheetRenameFix } from './sheet-rename-fix'
 import { installArrowCollapse } from './arrow-collapse-fix'
 import { effectiveSheetProtection, installSheetProtectionGuard } from './sheet-protection'
-import type { SheetProtectionAllow } from '@genoffice/xlsx-gateway/gateway/xlsx-protection'
+import type { SheetProtectionAllow } from '@vantage/xlsx-gateway/gateway/xlsx-protection'
 import { installCtrlDragFill } from './ctrl-drag-fill'
 import { installContextSubmenuReopenFix } from './context-submenu-reopen-fix'
 import { installMenuInputEnter } from './menu-input-enter'
@@ -1648,7 +1648,7 @@ export function App({
           // Signed-out failures get an inline sign-in button; detected via
           // gsk status rather than matching the localized error text — but only
           // when Genspark is the provider: a BYOK user's error (e.g. their own
-          // provider's rate limit) must not advertise a Genspark sign-in (genoffice#1948)
+          // provider's rate limit) must not advertise a Genspark sign-in (vantage#1948)
           void window.desktopApi
             .aiGskStatus()
             .then((status) => {
@@ -2075,7 +2075,7 @@ export function App({
   useEffect(() => {
     // Univer paints the grid on canvas, so it can't follow the CSS tokens —
     // mirror the canvas state into its official darkMode flag: an explicit
-    // <html data-doc-theme> pin (genoffice#1811) wins, otherwise the <html data-theme>
+    // <html data-doc-theme> pin (vantage#1811) wins, otherwise the <html data-theme>
     // state as before
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
     const isDarkTheme = () => {
@@ -2153,8 +2153,8 @@ export function App({
     univerRef.current = runtime
     // The hidden spare can have a canvas/editor before Univer finishes booting.
     // Expose its lifecycle readiness only to explicitly enabled e2e drivers.
-    if ((window as unknown as Record<string, unknown>).__genofficeDebugHooks === true) {
-      ;(window as unknown as Record<string, unknown>).__genofficeSpareViewReady = () =>
+    if ((window as unknown as Record<string, unknown>).__vantageDebugHooks === true) {
+      ;(window as unknown as Record<string, unknown>).__vantageSpareViewReady = () =>
         runtime.univerAPI.getCurrentLifecycleStage() ===
         runtime.univerAPI.Enum.LifecycleStages.Steady
     }
@@ -2336,7 +2336,7 @@ export function App({
     // built-in item keeps working.
     const redactMenuDisposable = installRedactMenu(runtime, onRedactSelection)
     // A context-menu submenu re-hovered within Univer's close delay stays
-    // invisible; re-trigger its positioning (genoffice#337).
+    // invisible; re-trigger its positioning (vantage#337).
     const contextSubmenuReopenDisposable = installContextSubmenuReopenFix()
     // Enter in a context-menu count box (insert N rows/columns, column
     // width) runs the row's action instead of only committing the number.
@@ -2377,7 +2377,7 @@ export function App({
     )
     // Wide expression CF rules register folded/windowed formula ranges so
     // the engine stops rebuilding millions of per-cell dependency trees on
-    // every stream-in recalculation (genoffice#158).
+    // every stream-in recalculation (vantage#158).
     const cfFormulaFoldDisposable = installCfFormulaFold(runtime)
     // duplicateValues / uniqueValues compare display text like Excel (1981233
     // and "1981233" are duplicates).
@@ -4864,10 +4864,10 @@ export function App({
       ;(window as unknown as Record<string, unknown>).__ribbonCommand = handleRibbonCommand
     }
     // Built-app e2e hook, off by default: the preload exposes
-    // __genofficeDebugHooks only when GENOFFICE_DEBUG_HOOKS=1 (scroll/freeze
+    // __vantageDebugHooks only when VANTAGE_DEBUG_HOOKS=1 (scroll/freeze
     // drivers read Univer's render state through the Facade).
-    if ((window as unknown as Record<string, unknown>).__genofficeDebugHooks === true) {
-      ;(window as unknown as Record<string, unknown>).__genofficeDebug = {
+    if ((window as unknown as Record<string, unknown>).__vantageDebugHooks === true) {
+      ;(window as unknown as Record<string, unknown>).__vantageDebug = {
         univerAPI: univerRef.current?.univerAPI,
         findReplaceService: univerRef.current?.univer.__getInjector().get(IFindReplaceService),
         // ground truth for typing-into-the-adopted-spare failures: the
@@ -5515,9 +5515,9 @@ export function App({
     }
   })()
 
-  // genoffice CLI (`open --range`, `selection`): the shell evaluates this hook
+  // vantage CLI (`open --range`, `selection`): the shell evaluates this hook
   useEffect(() => {
-    ;(window as unknown as Record<string, unknown>).__genofficeControl = (req: ControlRequest) =>
+    ;(window as unknown as Record<string, unknown>).__vantageControl = (req: ControlRequest) =>
       handleSheetsControl(
         req,
         univerRef.current?.univerAPI.getActiveWorkbook(),

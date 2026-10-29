@@ -89,7 +89,7 @@ export function computeMediaCommands(
   const out: MediaCommand[] = []
   steps.forEach((step, si) => {
     if (si > played || (si === played && activeMs == null)) return
-    const items = si < played ? step.items : step.items.filter((t) => activeMs! > t.startMs)
+    const items = si < played ? step.items : step.items.filter((t) => activeMs! >= t.startMs)
     for (const t of [...items].sort((a, b) => a.startMs - b.startMs)) {
       if (animClassOf(t.item.effect) === 'media') {
         out.push({ sourceId: t.item.sourceId, effect: t.item.effect as MediaCommandKind })
@@ -417,7 +417,7 @@ export function computeNodeStates(
       if (si < played) p = 1
       else if (si === played && activeMs != null) {
         p =
-          activeMs <= t.startMs ? null : Math.min(1, (activeMs - t.startMs) / (t.endMs - t.startMs))
+          activeMs < t.startMs ? null : Math.min(1, (activeMs - t.startMs) / (t.endMs - t.startMs))
       } else p = null
       if (p == null) continue
       // Playing/finished: reset to normal first, then apply this effect (later animations on the same node override earlier ones)

@@ -1,6 +1,6 @@
 /**
  * Model file naming for the slides editor: the app-side half of
- * `suggestFileName` (`@genoffice/ui`).
+ * `suggestFileName` (`@vantage/ui`).
  *
  * ## The text is the projected text
  *
@@ -25,8 +25,8 @@
  * name, the localized "Untitled presentation" the main process produces in
  * `pickDraftPath`.
  */
-import type { RenderSlide } from '@genoffice/pptx-render'
-import { suggestFileName } from '@genoffice/ui'
+import type { RenderSlide } from '@vantage/pptx-render'
+import { suggestFileName } from '@vantage/ui'
 import { textForModel } from './ai/redact-view'
 
 /**

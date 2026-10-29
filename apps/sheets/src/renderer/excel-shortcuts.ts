@@ -81,22 +81,22 @@ const KEY_HOME = 36
 const KEY_NUMPAD_ADD = 107
 const KEY_NUMPAD_SUBTRACT = 109
 
-const ACTIVATE_ADJACENT_SHEET_ID = 'genoffice.command.activate-adjacent-sheet'
-const SELECT_SHEET_HOME_ID = 'genoffice.command.select-sheet-home'
-const SELECT_SHEET_END_ID = 'genoffice.command.select-sheet-end'
-const SELECT_ROW_HOME_ID = 'genoffice.command.select-row-home'
-const SELECT_WHOLE_COLUMN_ID = 'genoffice.command.select-whole-column'
-const SELECT_WHOLE_ROW_ID = 'genoffice.command.select-whole-row'
-const HIDE_SELECTED_ROWS_ID = 'genoffice.command.hide-selected-rows'
-const UNHIDE_SELECTED_ROWS_ID = 'genoffice.command.unhide-selected-rows'
-const HIDE_SELECTED_COLS_ID = 'genoffice.command.hide-selected-cols'
-const UNHIDE_SELECTED_COLS_ID = 'genoffice.command.unhide-selected-cols'
-const INSERT_CELLS_ID = 'genoffice.command.insert-cells'
-const DELETE_CELLS_ID = 'genoffice.command.delete-cells'
-const EXPAND_ROW_HOME_ID = 'genoffice.command.expand-row-home'
-const EXPAND_SHEET_HOME_ID = 'genoffice.command.expand-sheet-home'
-const EXPAND_SHEET_END_ID = 'genoffice.command.expand-sheet-end'
-const SELECT_CURRENT_REGION_ID = 'genoffice.command.select-current-region'
+const ACTIVATE_ADJACENT_SHEET_ID = 'vantage.command.activate-adjacent-sheet'
+const SELECT_SHEET_HOME_ID = 'vantage.command.select-sheet-home'
+const SELECT_SHEET_END_ID = 'vantage.command.select-sheet-end'
+const SELECT_ROW_HOME_ID = 'vantage.command.select-row-home'
+const SELECT_WHOLE_COLUMN_ID = 'vantage.command.select-whole-column'
+const SELECT_WHOLE_ROW_ID = 'vantage.command.select-whole-row'
+const HIDE_SELECTED_ROWS_ID = 'vantage.command.hide-selected-rows'
+const UNHIDE_SELECTED_ROWS_ID = 'vantage.command.unhide-selected-rows'
+const HIDE_SELECTED_COLS_ID = 'vantage.command.hide-selected-cols'
+const UNHIDE_SELECTED_COLS_ID = 'vantage.command.unhide-selected-cols'
+const INSERT_CELLS_ID = 'vantage.command.insert-cells'
+const DELETE_CELLS_ID = 'vantage.command.delete-cells'
+const EXPAND_ROW_HOME_ID = 'vantage.command.expand-row-home'
+const EXPAND_SHEET_HOME_ID = 'vantage.command.expand-sheet-home'
+const EXPAND_SHEET_END_ID = 'vantage.command.expand-sheet-end'
+const SELECT_CURRENT_REGION_ID = 'vantage.command.select-current-region'
 
 /** first visible line at or after `from` (hidden rows/columns are not landing spots) */
 function firstVisible(worksheet: Worksheet, axis: 'row' | 'column', from: number): number {

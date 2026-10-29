@@ -406,8 +406,8 @@ fn report_missed(state: &AppState) {
         }
         let title = tr!("Letters were not sent on time", "Письма не ушли вовремя");
         let body = tr!(
-            "Aster Mail was closed or the computer slept. Open the Outbox to send them now.",
-            "Aster Mail была закрыта или компьютер спал. Откройте «Исходящие», чтобы отправить их сейчас."
+            "Vantage Mail was closed or the computer slept. Open the Outbox to send them now.",
+            "Vantage Mail была закрыта или компьютер спал. Откройте «Исходящие», чтобы отправить их сейчас."
         );
         state.notify_target(
             &title,

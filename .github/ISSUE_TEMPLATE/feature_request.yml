@@ -7,11 +7,11 @@ body:
     attributes:
       label: App
       options:
-        - GenOffice Docs (docs)
-        - GenOffice Sheets (sheets)
-        - GenOffice Slides (slides)
-        - GenOffice PDF (pdf)
-        - GenOffice Markdown (markdown)
+        - Vantage Docs (docs)
+        - Vantage Sheets (sheets)
+        - Vantage Slides (slides)
+        - Vantage PDF (pdf)
+        - Vantage Markdown (markdown)
         - Shell / home screen
         - AI panel / providers
         - Whole suite

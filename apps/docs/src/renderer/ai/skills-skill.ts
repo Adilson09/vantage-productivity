@@ -1,4 +1,4 @@
-import type { AgentSkill } from '@genoffice/agent-core'
+import type { AgentSkill } from '@vantage/agent-core'
 import type { UserCliRun } from '../../shared/ipc'
 import { t } from '../i18n/locale'
 
@@ -9,8 +9,8 @@ import { t } from '../i18n/locale'
  * only way a skill's text reaches a turn is the user attaching it from the
  * composer "+" menu, and then it rides in front of the request (see
  * withAttachedSkills). What stays here is `run_cli`, so an attached skill
- * that says "run genoffice convert …" can be followed. The main process owns
- * the boundary — it spawns the bundled genoffice CLI and nothing else
+ * that says "run vantage convert …" can be followed. The main process owns
+ * the boundary — it spawns the bundled vantage CLI and nothing else
  * (user-cli.ts) — so this file is a caller, not a guard.
  */
 
@@ -20,7 +20,7 @@ top of that message inside <skill> tags. Follow its steps with the document
 tools you already have; quote its constraints rather than paraphrasing them,
 and prefer its steps over guessing. Never assume a skill the user did not
 attach.
-- run_cli executes the bundled genoffice command line (the same "genoffice …
+- run_cli executes the bundled vantage command line (the same "vantage …
   --json" contract skills describe). Use it when an attached skill directs you
   to, or for batch work no single document call covers. It runs only this
   app's CLI — it is not a general shell — and long output is truncated.`
@@ -33,7 +33,7 @@ export function createSkillsSkill(): AgentSkill {
       {
         name: 'run_cli',
         description:
-          "Run the bundled genoffice command line (it always answers --json). Only this app's own CLI, not a general shell: document commands such as convert, create, info, docs, sheet, slides, pdf; no --force, and apply/replace must take --out. Relative paths resolve in the open document's folder; reads and writes stay inside the allowed folders the result names.",
+          "Run the bundled vantage command line (it always answers --json). Only this app's own CLI, not a general shell: document commands such as convert, create, info, docs, sheet, slides, pdf; no --force, and apply/replace must take --out. Relative paths resolve in the open document's folder; reads and writes stay inside the allowed folders the result names.",
         inputSchema: {
           type: 'object',
           properties: {

@@ -1,0 +1,181 @@
+{
+  "workstream": "Save integrity, history, encryption, backup and drafts",
+  "reviewItems": [
+    6,
+    7,
+    8,
+    9,
+    10,
+    13
+  ],
+  "implementationStatus": "implemented",
+  "verificationStatus": "current-contract-editor-and-desktop-workflows-passed",
+  "contract": "docs/implementation/save-recovery-contract.md",
+  "implementation": [
+    "Shared JS/native Sheets non-truncating publication; original-preserving failure; retained completed rescue paths",
+    "Per-path serialization, nested native publication fingerprints, bounded streamed hashing and external-change checks including rename retries",
+    "Verified post-publication first-save baselines, published-save history warnings shared across bundled editors",
+    "Persisted retention policy with hard ceilings, free-disk reserve and storage/orphan status",
+    "Verified separate-copy recovery and bounded text preview",
+    "AES-256-GCM recovery payloads with OS-protected application key; no plaintext keystore fallback",
+    "Password-protected portable history export and independent verified new-copy restore",
+    "Bounded unsaved draft journal with explicit discard epoch preventing stale-write resurrection",
+    "Actual Markdown dirty serialization journal including unnamed documents, save/discard cleanup, crash retention",
+    "Exclusive new-copy publication for both NTFS and exFAT",
+    "Windows portable test fixtures and current-worktree Markdown corpus discovery",
+    "Expired Markdown note-directory cache refresh on filesystems with unchanged/coarse timestamps"
+  ],
+  "checksBeforeFinalRevisions": [
+    {
+      "check": "original targeted atomic-write, vault and vault-fault suites",
+      "status": "passed",
+      "tests": 40
+    },
+    {
+      "check": "full electron-utils suite after first implementation",
+      "status": "passed",
+      "tests": 354
+    },
+    {
+      "check": "shared conflict/fingerprint targeted suite before exFAT changes",
+      "status": "passed",
+      "tests": 62
+    },
+    {
+      "check": "native Sheets publication and native recovery",
+      "status": "passed",
+      "tests": 12
+    },
+    {
+      "check": "electron-utils, Markdown and Sheets typechecks before final changes",
+      "status": "passed"
+    },
+    {
+      "check": "Markdown full suite before platform/corpus fixes",
+      "status": "failed",
+      "passed": 1397,
+      "failed": 5,
+      "skipped": 2,
+      "reason": "Five Windows path/current-worktree fixture failures corrected subsequently; requires rerun"
+    },
+    {
+      "check": "D drive recovery fixtures before exFAT publisher",
+      "status": "failed",
+      "reason": "D is exFAT and rejects hardlinks with EISDIR; exclusive-copy publisher added subsequently; requires rerun"
+    },
+    {
+      "check": "later selected suites and typecheck during concurrent prior packaging",
+      "status": "unavailable",
+      "reason": "Windows commit/pagefile resource exhaustion; serial final-source run owns current verification"
+    }
+  ],
+  "endToEnd": {
+    "file": "e2e/recovery-drafts.spec.ts",
+    "status": "passed",
+    "workflow": "Real unnamed Markdown typing and journal timer; hard process crash; same-profile restart; separate-copy restore; exact-byte comparison; explicit draft discard",
+    "log": "D:\\Codex-builds\\vantage-implementation-validation\\desktop-recovery-retention.log",
+    "scope": "Draft test passed in a two-test run; its unrelated source-retention ENOENT polling failure was subsequently repaired and retested independently"
+  },
+  "limits": [
+    "Fingerprint check plus rename is not an operating-system compare-and-swap across processes",
+    "Files above 32 MiB use metadata conflict checks; saved history excludes payloads above the configured 32 MiB hard ceiling",
+    "On exFAT a process crash during exclusive copy can leave a partial NEW destination; existing files are never overwritten and successful return requires full hash verification",
+    "Enabling encryption protects new payloads; existing plaintext versions and metadata are not migrated or encrypted",
+    "Portable export covers saved history up to 128 MiB of document payload; it is not complete system backup",
+    "Shared unsaved draft journal is currently integrated in Markdown; other editors keep their prior recovery paths",
+    "Markdown draft text does not bundle newly pasted image assets",
+    "OS-protected local encryption does not defend against another application running as the same user"
+  ],
+  "currentSourceChecks": [
+    {
+      "status": "passed",
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\final-source\\tests-electron-utils.log",
+      "logSha256": "d23142b6bc3c8e2063863876c88ca109939f8a80ae39f149f15909d13360ea4f",
+      "check": "electron-utils complete suite",
+      "files": 28,
+      "tests": 363
+    },
+    {
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\final-source\\types-electron-utils.log",
+      "check": "electron-utils typecheck",
+      "status": "passed"
+    }
+  ],
+  "additionalCurrentChecks": [
+    {
+      "passed": 117,
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\shell-fixtures-repaired.log",
+      "status": "passed",
+      "check": "repaired shell platform fixtures",
+      "files": 7,
+      "skipped": 1
+    },
+    {
+      "scope": "Final indexer4/4 retest supersedes the two asynchronous wait failures in the broader45-case run",
+      "status": "passed-after-fixture-race-repair",
+      "tests": 45,
+      "logs": [
+        "D:\\Codex-builds\\vantage-implementation-validation\\file-index-node24.log",
+        "D:\\Codex-builds\\vantage-implementation-validation\\file-index-indexer-repaired.log"
+      ],
+      "check": "SQLite FTS5 store/decision/worker/OOM/truncated-scan on bundled Node24"
+    },
+    {
+      "scope": "Targeted test-name selection;609 unrelated tests not selected",
+      "status": "passed",
+      "tests": 4,
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\markdown-empty-lists.log",
+      "check": "actual CRLF Russian issue template plus minimal empty/nested numbered-list parser regressions"
+    },
+    {
+      "scope": "Wiki failure in this earlier combined run superseded by final22-case wiki retest",
+      "status": "passed",
+      "tests": 35,
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\markdown-list-splice-repaired.log",
+      "check": "Markdown source-splice repository-body corpus and bounded tokenizer tests"
+    },
+    {
+      "status": "passed",
+      "tests": 22,
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\markdown-wiki-repaired.log",
+      "check": "Markdown wiki resolver, extension preference and coarse timestamp cache"
+    },
+    {
+      "passed": 33,
+      "status": "passed",
+      "skipped": 1,
+      "files": 3,
+      "check": "default-off Markdown raw retention, ribbon SaveAs and actual asset relocation",
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\markdown-default-retention.log"
+    },
+    {
+      "check": "Markdown typecheck after narrow default retention",
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\markdown-default-retention-types.log",
+      "status": "passed"
+    },
+    {
+      "tests": 1,
+      "check": "real unnamed Markdown draft crash/relaunch, exact-byte new-copy restore and discard",
+      "status": "passed",
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\desktop-recovery-retention.log",
+      "durationSeconds": 26.5
+    },
+    {
+      "tests": 1,
+      "check": "real default-off unchanged raw SaveAs plus actual edit/save/reload",
+      "status": "passed",
+      "log": "D:\\Codex-builds\\vantage-implementation-validation\\desktop-source-retention-repaired.log",
+      "durationSeconds": 14.5
+    }
+  ],
+  "sourceRetention": {
+    "e2eStatus": "passed",
+    "editing": "Dirty documents keep prior serializer unless existing experimental model-equivalent round trips enabled",
+    "status": "implemented",
+    "guard": "Reuse loaded raw UTF-8 only when clean AND document/envelope fingerprint unchanged",
+    "defaultExperimentalPreference": "unchanged-off",
+    "saveAs": "Asset relocation still rewrites legitimate image paths; subsequent clean source baseline uses actual published writtenText",
+    "e2e": "e2e/markdown-source-retention.spec.ts",
+    "e2eLog": "D:\\Codex-builds\\vantage-implementation-validation\\desktop-source-retention-repaired.log"
+  }
+}

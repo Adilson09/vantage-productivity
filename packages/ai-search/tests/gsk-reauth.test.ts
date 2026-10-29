@@ -13,9 +13,9 @@ vi.mock('node:os', async (importOriginal) => {
 
 import {
   FRESH_AUTH_REQUIRED,
-  resetGenofficeAuthCache,
-  setGenofficeLoginOpener,
-} from '../src/genoffice-auth'
+  resetVantageAuthCache,
+  setVantageLoginOpener,
+} from '../src/vantage-auth'
 import {
   GskAuthError,
   gskApiKey,
@@ -34,11 +34,11 @@ let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'gsk-reauth-'))
   home.dir = dir
-  process.env.GENOFFICE_AUTH_DIR = dir
+  process.env.VANTAGE_AUTH_DIR = dir
   process.env.GSK_CLI_PATH = '/fake/gsk.js'
   delete process.env.GSK_API_KEY
   delete process.env.AI_SEARCH_DISABLE_GSK
-  resetGenofficeAuthCache()
+  resetVantageAuthCache()
   resetGskRejectedKeys()
   writeFileSync(
     join(dir, 'auth.json'),
@@ -48,12 +48,12 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  setGenofficeLoginOpener(null)
-  resetGenofficeAuthCache()
+  setVantageLoginOpener(null)
+  resetVantageAuthCache()
   resetGskRejectedKeys()
   rmSync(dir, { recursive: true, force: true })
   home.dir = ''
-  delete process.env.GENOFFICE_AUTH_DIR
+  delete process.env.VANTAGE_AUTH_DIR
   delete process.env.GSK_CLI_PATH
 })
 
@@ -161,7 +161,7 @@ describe('noteGskCallFailure (LLM proxy chat/stream)', () => {
       stubServer(() => response({ detail: FRESH_AUTH_REQUIRED }, 403))
       expect(gskApiKey()).toBe('gsk-env')
       noteGskCallFailure('gsk-env', 'HTTP 401: Unauthorized')
-      // falls through to GenOffice's own (still valid) key
+      // falls through to Vantage's own (still valid) key
       expect(gskApiKey()).toBe('gsk-expired')
     } finally {
       delete process.env.GSK_API_KEY
@@ -173,7 +173,7 @@ describe('passive calls', () => {
   it('a 401 from a background call drops the key without opening the browser', async () => {
     stubServer(() => response({ detail: FRESH_AUTH_REQUIRED }, 403))
     const opener = vi.fn()
-    setGenofficeLoginOpener(opener)
+    setVantageLoginOpener(opener)
     await expect(noteGskKeyRejected('gsk-expired', { allowLogin: false })).resolves.toBe(
       'login_required',
     )

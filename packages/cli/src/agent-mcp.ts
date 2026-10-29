@@ -1,4 +1,4 @@
-// Aster Office modification (2026): recognize the independently named packaged runtime.
+// Vantage Productivity modification (2026): recognize the independently named packaged runtime.
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { agentConfigDir, type AgentId } from './agent-skills'
@@ -8,20 +8,20 @@ import { MCP_SERVER_NAME } from './integration-identity'
 export { MCP_SERVER_NAME } from './integration-identity'
 
 /**
- * Registering `genoffice mcp` (stdio) in each coding agent's MCP config, the
+ * Registering `vantage mcp` (stdio) in each coding agent's MCP config, the
  * MCP twin of agent-skills.ts. One key per file is set or removed; an entry
- * named genoffice that starts something other than a genoffice launcher is
+ * named vantage that starts something other than a vantage launcher is
  * never replaced unless forced. Paths and shapes follow each agent's docs.
  */
 
 export type McpEntryStatus =
-  /** no genoffice entry in the file */
+  /** no vantage entry in the file */
   | 'absent'
-  /** genoffice entry starting our launcher, exactly as this CLI would write it */
+  /** vantage entry starting our launcher, exactly as this CLI would write it */
   | 'registered'
-  /** a genoffice launcher, but another path or extra fields */
+  /** a vantage launcher, but another path or extra fields */
   | 'stale'
-  /** an entry named genoffice that starts something else */
+  /** an entry named vantage that starts something else */
   | 'occupied'
   /** the file cannot be edited safely (unparsable, or a shape we do not know) */
   | 'manual'
@@ -150,7 +150,7 @@ export function mcpConfigFile(id: AgentId, opts: McpConfigOptions = {}): string 
 }
 
 function homeOf(env: NodeJS.ProcessEnv): string {
-  return env.GENOFFICE_HOME || env.HOME || env.USERPROFILE || ''
+  return env.VANTAGE_HOME || env.HOME || env.USERPROFILE || ''
 }
 
 /** What a person pastes when the file cannot be edited for them. */
@@ -185,10 +185,10 @@ export function readMcpEntry(id: AgentId, file: string, launch: McpLaunch): McpE
   if (JSON.stringify(entry) === JSON.stringify(def.shape.entry(launch))) {
     return { status: 'registered', command }
   }
-  return { status: isGenofficeLauncher(command, args) ? 'stale' : 'occupied', command }
+  return { status: isVantageLauncher(command, args) ? 'stale' : 'occupied', command }
 }
 
-/** Set the genoffice entry (replacing any existing one); the caller has already decided that is allowed. */
+/** Set the vantage entry (replacing any existing one); the caller has already decided that is allowed. */
 export function writeMcpEntry(id: AgentId, file: string, launch: McpLaunch): void {
   const def = MCP_AGENTS.find((a) => a.id === id)!
   const text = existsSync(file) ? readFileSync(file, 'utf-8') : ''
@@ -205,7 +205,7 @@ export function writeMcpEntry(id: AgentId, file: string, launch: McpLaunch): voi
   save(file, `${JSON.stringify(doc, null, 2)}\n`)
 }
 
-/** Remove the genoffice entry; false when there was none. Other keys stay. */
+/** Remove the vantage entry; false when there was none. Other keys stay. */
 export function removeMcpEntry(id: AgentId, file: string): boolean {
   const def = MCP_AGENTS.find((a) => a.id === id)!
   if (!existsSync(file)) return false
@@ -227,18 +227,19 @@ export function removeMcpEntry(id: AgentId, file: string): boolean {
   return true
 }
 
-const ASTER_RUNTIME_NAMES = new Set(['aster office.exe', 'aster office'])
-const LAUNCHER_NAMES = new Set(['genoffice', 'genoffice.cmd', 'aster', 'aster.cmd'])
+const VANTAGE_RUNTIME_NAMES = new Set(['vantage productivity.exe', 'vantage productivity'])
+const LAUNCHER_NAMES = new Set(['vantage', 'vantage.cmd'])
 
-function hasAsterMarker(file: string): boolean {
+function hasVantageMarker(file: string): boolean {
   if (!isAbsolute(file)) return false
   const dir = dirname(file)
-  for (const marker of [join(dir, 'aster.cmd'), join(dir, '..', 'bin', 'aster.cmd')]) {
+  for (const marker of [join(dir, 'vantage.cmd'), join(dir, '..', 'bin', 'vantage.cmd')]) {
     try {
       const info = lstatSync(marker)
       if (!info.isFile() || info.size > 64 * 1024) continue
       const content = readFileSync(marker, 'utf8')
-      if (content.includes('Aster Office') && content.includes('Aster Office.exe')) return true
+      if (content.includes('Vantage Productivity') && content.includes('Vantage Productivity.exe'))
+        return true
     } catch {
       /* An unknown or unavailable launcher is conservatively foreign. */
     }
@@ -247,17 +248,17 @@ function hasAsterMarker(file: string): boolean {
 }
 
 /**
- * Only the independently named Aster runtime or a launcher with this fork's
- * marker is ours. A shared genoffice.cjs filename alone never authorizes takeover.
+ * Only the independently named Vantage runtime or a launcher with this fork's
+ * marker is ours. A shared vantage.cjs filename alone never authorizes takeover.
  */
-export function isGenofficeLauncher(command: string | null, args: string[] = []): boolean {
+export function isVantageLauncher(command: string | null, args: string[] = []): boolean {
   if (!command) return false
   const name = fileName(command)
-  if (ASTER_RUNTIME_NAMES.has(name)) return true
-  if (LAUNCHER_NAMES.has(name) && hasAsterMarker(command)) return true
+  if (VANTAGE_RUNTIME_NAMES.has(name)) return true
+  if (LAUNCHER_NAMES.has(name) && hasVantageMarker(command)) return true
   return (
     (name === 'node' || name === 'node.exe') &&
-    args.some((arg) => fileName(arg) === 'genoffice.cjs' && hasAsterMarker(arg))
+    args.some((arg) => fileName(arg) === 'vantage.cjs' && hasVantageMarker(arg))
   )
 }
 
@@ -312,9 +313,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 const TOML_HEADER =
-  /^\s*\[\s*mcp_servers\s*\.\s*(?:"aster-office"|'aster-office'|aster-office)\s*(\.[^\]]*)?\]/
+  /^\s*\[\s*mcp_servers\s*\.\s*(?:"vantage-productivity"|'vantage-productivity'|vantage-productivity)\s*(\.[^\]]*)?\]/
 
-/** `env` becomes the `[mcp_servers.genoffice.env]` sub-table Codex reads its `env` map from. */
+/** `env` becomes the `[mcp_servers.vantage.env]` sub-table Codex reads its `env` map from. */
 function tomlTable(launch: McpLaunch): string {
   const head = `[mcp_servers.${MCP_SERVER_NAME}]\ncommand = ${JSON.stringify(launch.command)}\nargs = ${JSON.stringify(launch.args)}\n`
   const env = Object.entries(launch.env ?? {})
@@ -323,7 +324,7 @@ function tomlTable(launch: McpLaunch): string {
   return `${head}\n[mcp_servers.${MCP_SERVER_NAME}.env]\n${body}\n`
 }
 
-/** The `[mcp_servers.genoffice]` table and its sub-tables (`[mcp_servers.genoffice.env]`), as line ranges. */
+/** The `[mcp_servers.vantage]` table and its sub-tables (`[mcp_servers.vantage.env]`), as line ranges. */
 function tomlTableLines(lines: string[]): Array<[number, number]> {
   const out: Array<[number, number]> = []
   for (let i = 0; i < lines.length; i++) {
@@ -351,7 +352,7 @@ function tomlState(text: string, launch: McpLaunch): McpEntryState {
     return { status: 'registered', command }
   }
   const args = tomlStrings(block, 'args')
-  return { status: isGenofficeLauncher(command, args) ? 'stale' : 'occupied', command }
+  return { status: isVantageLauncher(command, args) ? 'stale' : 'occupied', command }
 }
 
 function tomlValue(block: string[], key: string): string | null {

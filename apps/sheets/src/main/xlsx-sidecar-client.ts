@@ -1,5 +1,17 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface, type Interface } from 'node:readline'
+import { rm } from 'node:fs/promises'
+import {
+  XlsxSidecarError,
+  type EditInput,
+  type EditRecalcRead,
+  type EditRecalcResult,
+  type EditSessionOpen,
+  type EditTransaction,
+} from './xlsx-edit-contract'
+import { XlsxEditSessions } from './xlsx-edit-session'
+
+export { XlsxSidecarError } from './xlsx-edit-contract'
 
 const PROTOCOL_VERSION = 1
 const REQUEST_TIMEOUT_MS = 30_000
@@ -34,6 +46,7 @@ interface SidecarResponse {
   readonly error?: {
     readonly code: string
     readonly message: string
+    readonly currentRevision?: number
   }
 }
 
@@ -51,6 +64,9 @@ export class XlsxSidecarClient {
   /// text could not tell those two apart, and would re-open the file on every
   /// ordinary save.
   private readonly exitListeners = new Set<() => void>()
+  private readonly editSessions = new XlsxEditSessions(this)
+  private readonly editBindings = new Map<string, { workbookId: string; storePath?: string }>()
+  private readonly editOwners = new Map<string, string>()
 
   constructor(private readonly binaryPath: string) {}
 
@@ -107,6 +123,11 @@ export class XlsxSidecarClient {
   }
 
   async close(sessionId: string): Promise<void> {
+    const edit = this.editBindings.get(sessionId)
+    if (edit && this.editOwners.get(edit.workbookId) === sessionId) {
+      // Retire queued work immediately, before waiting for native cleanup.
+      this.editSessions.forget(edit.workbookId)
+    }
     // Skip the session's queued reads so close does not wait behind them;
     // each settles with the sidecar's authoritative "cancelled" failure.
     for (const [requestId, pending] of this.pending) {
@@ -114,7 +135,87 @@ export class XlsxSidecarClient {
         this.sendCancel(requestId)
       }
     }
-    await this.request({ command: 'close', sessionId })
+    try {
+      await this.request({ command: 'close', sessionId })
+    } finally {
+      await this.releaseEditBinding(sessionId)
+    }
+  }
+
+  /** Associate a legacy viewport session with the same tab's edit authority. */
+  async bindEditSession(sessionId: string, open: EditSessionOpen): Promise<void> {
+    const prior = this.editBindings.get(sessionId)
+    if (prior && prior.workbookId !== open.workbookId) await this.releaseEditBinding(sessionId)
+    const priorOwner = this.editOwners.get(open.workbookId)
+    if (priorOwner && priorOwner !== sessionId) this.editBindings.delete(priorOwner)
+    this.editOwners.set(open.workbookId, sessionId)
+    this.editBindings.set(sessionId, {
+      workbookId: open.workbookId,
+      ...(open.storePath === undefined ? {} : { storePath: open.storePath }),
+    })
+  }
+
+  private async releaseEditBinding(sessionId: string): Promise<void> {
+    const edit = this.editBindings.get(sessionId)
+    this.editBindings.delete(sessionId)
+    if (!edit || this.editOwners.get(edit.workbookId) !== sessionId) return
+    this.editOwners.delete(edit.workbookId)
+    this.editSessions.forget(edit.workbookId)
+    // Only a successful acknowledgement proves the SQLite connection is gone.
+    // A timeout or broken pipe can leave it live, so retain its database/WAL.
+    await this.closeEditSession({ apiVersion: 1, workbookId: edit.workbookId })
+    if (edit.storePath) {
+      // These paths belong to this document authority, never to its workbook.
+      await Promise.all(
+        [edit.storePath, `${edit.storePath}-wal`, `${edit.storePath}-shm`].map((path) =>
+          rm(path, { force: true }).catch(() => undefined),
+        ),
+      )
+    }
+  }
+
+  async openEditSession(input: EditSessionOpen): Promise<unknown> {
+    return this.request({ command: 'open_edit_session', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async applyTransaction(input: EditTransaction): Promise<unknown> {
+    return this.request({ command: 'apply_transaction', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async snapshot(input: { readonly apiVersion: 1; readonly workbookId: string }): Promise<unknown> {
+    return this.request({ command: 'snapshot', ...input })
+  }
+
+  async commandResult(input: {
+    readonly apiVersion: 1
+    readonly workbookId: string
+    readonly commandId: string
+  }): Promise<unknown> {
+    return this.request({ command: 'command_result', ...input })
+  }
+
+  async recalcSnapshot(input: {
+    readonly apiVersion: 1
+    readonly workbookId: string
+    readonly revision: number
+    readonly reads: readonly EditRecalcRead[]
+  }): Promise<unknown> {
+    return this.request({ command: 'recalc_snapshot', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async closeEditSession(input: {
+    readonly apiVersion: 1
+    readonly workbookId: string
+  }): Promise<void> {
+    await this.request({ command: 'close_edit_session', ...input })
+  }
+
+  recalculateEditSession(
+    open: EditSessionOpen,
+    edits: readonly EditInput[],
+    reads: readonly EditRecalcRead[],
+  ): Promise<EditRecalcResult> {
+    return this.editSessions.recalculate(open, edits, reads)
   }
 
   async readMedia(input: {
@@ -250,7 +351,12 @@ export class XlsxSidecarClient {
         // close is the exception: its side effect IS the cleanup, and no
         // caller retries a timed-out close — skipping it would leak the
         // session's index threads and cache for good.
-        if (commandName !== 'close') this.sendCancel(requestId)
+        if (
+          commandName !== 'close' &&
+          commandName !== 'apply_transaction' &&
+          commandName !== 'close_edit_session'
+        )
+          this.sendCancel(requestId)
         reject(new Error('XLSX sidecar request timed out.'))
       }, timeoutMs)
       this.pending.set(requestId, {
@@ -357,7 +463,13 @@ export class XlsxSidecarClient {
       pending.resolve(response.result)
       return
     }
-    pending.reject(new Error(response.error?.message ?? 'XLSX sidecar request failed.'))
+    pending.reject(
+      new XlsxSidecarError(
+        response.error?.code ?? 'unknown_error',
+        response.error?.message ?? 'XLSX sidecar request failed.',
+        response.error?.currentRevision,
+      ),
+    )
   }
 
   private rejectPending(error: Error): void {

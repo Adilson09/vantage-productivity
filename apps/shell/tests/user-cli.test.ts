@@ -28,7 +28,7 @@ vi.mock('../src/main/mcp/cli-runner', () => ({
   createCliRunner: () => ({ run: (...a: unknown[]) => runnerRun(...a) }),
 }))
 
-import { delimiter } from 'node:path'
+import { delimiter, resolve } from 'node:path'
 import {
   allowedRootsFor,
   cliCwdFor,
@@ -55,7 +55,7 @@ beforeEach(() => {
     .mockResolvedValue({ ok: true, code: 0, json: undefined, stdout: 'o', stderr: '' })
   registerUserSkillsIpc({
     cliRunner: () => ({ run: runnerRun }) as never,
-    folderRoots: () => ['/home/u/GenOffice', '/home/u/GenOffice'],
+    folderRoots: () => ['/home/u/Vantage', '/home/u/Vantage'],
     senderFile: (id) => (id === 7 ? '/docs/open/report.docx' : undefined),
   })
 })
@@ -142,21 +142,21 @@ describe('the ai: channels', () => {
     expect(out).toMatchObject({
       ok: true,
       code: 0,
-      cwd: '/docs/open',
-      allowedRoots: ['/home/u/GenOffice', '/docs/open'],
+      cwd: resolve('/docs/open'),
+      allowedRoots: [resolve('/home/u/Vantage'), resolve('/docs/open')],
     })
     // relative paths in the argv resolve in the open document's folder
     expect(runnerRun).toHaveBeenCalledWith(['convert', 'a.docx', '--to', 'pdf'], {
       timeoutMs: 120_000,
-      cwd: '/docs/open',
-      env: { GENOFFICE_ALLOWED_ROOTS: ['/home/u/GenOffice', '/docs/open'].join(delimiter) },
+      cwd: resolve('/docs/open'),
+      env: { VANTAGE_ALLOWED_ROOTS: ['/home/u/Vantage', '/docs/open'].map((path) => resolve(path)).join(delimiter) },
     })
     await expect(invoke('ai:run-cli', ['--version'])).rejects.toThrow('not available here')
   })
 
   it('confines a window without a file to the folder roots alone', () => {
-    expect(allowedRootsFor(['/a', '/b'], undefined)).toBe(['/a', '/b'].join(delimiter))
-    expect(cliCwdFor(['/a', '/b'], undefined)).toBe('/a')
+    expect(allowedRootsFor(['/a', '/b'], undefined)).toBe(['/a', '/b'].map((path) => resolve(path)).join(delimiter))
+    expect(cliCwdFor(['/a', '/b'], undefined)).toBe(resolve('/a'))
     expect(cliCwdFor([], undefined)).toBeUndefined()
   })
 })

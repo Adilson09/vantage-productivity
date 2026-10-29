@@ -2,8 +2,6 @@
 
 Tutti i file aperti condividono una sola finestra; la barra delle schede in alto passa da uno all'altro, in stile browser.
 
-![La barra delle schede: Home più due documenti](img/tabs.png)
-
 ## Nozioni di base
 
 - **Cambia scheda**: fai clic su una scheda, oppure scorri la rotellina del mouse sulla barra per scorrere in ciclo.

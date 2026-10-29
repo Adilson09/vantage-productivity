@@ -20,7 +20,7 @@ import {
   type HfTableCell,
   type HfTableRow,
   type Run,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import { dropActiveSubEditor, notifySubEditorState, setActiveSubEditor } from './active-editor'
 import { inlineToRuns, runsToInline, type PmNode } from './convert'
 import { setDkBackground, setDkBackgroundImage, setDkBorder } from './dark-page'

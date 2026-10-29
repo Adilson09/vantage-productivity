@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Re-enabling Review → Spelling must restore red squiggles on EXISTING text
  * with no click or keystroke from the user (the earlier focus-cycle fix did

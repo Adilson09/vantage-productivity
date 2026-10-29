@@ -6,7 +6,7 @@ import { launchShell, closeAndSaveVideo, waitForPageWithUrl, screenshotPath } fr
  * headings, right-to-left and the cross-highlight one. Stacked in a single
  * column they need 83px, and the ribbon band is 75px tall with
  * `overflow-y: hidden`, so the last one was sliced off and the reader
- * could not find it (genoffice#2081).
+ * could not find it (vantage#2081).
  *
  * The compact ribbon already lays this group out side by side; the normal
  * density did not. jsdom cannot compute layout, so the measurement has to

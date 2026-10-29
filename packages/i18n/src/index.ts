@@ -1,4 +1,4 @@
-// Aster Office modification (2026): brand translation templates without altering user parameters.
+// Vantage Productivity modification (2026): brand translation templates without altering user parameters.
 export type Lang =
   | 'zh'
   | 'en'
@@ -220,7 +220,7 @@ export function createI18n<D extends Record<string, string>>(dicts: LangDicts<D>
     // A shard that predates a key must degrade (en, then zh, then the key)
     // instead of throwing inside format()
     const text = dicts[lang]?.[key] ?? dicts.en[key] ?? dicts.zh[key] ?? String(key)
-    return format(platformShortcuts(text.replaceAll('GenOffice', 'Aster Office')), params)
+    return format(platformShortcuts(text.replaceAll('Vantage', 'Vantage Productivity')), params)
   }
 }
 

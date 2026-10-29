@@ -16,7 +16,7 @@ const count = (xml: string, type: string) =>
 const documentXmlOf = async (bytes: Uint8Array) =>
   (await JSZip.loadAsync(bytes)).file('word/document.xml')!.async('string')
 
-/** A citation whose instruction was lost (the pre-fix paste in genoffice#2099):
+/** A citation whose instruction was lost (the pre-fix paste in vantage#2099):
  *  the paragraph must stay editable instead of becoming a protected block. */
 describe('a field with an empty instruction', () => {
   const paragraph =

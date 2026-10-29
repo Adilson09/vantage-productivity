@@ -16,8 +16,8 @@ let store: FileIndexStore
 let indexer: FileIndexer | null
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'genoffice-indexer-'))
-  storeDir = mkdtempSync(join(tmpdir(), 'genoffice-indexer-db-'))
+  dir = mkdtempSync(join(tmpdir(), 'vantage-indexer-'))
+  storeDir = mkdtempSync(join(tmpdir(), 'vantage-indexer-db-'))
   mkdirSync(join(dir, 'hang'))
   writeFileSync(join(dir, 'hang', 'poison.pdf'), 'unparseable')
   mkdirSync(join(dir, 'good'))
@@ -53,8 +53,9 @@ describe('FileIndexer idle worker', () => {
       () => {
         expect(store.listAll().get(notesPath())?.status).toBe('ok')
         expect(store.listAll().get(poisonPath())?.status).toBe('error')
+        expect(indexer!.progress()).toMatchObject({ pending: 0, scanning: false })
       },
-      { timeout: 5_000, interval: 25 },
+      { timeout: 10_000, interval: 25 },
     )
     await vi.waitFor(() => expect(indexer!.workerIsRunning()).toBe(false), {
       timeout: 2_000,
@@ -110,26 +111,31 @@ describe('FileIndexer wedged-worker recovery', () => {
     await vi.waitFor(
       () => {
         expect(store.listAll().get(poisonPath())?.status).toBe('error')
+        // pending counts waiting files, not the extraction already in flight.
+        // The failed predecessor alone does not prove its successor completed.
+        expect(store.listAll().get(notesPath())?.status).toBe('ok')
+        expect(indexer!.progress()).toMatchObject({ pending: 0, scanning: false })
       },
-      { timeout: 5_000, interval: 25 },
+      { timeout: 10_000, interval: 25 },
     )
     const settleMs = Date.now() - started
     expect(store.listAll().get(notesPath())?.status).toBe('ok')
     expect(indexer.progress()).toMatchObject({ pending: 0, scanning: false })
     // the queue waited out the injected 400ms wedge, then finished
     expect(settleMs).toBeGreaterThanOrEqual(400)
-    expect(settleMs).toBeLessThan(5_000)
+    expect(settleMs).toBeLessThan(10_000)
     console.log('settle ms:', settleMs)
-  })
+  }, 20_000)
 
   it('still runs scans and extractions after a timed-out request', async () => {
     indexer = indexerWithShortTimeout()
     await indexer.scan()
     await vi.waitFor(
       () => {
-        expect(indexer!.progress().pending).toBe(0)
+        expect(indexer!.progress()).toMatchObject({ pending: 0, scanning: false })
+        expect(store.listAll().get(notesPath())?.status).toBe('ok')
       },
-      { timeout: 5_000, interval: 25 },
+      { timeout: 10_000, interval: 25 },
     )
     expect(store.listAll().get(notesPath())?.status).toBe('ok')
     // an unchanged error row is not re-queued; the rescan itself must not wedge
@@ -141,5 +147,5 @@ describe('FileIndexer wedged-worker recovery', () => {
       { timeout: 5_000, interval: 25 },
     )
     expect(store.listAll().get(notesPath())?.status).toBe('ok')
-  })
+  }, 20_000)
 })

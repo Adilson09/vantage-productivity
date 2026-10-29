@@ -7,11 +7,11 @@
 import type {
   PivotAggregation,
   PivotShowDataAs,
-} from '@genoffice/xlsx-gateway/domain/pivot-value-modes'
+} from '@vantage/xlsx-gateway/domain/pivot-value-modes'
 import {
   showDataAsNeedsBaseField,
   showDataAsNeedsBaseItem,
-} from '@genoffice/xlsx-gateway/domain/pivot-value-modes'
+} from '@vantage/xlsx-gateway/domain/pivot-value-modes'
 
 export interface PivotField {
   readonly label: string

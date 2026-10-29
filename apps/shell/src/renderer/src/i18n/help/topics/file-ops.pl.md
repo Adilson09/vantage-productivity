@@ -4,8 +4,6 @@ Ten rozdział opisuje operacje na plikach wspólne dla wszystkich edytorów; opc
 
 **⋯ menu** w wierszu (pojawia się po najechaniu na wiersz pliku) zbiera te działania:
 
-![⋯ menu wiersza pliku](img/file-ops.png)
-
 ## Zmiana nazwy
 
 Dwa wejścia, jeden zestaw sprawdzeń:
@@ -17,7 +15,7 @@ Zasady: rozszerzenie jest zachowywane automatycznie; niedozwolone znaki, kropki 
 
 ## Usuwanie
 
-- **⋯ ▸ Usuń** na stronie głównej: pyta, które pliki, a następnie przenosi je do **kosza systemowego**, skąd system operacyjny może je przywrócić. GenOffice nie trzyma własnego cofnięcia — przywracanie to zadanie kosza, nie komunikatu.
+- **⋯ ▸ Usuń** na stronie głównej: pyta, które pliki, a następnie przenosi je do **kosza systemowego**, skąd system operacyjny może je przywrócić. Vantage nie trzyma własnego cofnięcia — przywracanie to zadanie kosza, nie komunikatu.
 
 ## Duplikowanie
 

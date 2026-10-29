@@ -1,5 +1,5 @@
 /**
- * The shape of a SKILL.md GenOffice found on this machine, shared by the main
+ * The shape of a SKILL.md Vantage found on this machine, shared by the main
  * process that reads the files and the renderer that lists them.
  *
  * It lives here rather than beside the reader (`main/imported-skills.ts`) so the
@@ -8,7 +8,7 @@
  * like a bundling mistake tomorrow.
  */
 
-import type { SkillRelevance } from '@genoffice/agent-core'
+import type { SkillRelevance } from '@vantage/agent-core'
 
 /** one SKILL.md we found, with everything the palette needs to show it */
 export interface FoundSkill {
@@ -17,11 +17,11 @@ export interface FoundSkill {
   description: string
   /** absolute path of the SKILL.md, read when the user picks it */
   path: string
-  /** whether it talks about a format GenOffice opens, and on what */
+  /** whether it talks about a format Vantage opens, and on what */
   relevance: SkillRelevance
 }
 
-/** a skill GenOffice ships as a suggestion, with where the user stands on it */
+/** a skill Vantage ships as a suggestion, with where the user stands on it */
 export interface RecommendedSkill extends FoundSkill {
   version: string
   /** the frontmatter's `category`; groups the Recommended list (office, finance, ...) */

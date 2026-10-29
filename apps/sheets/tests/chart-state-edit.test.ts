@@ -14,7 +14,7 @@ import {
   withDefaultBarLabels,
   type ChartVisualState,
   valueAxisScale,
-} from '@genoffice/xlsx-gateway/domain/chart-visual'
+} from '@vantage/xlsx-gateway/domain/chart-visual'
 
 const base = (): ChartVisualState => ({
   chartTypes: ['barChart'],
@@ -266,7 +266,7 @@ describe('chart data-sync ref helpers', () => {
 
 describe('chartDataFromValues orientation and header detection', () => {
   it('wide cross-tab: rows become series, numeric year headers become categories', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       ['', 2020, 2021, 2022],
       ['Division 1', 225, 210, 211.5],
@@ -283,7 +283,7 @@ describe('chartDataFromValues orientation and header detection', () => {
   })
 
   it('wide month table: one series per salesperson, months as categories', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
       ['Ann', 1, 2, 3, 4, 5, 6],
@@ -298,7 +298,7 @@ describe('chartDataFromValues orientation and header detection', () => {
   })
 
   it('tall two-column data keeps the column orientation (pie shape)', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       ['Apples', 10],
       ['Pears', 20],
@@ -310,7 +310,7 @@ describe('chartDataFromValues orientation and header detection', () => {
   })
 
   it('keeps an all-numeric block header-less', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       [1, 2],
       [3, 4],
@@ -322,7 +322,7 @@ describe('chartDataFromValues orientation and header detection', () => {
   it('charts a mixed first column when every other column is text', async () => {
     // Numbered checklists: the only numeric column doubles as the row-label
     // column, so claiming it for the category axis left zero series.
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       ['Monitoring checklist', null],
       [null, null],
@@ -338,7 +338,7 @@ describe('chartDataFromValues orientation and header detection', () => {
   })
 
   it('charts a sparse numeric first column between blank filler rows', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       [null, null],
       ['id', 'employee'],
@@ -352,7 +352,7 @@ describe('chartDataFromValues orientation and header detection', () => {
   })
 
   it('keeps a mixed later column as a series despite text notes', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       ['label', 'value'],
       ['a', 1],
@@ -364,7 +364,7 @@ describe('chartDataFromValues orientation and header detection', () => {
   })
 
   it('still rejects a range with no numeric cells anywhere', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       ['question', 'answer'],
       ['agree', 'agree'],
@@ -376,7 +376,7 @@ describe('chartDataFromValues orientation and header detection', () => {
 
 describe('transposeChartSeries', () => {
   it('pivots categories into series and series names into categories', async () => {
-    const { transposeChartSeries } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { transposeChartSeries } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const seriesSet = transposeChartSeries(
       [
         { name: 'Grinsley', categories: ['Jan', 'Feb'], values: [1, 2] },
@@ -391,7 +391,7 @@ describe('transposeChartSeries', () => {
   })
 
   it('returns null when there are no categories to pivot on', async () => {
-    const { transposeChartSeries } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { transposeChartSeries } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     expect(
       transposeChartSeries([{ name: 'S1', categories: [], values: [1] }], (n) => `${n}`),
     ).toBeNull()
@@ -399,7 +399,7 @@ describe('transposeChartSeries', () => {
   })
 
   it('fills gaps with zeros and labels blank names', async () => {
-    const { transposeChartSeries } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { transposeChartSeries } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const seriesSet = transposeChartSeries(
       [{ name: '', categories: ['', 'B'], values: [5] }],
       (n) => `Series ${n}`,
@@ -478,7 +478,7 @@ describe('scatterAxisBounds', () => {
 
 describe('chartDataFromValues scatter X column', () => {
   it('routes a numeric first column into categories for scatter', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues(
       [
         ['Sales', 'EBIT'],
@@ -494,7 +494,7 @@ describe('chartDataFromValues scatter X column', () => {
   })
 
   it('by-row selections pivot the first data row into X', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     // 2 rows × 4 cols with a label column: row 1 = X, row 2 = Y (corpus shape)
     const parsed = chartDataFromValues(
       [
@@ -511,7 +511,7 @@ describe('chartDataFromValues scatter X column', () => {
   })
 
   it('non-scatter parsing is unchanged (each numeric column a series)', async () => {
-    const { chartDataFromValues } = await import('@genoffice/xlsx-gateway/domain/chart-visual')
+    const { chartDataFromValues } = await import('@vantage/xlsx-gateway/domain/chart-visual')
     const parsed = chartDataFromValues([
       ['Sales', 'EBIT'],
       [0.0626, 0.152],

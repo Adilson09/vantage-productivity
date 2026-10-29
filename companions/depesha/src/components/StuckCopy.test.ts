@@ -1,4 +1,4 @@
-// Aster Mail fork: translated product-name assertions.
+// Vantage Mail fork: translated product-name assertions.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("../lib/testing").then((m) => m.eventModule));
@@ -50,7 +50,7 @@ describe("the task of a copy the server refuses (#88)", () => {
     const { body } = render(StuckCopy, { props: { task: filed } });
     expect(body).toContain("Копия сохранена, но не удалось начать ожидание ответа");
     expect(body).toContain("Копия лежит в папке «Отправленные»");
-    expect(body).toContain("Aster Mail перестала пробовать");
+    expect(body).toContain("Vantage Mail перестала пробовать");
     expect(body).toContain("Нажмите «Повторить»");
     expect(body).not.toContain("повторит");
     expect(body).not.toContain("сервер не принимает");

@@ -1,7 +1,7 @@
 /** Insert tab of the slides ribbon. Extracted from Ribbon.tsx. */
 import type { InsertKind } from '../../shared/ipc'
-import { platformShortcuts } from '@genoffice/i18n'
-import { WORDART_PRESETS, wordArtStrokePx } from '@genoffice/ui'
+import { platformShortcuts } from '@vantage/i18n'
+import { WORDART_PRESETS, wordArtStrokePx } from '@vantage/ui'
 import {
   CHART_GALLERY,
   ICON_COLORS,

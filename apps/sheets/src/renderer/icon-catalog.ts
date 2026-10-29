@@ -1,4 +1,4 @@
-// Aster Office modification (2026): documented atomic icon imports preserve the curated glyph set.
+// Vantage Productivity modification (2026): documented atomic icon imports preserve the curated glyph set.
 import { AccessibilityRegular } from '@fluentui/react-icons/svg/accessibility'
 import { AddRegular } from '@fluentui/react-icons/svg/add'
 import { AddCircleRegular } from '@fluentui/react-icons/svg/add-circle'

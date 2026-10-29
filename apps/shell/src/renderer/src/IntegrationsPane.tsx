@@ -1,5 +1,5 @@
-// Aster Office: use the same isolated names as the CLI installer.
-import { mcpLaunch, MCP_SERVER_NAME, SKILL_NAME, type McpLaunch } from '@genoffice/cli/mcp-launch'
+// Vantage Productivity: use the same isolated names as the CLI installer.
+import { mcpLaunch, MCP_SERVER_NAME, SKILL_NAME, type McpLaunch } from '@vantage/cli/mcp-launch'
 import { useCallback, useEffect, useState } from 'react'
 import type { TFunc } from './locale'
 import { McpServerSection } from './McpServerSection'
@@ -11,7 +11,7 @@ import type {
 } from '../../shared/integrations-api'
 
 // ── Settings → Integrations ─────────────────────────────────
-// Installs the bundled `genoffice` skill into the coding agents found on this
+// Installs the bundled `vantage` skill into the coding agents found on this
 // machine. Every write starts with a click and shows the absolute path first,
 // because the app does not see the shell's CODEX_HOME-style overrides and the
 // user has to be able to spot a wrong target.
@@ -53,7 +53,7 @@ export function mcpConfigJson(launch: McpLaunch): string {
 
 export function skillInstallCommand(launcherDir: string): string {
   const windows = launcherDir.includes('\\')
-  const launcher = `${launcherDir}${windows ? '\\aster.cmd' : '/genoffice'}`
+  const launcher = `${launcherDir}${windows ? '\\vantage.cmd' : '/vantage'}`
   return `${windows ? '& ' : ''}${shellWord(launcher)} skill install all`
 }
 
@@ -325,7 +325,7 @@ export function IntegrationsPane({
             <div className="set-field-stack">
               <div className="set-field-label">Install with the bundled command</div>
               <div className="set-field-desc">
-                Install the Aster Office skill locally. On Windows, run this in PowerShell.
+                Install the Vantage Productivity skill locally. On Windows, run this in PowerShell.
               </div>
               <div className="set-intg-code">
                 <code>{skillInstallCommand(status.cli.launcherDir)}</code>

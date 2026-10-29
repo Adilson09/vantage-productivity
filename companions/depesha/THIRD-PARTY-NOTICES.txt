@@ -1,10 +1,10 @@
-ASTER MAIL — THIRD-PARTY NOTICES
+VANTAGE MAIL — THIRD-PARTY NOTICES
 Pinned upstream: https://github.com/fgbm/depesha at d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4 (0.8.17).
 These notices reproduce license and attribution files from the fetched Windows-target Cargo graph and installed frontend/build dependencies. Build/test-only components are included conservatively; inclusion does not assert that every listed component is linked in the executable.
 Where a simple MIT OR Apache-2.0 option offers a captured MIT permission text, the MIT option is selected; both original license files are preserved below. Other expressions are retained as declared.
 All discovered components have captured license or notice texts.
 7 packages omit standalone license text in their published package/source revision. For these, the declared SPDX license's standard text and original package attribution/metadata are supplied and explicitly marked; no copyright year or owner has been invented.
-Original Depesha project and vendored imap-proto licenses are included separately with the companion. Aster fork changes are described in ASTER_MAIL_FORK_NOTICE.txt.
+Original Depesha project and vendored imap-proto licenses are included separately with the companion. Vantage fork changes are described in VANTAGE_MAIL_FORK_NOTICE.txt.
 
 ==============================================================================
 Cargo: depesha-core 0.8.17
@@ -12,7 +12,7 @@ Declared license: MIT OR Apache-2.0
 Selected expression: MIT
 Published author/contributor metadata: []
 Upstream: https://github.com/fgbm/depesha
-Corresponding source: Modified workspace/vendor source accompanies the Aster source archive
+Corresponding source: Modified workspace/vendor source accompanies the Vantage Productivity source archive
 
 --- LICENSE-APACHE (SHA-256 3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5) ---
 
@@ -247,7 +247,7 @@ Declared license: MIT OR Apache-2.0
 Selected expression: MIT
 Published author/contributor metadata: []
 Upstream: https://github.com/fgbm/depesha
-Corresponding source: Modified workspace/vendor source accompanies the Aster source archive
+Corresponding source: Modified workspace/vendor source accompanies the Vantage Productivity source archive
 
 --- LICENSE-APACHE (SHA-256 3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5) ---
 
@@ -482,7 +482,7 @@ Declared license: MIT OR Apache-2.0
 Selected expression: MIT
 Published author/contributor metadata: []
 Upstream: https://github.com/djc/imap-proto
-Corresponding source: Modified workspace/vendor source accompanies the Aster source archive
+Corresponding source: Modified workspace/vendor source accompanies the Vantage Productivity source archive
 
 --- LICENSE-APACHE (SHA-256 7cfd738c53d61c79f07e348f622bf7707c9084237054d37fbe07788a75f5881c) ---
                               Apache License

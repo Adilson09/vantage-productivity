@@ -22,7 +22,7 @@
  *
  * ## Why there is a second place to read the marks from
  *
- * The part survives Excel and GenOffice, and not everything else. A reader that
+ * The part survives Excel and Vantage, and not everything else. A reader that
  * rebuilds the package from its own model drops parts it does not model along
  * with their relationships and content-type overrides — `soffice
  * --convert-to xlsx` leaves none of the three. So every save also writes the
@@ -43,12 +43,12 @@ import {
   parseRedactionNameMirror,
   parseRedactionPart,
   type SheetRedactionState,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
-import { parseSheetElements } from '@genoffice/xlsx-gateway/gateway/xlsx-sheets'
+} from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
+import { parseSheetElements } from '@vantage/xlsx-gateway/gateway/xlsx-sheets'
 import {
   readArchiveEntryText,
   type ArchiveClient,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-package-io'
+} from '@vantage/xlsx-gateway/gateway/xlsx-package-io'
 
 /// Only the entry names are needed, so this stays structural rather than
 /// re-validating every CRC and size the save path checks.

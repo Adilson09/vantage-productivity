@@ -3,7 +3,7 @@
  * of its target slide (what PowerPoint writes as the fallback image for older viewers) with a
  * jump link to it; the whole insert is one undo step.
  */
-import type { RenderSlide } from '@genoffice/pptx-render'
+import type { RenderSlide } from '@vantage/pptx-render'
 import { mergeSlideUpdate } from '../shared/slide-update'
 import type { GetLayoutsResult, SectionInfo } from '../shared/ipc'
 import type { ActionCtx } from './action-context'

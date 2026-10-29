@@ -16,8 +16,8 @@ import { existsSync, mkdirSync, readFileSync, unwatchFile, watchFile, writeFileS
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
-// Aster Office: do not overwrite GenOffice's compatibility helper on startup.
-import { asterCliStateDir } from './aster-profile'
+// Vantage Productivity: do not overwrite Vantage's compatibility helper on startup.
+import { vantageCliStateDir } from './vantage-profile'
 import {
   asRecord,
   firstItem,
@@ -28,13 +28,13 @@ import {
   type WebSearchResult,
 } from './shared'
 import {
-  genofficeApiKey,
-  genofficeAuthPath,
+  vantageApiKey,
+  vantageAuthPath,
   recoverFromRejectedGskKey,
-  reloadGenofficeAuth,
+  reloadVantageAuth,
   type GskRecoveryOutcome,
-} from './genoffice-auth'
-// deep import: the package root re-exports Electron-bound modules, and this file also runs in the genoffice CLI
+} from './vantage-auth'
+// deep import: the package root re-exports Electron-bound modules, and this file also runs in the vantage CLI
 
 const SEARCH_TIMEOUT_MS = 60_000
 const GENERATE_TIMEOUT_MS = 600_000
@@ -76,7 +76,7 @@ function electronCompatArgs(): string[] {
   if (!process.versions.electron) return []
   if (compatPath === undefined) {
     try {
-      const dir = join(asterCliStateDir(), 'bin')
+      const dir = join(vantageCliStateDir(), 'bin')
       mkdirSync(dir, { recursive: true })
       compatPath = join(dir, 'electron-compat.js')
       writeFileSync(compatPath, 'delete process.versions.electron;\n')
@@ -89,13 +89,13 @@ function electronCompatArgs(): string[] {
 
 /**
  * API key for Genspark LLM proxy / tool_cli auth; '' when not logged in.
- * Priority: GSK_API_KEY env → GenOffice's own key (bills to us via its
+ * Priority: GSK_API_KEY env → Vantage's own key (bills to us via its
  * key_name) → shared gsk CLI login (bills to the Claw bucket).
  */
 export function gskApiKey(): string {
   const env = process.env.GSK_API_KEY
   if (env && !rejectedKeys.has(env)) return env
-  const own = genofficeApiKey()
+  const own = vantageApiKey()
   if (own && !rejectedKeys.has(own)) return own
   try {
     const configPath = join(homedir(), '.genspark-tool-cli', 'config.json')
@@ -111,7 +111,7 @@ export function gskApiKey(): string {
 // ── Rejected keys (401) ─────────────────────────────────────────────
 
 /**
- * Keys the server answered 401 for (expired / revoked). GenOffice's own key
+ * Keys the server answered 401 for (expired / revoked). Vantage's own key
  * is also deleted from disk; env and shared gsk CLI keys belong to someone
  * else, so they are only skipped for the rest of this process.
  */
@@ -184,7 +184,7 @@ export function resetGskRejectedKeys(): void {
 }
 
 /**
- * Fires when the effective gsk key changes on disk — another GenOffice-family
+ * Fires when the effective gsk key changes on disk — another Vantage-family
  * app re-logging in mints a new key and revokes the one this process holds.
  * Polls by path (watchFile): auth.json is replaced whole, and fs.watch misses
  * events for a moment after it is armed.
@@ -192,13 +192,13 @@ export function resetGskRejectedKeys(): void {
 export function watchGskApiKey(onChange: (key: string) => void, intervalMs = 2000): () => void {
   let last = gskApiKey()
   const check = (): void => {
-    reloadGenofficeAuth()
+    reloadVantageAuth()
     const key = gskApiKey()
     if (key === last) return
     last = key
     onChange(key)
   }
-  const files = [genofficeAuthPath(), join(homedir(), '.genspark-tool-cli', 'config.json')]
+  const files = [vantageAuthPath(), join(homedir(), '.genspark-tool-cli', 'config.json')]
   for (const f of files) watchFile(f, { persistent: false, interval: intervalMs }, check)
   return () => {
     for (const f of files) unwatchFile(f, check)

@@ -1,7 +1,8 @@
 import {
   captureMarkdownSource,
   roundTripMarkdownEnabled,
-  serializeMarkdown,
+  serializeMarkdownForSave,
+  sameMarkdownEnvelope,
   type MarkdownSourceSnapshot,
 } from './markdown/roundtripSerializer'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -11,13 +12,13 @@ import {
   rememberAiPanelOpen,
   useAutoSavePref,
   useAiSidebarEnabled,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 import {
   pollUntilReady,
   runHeadlessRendererExport,
-} from '@genoffice/electron-utils/headless-export'
+} from '@vantage/electron-utils/headless-export'
 import { EditorContent, useEditor } from '@tiptap/react'
-import { FindPanel, type FindFocusRequest, type FindPanelStrings } from '@genoffice/ui'
+import { FindPanel, type FindFocusRequest, type FindPanelStrings } from '@vantage/ui'
 import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import { exportImages } from './export/imageExport'
@@ -148,7 +149,7 @@ export default function App() {
 
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  // Aster Office: retain actionable storage errors and rescue paths for the reader.
+  // Vantage Productivity: retain actionable storage errors and rescue paths for the reader.
   const [saveError, setSaveError] = useState<string | null>(null)
   const exportingImagesRef = useRef(false)
   const [imageExportStatus, setImageExportStatus] = useState<{
@@ -454,9 +455,9 @@ export default function App() {
         .run()
       if (editor) {
         sourceMapRef.current = buildSourceMap(editor, editor.state.doc, body)
-        originalSourceRef.current = roundTripEnabled
-          ? captureMarkdownSource(raw, envelope, editor.state.doc)
-          : undefined
+        // Exact source is safe for a provably unchanged document even when
+        // edited-document experimental round trips remain disabled.
+        originalSourceRef.current = captureMarkdownSource(raw, envelope, editor.state.doc)
       }
       setFilePath(path)
       const inner = frontmatterInner(envelope.frontmatter)
@@ -567,13 +568,13 @@ export default function App() {
   const currentFileText = useCallback((): string | null => {
     const current = editorRef.current
     if (!current || statusRef.current !== 'ready') return null
-    return serializeMarkdown(
+    return serializeMarkdownForSave(
       envelopeRef.current,
       current.state.doc,
       () => bodyMarkdown(current),
-      originalSourceRef.current,
+      { original: originalSourceRef.current, clean: !dirtyRef.current, experimental: roundTripEnabled },
     )
-  }, [])
+  }, [roundTripEnabled])
 
   const openSource = useCallback(() => {
     const text = currentFileText()
@@ -597,6 +598,9 @@ export default function App() {
     const applied = applySourceText(current, text)
     envelopeRef.current = applied.envelope
     sourceMapRef.current = applied.sourceMap
+    // Source text can change syntax absent from the visual projection. An old
+    // model fingerprint must never resurrect the pre-edit raw source.
+    originalSourceRef.current = undefined
     const inner = frontmatterInner(applied.envelope.frontmatter)
     setFmText(inner)
     // surface a frontmatter block that just appeared, but leave a panel the
@@ -667,14 +671,14 @@ export default function App() {
         // edits landing while the write is in flight (AI streaming, fast typing)
         // must keep the document dirty — compare doc identity after the await
         const docAtSave = current.state.doc
-        const fmAtSave = envelopeRef.current.frontmatter
+        const envelopeAtSave = { ...envelopeRef.current }
         const sourceAtSave = originalSourceRef.current
         let body: string | undefined
-        const text = serializeMarkdown(
+        const text = serializeMarkdownForSave(
           envelopeRef.current,
           current.state.doc,
           () => (body = bodyMarkdown(current)),
-          sourceAtSave,
+          { original: sourceAtSave, clean: !dirtyRef.current, experimental: roundTripEnabled },
         )
         const imageSources = imageSourcesFromEditor(current)
         // A never-saved document is offered a name derived from its own
@@ -702,7 +706,7 @@ export default function App() {
           setDiskNotice(null)
           const unchanged =
             editorRef.current?.state.doc === docAtSave &&
-            envelopeRef.current.frontmatter === fmAtSave
+            sameMarkdownEnvelope(envelopeRef.current, envelopeAtSave)
           // Save As can rewrite sources absent from the visual projection (e.g. HTML).
           // Never reuse a snapshot containing paths from the previous location.
           if (result.imageRewrites?.length) originalSourceRef.current = undefined
@@ -727,14 +731,9 @@ export default function App() {
                   )
                 : null
           }
-          if (
-            unchanged &&
-            sourceAtSave?.source === text &&
-            result.writtenText !== undefined &&
-            editorRef.current
-          ) {
+          if (unchanged && editorRef.current) {
             originalSourceRef.current = captureMarkdownSource(
-              result.writtenText,
+              result.writtenText ?? text,
               envelopeRef.current,
               editorRef.current.state.doc,
             )
@@ -768,7 +767,7 @@ export default function App() {
         savingRef.current = false
       }
     },
-    [flushSource, sourceMode, doSaveSource],
+    [flushSource, sourceMode, doSaveSource, roundTripEnabled],
   )
 
   /** another program wrote the file: swap the text in, keep caret and scroll, leave undo history alone */
@@ -1068,11 +1067,11 @@ export default function App() {
       const current = editorRef.current
       if (!current || statusRef.current !== 'ready') return
       try {
-        const text = serializeMarkdown(
+        const text = serializeMarkdownForSave(
           envelopeRef.current,
           current.state.doc,
           () => bodyMarkdown(current),
-          originalSourceRef.current,
+          { original: originalSourceRef.current, clean: !dirtyRef.current, experimental: roundTripEnabled },
         )
         window.markdownApi.sendReadTextResult({ text })
       } catch (err) {
@@ -1190,7 +1189,7 @@ export default function App() {
       offRenamed()
       window.removeEventListener('keydown', onKeyDown, true)
     }
-  }, [doSave, printDoc, zoomIn, zoomOut, openFind, toggleSource, loadFromPath, reloadFromDisk, t])
+  }, [doSave, printDoc, zoomIn, zoomOut, openFind, toggleSource, loadFromPath, reloadFromDisk, roundTripEnabled, t])
 
   // Chromium reports trackpad pinch as ctrl+wheel. Also support Cmd/Ctrl+scroll
   // while the pointer is over the document canvas.
@@ -1226,6 +1225,36 @@ export default function App() {
       window.removeEventListener('blur', tick)
     }
   }, [autoSave, filePath, doSave])
+
+  // The crash journal protects unnamed documents too. It records the current
+  // source without publishing it over the user's document or changing dirty state.
+  const draftWarningRef = useRef(false)
+  useEffect(() => {
+    let pending = false
+    const tick = async () => {
+      if (pending || !dirtyRef.current || statusRef.current !== 'ready' || editorRef.current?.view.composing) return
+      flushSource()
+      const text = sourceMode ? writeSourceText(sourceTextRef.current, sourceFormatRef.current) : currentFileText()
+      if (text === null) return
+      pending = true
+      try {
+        const result = await window.markdownApi.writeDraft(text)
+        if (!result.ok && !draftWarningRef.current) {
+          draftWarningRef.current = true
+          showToast(`Crash recovery could not record this draft: ${result.error}`, 'error')
+        } else if (result.ok) draftWarningRef.current = false
+      } catch (error) {
+        if (!draftWarningRef.current) {
+          draftWarningRef.current = true
+          showToast(`Crash recovery is unavailable: ${error instanceof Error ? error.message : String(error)}`, 'error')
+        }
+      } finally { pending = false }
+    }
+    const interval = window.setInterval(() => { void tick() }, 15_000)
+    const blur = () => { void tick() }
+    window.addEventListener('blur', blur)
+    return () => { window.clearInterval(interval); window.removeEventListener('blur', blur) }
+  }, [flushSource, currentFileText, sourceMode])
 
   // ---- selection-scoped AI edit queue (anchors live in the editor as decorations) ----
   const getQueueItem = useCallback(
@@ -1451,7 +1480,7 @@ export default function App() {
         )}
         <div className="app-content">
           {saveError && (
-            <div className="disk-notice aster-save-error" role="alert">
+            <div className="disk-notice vantage-save-error" role="alert">
               <span>{saveError}</span>
               <button
                 type="button"

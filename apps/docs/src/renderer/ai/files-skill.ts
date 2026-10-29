@@ -1,4 +1,4 @@
-import { createAttachmentsSkill, type AgentSkill } from '@genoffice/agent-core'
+import { createAttachmentsSkill, type AgentSkill } from '@vantage/agent-core'
 import type { AttachmentMeta } from '../../shared/ipc'
 import { t } from '../i18n/locale'
 

@@ -19,7 +19,7 @@ const section = (source: string, start: string, end: string) =>
 
 describe('atomic export destinations', () => {
   it('keeps an existing destination intact when a temporary write fails', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'genoffice-export-atomic-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vantage-export-atomic-'))
     const target = join(dir, 'report.docx')
     writeFileSync(target, 'old')
     try {
@@ -33,9 +33,9 @@ describe('atomic export destinations', () => {
     }
   })
 
-  // Aster Office: publication failure must retain both the original and completed rescue copy.
+  // Vantage Productivity: publication failure must retain both the original and completed rescue copy.
   it('keeps the destination and completed rescue copy when publication fails', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'genoffice-export-rename-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vantage-export-rename-'))
     const target = join(dir, 'report.docx')
     writeFileSync(target, 'old')
     mockedRename.mockRejectedValue(Object.assign(new Error('busy'), { code: 'EPERM' }))
@@ -48,7 +48,7 @@ describe('atomic export destinations', () => {
         }),
       ).rejects.toMatchObject({
         code: 'EPERM',
-        asterCode: 'SAVE_NOT_PUBLISHED',
+        vantageCode: 'SAVE_NOT_PUBLISHED',
         targetPath: target,
       })
       expect(readFileSync(target, 'utf8')).toBe('old')

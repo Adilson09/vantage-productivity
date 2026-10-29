@@ -11,7 +11,7 @@
  * wakes up with the copy mode still on, the loop resumes, and every frame
  * dirties the scene — the frames pile up faster than the collector reclaims
  * them. A 12 KB workbook reached 1.6 GB of renderer memory that way and the
- * app's own watchdog fired (genoffice#2246). The border is a hint for a
+ * app's own watchdog fired (vantage#2246). The border is a hint for a
  * person who is looking at it; nobody is looking at a window behind another
  * one, or at a border that has been sitting still for a minute.
  *

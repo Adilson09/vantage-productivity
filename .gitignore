@@ -28,9 +28,9 @@ electron-builder.env
 
 # Playwright artifacts
 /test-results/
-# Aster Office (2026): keep all desktop-test result folders out of source deliverables.
+# Vantage Productivity (2026): keep all desktop-test result folders out of source deliverables.
 /e2e/test-results*/
-# Aster Office Mail: compiled companion is delivered in the runnable archive.
+# Vantage Productivity Mail: compiled companion is delivered in the runnable archive.
 /companions/depesha-bin/
 
 .cursor/rules/git-remote.mdc
@@ -45,3 +45,8 @@ __pycache__/
 # One-off verification tests kept while chasing a fix; promote to a real test
 # file (or delete) instead of committing them under this name.
 _scratch-*
+packages/engine-bridge/engines.local.json
+
+# Publication safeguards for local builds and restricted upstream material.
+/ee/
+**/target/

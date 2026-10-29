@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { execSync } from 'node:child_process'
 import { mkdtemp, readdir } from 'node:fs/promises'
@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl } from './helpers'
 
-// the preload exposes window.__genofficeDebug only under this env var
-process.env.GENOFFICE_DEBUG_HOOKS = '1'
+// the preload exposes window.__vantageDebug only under this env var
+process.env.VANTAGE_DEBUG_HOOKS = '1'
 
 /**
  * Regression for "tile-pasted cells vanish after save" (user
@@ -18,7 +18,7 @@ process.env.GENOFFICE_DEBUG_HOOKS = '1'
  */
 test.describe('sheets: tiled paste of formulas survives save', () => {
   test('followers keep their (shifted) formula in the saved xlsx', async () => {
-    const scratch = await mkdtemp(join(tmpdir(), 'genoffice-paste-save-'))
+    const scratch = await mkdtemp(join(tmpdir(), 'vantage-paste-save-'))
     const launched = await launchShell({
       onboardingSeen: true,
       videoDir: 'sheets-paste-shared-formula-save',
@@ -28,8 +28,8 @@ test.describe('sheets: tiled paste of formulas survives save', () => {
       await app.evaluate(({ app: electronApp }, dir) => {
         electronApp.setPath('documents', dir)
       }, scratch)
-      const saveDir = join(scratch, 'GenOffice')
-      // the workbook has no file yet: Save answers the Save As picker (genoffice#1036)
+      const saveDir = join(scratch, 'Vantage')
+      // the workbook has no file yet: Save answers the Save As picker (vantage#1036)
       await app.evaluate(
         ({ dialog }, target) => {
           dialog.showSaveDialog = async () => ({ canceled: false, filePath: target })
@@ -60,7 +60,7 @@ test.describe('sheets: tiled paste of formulas survives save', () => {
 
       // source row A1:C1: two values and a formula referencing the row
       await sheets.evaluate(async () => {
-        const debug = (window as unknown as Record<string, unknown>).__genofficeDebug as {
+        const debug = (window as unknown as Record<string, unknown>).__vantageDebug as {
           univerAPI: {
             getActiveWorkbook(): {
               getActiveSheet(): {
@@ -83,7 +83,7 @@ test.describe('sheets: tiled paste of formulas survives save', () => {
 
       // tile-paste into A2:C3 — row 3's formula cell becomes an si follower
       await sheets.evaluate(() => {
-        const debug = (window as unknown as Record<string, unknown>).__genofficeDebug as {
+        const debug = (window as unknown as Record<string, unknown>).__vantageDebug as {
           univerAPI: {
             getActiveWorkbook(): {
               getActiveSheet(): {

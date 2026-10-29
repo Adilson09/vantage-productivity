@@ -1,4 +1,4 @@
-// Aster Office modification (2026): clearly attribute the upstream source project.
+// Vantage Productivity modification (2026): clearly attribute the upstream source project.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -8,8 +8,8 @@ import {
   Dropdown,
   aiPanelFontPx,
   clampAiCustomFontSize,
-} from '@genoffice/ui'
-import type { AiFontSize, AiPanelPrefs, AiPanelSide } from '@genoffice/ui'
+} from '@vantage/ui'
+import type { AiFontSize, AiPanelPrefs, AiPanelSide } from '@vantage/ui'
 import type { DecisionEndpoint, DefaultAppStatus, FileSearchSettings } from '../../shared/home-api'
 import { AUTHOR_NAME_MAX, isCloudflareEndpoint } from '../../shared/home-api'
 import type { UpdateUiState } from '../../shared/update-api'
@@ -25,7 +25,7 @@ import {
   selectCustomEndpoint,
   upsertCustomEndpoint,
   AI_CUSTOM_PROTOCOLS,
-} from '@genoffice/ai-provider/browser'
+} from '@vantage/ai-provider/browser'
 import type {
   AiCustomCompat,
   AiCustomEndpoint,
@@ -37,7 +37,7 @@ import type {
   AiSearchProviderMeta,
   AiSearchSettings,
   AiSettings,
-} from '@genoffice/ai-provider'
+} from '@vantage/ai-provider'
 import { useI18n } from './locale'
 import type { StringKey, TFunc } from './locale'
 import type {
@@ -90,7 +90,7 @@ const THEME_OPTIONS = [
   { value: 'dark', labelKey: 'themeDark' },
 ] as const satisfies readonly { value: UiTheme; labelKey: StringKey }[]
 
-// Document page theme (genoffice#1811): the canvas/paper preference the editors follow;
+// Document page theme (vantage#1811): the canvas/paper preference the editors follow;
 // 'follow' keeps the pre-existing behavior of riding the UI theme
 const DOC_THEME_OPTIONS = [
   { value: 'follow', labelKey: 'docThemeFollowApp' },
@@ -2349,18 +2349,18 @@ export function SettingsModal({
                   />
                 </div>
                 <Field
-                  label="Upstream source"
+                  label="Source repository"
                   value={
                     githubStars === null
-                      ? 'github.com/genspark-ai/genoffice'
-                      : `github.com/genspark-ai/genoffice · ★ ${formatStars(githubStars)}`
+                      ? 'github.com/Adilson09/aster-office'
+                      : `github.com/Adilson09/aster-office · ★ ${formatStars(githubStars)}`
                   }
                   action={
                     <button
                       className="set-btn"
                       onClick={() => void window.aiOffice.openGitHubRepo?.()}
                     >
-                      <span lang="en">View upstream source</span>
+                      <span lang="en">View source</span>
                     </button>
                   }
                 />

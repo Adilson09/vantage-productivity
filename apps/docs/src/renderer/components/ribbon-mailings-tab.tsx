@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Editor } from '@tiptap/core'
-import { mergeFieldInstruction } from '@genoffice/docx-engine'
+import { mergeFieldInstruction } from '@vantage/docx-engine'
 import type { MergeDataSource } from '../../shared/ipc'
 import type { MailMergeRequest, MailMergeResponse } from '../mail-merge/output'
 import { useI18n } from '../i18n/locale'
@@ -14,7 +14,7 @@ import { BIG, type SetDropdown, toggleDropdown } from './ribbon-tabs'
  *
  * The tab holds what the user picked (the data source) and which record the
  * preview shows; the documents themselves are built by the app and written by
- * the main process. genoffice#2097.
+ * the main process. vantage#2097.
  */
 
 export interface MailingsTabProps {

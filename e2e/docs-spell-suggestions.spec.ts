@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Right-clicking a misspelled word in the document body lists Chromium's
  * suggestions at the top of the Docs context menu, and picking one replaces

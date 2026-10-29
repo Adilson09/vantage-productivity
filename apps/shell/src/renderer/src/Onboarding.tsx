@@ -1,4 +1,4 @@
-// Aster Office modification (2026): credit upstream without representing its popularity as ours.
+// Vantage Productivity modification (2026): credit upstream without representing its popularity as ours.
 import { useEffect, useRef, useState } from 'react'
 import appIcon from './assets/app-icon.png'
 import { useI18n } from './locale'

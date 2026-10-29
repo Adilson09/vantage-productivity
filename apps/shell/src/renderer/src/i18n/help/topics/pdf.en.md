@@ -40,8 +40,6 @@ Six tools: **ink, rectangle, ellipse, arrow, note**, plus the **redaction box** 
   1. Annotate tab ▸ click **Redact area** (the tool arms).
   2. **Drag a box over the content** — it gets covered by a hatched mark, and the toolbar gains **clear-marks / apply-redaction** buttons:
 
-  ![The page after marking a redaction](img/pdf-redact.png)
-
   3. Click **Apply redaction** and confirm — the result is a working copy where the covered text and images are physically removed (not covered) and it cannot be undone; the original document stays untouched.
 
   Made a mistake? The clear-marks button wipes the current marks so you can redraw.

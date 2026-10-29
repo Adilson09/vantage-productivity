@@ -1,4 +1,4 @@
-// Aster Mail fork: translated product-name assertions.
+// Vantage Mail fork: translated product-name assertions.
 import { beforeEach, describe, expect, it } from "vitest";
 import { i18n } from "./i18n.svelte";
 import { features, grouped, needsAttention, protocol, report, summary, unknown } from "./serverFeatures";
@@ -19,7 +19,7 @@ function row(rows: ReturnType<typeof features>, id: string) {
 }
 
 describe("the server's features", () => {
-  it("a modern server: what Aster Mail uses is used, the rest is told apart", () => {
+  it("a modern server: what Vantage Mail uses is used, the rest is told apart", () => {
     const rows = features(MODERN, { ok: true, answer: "ENABLED QRESYNC", at: 1 }, 120, time);
     for (const id of ["idle", "condstore", "qresync", "move", "uidplus", "specialUse", "quota", "statusSize", "literalPlus"]) {
       expect(row(rows, id).depesha, id).toBe("used");
@@ -27,7 +27,7 @@ describe("the server's features", () => {
     }
     expect(row(rows, "qresync").server).toBe("enabled");
     expect(row(rows, "id").depesha).toBe("notUsed");
-    // Sorting and threads Aster Mail does itself: not needed, not "not used".
+    // Sorting and threads Vantage Mail does itself: not needed, not "not used".
     expect(row(rows, "sortThread").depesha).toBe("notNeeded");
     expect(row(rows, "sortThread").names).toBe("SORT, SORT=DISPLAY, THREAD=REFERENCES, THREAD=REFS");
     expect(row(rows, "appendLimit").gives).toBe("Сервер примет письмо до 50 МБ.");
@@ -35,7 +35,7 @@ describe("the server's features", () => {
     expect(row(rows, "compress").group).toBe("missing");
     expect(row(rows, "compress").important).toBe(false);
     expect(needsAttention(MODERN)).toBe(false);
-    expect(summary(rows, 120)).toBe("Сервер умеет всё, что Aster Mail нужно для быстрой работы.");
+    expect(summary(rows, 120)).toBe("Сервер умеет всё, что Vantage Mail нужно для быстрой работы.");
     expect(grouped(rows).map((g) => g.group)).toEqual(["used", "unused", "missing"]);
   });
 
@@ -67,7 +67,7 @@ describe("the server's features", () => {
     expect(row(rows, "condstore").depesha).toBe("used");
   });
 
-  it("IMAP4rev2 has some features without naming them; Aster Mail reads them as used", () => {
+  it("IMAP4rev2 has some features without naming them; Vantage Mail reads them as used", () => {
     // RFC 9051 folds IDLE, MOVE, UIDPLUS, SPECIAL-USE and STATUS=SIZE into the base
     // protocol, so a rev2 server without those names still gets them used, not a warning.
     const rows = features(["IMAP4rev2", "IDLE"], null, 120, time);
@@ -90,7 +90,7 @@ describe("the server's features", () => {
   });
 
   it("a server listing IMAP4rev1 and IMAP4rev2 speaks rev1: only listed names count", () => {
-    // Without ENABLE IMAP4rev2 (which Aster Mail does not send) the session stays rev1.
+    // Without ENABLE IMAP4rev2 (which Vantage Mail does not send) the session stays rev1.
     const caps = ["IMAP4rev1", "IMAP4rev2", "IDLE"];
     expect(protocol(caps)).toBe("IMAP4rev1");
     expect(needsAttention(caps)).toBe(true);

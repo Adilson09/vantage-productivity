@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Editor } from '@tiptap/core'
 import { buildExtensions } from '../src/renderer/editor/extensions'
@@ -90,6 +90,21 @@ describe('opt-in Markdown round trips', () => {
     expect(body).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    '1.\n2.\n3.\n',
+    '---\r\nname: Задача\r\n---\r\n\r\n## Воспроизведение\r\n\r\n1.\r\n2.\r\n3.\r\n',
+    '1.\n    - nested bullet\n2.\n',
+  ])('opens empty ordered-list placeholders as valid nodes and preserves original source %j', (source) => {
+    const { editor, save, body } = open(source)
+    expect(() => editor.state.doc.check()).not.toThrow()
+    const items: string[] = []
+    editor.state.doc.descendants((node) => { if (node.type.name === 'listItem') items.push(node.firstChild?.type.name ?? '') })
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.every((type) => type === 'paragraph')).toBe(true)
+    expect(Buffer.from(save(), 'utf8')).toEqual(Buffer.from(source, 'utf8'))
+    expect(body).not.toHaveBeenCalled()
+  })
+
   it('saves real edits and preserves original bytes again after undo', () => {
     const source = 'Title\n=====\n\nA paragraph.\n'
     const { editor, envelope, body, save } = open(source)
@@ -121,9 +136,9 @@ describe('opt-in Markdown round trips', () => {
 
 // Exercise the actual loading path and validate the resulting editor schema.
 const root = resolve(import.meta.dirname, '../../..')
-const corpus = execFileSync('git', ['ls-files', '-z', '*.md'], { cwd: root, encoding: 'utf8' })
+const corpus = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.md'], { cwd: root, encoding: 'utf8' })
   .split('\0')
-  .filter(Boolean)
+  .filter((path) => path && existsSync(resolve(root, path)))
 describe('tracked repository Markdown corpus', () => {
   it('includes README variants and a nonempty corpus', () => {
     expect(corpus.length).toBeGreaterThan(50)

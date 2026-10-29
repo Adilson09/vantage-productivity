@@ -197,7 +197,7 @@ pub fn menu(s: &MenuState) -> Vec<Entry> {
             out.push(Entry::Separator);
         }
     }
-    out.push(item("open", pick("Open Aster Mail", "Открыть Aster Mail").to_owned()));
+    out.push(item("open", pick("Open Vantage Mail", "Открыть Vantage Mail").to_owned()));
     if s.unread > 0 {
         let n = s.unread;
         let ru = ru_form(n, "непрочитанное", "непрочитанных", "непрочитанных");
@@ -252,7 +252,7 @@ fn ru_form<'a>(n: u32, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
 
 /// The hint over the icon (Windows).
 pub fn tooltip(unread: u32) -> String {
-    let name = pick("Aster Mail", "Aster Mail");
+    let name = pick("Vantage Mail", "Vantage Mail");
     if unread == 0 {
         return name.to_owned();
     }
@@ -628,7 +628,7 @@ mod tests {
             ..Default::default()
         };
         let mut want = vec![
-            item("open", "Открыть Aster Mail"),
+            item("open", "Открыть Vantage Mail"),
             note("Непрочитанных нет · проверено в 14:30"),
         ];
         want.extend(rest());
@@ -651,7 +651,7 @@ mod tests {
                 checked: Some("14:30".into()),
                 ..Default::default()
             };
-            let mut want = vec![item("open", "Открыть Aster Mail"), item("unread", label)];
+            let mut want = vec![item("open", "Открыть Vantage Mail"), item("unread", label)];
             want.extend(rest());
             assert_eq!(menu(&s), want);
         }
@@ -698,7 +698,7 @@ mod tests {
                 note("Работа: не удалось войти"),
                 item("account:a", "Открыть настройки ящика…"),
                 Entry::Separator,
-                item("open", "Открыть Aster Mail")
+                item("open", "Открыть Vantage Mail")
             ]
         );
         // Several: a line each, up to three, then how many more.
@@ -721,7 +721,7 @@ mod tests {
                 item("account:c", "Дача: не удалось войти"),
                 note("Ещё 2 ящика с ошибками"),
                 Entry::Separator,
-                item("open", "Открыть Aster Mail")
+                item("open", "Открыть Vantage Mail")
             ]
         );
     }
@@ -729,9 +729,9 @@ mod tests {
     #[test]
     fn the_hint_counts_the_unread() {
         lang::pin(Lang::Ru);
-        assert_eq!(tooltip(0), "Aster Mail");
-        assert_eq!(tooltip(5), "Aster Mail — 5 непрочитанных");
-        assert_eq!(tooltip(1), "Aster Mail — 1 непрочитанное");
+        assert_eq!(tooltip(0), "Vantage Mail");
+        assert_eq!(tooltip(5), "Vantage Mail — 5 непрочитанных");
+        assert_eq!(tooltip(1), "Vantage Mail — 1 непрочитанное");
     }
 
     fn folder(account: &str, name: &str, role: Option<FolderRole>, unread: u32) -> FolderInfo {
