@@ -24,6 +24,25 @@ export function captureMarkdownSource(
   return { source, envelope: { ...envelope }, doc }
 }
 
+export function sameMarkdownEnvelope(a: Readonly<DocEnvelope>, b: Readonly<DocEnvelope>): boolean {
+  return a.frontmatter === b.frontmatter && a.eol === b.eol &&
+    a.trailingNewline === b.trailingNewline && a.bom === b.bom
+}
+
+/** Clean documents retain the exact loaded UTF-8 source only when their model
+ * and envelope still match. Edited documents keep the established serializer
+ * unless the user enabled experimental round trips. The flag's default stays off.
+ */
+export function serializeMarkdownForSave(
+  envelope: DocEnvelope,
+  doc: Node,
+  serializeBody: () => string,
+  options: { original: MarkdownSourceSnapshot | undefined; clean: boolean; experimental: boolean },
+): string {
+  return serializeMarkdown(envelope, doc, serializeBody,
+    options.clean || options.experimental ? options.original : undefined)
+}
+
 /** Compare only at serialization time, never on the typing path. */
 export function serializeMarkdown(
   envelope: DocEnvelope,
@@ -33,10 +52,7 @@ export function serializeMarkdown(
 ): string {
   if (
     original &&
-    envelope.frontmatter === original.envelope.frontmatter &&
-    envelope.eol === original.envelope.eol &&
-    envelope.trailingNewline === original.envelope.trailingNewline &&
-    envelope.bom === original.envelope.bom &&
+    sameMarkdownEnvelope(envelope, original.envelope) &&
     doc.eq(original.doc)
   ) {
     return original.source

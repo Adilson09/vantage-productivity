@@ -1,4 +1,4 @@
-// Aster Office fork: native files follow the same isolated root as the webview.
+// Vantage Productivity fork: native files follow the same isolated root as the webview.
 use std::{io, path::{Path, PathBuf}};
 use tauri::{AppHandle, Manager};
 

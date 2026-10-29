@@ -17,10 +17,18 @@ use zip::ZipArchive;
 
 pub mod archive;
 pub mod convert;
+pub mod edit_backend;
+#[cfg(test)]
+mod edit_backend_tests;
 pub mod find;
 pub mod odf;
 pub mod protocol;
 pub mod recalc;
+pub mod session;
+pub mod snapshot;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod store;
+pub mod transaction;
 mod richdata;
 mod shared_formulas;
 pub mod spreadsheetml;
@@ -210,12 +218,13 @@ fn create_cache_directory(
 
 pub struct WorkbookSessions {
     sessions: HashMap<String, WorkbookSession>,
+    pub(crate) edits: edit_backend::EditSessions,
 }
 
 /// Excel wraps password-encrypted workbooks in an OLE2 compound container
 /// rather than a ZIP package. Detect that signature before the zip reader
 /// runs so the open fails with an explanation instead of "invalid Zip
-/// archive: Could not find EOCD" (genoffice#2076). The file cursor is rewound so the
+/// archive: Could not find EOCD" (vantage#2076). The file cursor is rewound so the
 /// caller can keep reading from the start.
 fn is_ole2_container(file: &mut File) -> std::io::Result<bool> {
     const OLE2_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
@@ -229,6 +238,7 @@ impl WorkbookSessions {
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),
+            edits: edit_backend::EditSessions::default(),
         }
     }
 

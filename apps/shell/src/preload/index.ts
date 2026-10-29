@@ -1,5 +1,5 @@
-// Aster Office modification (2026): narrowly scoped local workspace bridge.
-import { ASTER_CHANNELS, type AsterApi } from '../shared/aster-api'
+// Vantage Productivity modification (2026): narrowly scoped local workspace bridge.
+import { VANTAGE_CHANNELS, type VantageApi } from '../shared/vantage-api'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import {
@@ -7,11 +7,11 @@ import {
   AI_PROVIDERS,
   AI_SEARCH_PROVIDERS,
   getProviderAdapter,
-} from '@genoffice/ai-provider/browser'
-import type { AiSettings, CodexModelCatalog } from '@genoffice/ai-provider/browser'
-import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
+} from '@vantage/ai-provider/browser'
+import type { AiSettings, CodexModelCatalog } from '@vantage/ai-provider/browser'
+import { installDropOpenBridge } from '@vantage/electron-utils/drop-open'
 import type { UpdateUiState } from '../shared/update-api'
-import { normalizeAiPanelPrefs } from '@genoffice/ui/ai-panel-prefs'
+import { normalizeAiPanelPrefs } from '@vantage/ui/ai-panel-prefs'
 import type {
   AccountLoginEvent,
   AccountStatus,
@@ -30,7 +30,7 @@ import type {
   FileSearchRerank,
   FileSearchSettings,
 } from '../shared/home-api'
-import type { ProjectApi } from '@genoffice/project-store'
+import type { ProjectApi } from '@vantage/project-store'
 import { HOME_CHANNELS } from '../shared/home-api'
 import { INTEGRATIONS_CHANNELS } from '../shared/integrations-api'
 import type {
@@ -692,7 +692,7 @@ contextBridge.exposeInMainWorld('aiOffice', homeApi)
  * Model file naming.
  *
  * The same channel the editor apps expose under this name, so the shared
- * client (`@genoffice/ui`) finds one bridge wherever it runs.
+ * client (`@vantage/ui`) finds one bridge wherever it runs.
  *
  * A global of its own rather than part of `aiOffice`: `aiOffice` is the
  * shell's home API, and an editor window that reused the name would shadow it
@@ -856,10 +856,43 @@ contextBridge.exposeInMainWorld('aiOfficeTabs', tabsApi)
 // open documents dragged from the OS anywhere over Home or the tab strip
 installDropOpenBridge()
 
-const asterApi: AsterApi = {
-  openMail: () => ipcRenderer.invoke(ASTER_CHANNELS.openMail),
-  inspectFile: () => ipcRenderer.invoke(ASTER_CHANNELS.inspectFile),
-  recoveryList: () => ipcRenderer.invoke(ASTER_CHANNELS.recoveryList),
-  recoveryRestoreCopy: (id) => ipcRenderer.invoke(ASTER_CHANNELS.recoveryRestoreCopy, id),
+const vantageApi: VantageApi = {
+  onSaveWarning: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, message: unknown) => {
+      if (typeof message === 'string') listener(message.slice(0, 8192))
+    }
+    ipcRenderer.on(VANTAGE_CHANNELS.saveWarning, receive)
+    return () => ipcRenderer.removeListener(VANTAGE_CHANNELS.saveWarning, receive)
+  },
+  draftList: () => ipcRenderer.invoke(VANTAGE_CHANNELS.draftList),
+  restoreDraft: (id) => ipcRenderer.invoke(VANTAGE_CHANNELS.restoreDraft, id),
+  discardDraft: (id) => ipcRenderer.invoke(VANTAGE_CHANNELS.discardDraft, id),
+  exportRecoveryBackup: (password) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.exportRecoveryBackup, password),
+  inspectRecoveryBackup: (password) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.inspectRecoveryBackup, password),
+  restoreBackupCopy: (password, id) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.restoreBackupCopy, password, id),
+  saveCalendarEvent: (event) => ipcRenderer.invoke(VANTAGE_CHANNELS.saveCalendarEvent, event),
+  engineeringStatus: () => ipcRenderer.invoke(VANTAGE_CHANNELS.engineeringStatus),
+  updateNetworkPolicy: (value) => ipcRenderer.invoke(VANTAGE_CHANNELS.updateNetworkPolicy, value),
+  convertDocument: () => ipcRenderer.invoke(VANTAGE_CHANNELS.convertDocument),
+  checkSpecialistPdf: (engine) => ipcRenderer.invoke(VANTAGE_CHANNELS.checkSpecialistPdf, engine),
+  importCalendar: () => ipcRenderer.invoke(VANTAGE_CHANNELS.importCalendar),
+  importContacts: () => ipcRenderer.invoke(VANTAGE_CHANNELS.importContacts),
+  openDatabase: (create) => ipcRenderer.invoke(VANTAGE_CHANNELS.openDatabase, create),
+  queryDatabase: (sql) => ipcRenderer.invoke(VANTAGE_CHANNELS.queryDatabase, sql),
+  createDatabaseTable: (name, columns) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.createDatabaseTable, name, columns),
+  insertDatabaseRows: (table, rows) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.insertDatabaseRows, table, rows),
+  recoveryStatus: () => ipcRenderer.invoke(VANTAGE_CHANNELS.recoveryStatus),
+  updateRecoveryPolicy: (value) => ipcRenderer.invoke(VANTAGE_CHANNELS.updateRecoveryPolicy, value),
+  setRecoveryEncryption: () => ipcRenderer.invoke(VANTAGE_CHANNELS.setRecoveryEncryption),
+  openMail: () => ipcRenderer.invoke(VANTAGE_CHANNELS.openMail),
+  inspectFile: () => ipcRenderer.invoke(VANTAGE_CHANNELS.inspectFile),
+  cancelInspection: () => ipcRenderer.invoke(VANTAGE_CHANNELS.cancelInspection),
+  recoveryList: () => ipcRenderer.invoke(VANTAGE_CHANNELS.recoveryList),
+  recoveryRestoreCopy: (id) => ipcRenderer.invoke(VANTAGE_CHANNELS.recoveryRestoreCopy, id),
 }
-contextBridge.exposeInMainWorld('aster', asterApi)
+contextBridge.exposeInMainWorld('vantage', vantageApi)

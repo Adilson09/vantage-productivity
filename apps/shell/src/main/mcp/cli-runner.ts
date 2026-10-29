@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
 
 /**
- * Shell-main half of the MCP → `genoffice` CLI delegation.
+ * Shell-main half of the MCP → `vantage` CLI delegation.
  *
- * The app already ships the CLI (`@genoffice/cli`) and runs it on its own Node
+ * The app already ships the CLI (`@vantage/cli`) and runs it on its own Node
  * runtime, so the headless MCP tools do not reimplement document engines: they
  * spawn the same CLI a shell user or another agent would, with `--json`, and
  * map its result contract (`{ status, command, summary, output_path, detail }`,
@@ -49,19 +49,19 @@ export interface CliRunOptions {
   timeoutMs?: number
   /** working directory relative paths resolve against (default: the app's) */
   cwd?: string
-  /** per-run environment on top of the runner's (e.g. GENOFFICE_ALLOWED_ROOTS) */
+  /** per-run environment on top of the runner's (e.g. VANTAGE_ALLOWED_ROOTS) */
   env?: NodeJS.ProcessEnv
 }
 
 export interface CliRunner {
-  /** run `genoffice <args> --json`; never rejects — failures come back as `ok:false` */
+  /** run `vantage <args> --json`; never rejects — failures come back as `ok:false` */
   run(args: string[], options?: CliRunOptions): Promise<CliRunOutcome>
 }
 
 export interface CliRunnerPaths {
   /** node/electron executable that runs the CLI entry */
   executable: string
-  /** absolute path to the bundled CLI entry (dist/genoffice.cjs) */
+  /** absolute path to the bundled CLI entry (dist/vantage.cjs) */
   entry: string
   /** extra environment (the runner adds ELECTRON_RUN_AS_NODE when needed) */
   env?: NodeJS.ProcessEnv
@@ -123,7 +123,7 @@ export function createCliRunner(paths: CliRunnerPaths): CliRunner {
         }
         const timer = setTimeout(() => {
           child.kill()
-          finish({ ok: false, code: -1, stdout, stderr: `${stderr}\ngenoffice timed out` })
+          finish({ ok: false, code: -1, stdout, stderr: `${stderr}\nvantage timed out` })
         }, timeoutMs)
         child.stdout?.on('data', (chunk: Buffer) => onChunk(chunk, 'out'))
         child.stderr?.on('data', (chunk: Buffer) => onChunk(chunk, 'err'))
@@ -151,5 +151,5 @@ export function createCliRunner(paths: CliRunnerPaths): CliRunner {
 export function cliErrorMessage(outcome: CliRunOutcome): string {
   if (outcome.json && outcome.json.status === 'error') return outcome.json.message
   const detail = outcome.stderr.trim() || outcome.stdout.trim()
-  return detail ? `genoffice failed: ${detail}` : `genoffice exited with code ${outcome.code}`
+  return detail ? `vantage failed: ${detail}` : `vantage exited with code ${outcome.code}`
 }

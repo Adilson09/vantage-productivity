@@ -13,19 +13,19 @@ import {
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import JSZip from 'jszip'
-// Aster Office: install only this fork's independently named skill.
+// Vantage Productivity: install only this fork's independently named skill.
 import { SKILL_NAME } from './integration-identity'
 export { SKILL_NAME } from './integration-identity'
 
 /**
- * Installing the bundled `genoffice` skill into the coding agents found on this
- * machine, shared by Settings → Integrations and `genoffice skill`. Every write
+ * Installing the bundled `vantage` skill into the coding agents found on this
+ * machine, shared by Settings → Integrations and `vantage skill`. Every write
  * is a click in that pane or an explicit command; nothing installs on its own.
  * Pure functions over an injected home / env so the state table is
  * unit-testable without touching the real dotfolders.
  */
 
-/** app-settings.json key under which every install this machine's GenOffice wrote is remembered */
+/** app-settings.json key under which every install this machine's Vantage wrote is remembered */
 export const LEDGER_KEY = 'agentSkillInstalls'
 
 export type AgentId =
@@ -48,7 +48,7 @@ export interface AgentTarget {
 }
 
 export type SkillInstallStatus =
-  /** no genoffice/ folder in the skills directory */
+  /** no vantage/ folder in the skills directory */
   | 'missing'
   /** written by this app, same version and bytes as the bundled skill */
   | 'installed'
@@ -60,12 +60,12 @@ export type SkillInstallStatus =
   | 'foreign'
   /** a newer skill version than the one bundled, whoever wrote it */
   | 'newer'
-  /** genoffice/ exists but does not hold our skill */
+  /** vantage/ exists but does not hold our skill */
   | 'occupied'
 
 export interface SkillInstallState {
   status: SkillInstallStatus
-  /** `<skillsDir>/genoffice/SKILL.md` */
+  /** `<skillsDir>/vantage/SKILL.md` */
   path: string
   installedVersion?: string
   /** installed version is older than the bundled one (foreign rows offer an update then) */
@@ -81,7 +81,7 @@ interface AgentDef {
   skills: (probe: string, env: NodeJS.ProcessEnv, home: string) => string
   /**
    * false for a row kept only so `agentConfigDir` still finds the dotfolder
-   * (`genoffice mcp` needs it): the tool reads `~/.agents/skills`, so installing
+   * (`vantage mcp` needs it): the tool reads `~/.agents/skills`, so installing
    * the skill there gets no per-tool row
    */
   skillsTarget: boolean
@@ -364,7 +364,7 @@ function assertSkillDirectoryIsNotLink(skillsDir: string): void {
     throw new Error(`${dir} is a linked directory; refusing to change another skill through it`)
 }
 
-/** `genoffice/SKILL.md` inside a zip: the layout claude.ai and the desktop apps accept for an uploaded skill. */
+/** `vantage/SKILL.md` inside a zip: the layout claude.ai and the desktop apps accept for an uploaded skill. */
 export async function buildSkillZip(bundled: BundledSkill): Promise<Buffer> {
   const zip = new JSZip()
   zip.file(`${SKILL_NAME}/SKILL.md`, bundled.bytes, { date: new Date(0) })

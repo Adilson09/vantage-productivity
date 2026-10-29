@@ -1,6 +1,6 @@
-# GenOffice のインストール
+# Vantage のインストール
 
-すべてのビルドは [Releases ページ](https://github.com/genspark-ai/genoffice/releases/latest) で公開されています。すべて `main` 由来で、macOS と Windows のインストーラーは署名済みです。
+すべてのビルドは [Releases ページ](https://github.com/Adilson09/aster-office/releases/latest) で公開されています。すべて `main` 由来で、macOS と Windows のインストーラーは署名済みです。
 
 ## 自分のマシンに合わせてファイルを選ぶ
 
@@ -18,32 +18,32 @@
 
 ## macOS で
 
-`.dmg` を開いて **GenOffice** を Applications にドラッグします。Intel 版では初回起動時に開いてよいか確認されます。Applications でアプリを右クリック ▸ 開く の順です。これは未署名に見えるディスクイメージに対する Gatekeeper の動作で、ダウンロードの破損ではありません。
+`.dmg` を開いて **Vantage** を Applications にドラッグします。Intel 版では初回起動時に開いてよいか確認されます。Applications でアプリを右クリック ▸ 開く の順です。これは未署名に見えるディスクイメージに対する Gatekeeper の動作で、ダウンロードの破損ではありません。
 
 ## Windows で
 
-`.exe` インストーラーを実行します。GenOffice がスタートメニューに追加され、`.docx`、`.xlsx`、`.pptx`、`.pdf` などが登録されるので、ファイルをダブルクリックすれば開きます。
+`.exe` インストーラーを実行します。Vantage がスタートメニューに追加され、`.docx`、`.xlsx`、`.pptx`、`.pdf` などが登録されるので、ファイルをダブルクリックすれば開きます。
 
 ## Linux で
 
 **Debian / Ubuntu**
 
 ```sh
-sudo apt install ./genoffice_<version>_amd64.deb
+sudo apt install ./vantage_<version>_amd64.deb
 ```
 
 **Fedora / RHEL / openSUSE**
 
 ```sh
-sudo dnf install ./genoffice-<version>.x86_64.rpm     # Fedora / RHEL family
-sudo zypper install ./genoffice-<version>.x86_64.rpm  # openSUSE
+sudo dnf install ./vantage-<version>.x86_64.rpm     # Fedora / RHEL family
+sudo zypper install ./vantage-<version>.x86_64.rpm  # openSUSE
 ```
 
 **AppImage** — インストールはなしで、そのまま動きます：
 
 ```sh
-chmod +x GenOffice-<version>.AppImage
-./GenOffice-<version>.AppImage
+chmod +x Vantage-<version>.AppImage
+./Vantage-<version>.AppImage
 ```
 
 FUSE 2 ランタイムが必要です。インストールしたくない場合は `--appimage-extract-and-run` を付けて実行してください。展開されたディレクトリーからサンドボックスが動作します。
@@ -51,8 +51,6 @@ FUSE 2 ランタイムが必要です。インストールしたくない場合�
 ## いま動かしているビルド
 
 **設定 ▸ 情報** は、アプリが使っているビルド、追随しているチャンネル、プロジェクトが置かれている場所をアプリが示す場所です。そのチャンネルに新しいビルドが公開されると、同じペインが更新を提案します。Flatpak、Nix、Docker でインストールした場合には提案しません。それらを設置したツールが置き換えるものだからです。
-
-![設定 ▸ 情報：インストール済みのバージョン、アプリが従う更新チャンネル、プロジェクトの GitHub リンク](img/install.png)
 
 ## さらに 3 つの入手方法
 
@@ -64,4 +62,4 @@ FUSE 2 ランタイムが必要です。インストールしたくない場合�
 
 ## コマンドラインも同梱されています
 
-どのインストールにも `genoffice` コマンドが含まれ、ウィンドウと同じエンジンを動かします。同じファイルをどちらがどう扱うかが変わることがないので、意见が分かれることはありません。macOS と Windows ではアプリバンドルの中にあり、`genoffice install-cli` で `PATH` に追加できます。何ができるかは **コマンドラインとエージェント** を参照してください。
+どのインストールにも `vantage` コマンドが含まれ、ウィンドウと同じエンジンを動かします。同じファイルをどちらがどう扱うかが変わることがないので、意见が分かれることはありません。macOS と Windows ではアプリバンドルの中にあり、`vantage install-cli` で `PATH` に追加できます。何ができるかは **コマンドラインとエージェント** を参照してください。

@@ -1,8 +1,8 @@
-import type { AiPanelPrefs } from '@genoffice/ui'
+import type { AiPanelPrefs } from '@vantage/ui'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
-import type { ProjectApi } from '@genoffice/project-store'
-import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
+import type { ProjectApi } from '@vantage/project-store'
+import { installDropOpenBridge } from '@vantage/electron-utils/drop-open'
 import type {
   DeckChange,
   AddChartOp,

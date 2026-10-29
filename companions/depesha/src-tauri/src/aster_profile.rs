@@ -1,4 +1,4 @@
-// Aster Office fork: keep profiles and credential identities separate from Depesha.
+// Vantage Productivity fork: keep profiles and credential identities separate from Depesha.
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
@@ -15,7 +15,7 @@ fn selected_root(value: Option<OsString>) -> io::Result<Option<PathBuf>> {
             if !path.is_absolute() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "ASTER_MAIL_PROFILE must be an absolute directory",
+                    "VANTAGE_MAIL_PROFILE (or the legacy profile override) must be an absolute directory",
                 ));
             }
             Ok(path)
@@ -33,7 +33,9 @@ fn prepare_root(value: Option<OsString>) -> io::Result<Option<PathBuf>> {
 }
 
 pub fn initialize() -> io::Result<()> {
-    let root = prepare_root(std::env::var_os("ASTER_MAIL_PROFILE"))?;
+    let selected = std::env::var_os("VANTAGE_MAIL_PROFILE")
+        .or_else(|| std::env::var_os("ASTER_MAIL_PROFILE"));
+    let root = prepare_root(selected)?;
     ROOT.set(root).map_err(|_| io::Error::other("mail profile already initialized"))
 }
 

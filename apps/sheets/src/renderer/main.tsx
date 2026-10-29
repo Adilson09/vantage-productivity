@@ -1,19 +1,19 @@
 import ReactDOM from 'react-dom/client'
-import { htmlDir, htmlLang, type Lang } from '@genoffice/i18n'
-import { applyAiPanelPrefs, installScreenTips } from '@genoffice/ui'
+import { htmlDir, htmlLang, type Lang } from '@vantage/i18n'
+import { applyAiPanelPrefs, installScreenTips } from '@vantage/ui'
 
-import '@genoffice/ui/tokens.css'
-import '@genoffice/ui/screentip.css'
-import '@genoffice/ui/ai-model-picker.css'
-import '@genoffice/ui/ai-queue-strip.css'
-import '@genoffice/ui/ai-usage.css'
-import '@genoffice/ui/ai-skills.css'
-import '@genoffice/ui/color-picker.css'
-import '@genoffice/ui/dropdown.css'
-import '@genoffice/ui/ribbon-collapse.css'
-import '@genoffice/ui/markdown.css'
-import '@genoffice/ui/ai-panel-prefs.css'
-import '@genoffice/ui/ai-scope-quote.css'
+import '@vantage/ui/tokens.css'
+import '@vantage/ui/screentip.css'
+import '@vantage/ui/ai-model-picker.css'
+import '@vantage/ui/ai-queue-strip.css'
+import '@vantage/ui/ai-usage.css'
+import '@vantage/ui/ai-skills.css'
+import '@vantage/ui/color-picker.css'
+import '@vantage/ui/dropdown.css'
+import '@vantage/ui/ribbon-collapse.css'
+import '@vantage/ui/markdown.css'
+import '@vantage/ui/ai-panel-prefs.css'
+import '@vantage/ui/ai-scope-quote.css'
 import '@univerjs/preset-sheets-core/lib/index.css'
 
 import { App } from './App'
@@ -47,7 +47,7 @@ function applyTheme(theme: UiTheme): void {
 }
 
 function applyDocumentTheme(theme: DocTheme): void {
-  // data-doc-theme drives the canvas/paper (genoffice#1811); absent means 'follow' the UI theme
+  // data-doc-theme drives the canvas/paper (vantage#1811); absent means 'follow' the UI theme
   if (theme === 'follow') document.documentElement.removeAttribute('data-doc-theme')
   else document.documentElement.setAttribute('data-doc-theme', theme)
 }

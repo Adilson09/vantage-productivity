@@ -5,7 +5,7 @@ import {
   openPptx,
   replacePictureBytes,
   type PictureElement,
-} from '@genoffice/pptx-engine'
+} from '@vantage/pptx-engine'
 import type { Session } from '../src/main/session-state'
 import {
   beginHistoryBatch,

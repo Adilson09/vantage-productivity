@@ -42,8 +42,6 @@ Enam alat disediakan: **dakwat, segi empat, elips, anak panah, dan nota**, serta
 
   2. **Seret satu kotak di atas kandungan** supaya ia ditutup dengan tanda bercorak, dan bar alat akan memperoleh dua butang **Kosongkan tanda** serta **Gunakan redaksi**.
 
-  ![Halaman selepas menandakan redact](img/pdf-redact.png)
-
   3. Klik **Gunakan redaksi** dan sahkan. Hasilnya ialah salinan kerja yang teks dan imej yang ditutup itu akan dibuang secara fizikal, dan tindakan ini tidak boleh dibatalkan. Dokumen asal kekal tidak berubah.
 
   Jika silap, tekan butang kosongkan tanda untuk menghapuskan tanda semasa dan melukis semula.

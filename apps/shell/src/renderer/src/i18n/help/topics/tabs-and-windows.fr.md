@@ -2,8 +2,6 @@
 
 Tous les fichiers ouverts partagent une seule fenêtre ; la barre d’onglets en haut permet de passer de l’un à l’autre, à la manière d’un navigateur.
 
-![La barre d’onglets : Accueil plus deux documents](img/tabs.png)
-
 ## Principes
 
 - **Basculer** : cliquez sur un onglet, ou faites défiler la molette au-dessus de la barre pour les parcourir.

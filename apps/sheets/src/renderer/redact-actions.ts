@@ -11,7 +11,7 @@
  * a cell: a withheld cell keeps its value, keeps its format, and keeps
  * calculating. What changes is only which view the model gets.
  */
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 
 import { buildRedactionIndex, type RedactionIndex, type SheetRefLike } from './ai/redact'
 import type { SelectionRequest } from './redact-menu'

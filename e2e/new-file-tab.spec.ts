@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl, screenshotPath } from './helpers'
 
@@ -7,7 +7,7 @@ test.describe('new file from home', () => {
     const launched = await launchShell({ onboardingSeen: true, videoDir: 'new-doc-tab' })
     const { app, page } = launched
     try {
-      await expect(page.locator('.tab-bar .tab-home')).toContainText('Aster Office')
+      await expect(page.locator('.tab-bar .tab-home')).toContainText('Vantage Productivity')
       await expect(
         page.getByRole('button', { name: 'Create document', exact: true }),
       ).toContainText('Create document')

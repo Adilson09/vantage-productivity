@@ -7,7 +7,7 @@ import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { applyCellEditsToXlsx } from '@genoffice/xlsx-gateway/gateway/xlsx-gateway'
+import { applyCellEditsToXlsx } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 
 import { XlsxSidecarClient } from '../src/main/xlsx-sidecar-client'
 import { toUniverDvRule } from '../src/renderer/univer-sync'

@@ -2,8 +2,6 @@
 
 Wszystkie otwarte pliki zajmują jedno okno; pasek kart u góry przełącza się między nimi w sposób znany z przeglądarek.
 
-![Pasek kart: strona główna i dwa dokumenty](img/tabs.png)
-
 ## Podstawy
 
 - **Przełącz**: kliknij kartę albo przewiń kółkiem myszy nad paskiem, aby przejść do kolejnej.

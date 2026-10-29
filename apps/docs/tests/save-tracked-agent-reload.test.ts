@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import { Editor } from '@tiptap/core'
-import { parseDocx, readSections } from '@genoffice/docx-engine'
+import { parseDocx, readSections } from '@vantage/docx-engine'
 import { buildDocx, TABLE_XML } from '../../../packages/docx-engine/tests/helpers/build-docx'
 import { editorExtensions } from '../src/renderer/editor/extensions'
 import { blocksToPmDoc, pmDocOptions } from '../src/renderer/editor/convert'
@@ -31,7 +31,7 @@ async function fixture(tracking: boolean) {
   noteDocumentSwapped()
   const bytes = await buildDocx({ bodyXml })
   const parsed = await parseDocx(bytes)
-  const dir = await mkdtemp(join(tmpdir(), 'genoffice-save-tracked-'))
+  const dir = await mkdtemp(join(tmpdir(), 'vantage-save-tracked-'))
   dirs.push(dir)
   const path = join(dir, 'fixture.docx')
   await writeFile(path, bytes)

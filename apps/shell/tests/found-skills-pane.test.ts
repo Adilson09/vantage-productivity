@@ -17,7 +17,7 @@ const t = ((key: string, params?: Record<string, string>) =>
   (en[key] ?? key).replace(/\{(\w+)\}/g, (_, name) => params?.[name] ?? `{${name}}`)) as never
 
 /**
- * The pane that lists the skills installed into GenOffice and lets the user
+ * The pane that lists the skills installed into Vantage and lets the user
  * import more from a folder or a zip. The only thing that copies anything is
  * pressing one of those two buttons; the list itself is read-only.
  */
@@ -171,7 +171,7 @@ describe('FoundSkills', () => {
     ])
     await render()
     expect(host.textContent).toContain('Roll back a Kubernetes release')
-    expect(host.textContent).not.toContain('GenOffice opens')
+    expect(host.textContent).not.toContain('Vantage opens')
   })
 
   it('says so when there is nothing to show', async () => {

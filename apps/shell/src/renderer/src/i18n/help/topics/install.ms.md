@@ -1,6 +1,6 @@
-# Pemasangan GenOffice
+# Pemasangan Vantage
 
-Setiap keluaran diterbitkan pada [halaman Keluaran](https://github.com/genspark-ai/genoffice/releases/latest). Semuanya datang daripada `main`; pemasang untuk macOS dan Windows adalah bertanda tangan.
+Setiap keluaran diterbitkan pada [halaman Keluaran](https://github.com/Adilson09/aster-office/releases/latest). Semuanya datang daripada `main`; pemasang untuk macOS dan Windows adalah bertanda tangan.
 
 ## Memilih fail untuk mesin anda
 
@@ -18,32 +18,32 @@ Versi lama kekal pada halaman Keluaran.
 
 ## Pada macOS
 
-Buka `.dmg` itu dan seret **GenOffice** ke dalam Applications. Pada keluaran Intel, pelancaran pertama akan meminta anda mengesahkan membukanya: klik kanan aplikasi itu dalam Applications ▸ Open. Itu Gatekeeper bertemu imej cakera yang kelihatan tidak bertanda tangan, bukan muat turun yang rosak.
+Buka `.dmg` itu dan seret **Vantage** ke dalam Applications. Pada keluaran Intel, pelancaran pertama akan meminta anda mengesahkan membukanya: klik kanan aplikasi itu dalam Applications ▸ Open. Itu Gatekeeper bertemu imej cakera yang kelihatan tidak bertanda tangan, bukan muat turun yang rosak.
 
 ## Pada Windows
 
-Jalankan pemasang `.exe`. Ia meletakkan GenOffice dalam menu Start dan mendaftarkan `.docx`, `.xlsx`, `.pptx`, `.pdf` dan yang lain supaya mengklik dua kali pada fail membukanya.
+Jalankan pemasang `.exe`. Ia meletakkan Vantage dalam menu Start dan mendaftarkan `.docx`, `.xlsx`, `.pptx`, `.pdf` dan yang lain supaya mengklik dua kali pada fail membukanya.
 
 ## Pada Linux
 
 **Debian / Ubuntu**
 
 ```sh
-sudo apt install ./genoffice_<version>_amd64.deb
+sudo apt install ./vantage_<version>_amd64.deb
 ```
 
 **Fedora / RHEL / openSUSE**
 
 ```sh
-sudo dnf install ./genoffice-<version>.x86_64.rpm     # Fedora / RHEL family
-sudo zypper install ./genoffice-<version>.x86_64.rpm  # openSUSE
+sudo dnf install ./vantage-<version>.x86_64.rpm     # Fedora / RHEL family
+sudo zypper install ./vantage-<version>.x86_64.rpm  # openSUSE
 ```
 
 **AppImage** — ia berjalan di tempat ia berada, tanpa langkah pemasangan:
 
 ```sh
-chmod +x GenOffice-<version>.AppImage
-./GenOffice-<version>.AppImage
+chmod +x Vantage-<version>.AppImage
+./Vantage-<version>.AppImage
 ```
 
 Ia memerlukan masa larian FUSE 2. Jika anda lebih suka tidak memasangnya, jalankannya dengan `--appimage-extract-and-run` dan sandbox itu berfungsi daripada direktori yang diekstrak.
@@ -51,8 +51,6 @@ Ia memerlukan masa larian FUSE 2. Jika anda lebih suka tidak memasangnya, jalank
 ## Keluaran yang anda jalankan
 
 **Tetapan ▸ Perihal** ialah tempat aplikasi melaporkan keluaran yang anda ada, saluran yang diikutinya dan di mana projek itu terletak. Apabila keluaran yang lebih baharu diterbitkan pada saluran itu, panel yang sama menawarkan kemas kini; pemasangan Flatpak, Nix atau Docker tidak, kerana ia digantikan oleh alat yang meletakkannya di situ.
-
-![Tetapan ▸ Perihal, menunjukkan versi yang dipasang, saluran kemas kini yang diikuti aplikasi dan pautan GitHub projek](img/install.png)
 
 ## Tiga laluan lagi
 
@@ -64,4 +62,4 @@ Ketiganya membalut artifak yang diterbitkan, bukan membina semula aplikasi, jadi
 
 ## Baris arahan yang disertakan
 
-Setiap pemasangan meliputi satu perintah `genoffice` yang bercakap dengan enjin yang sama seperti yang digunakan oleh tetingkap itu, jadi kedua-duanya tidak pernah berselisih tentang sesuatu fail. Pada macOS dan Windows ia berada dalam bungkus aplikasi; `genoffice install-cli` meletakkannya pada `PATH` anda. Lihat **Baris arahan dan ejen** untuk apa yang boleh ia lakukan.
+Setiap pemasangan meliputi satu perintah `vantage` yang bercakap dengan enjin yang sama seperti yang digunakan oleh tetingkap itu, jadi kedua-duanya tidak pernah berselisih tentang sesuatu fail. Pada macOS dan Windows ia berada dalam bungkus aplikasi; `vantage install-cli` meletakkannya pada `PATH` anda. Lihat **Baris arahan dan ejen** untuk apa yang boleh ia lakukan.

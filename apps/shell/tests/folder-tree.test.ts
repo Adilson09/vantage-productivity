@@ -9,8 +9,8 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, parse, relative } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { basename, join, parse, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   createFolder,
@@ -44,7 +44,7 @@ function touch(rel: string, content = 'x'): string {
 }
 
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'genoffice-folders-')))
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'vantage-folders-')))
 })
 
 afterEach(() => {
@@ -75,7 +75,7 @@ describe('listFolder', () => {
   it('hides the Markdown assets folder only when it holds the asset manifest', () => {
     mkdirSync(join(root, 'assets'))
     expect(isHiddenEntry(root, 'assets', true)).toBe(false)
-    touch('assets/.genoffice-assets.json', '{}')
+    touch('assets/.vantage-assets.json', '{}')
     expect(isHiddenEntry(root, 'assets', true)).toBe(true)
     expect(listFolder(root, new Set()).folders).toEqual([])
   })
@@ -145,10 +145,22 @@ describe('isInsideRoot', () => {
     expect(isInsideRoot(root, `${root}-sibling`)).toBe(false)
   })
 
-  it('rejects a symlink inside the root that points outside it', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'genoffice-outside-'))
+  it('rejects a symlink inside the root that points outside it', (context) => {
+    // Directory links require a supporting volume. The normal TEMP may be exFAT.
+    if (process.platform === 'win32') {
+      if (!basename(root).startsWith('vantage-folders-')) throw new Error('Unexpected folder fixture directory')
+      rmSync(root, { recursive: true, force: true })
+      root = realpathSync(mkdtempSync(join(homedir(), 'AppData', 'Local', 'Temp', 'vantage-folders-')))
+    }
+    const outside = mkdtempSync(join(tmpdir(), 'vantage-outside-'))
     try {
-      symlinkSync(outside, join(root, 'escape'))
+      try { symlinkSync(outside, join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir') }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException)?.code
+        if (['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EISDIR'].includes(code ?? ''))
+          context.skip(`Filesystem or account does not support directory links (${code})`)
+        throw error
+      }
       expect(isInsideRoot(root, join(root, 'escape'))).toBe(false)
       expect(isInsideRoot(root, join(root, 'escape', 'child.docx'))).toBe(false)
     } finally {
@@ -366,10 +378,10 @@ describe('helpers', () => {
   })
 
   it('describeRoot creates a missing root and reports it usable', () => {
-    const fresh = join(root, 'GenOffice')
+    const fresh = join(root, 'Vantage')
     expect(describeRoot(fresh)).toEqual({
       path: fresh,
-      name: 'GenOffice',
+      name: 'Vantage',
       usable: true,
       readable: true,
       removable: false,

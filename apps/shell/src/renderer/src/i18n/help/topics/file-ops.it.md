@@ -4,8 +4,6 @@ Questo capitolo raccoglie le operazioni sui file comuni a tutti gli editor; le o
 
 Il **⋯ menu** della riga (compare passando il puntatore su una riga di file) raccoglie queste azioni:
 
-![Il ⋯ menu di una riga di file](img/file-ops.png)
-
 ## Rinomina
 
 Due punti d'ingresso, un unico insieme di controlli:
@@ -17,7 +15,7 @@ Regole: l'estensione viene conservata automaticamente; i caratteri non ammessi, 
 
 ## Eliminazione
 
-- **⋯ ▸ Elimina** su Home: chiede quali file, poi li sposta nel **cestino di sistema**, dove il sistema operativo può recuperarli. GenOffice non mantiene un annulla tutto suo per questo — il recupero è compito del cestino, non di un avviso.
+- **⋯ ▸ Elimina** su Home: chiede quali file, poi li sposta nel **cestino di sistema**, dove il sistema operativo può recuperarli. Vantage non mantiene un annulla tutto suo per questo — il recupero è compito del cestino, non di un avviso.
 
 ## Duplicazione
 

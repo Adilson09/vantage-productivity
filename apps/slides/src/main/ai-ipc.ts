@@ -35,39 +35,39 @@ import {
   type AiStreamRequest,
   type GenSparkAccountStatus,
   type LegacyAiSettings,
-} from '@genoffice/ai-provider'
-import { shutdownCodexAppServers } from '@genoffice/ai-provider/codex-app-server'
-import { startAiTrace } from '@genoffice/ai-provider/trace'
+} from '@vantage/ai-provider'
+import { shutdownCodexAppServers } from '@vantage/ai-provider/codex-app-server'
+import { startAiTrace } from '@vantage/ai-provider/trace'
 import {
   abortOnDestroyed,
   MAX_REMOTE_IMAGE_BYTES,
   fetchRemoteImage,
   readBodyCapped,
   writeJsonAtomic,
-} from '@genoffice/electron-utils'
+} from '@vantage/electron-utils'
 import {
   webSearchTool,
   imageSearchTool,
-  ensureGenofficeLogin,
+  ensureVantageLogin,
   noteGskCallFailure,
-  setGenofficeLoginOpener,
+  setVantageLoginOpener,
   gskApiKey,
   generateImageTool,
   analyzeMediaTool,
   documentMediaRoots,
   gskLoginInfo,
   hasGskAuth,
-} from '@genoffice/ai-search'
-import { addPicture, editPictureSrcRect, replacePictureBytes } from '@genoffice/pptx-engine'
+} from '@vantage/ai-search'
+import { addPicture, editPictureSrcRect, replacePictureBytes } from '@vantage/pptx-engine'
 import { rasterImageExt } from './media-mime'
-import { matchesElementRef } from '@genoffice/pptx-engine/identity'
-import { coverCropFractions } from '@genoffice/pipelines/slides'
+import { matchesElementRef } from '@vantage/pptx-engine/identity'
+import { coverCropFractions } from '@vantage/pipelines/slides'
 import type { AiRunFailure } from '../shared/ipc'
-import { EMU_PER_PX_96 } from '@genoffice/pptx-render'
+import { EMU_PER_PX_96 } from '@vantage/pptx-render'
 import { tm } from './i18n-main'
 import { pushHistory, rebuildSlide, scheduleHistoryNotify, sessions } from './session-state'
 
-// ---- AI settings + streaming proxy (the main process does the networking to avoid renderer CORS; implementation shared via @genoffice/ai-provider) ----
+// ---- AI settings + streaming proxy (the main process does the networking to avoid renderer CORS; implementation shared via @vantage/ai-provider) ----
 
 const AI_SETTINGS_PATH = () => join(app.getPath('userData'), 'ai-settings.json')
 
@@ -79,7 +79,7 @@ const AI_SETTINGS_PATH = () => join(app.getPath('userData'), 'ai-settings.json')
  * user put next to the deck they are editing, and nothing else.
  */
 function slidesMediaRoots(wcId: number): string[] {
-  return documentMediaRoots(sessions.get(wcId)?.path, join(app.getPath('temp'), 'genoffice-pasted'))
+  return documentMediaRoots(sessions.get(wcId)?.path, join(app.getPath('temp'), 'vantage-pasted'))
 }
 
 function readJson<T>(path: string, fallback: T): T {
@@ -124,7 +124,7 @@ export function registerAiIpc(): void {
   app.once('before-quit', shutdownCodexAppServers)
   // Node fetch (undici) direct connections get reset under VPN/tun setups; retry over Chromium's stack
   setRescueFetch((url, init) => net.fetch(url, init))
-  setAiUserAgent(`GenOffice/${app.getVersion()}`)
+  setAiUserAgent(`Vantage/${app.getVersion()}`)
 
   ipcMain.handle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {})
@@ -145,11 +145,11 @@ export function registerAiIpc(): void {
     },
   )
 
-  // a 401 on the gsk key opens the device-code login once (genoffice-auth recovery)
-  setGenofficeLoginOpener((url) => void shell.openExternal(url))
+  // a 401 on the gsk key opens the device-code login once (vantage-auth recovery)
+  setVantageLoginOpener((url) => void shell.openExternal(url))
 
   ipcMain.handle('ai:gsk-login', () => {
-    ensureGenofficeLogin((url) => void shell.openExternal(url))
+    ensureVantageLogin((url) => void shell.openExternal(url))
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {

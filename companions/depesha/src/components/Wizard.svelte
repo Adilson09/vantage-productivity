@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Aster Mail fork: Google authorization runs in the system browser, with explicit setup when needed.
+  // Vantage Mail fork: Google authorization runs in the system browser, with explicit setup when needed.
   import { onMount } from "svelte";
   import { app } from "../lib/store.svelte";
   import { focusBack } from "../lib/focusBack";

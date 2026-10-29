@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentToolCall } from '@genoffice/agent-core'
+import type { AgentToolCall } from '@vantage/agent-core'
 
 import { appendToolNote, toolNoteDetail, type ToolNote } from '../src/renderer/src/ask-tool-notes'
 
@@ -18,7 +18,7 @@ const note = (over: Partial<ToolNote> = {}): ToolNote => ({
 describe('toolNoteDetail', () => {
   it('names the CLI command and its --out file', () => {
     const detail = toolNoteDetail(
-      call('run_genoffice', {
+      call('run_vantage', {
         args: ['slides', 'create', 'spec.json', '--out', '/out/brief.pptx'],
       }),
     )
@@ -27,13 +27,13 @@ describe('toolNoteDetail', () => {
 
   it('falls back to the file argument of an in-place edit', () => {
     const detail = toolNoteDetail(
-      call('run_genoffice', { args: ['docs', 'apply', '/out/report.docx', 'ops.json'] }),
+      call('run_vantage', { args: ['docs', 'apply', '/out/report.docx', 'ops.json'] }),
     )
     expect(detail).toBe('docs apply · report.docx')
   })
 
   it('marks a --help probe and a guide load', () => {
-    expect(toolNoteDetail(call('run_genoffice', { args: ['sheet', 'read', '--help'] }))).toBe(
+    expect(toolNoteDetail(call('run_vantage', { args: ['sheet', 'read', '--help'] }))).toBe(
       'sheet read · --help',
     )
     expect(toolNoteDetail(call('load_guide', { domain: 'slides' }))).toBe('guide slides')

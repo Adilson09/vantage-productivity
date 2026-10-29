@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseSlide, patchTextElementXml } from '../src/index'
 import { rebuildTxBody } from '../src/generate'
-import { setRedactExt, stripRedactExt } from '../src/redaction-xml'
+import { REDACT_NS, setRedactExt, stripRedactExt } from '../src/redaction-xml'
 import type { Slide, TextElement, TextRun } from '../src/types'
 
 /**
@@ -49,6 +49,17 @@ const markedShape = () => load(run(MARKED, `Call ${SECRET}`))
 const shapeXml = (el: TextElement) => el.anchor.originalXml
 
 describe('a withheld run, through the real parser', () => {
+  it('keeps a legacy namespace mark through parsing and a structural edit', () => {
+    const legacy = MARKED.replace(REDACT_NS, 'https://genspark.ai/genoffice/redaction/2026')
+    const { shape } = load(run(legacy, SECRET))
+    expect(runs(shape)[0]!.redact).toBe(LABEL)
+    runList(shape).splice(0, 1, { text: 'Call ' } as TextRun, { ...runs(shape)[0]!, text: SECRET })
+    const xml = patchTextElementXml(shape, shapeXml(shape))
+    const reopened = load(xml.match(/<a:r>[^]*?<\/a:r>/g)!.join('')).shape
+    expect(runs(reopened).find((entry) => entry.text === SECRET)?.redact).toBe(LABEL)
+    expect(xml).toContain(REDACT_NS)
+  })
+
   it('parse reads the label off the run and leaves the words alone', () => {
     const { shape } = markedShape()
     expect(runs(shape)[0]!.redact).toBe(LABEL)

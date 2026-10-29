@@ -1,4 +1,4 @@
-// Aster Mail fork: translated product-name assertions.
+// Vantage Mail fork: translated product-name assertions.
 // Work in the background (#4): the questions the main window asks when it is closed
 // and when the app quits, the tray menu's errands, and letters that missed their time.
 
@@ -32,7 +32,7 @@ describe("closing the window, asked", () => {
     const s = await started();
     emit("close-asked", { no_tray: false });
     const q = s.ui.confirmation!;
-    expect(q.title).toBe("Keep Aster Mail in the background?");
+    expect(q.title).toBe("Keep Vantage Mail in the background?");
     expect(q.okLabel).toBe("Keep in background");
     expect(q.cancelLabel).toBe("Quit");
     expect(q.check).toEqual({ label: "Remember my choice", checked: true });
@@ -97,8 +97,8 @@ describe("quitting with letters waiting for their time", () => {
     const at = Math.floor(new Date(2026, 9, 7, 18, 0).getTime() / 1000);
     emit("quit-asked", { letters: [{ subject: "Reconciliation", at }, { subject: "", at }] });
     const q = s.ui.confirmation!;
-    expect(q.title).toBe("Quit Aster Mail?");
-    expect(q.text).toBe("2 letters wait to be sent on schedule. While Aster Mail is closed they will not go: at the next start Aster Mail will offer to send them.");
+    expect(q.title).toBe("Quit Vantage Mail?");
+    expect(q.text).toBe("2 letters wait to be sent on schedule. While Vantage Mail is closed they will not go: at the next start Vantage Mail will offer to send them.");
     expect(q.items).toHaveLength(2);
     expect(q.items![0]).toMatch(/^«Reconciliation» — /);
     expect(q.items![1]).toMatch(/^«\(no subject\)» — /);
@@ -143,7 +143,7 @@ describe("letters that missed their time", () => {
     const s = await started();
     await flush();
     const toast = s.ui.toasts.find((x) => x.action?.label === "Send now");
-    expect(toast?.text).toBe("2 letters were not sent on time: Aster Mail was closed or the computer was asleep.");
+    expect(toast?.text).toBe("2 letters were not sent on time: Vantage Mail was closed or the computer was asleep.");
     toast!.action!.run();
     await flush();
     expect(api.outboxRetry.mock.calls).toEqual([[3], [4]]);
@@ -155,7 +155,7 @@ describe("letters that missed their time", () => {
     api.outboxMissed.mockResolvedValue([5]);
     emit("outbox-missed");
     await flush();
-    expect(s.ui.toasts.some((x) => x.text === "1 letter was not sent on time: Aster Mail was closed or the computer was asleep.")).toBe(true);
+    expect(s.ui.toasts.some((x) => x.text === "1 letter was not sent on time: Vantage Mail was closed or the computer was asleep.")).toBe(true);
   });
 
   it("say nothing when none missed", async () => {

@@ -1,5 +1,5 @@
 /**
- * GenOffice Slides main process — pptx parsing/render-tree building/edit application/saving all live
+ * Vantage Slides main process — pptx parsing/render-tree building/edit application/saving all live
  * here (Node side). The renderer only gets plain-data RenderSlide; edit intents are sent back
  * here to apply. Structure mirrors apps/docs: exports embeddable configure/register/start for
  * future shell reuse.
@@ -28,7 +28,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { cleanupExpiredGeneratedPages } from './generated-page-temp'
 import { exportSlidesPdf } from './pdf-export'
 import { printSlidesHtml } from './print-window'
-import { setGskProxyUrl } from '@genoffice/ai-search'
+import { setGskProxyUrl } from '@vantage/ai-search'
 import {
   appMenuLabels,
   appMenuTemplate,
@@ -52,8 +52,8 @@ import {
   readBodyCapped,
   recoveryCopyDiskNewer,
   configuredAuthorName,
-} from '@genoffice/electron-utils'
-import { createMainProcessProxyDispatcher } from '@genoffice/electron-utils/main-proxy'
+} from '@vantage/electron-utils'
+import { createMainProcessProxyDispatcher } from '@vantage/electron-utils/main-proxy'
 import {
   resolveGroupChildId,
   runTxn,
@@ -62,9 +62,9 @@ import {
   type TxnRequest,
   type TxnResult,
   mapScriptOps,
-} from '@genoffice/pptx-ops'
-import { matchesElementRef } from '@genoffice/pptx-engine/identity'
-import { buildPagePptx, parsePageSpec } from '@genoffice/pipelines/slides'
+} from '@vantage/pptx-ops'
+import { matchesElementRef } from '@vantage/pptx-engine/identity'
+import { buildPagePptx, parsePageSpec } from '@vantage/pipelines/slides'
 import { convertOdpToPptx } from '../../../../packages/odf2ooxml/src'
 import { sniffImageMime } from './media-mime'
 import {
@@ -81,8 +81,8 @@ import {
   isElementClipboardToken,
   writeElementClipboardImage,
 } from './element-clipboard'
-import { getUiLang, normalizeLang, setUiLang } from '@genoffice/i18n'
-import { ProjectStore } from '@genoffice/project-store'
+import { getUiLang, normalizeLang, setUiLang } from '@vantage/i18n'
+import { ProjectStore } from '@vantage/project-store'
 import {
   copyElementData,
   findGroupChild,
@@ -134,7 +134,7 @@ import {
   type Paragraph,
   type Slide,
   type TextElement,
-} from '@genoffice/pptx-engine'
+} from '@vantage/pptx-engine'
 import {
   buildRenderSlide,
   layoutText,
@@ -143,10 +143,10 @@ import {
   imageDpiFromBytes,
   type RenderSlide,
   type RenderTextLayout,
-} from '@genoffice/pptx-render'
+} from '@vantage/pptx-render'
 // From its own electron-utils subpath rather than the package barrel: the
 // barrel drags Electron-only modules into headless bundles.
-import { atomicWriteFile, atomicWriteVia } from '@genoffice/electron-utils/atomic-write'
+import { atomicWriteFile, atomicWriteVia } from '@vantage/electron-utils/atomic-write'
 import { DEFAULT_PICTURE_DPI, pictureFrame } from './picture-frame'
 import { refineComplexWidths, shapedMetricsReady } from './shaped-metrics'
 import { cfbKind, isCfbHeader } from './cfb-sniff'
@@ -605,7 +605,7 @@ const AUTOSAVE_BACKOFF_TICKS = 10
 let autosaveRunning = false
 
 /**
- * Recovery drafts for never-saved decks (wcId → visible path in <Documents>/GenOffice):
+ * Recovery drafts for never-saved decks (wcId → visible path in <Documents>/Vantage):
  * the sha1-keyed recovery copy needs session.path, so before the first save a freeze or
  * crash used to lose everything. Removed on save, explicit discard, or clean close.
  */
@@ -955,7 +955,7 @@ async function openAndBuild(
   }
 }
 
-/** Directory where AI-generated drafts are saved: the configurable default save folder (falls back to <Documents>/GenOffice) */
+/** Directory where AI-generated drafts are saved: the configurable default save folder (falls back to <Documents>/Vantage) */
 function getDraftsDir(): string {
   return configuredDefaultSaveDir(app)
 }
@@ -998,7 +998,7 @@ function pickDraftPath(draftsDir: string, deckName?: string): string {
 }
 
 /**
- * Auto-save the draft to <Documents>/GenOffice/<name>.pptx after AI generation completes.
+ * Auto-save the draft to <Documents>/Vantage/<name>.pptx after AI generation completes.
  * Append mode reuses the session's existing draft path (overwrite); replace mode generates a
  * new filename. On successful write, update session.path, pushRecent, slidesOpenedHook.
  * On write failure, degrade silently (console.warn) without blocking the in-memory session.
@@ -1370,7 +1370,7 @@ export function registerSlidesIpc(): void {
   // Screen recording: source dispatch for the renderer's navigator.mediaDevices.getDisplayMedia.
   // macOS prefers the system picker (with its permission flow), falling back to the first screen.
   void app.whenReady().then(() => {
-    electronSession.defaultSession.protocol.handle('genoffice-slide-media', (request) => {
+    electronSession.defaultSession.protocol.handle('vantage-slide-media', (request) => {
       const media = readSlideMedia(request.url)
       if (!media) return new Response(null, { status: 404 })
       return new Response(media.body as BodyInit, {
@@ -1916,7 +1916,7 @@ export function registerSlidesIpc(): void {
         console.log(
           `[local-slide] page generated: bytes=${bytes.length} imageFails=${imageFailures.length} ms=${Date.now() - started}`,
         )
-        const dir = join(app.getPath('temp'), 'genoffice-local-pages')
+        const dir = join(app.getPath('temp'), 'vantage-local-pages')
         mkdirSync(dir, { recursive: true })
         const path = join(dir, `${randomUUID()}.pptx`)
         await writeFile(path, bytes)
@@ -2219,7 +2219,7 @@ export function registerSlidesIpc(): void {
     return rebuilt ? { slide: rebuilt, sourceId: r.records![0]!.created![0]! } : null
   })
 
-  // Shim over the canonical op (see @genoffice/pptx-ops): the op owns validation/mutation/journal;
+  // Shim over the canonical op (see @vantage/pptx-ops): the op owns validation/mutation/journal;
   // the shim keeps session lookup, undo bookkeeping, and RenderSlide rebuilding.
   ipcMain.handle('slides:delete-element', (e, op: DeleteElementOp) => {
     const session = sessions.get(e.sender.id)
@@ -2657,7 +2657,7 @@ export function registerSlidesIpc(): void {
     const pngs = op.pngs?.length === bundles.length ? op.pngs : undefined
     slideClipboard = { bundles, ...(pngs ? { pngs } : {}) }
     // Marker so plain ⌘V knows the latest copy was a slide (element copies / external copies overwrite it)
-    clipboard.writeBuffer('io.genoffice.slides.slide', Buffer.from('1'))
+    clipboard.writeBuffer('io.vantage.slides.slide', Buffer.from('1'))
     return true
   })
 
@@ -3592,7 +3592,7 @@ export function registerSlidesIpc(): void {
   }
 
   ipcMain.handle('slides:clipboard-external', () => {
-    if (slideClipboard && clipboardMarker('io.genoffice.slides.slide')) return { kind: 'slide' }
+    if (slideClipboard && clipboardMarker('io.vantage.slides.slide')) return { kind: 'slide' }
     if (elementClipboard && elementClipboardMarkerMatches(elementClipboard.token))
       return { kind: 'internal' }
     const img = clipboard.readImage()
@@ -3604,7 +3604,7 @@ export function registerSlidesIpc(): void {
 
   // Menu-enable probe: is there anything a paste would act on? (no image decode)
   ipcMain.handle('slides:clipboard-probe', () => {
-    if (slideClipboard && clipboardMarker('io.genoffice.slides.slide')) return true
+    if (slideClipboard && clipboardMarker('io.vantage.slides.slide')) return true
     if (elementClipboard && elementClipboardMarkerMatches(elementClipboard.token)) return true
     if (clipboard.availableFormats().some((f) => f.startsWith('image/'))) return true
     return clipboard.readText().trim().length > 0
@@ -5030,7 +5030,7 @@ export function createSlidesWindow(openPath?: string | null): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
-    title: 'GenOffice Slides',
+    title: 'Vantage Slides',
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const }
       : {
@@ -5236,7 +5236,7 @@ async function applyMainProcessProxy(): Promise<void> {
     try {
       const { setGlobalDispatcher } = await import('undici')
       // loopback stays direct: a Custom provider on 127.0.0.1 must not ride
-      // the proxy as an absolute-form request (genoffice#2084)
+      // the proxy as an absolute-form request (vantage#2084)
       setGlobalDispatcher(await createMainProcessProxyDispatcher(proxyUrl))
       // strip user:pass credentials before logging
       console.log('[proxy] main-process fetch via', proxyUrl.replace(/\/\/[^@/]*@/, '//***@'))
@@ -5283,11 +5283,11 @@ export function startSlidesStandalone(): void {
     app.commandLine.appendSwitch('remote-debugging-port', process.env.SLIDES_CDP_PORT)
     app.commandLine.appendSwitch('remote-allow-origins', '*')
   }
-  // GENOFFICE_USER_DATA: test drivers point this at a scratch dir so automated
+  // VANTAGE_USER_DATA: test drivers point this at a scratch dir so automated
   // instances get their own userData AND single-instance lock (the lock is scoped
   // to userData), allowing parallel instances alongside a normal dev run.
-  if (!app.isPackaged && process.env.GENOFFICE_USER_DATA) {
-    app.setPath('userData', process.env.GENOFFICE_USER_DATA)
+  if (!app.isPackaged && process.env.VANTAGE_USER_DATA) {
+    app.setPath('userData', process.env.VANTAGE_USER_DATA)
   }
   // The main process's Node fetch (undici) does not use the system proxy by default, so access
   // from mainland China to overseas LLM APIs like api.anthropic.com hits ETIMEDOUT on direct
@@ -5320,7 +5320,7 @@ export function startSlidesStandalone(): void {
 
   app.whenReady().then(async () => {
     installRendererProtocol({ slides: join(__dirname, '../renderer') })
-    setUiLang(normalizeLang(process.env.GENOFFICE_LANG ?? app.getLocale()))
+    setUiLang(normalizeLang(process.env.VANTAGE_LANG ?? app.getLocale()))
     registerSlidesIpc()
     registerAiIpc()
     registerProjectIpc()

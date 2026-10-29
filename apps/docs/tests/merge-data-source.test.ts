@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { csvToXlsxBuffer } from '@genoffice/xlsx-gateway/gateway/csv-import'
+import { csvToXlsxBuffer } from '@vantage/xlsx-gateway/gateway/csv-import'
 import { readMergeDataSource } from '../src/main/merge-data-source'
 
 /**
  * The data source of the mail merge: a local .xlsx or .csv read as a field
- * list plus records. genoffice#2097.
+ * list plus records. vantage#2097.
  */
 
 async function tempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'genoffice-merge-'))
+  return mkdtemp(join(tmpdir(), 'vantage-merge-'))
 }
 
 describe('readMergeDataSource', () => {

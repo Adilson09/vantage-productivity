@@ -1,6 +1,6 @@
 /**
  * Design › Slide Size › Custom Size…: width and height in mm, cm or inches
- * (genoffice#2191). The deck rescales through the same setSlideSize op as the
+ * (vantage#2191). The deck rescales through the same setSlideSize op as the
  * presets; each side is held to the 1–56 inch range a .pptx can store.
  */
 import { useState } from 'react'

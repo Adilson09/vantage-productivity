@@ -147,7 +147,7 @@ body,
   -webkit-app-region: drag;
 }
 
-html.genoffice-popover-open .ribbon-tabs {
+html.vantage-popover-open .ribbon-tabs {
   -webkit-app-region: no-drag;
 }
 
@@ -411,18 +411,18 @@ html.genoffice-popover-open .ribbon-tabs {
   background: var(--hover);
 }
 
-/* Aster Office: keep long recovery paths readable and selectable after a failed save. */
-.aster-save-error {
+/* Vantage Productivity: keep long recovery paths readable and selectable after a failed save. */
+.vantage-save-error {
   align-items: flex-start;
   max-height: 30vh;
   overflow: auto;
 }
-.aster-save-error span {
+.vantage-save-error span {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
 }
-.aster-save-error button {
+.vantage-save-error button {
   flex-shrink: 0;
 }
 

@@ -4,6 +4,7 @@ import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 import { RECALC_CELL_CAP, displayText, isoDateSerial, recalcBands } from '../src/formats/xlsx'
 import { xlsxSidecarPath } from '../src/resources'
+import { sheetNameFromStem } from '../src/formats/csv'
 import { run, tempDir } from './helpers'
 
 const sidecar = Boolean(xlsxSidecarPath())
@@ -13,7 +14,7 @@ async function part(path: string, name: string): Promise<string> {
   return zip.file(name)!.async('string')
 }
 
-describe('genoffice create --type xlsx / sheet', () => {
+describe('vantage create --type xlsx / sheet', () => {
   it('builds a workbook from a JSON table with formulas', async () => {
     const dir = tempDir()
     const table = join(dir, 'table.json')
@@ -85,7 +86,10 @@ describe('genoffice create --type xlsx / sheet', () => {
 
   it('derives a valid sheet name from a file stem Excel would reject', async () => {
     const dir = tempDir()
-    const csv = join(dir, "'data[final]:v2'.csv")
+    // A colon cannot be a real Windows filename. Keep the filesystem fixture
+    // portable while separately covering the complete Excel sanitizer input.
+    expect(sheetNameFromStem("'data[final]:v2'")).toBe('data_final__v2')
+    const csv = join(dir, "'data[final]_v2'.csv")
     writeFileSync(csv, 'a,b\n1,2\n')
     const out = join(dir, 'data.xlsx')
     const c = await run(['create', '--type', 'xlsx', '--from', csv, '--out', out, '--json'])
@@ -368,7 +372,7 @@ describe('genoffice create --type xlsx / sheet', () => {
   )
 })
 
-describe('genoffice sheet read: --cols, --max-rows, --where, --stats', () => {
+describe('vantage sheet read: --cols, --max-rows, --where, --stats', () => {
   async function book(dir: string): Promise<string> {
     const table = join(dir, 'r.json')
     writeFileSync(
@@ -481,7 +485,7 @@ describe('genoffice sheet read: --cols, --max-rows, --where, --stats', () => {
   })
 })
 
-describe('genoffice convert xlsx → csv', () => {
+describe('vantage convert xlsx → csv', () => {
   it.skipIf(!sidecar)('writes the active sheet as displayed text with a BOM', async () => {
     const dir = tempDir()
     const table = join(dir, 'table.json')

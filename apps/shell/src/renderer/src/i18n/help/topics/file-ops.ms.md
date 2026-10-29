@@ -4,8 +4,6 @@ Bab ini merangkumi operasi fail yang dikongsi oleh semua editor. Pilihan eksport
 
 **⋯ menu** pada baris fail, yang muncul apabila anda meletakkan penuding di atasnya, mengumpulkan tindakan berikut:
 
-![⋯ menu pada baris fail](img/file-ops.png)
-
 ## Menamakan semula
 
 Terdapat dua cara untuk mengakses, tetapi kedua-duanya menggunakan semakan yang sama:
@@ -17,7 +15,7 @@ Peraturannya ialah seperti berikut. Sambungan dikekalkan secara automatik. Aksar
 
 ## Memadam
 
-- **⋯ ▸ Padam** pada Laman Utama akan bertanya fail yang mana, kemudian memindahkan fail tersebut ke **tong sampah sistem**, yang boleh dipulihkan daripada sistem pengendalian. GenOffice tiada menyimpan undur sendiri untuk ini — pemulihan ialah tugas tong sampah, bukan notis.
+- **⋯ ▸ Padam** pada Laman Utama akan bertanya fail yang mana, kemudian memindahkan fail tersebut ke **tong sampah sistem**, yang boleh dipulihkan daripada sistem pengendalian. Vantage tiada menyimpan undur sendiri untuk ini — pemulihan ialah tugas tong sampah, bukan notis.
 
 ## Membuat salinan
 

@@ -200,14 +200,14 @@ describe('shortcut rewrite order', () => {
 })
 
 describe('createI18n', () => {
-  // Aster Office regression: product text changes before user values are inserted.
+  // Vantage Productivity regression: product text changes before user values are inserted.
   it('brands the product while preserving filenames supplied as parameters', () => {
     const fork = createI18n({
-      zh: { opened: 'GenOffice: {name}' },
-      en: { opened: 'GenOffice: {name}' },
+      zh: { opened: 'Vantage: {name}' },
+      en: { opened: 'Vantage: {name}' },
     } as unknown as Parameters<typeof createI18n>[0])
-    expect(fork('en', 'opened', { name: 'GenOffice research.docx' })).toBe(
-      'Aster Office: GenOffice research.docx',
+    expect(fork('en', 'opened', { name: 'Vantage research.docx' })).toBe(
+      'Vantage Productivity: Vantage research.docx',
     )
   })
   const t = createI18n({

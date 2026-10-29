@@ -4,8 +4,6 @@ Ce chapitre couvre les opérations sur les fichiers communes à tous les éditeu
 
 Le **menu ⋯** de la ligne (survolez une ligne de fichier) rassemble ces actions :
 
-![Le menu ⋯ d’une ligne de fichier](img/file-ops.png)
-
 ## Renommer
 
 Deux points d’entrée, un même ensemble de contrôles :
@@ -17,7 +15,7 @@ Règles : l’extension est conservée automatiquement ; les caractères interdi
 
 ## Supprimer
 
-- **⋯ ▸ Supprimer** sur l’accueil : demande quels fichiers, puis les déplace vers la **corbeille du système**, où l’OS peut les restaurer. GenOffice ne conserve aucune annulation propre pour cela — la récupération relève de la corbeille, pas d’une notification.
+- **⋯ ▸ Supprimer** sur l’accueil : demande quels fichiers, puis les déplace vers la **corbeille du système**, où l’OS peut les restaurer. Vantage ne conserve aucune annulation propre pour cela — la récupération relève de la corbeille, pas d’une notification.
 
 ## Dupliquer
 

@@ -1,4 +1,4 @@
-// Aster Office fork: notifications use an independent protocol scheme.
+// Vantage Productivity fork: notifications use an independent protocol scheme.
 //! Desktop notifications that open what they tell about (#63). tauri-plugin-notification
 //! drops the handle on the desktop, so a click never came back; here it does: on Linux
 //! over D-Bus (notify-rust), on Windows through the toast's own XML, whose `launch` is a
@@ -695,7 +695,7 @@ pub fn parse_url(url: &str) -> Option<Route> {
         return None;
     }
     let u = url::Url::parse(url).ok()?;
-    if u.scheme() != "aster-mail" {
+    if !matches!(u.scheme(), "aster-mail" | "vantage-mail") {
         return None;
     }
     let path = u.path().trim_start_matches('/');
@@ -884,7 +884,7 @@ fn show(app: &AppHandle, notes: &mut Vec<Note>, title: &str, body: &str, target:
     // there the text goes out with its `&`, `<`, `>` as entities.
     let (title, body) = (escaped(title), escaped(body));
     let mut n = notify_rust::Notification::new();
-    n.appname(pick("Aster Mail", "Aster Mail"))
+    n.appname(pick("Vantage Mail", "Vantage Mail"))
         .summary(&title)
         .body(&body)
         .auto_icon()

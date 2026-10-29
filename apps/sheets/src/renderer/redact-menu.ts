@@ -26,7 +26,7 @@ import {
 
 import type { UniverRuntime } from './univer-state'
 
-export const HIDE_SELECTION_COMMAND_ID = 'genoffice.sheets.command.hide-selection-from-ai'
+export const HIDE_SELECTION_COMMAND_ID = 'vantage.sheets.command.hide-selection-from-ai'
 
 /** The rectangle a right-click acted on, in zero-based screen coordinates. */
 export interface SelectionRequest {

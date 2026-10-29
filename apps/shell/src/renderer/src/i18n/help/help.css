@@ -114,6 +114,14 @@
   line-height: 1.35;
   margin: 0 0 6px;
 }
+.help-preview-scope {
+  padding: 10px 14px;
+  border-left: 3px solid var(--help-accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--help-fill-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
 .help-article h2 {
   font-size: 19px;
   margin: 34px 0 8px;

@@ -1,4 +1,4 @@
-// Aster Office modification: fault tests for original preservation and rescue bytes.
+// Vantage Productivity modification: fault tests for original preservation and rescue bytes.
 import {
   fsyncSync,
   mkdtempSync,
@@ -41,7 +41,7 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-const prefix = join(tmpdir(), 'aster-save-')
+const prefix = join(tmpdir(), 'vantage-save-')
 let dir = ''
 let previousVault: string | undefined
 const error = (code: string) => Object.assign(new Error(`${code}: injected`), { code })
@@ -56,13 +56,13 @@ beforeEach(async () => {
   vi.mocked(writeFileSync).mockImplementation(syncReal.writeFileSync)
   vi.mocked(renameSync).mockImplementation(syncReal.renameSync)
   vi.mocked(fsyncSync).mockImplementation(syncReal.fsyncSync)
-  previousVault = process.env.ASTER_RECOVERY_ROOT
-  delete process.env.ASTER_RECOVERY_ROOT
+  previousVault = process.env.VANTAGE_RECOVERY_ROOT
+  delete process.env.VANTAGE_RECOVERY_ROOT
   dir = mkdtempSync(prefix)
 })
 afterEach(() => {
-  if (previousVault === undefined) delete process.env.ASTER_RECOVERY_ROOT
-  else process.env.ASTER_RECOVERY_ROOT = previousVault
+  if (previousVault === undefined) delete process.env.VANTAGE_RECOVERY_ROOT
+  else process.env.VANTAGE_RECOVERY_ROOT = previousVault
   if (!dir.startsWith(prefix)) throw new Error('Refusing cleanup outside the named test directory')
   rmSync(dir, { recursive: true, force: true })
   vi.resetAllMocks()
@@ -99,7 +99,7 @@ describe.each(['buffer', 'copy', 'stream'] as const)('%s publication', (mode) =>
     expect(failure).toBeInstanceOf(AtomicSaveError)
     const detail = failure as AtomicSaveError
     expect(detail.code).toBe('EEXIST')
-    expect(detail.asterCode).toBe('SAVE_NOT_PUBLISHED')
+    expect(detail.vantageCode).toBe('SAVE_NOT_PUBLISHED')
     expect(detail.targetPath).toBe(target)
     expect(basename(detail.recoveryPath)).toMatch(/^report\.docx\.[a-f0-9]{12}\.tmp$/)
     expect(readFileSync(target, 'utf8')).toBe('original')
@@ -134,7 +134,7 @@ describe('save coordination and history', () => {
       (reason: unknown) => reason,
     )
     expect(failure).toBeInstanceOf(AtomicSaveError)
-    expect((failure as AtomicSaveError).code).toBe('ASTER_SAVE_NOT_PUBLISHED')
+    expect((failure as AtomicSaveError).code).toBe('VANTAGE_SAVE_NOT_PUBLISHED')
     expect(String(failure)).toContain((failure as AtomicSaveError).recoveryPath)
     expect(readFileSync((failure as AtomicSaveError).recoveryPath, 'utf8')).toBe('replacement')
     expect(readFileSync(target, 'utf8')).toBe('original')
@@ -169,6 +169,20 @@ describe('save coordination and history', () => {
     await Promise.all([first, second])
     expect(readFileSync(target, 'utf8')).toBe('second')
   })
+  it('rechecks external changes during a Windows rename retry instead of overwriting after the lock clears', async () => {
+    const target = join(dir, 'report.docx')
+    writeFileSync(target, 'original')
+    const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    vi.mocked(rename).mockImplementationOnce(async () => {
+      await real.writeFile(target, 'another program changed it during the lock')
+      throw error('EPERM')
+    })
+    const failure = await atomicWriteFile(target, Buffer.from('my complete edits')).catch((error: unknown) => error)
+    expect(failure).toMatchObject({ code: 'VANTAGE_SAVE_CONFLICT', vantageCode: 'SAVE_NOT_PUBLISHED' })
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(readFileSync(target, 'utf8')).toBe('another program changed it during the lock')
+    expect(readFileSync((failure as AtomicSaveError).recoveryPath, 'utf8')).toBe('my complete edits')
+  })
   it('discards incomplete stream bytes while preserving the previous document', async () => {
     const target = join(dir, 'report.pptx')
     writeFileSync(target, 'old')
@@ -184,9 +198,9 @@ describe('save coordination and history', () => {
   it('captures the previous version before replacing a document', async () => {
     const target = join(dir, 'report.docx')
     writeFileSync(target, 'previous version')
-    process.env.ASTER_RECOVERY_ROOT = join(dir, 'vault')
+    process.env.VANTAGE_RECOVERY_ROOT = join(dir, 'vault')
     await atomicWriteFile(target, Buffer.from('new version'))
-    const entries = await listRecoveryEntries(process.env.ASTER_RECOVERY_ROOT)
+    const entries = await listRecoveryEntries(process.env.VANTAGE_RECOVERY_ROOT)
     expect(entries).toHaveLength(1)
     expect(entries[0]!.originalPath).toBe(target)
     expect(readFileSync(join(dir, 'vault', `${entries[0]!.id}.bin`), 'utf8')).toBe(
@@ -199,7 +213,7 @@ describe('save coordination and history', () => {
     writeFileSync(target, 'old')
     const vault = join(dir, 'not-a-directory')
     writeFileSync(vault, 'occupied')
-    process.env.ASTER_RECOVERY_ROOT = vault
+    process.env.VANTAGE_RECOVERY_ROOT = vault
     const failure = await atomicWriteFile(target, Buffer.from('new')).catch(
       (reason: unknown) => reason,
     )
@@ -211,7 +225,7 @@ describe('save coordination and history', () => {
 
 describe('small JSON state replacement', () => {
   it('saves state without creating document history', () => {
-    process.env.ASTER_RECOVERY_ROOT = join(dir, 'vault')
+    process.env.VANTAGE_RECOVERY_ROOT = join(dir, 'vault')
     const target = join(dir, 'recent.json')
     writeJsonAtomic(target, ['old'])
     writeJsonAtomic(target, ['new'])

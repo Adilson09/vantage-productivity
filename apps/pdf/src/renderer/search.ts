@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import { foldCase, isWordChar } from '@genoffice/ui'
+import { foldCase, isWordChar } from '@vantage/ui'
 
 /** One hit: original page + PDF user-space rects (multiple when spanning several text items) */
 export interface SearchMatch {

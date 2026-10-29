@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { ReactNode } from 'react'
-import type { AiProviderId } from '@genoffice/ai-provider/browser'
+import type { AiProviderId } from '@vantage/ai-provider/browser'
 
 // ── AI provider brand logos (settings provider picker, composer model chip) ──
 // Vector marks adapted from the MIT-licensed @lobehub/icons set, plus a

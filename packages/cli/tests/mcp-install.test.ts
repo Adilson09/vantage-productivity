@@ -1,61 +1,88 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { afterEach, describe, expect, it } from 'vitest'
 import { run, tempDir } from './helpers'
 
-const LAUNCHER = resolve(__dirname, '..', 'bin', 'genoffice')
+const LAUNCHER = resolve(__dirname, '..', 'bin', 'vantage')
 // Windows source checkouts run the bundle with Node; POSIX executes its launcher.
 const LAUNCH_COMMAND = process.platform === 'win32' ? 'node' : LAUNCHER
 const LAUNCH_ARGS =
   process.platform === 'win32'
-    ? [`${resolve(__dirname, '..', 'bin')}\\..\\dist\\genoffice.cjs`, 'mcp']
+    ? [`${resolve(__dirname, '..', 'bin')}\\..\\dist\\vantage.cjs`, 'mcp']
     : ['mcp']
 
-function fakeMachine(agents: string[]) {
-  const home = tempDir()
+const linkFixtureBase = join(
+  process.env.LOCALAPPDATA ?? homedir(),
+  'Temp',
+  'vantage-cli-link-fixtures',
+)
+const linkFixtureRoots: string[] = []
+afterEach(() => {
+  for (const root of linkFixtureRoots.splice(0)) {
+    if (dirname(root) !== linkFixtureBase) throw new Error('Unexpected MCP fixture root')
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+function fakeMachine(agents: string[], needsLinks = false) {
+  let home: string
+  if (needsLinks && process.platform === 'win32') {
+    mkdirSync(linkFixtureBase, { recursive: true })
+    home = mkdtempSync(join(linkFixtureBase, 'vantage-mcp-'))
+    linkFixtureRoots.push(home)
+  } else home = tempDir()
   for (const dot of agents) mkdirSync(join(home, dot), { recursive: true })
   return {
     home,
-    env: { GENOFFICE_HOME: home, GENOFFICE_AUTH_DIR: join(home, 'auth') } as NodeJS.ProcessEnv,
+    env: { VANTAGE_HOME: home, VANTAGE_AUTH_DIR: join(home, 'auth') } as NodeJS.ProcessEnv,
   }
 }
 
 const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf-8'))
 
-describe('Aster side-by-side MCP isolation', () => {
+describe('Vantage side-by-side MCP isolation', () => {
   it('installs and removes only its own JSON and TOML keys, preserving upstream entries', async () => {
     const m = fakeMachine(['.cursor', '.codex'])
     const json = join(m.home, '.cursor', 'mcp.json')
     const upstream = {
-      command: 'C:\\GenOffice\\GenOffice.exe',
-      args: ['C:\\GenOffice\\resources\\cli\\genoffice.cjs', 'mcp'],
+      command: 'C:\\Vantage\\Vantage.exe',
+      args: ['C:\\Vantage\\resources\\cli\\vantage.cjs', 'mcp'],
       env: { KEEP: 'legacy' },
     }
-    writeFileSync(json, JSON.stringify({ mcpServers: { genoffice: upstream }, theme: 'dark' }))
+    writeFileSync(json, JSON.stringify({ mcpServers: { vantage: upstream }, theme: 'dark' }))
     const toml = join(m.home, '.codex', 'config.toml')
     const upstreamToml =
-      '[mcp_servers.genoffice]\ncommand = "legacy-genoffice"\nargs = ["mcp"]\n\n[mcp_servers.genoffice.env]\nKEEP = "legacy"\n'
+      '[mcp_servers.vantage]\ncommand = "legacy-vantage"\nargs = ["mcp"]\n\n[mcp_servers.vantage.env]\nKEEP = "legacy"\n'
     writeFileSync(toml, upstreamToml)
     for (const agent of ['cursor', 'codex']) {
       expect((await run(['mcp', 'install', agent, '--json'], { env: m.env })).code).toBe(0)
     }
-    expect(readJson(json).mcpServers.genoffice).toEqual(upstream)
-    expect(readJson(json).mcpServers['aster-office'].command).toBe(LAUNCH_COMMAND)
+    expect(readJson(json).mcpServers.vantage).toEqual(upstream)
+    expect(readJson(json).mcpServers['vantage-productivity'].command).toBe(LAUNCH_COMMAND)
     expect(readFileSync(toml, 'utf8')).toContain(upstreamToml)
     for (const agent of ['cursor', 'codex']) {
       expect((await run(['mcp', 'uninstall', agent, '--json'], { env: m.env })).code).toBe(0)
     }
-    expect(readJson(json)).toEqual({ mcpServers: { genoffice: upstream }, theme: 'dark' })
+    expect(readJson(json)).toEqual({ mcpServers: { vantage: upstream }, theme: 'dark' })
     expect(readFileSync(toml, 'utf8')).toContain(upstreamToml.trimEnd())
-    expect(readFileSync(toml, 'utf8')).not.toContain('[mcp_servers.aster-office]')
+    expect(readFileSync(toml, 'utf8')).not.toContain('[mcp_servers.vantage-productivity]')
   })
 
-  it('does not take over an arbitrary genoffice.cjs process under the Aster key', async () => {
+  it('does not take over an arbitrary vantage.cjs process under the Vantage key', async () => {
     const m = fakeMachine(['.cursor'])
     const file = join(m.home, '.cursor', 'mcp.json')
     const original = JSON.stringify({
       mcpServers: {
-        'aster-office': { command: 'node', args: ['C:\\upstream\\genoffice.cjs', 'mcp'] },
+        'vantage-productivity': { command: 'node', args: ['C:\\upstream\\vantage.cjs', 'mcp'] },
       },
     })
     writeFileSync(file, original)
@@ -66,13 +93,13 @@ describe('Aster side-by-side MCP isolation', () => {
   })
 })
 
-describe('genoffice mcp list', () => {
-  it('shows every agent, detected or not, and whether genoffice is registered', async () => {
+describe('vantage mcp list', () => {
+  it('shows every agent, detected or not, and whether vantage is registered', async () => {
     const m = fakeMachine(['.cursor', '.gemini'])
     writeFileSync(
       join(m.home, '.gemini', 'settings.json'),
       JSON.stringify({
-        mcpServers: { 'aster-office': { command: LAUNCH_COMMAND, args: LAUNCH_ARGS } },
+        mcpServers: { 'vantage-productivity': { command: LAUNCH_COMMAND, args: LAUNCH_ARGS } },
       }),
     )
     const r = await run(['mcp', 'list', '--json'], { env: m.env })
@@ -99,7 +126,7 @@ describe('genoffice mcp list', () => {
   })
 })
 
-describe('genoffice mcp install', () => {
+describe('vantage mcp install', () => {
   it('merges into an existing JSON config, keeping other servers, and is idempotent', async () => {
     const m = fakeMachine(['.cursor'])
     const file = join(m.home, '.cursor', 'mcp.json')
@@ -121,7 +148,7 @@ describe('genoffice mcp install', () => {
     expect(JSON.parse(text)).toEqual({
       mcpServers: {
         other: { url: 'https://x.test/mcp' },
-        'aster-office': { type: 'stdio', command: LAUNCH_COMMAND, args: LAUNCH_ARGS },
+        'vantage-productivity': { type: 'stdio', command: LAUNCH_COMMAND, args: LAUNCH_ARGS },
       },
       theme: 'dark',
     })
@@ -137,7 +164,7 @@ describe('genoffice mcp install', () => {
     const r = await run(['mcp', 'install', 'windsurf', '--json'], { env: m.env })
     expect(r.code).toBe(0)
     expect(readJson(join(m.home, '.codeium', 'windsurf', 'mcp_config.json'))).toEqual({
-      mcpServers: { 'aster-office': { command: LAUNCH_COMMAND, args: LAUNCH_ARGS } },
+      mcpServers: { 'vantage-productivity': { command: LAUNCH_COMMAND, args: LAUNCH_ARGS } },
     })
   })
 
@@ -153,7 +180,7 @@ describe('genoffice mcp install', () => {
     expect(first.json().detail.agents[0].status).toBe('installed')
     expect(readFileSync(file, 'utf-8')).toBe(
       'model = "gpt-5"\n\n[mcp_servers.other]\ncommand = "npx"\nargs = ["-y", "x"]\n\n' +
-        `[mcp_servers.aster-office]\ncommand = ${JSON.stringify(LAUNCH_COMMAND)}\nargs = ${JSON.stringify(LAUNCH_ARGS)}\n`,
+        `[mcp_servers.vantage-productivity]\ncommand = ${JSON.stringify(LAUNCH_COMMAND)}\nargs = ${JSON.stringify(LAUNCH_ARGS)}\n`,
     )
     expect(
       (await run(['mcp', 'install', 'codex', '--json'], { env: m.env })).json().detail.agents[0]
@@ -162,21 +189,21 @@ describe('genoffice mcp install', () => {
 
     writeFileSync(
       file,
-      '[mcp_servers.aster-office]\ncommand = "/old/Aster Office.exe"\nargs = ["mcp"]\n\n' +
-        '[mcp_servers.aster-office.env]\nFOO = "1"\n\n[mcp_servers.other]\ncommand = "npx"\n\n[projects."/tmp/x"]\ntrust_level = "trusted"\n',
+      '[mcp_servers.vantage-productivity]\ncommand = "/old/Vantage Productivity.exe"\nargs = ["mcp"]\n\n' +
+        '[mcp_servers.vantage-productivity.env]\nFOO = "1"\n\n[mcp_servers.other]\ncommand = "npx"\n\n[projects."/tmp/x"]\ntrust_level = "trusted"\n',
     )
     const listed = await run(['mcp', 'list', '--json'], { env: m.env })
     expect(listed.json().detail.agents.find((a: any) => a.agent === 'codex')).toMatchObject({
       status: 'stale',
       registered: true,
-      command: '/old/Aster Office.exe',
+      command: '/old/Vantage Productivity.exe',
     })
     const replaced = await run(['mcp', 'install', 'codex', '--json'], { env: m.env })
     expect(replaced.code).toBe(0)
     expect(replaced.json().detail.agents[0].status).toBe('updated')
     expect(readFileSync(file, 'utf-8')).toBe(
       '[mcp_servers.other]\ncommand = "npx"\n\n[projects."/tmp/x"]\ntrust_level = "trusted"\n\n' +
-        `[mcp_servers.aster-office]\ncommand = ${JSON.stringify(LAUNCH_COMMAND)}\nargs = ${JSON.stringify(LAUNCH_ARGS)}\n`,
+        `[mcp_servers.vantage-productivity]\ncommand = ${JSON.stringify(LAUNCH_COMMAND)}\nargs = ${JSON.stringify(LAUNCH_ARGS)}\n`,
     )
   })
 
@@ -184,12 +211,12 @@ describe('genoffice mcp install', () => {
     const m = fakeMachine(['.cursor', '.codex'])
     const file = join(m.home, '.cursor', 'mcp.json')
     const before = JSON.stringify({
-      mcpServers: { 'aster-office': { command: 'npx', args: ['other'] } },
+      mcpServers: { 'vantage-productivity': { command: 'npx', args: ['other'] } },
     })
     writeFileSync(file, before)
     writeFileSync(
       join(m.home, '.codex', 'config.toml'),
-      '[mcp_servers.aster-office]\nurl = "https://x.test"\n',
+      '[mcp_servers.vantage-productivity]\nurl = "https://x.test"\n',
     )
 
     const r = await run(['mcp', 'install', 'cursor', '--json'], { env: m.env })
@@ -215,7 +242,7 @@ describe('genoffice mcp install', () => {
     const forced = await run(['mcp', 'install', 'cursor', '--force', '--json'], { env: m.env })
     expect(forced.code).toBe(0)
     expect(forced.json().detail.agents[0].status).toBe('updated')
-    expect(readJson(file).mcpServers['aster-office'].command).toBe(LAUNCH_COMMAND)
+    expect(readJson(file).mcpServers['vantage-productivity'].command).toBe(LAUNCH_COMMAND)
   })
 
   it('install all writes only detected agents; an undetected agent needs --force', async () => {
@@ -231,7 +258,7 @@ describe('genoffice mcp install', () => {
     ).toEqual(['copilot', 'gemini', 'opencode'])
     expect(rows.filter((a: any) => a.status === 'not_detected').length).toBe(4)
     expect(
-      readJson(join(m.home, '.copilot', 'mcp-config.json')).mcpServers['aster-office'],
+      readJson(join(m.home, '.copilot', 'mcp-config.json')).mcpServers['vantage-productivity'],
     ).toEqual({
       type: 'local',
       command: LAUNCH_COMMAND,
@@ -239,7 +266,7 @@ describe('genoffice mcp install', () => {
       tools: ['*'],
     })
     expect(
-      readJson(join(m.home, '.config', 'opencode', 'opencode.json')).mcp['aster-office'],
+      readJson(join(m.home, '.config', 'opencode', 'opencode.json')).mcp['vantage-productivity'],
     ).toEqual({
       type: 'local',
       command: [LAUNCH_COMMAND, ...LAUNCH_ARGS],
@@ -264,7 +291,9 @@ describe('genoffice mcp install', () => {
     expect(readJson(file)).toEqual({
       numStartups: 3,
       projects: { '/p': { mcpServers: {} } },
-      mcpServers: { 'aster-office': { type: 'stdio', command: LAUNCH_COMMAND, args: LAUNCH_ARGS } },
+      mcpServers: {
+        'vantage-productivity': { type: 'stdio', command: LAUNCH_COMMAND, args: LAUNCH_ARGS },
+      },
     })
 
     const custom = join(m.home, 'cc-config')
@@ -272,7 +301,7 @@ describe('genoffice mcp install', () => {
     const env = { ...m.env, CLAUDE_CONFIG_DIR: custom }
     const r2 = await run(['mcp', 'install', 'claude-code', '--json'], { env })
     expect(r2.code).toBe(0)
-    expect(readJson(join(custom, '.claude.json')).mcpServers['aster-office'].command).toBe(
+    expect(readJson(join(custom, '.claude.json')).mcpServers['vantage-productivity'].command).toBe(
       LAUNCH_COMMAND,
     )
   })
@@ -289,9 +318,9 @@ describe('genoffice mcp install', () => {
       status: 'installed',
       config: join(m.home, 'cfg', 'settings.json'),
     })
-    expect(readJson(join(m.home, 'cfg', 'settings.json')).mcpServers['aster-office'].args).toEqual(
-      LAUNCH_ARGS,
-    )
+    expect(
+      readJson(join(m.home, 'cfg', 'settings.json')).mcpServers['vantage-productivity'].args,
+    ).toEqual(LAUNCH_ARGS)
     const all = await run(['mcp', 'install', 'all', '--dir', 'cfg', '--json'], { env: m.env })
     expect(all.code).toBe(1)
   })
@@ -303,7 +332,7 @@ describe('genoffice mcp install', () => {
     const r = await run(['mcp', 'install', 'cursor', '--json'], { env: m.env })
     expect(r.code).toBe(2)
     expect(r.json().detail.status).toBe('manual')
-    expect(JSON.parse(r.json().detail.snippet).mcpServers['aster-office'].command).toBe(
+    expect(JSON.parse(r.json().detail.snippet).mcpServers['vantage-productivity'].command).toBe(
       LAUNCH_COMMAND,
     )
     expect(readFileSync(join(m.home, '.cursor', 'mcp.json'), 'utf-8')).toBe(
@@ -319,12 +348,12 @@ describe('genoffice mcp install', () => {
   })
 })
 
-describe('genoffice mcp install summaries', () => {
+describe('vantage mcp install summaries', () => {
   it('says what blocked the batch instead of claiming no agent was detected', async () => {
     const m = fakeMachine(['.cursor', '.gemini'])
     writeFileSync(
       join(m.home, '.cursor', 'mcp.json'),
-      JSON.stringify({ mcpServers: { 'aster-office': { command: 'npx' } } }),
+      JSON.stringify({ mcpServers: { 'vantage-productivity': { command: 'npx' } } }),
     )
     writeFileSync(join(m.home, '.gemini', 'settings.json'), '{ not json')
     const r = await run(['mcp', 'install', 'all', '--json'], { env: m.env })
@@ -352,13 +381,13 @@ describe('genoffice mcp install summaries', () => {
     const r = await run(['mcp', 'install', 'cursor', '--json'], { env: m.env })
     expect(r.code).toBe(0)
     expect(r.json().detail.agents[0].status).toBe('installed')
-    expect(readJson(file).mcpServers['aster-office'].command).toBe(LAUNCH_COMMAND)
+    expect(readJson(file).mcpServers['vantage-productivity'].command).toBe(LAUNCH_COMMAND)
   })
 })
 
-describe('genoffice mcp with a symlinked config', () => {
+describe('vantage mcp with a symlinked config', () => {
   it('writes through the link to its target and keeps the link', async () => {
-    const m = fakeMachine(['.cursor', '.claude'])
+    const m = fakeMachine(['.cursor', '.claude'], true)
     const store = join(m.home, 'dotfiles')
     mkdirSync(store)
     const target = join(store, 'mcp.json')
@@ -373,10 +402,10 @@ describe('genoffice mcp with a symlinked config', () => {
     expect(lstatSync(link).isSymbolicLink()).toBe(true)
     expect(readJson(target).mcpServers).toEqual({
       other: { command: 'x' },
-      'aster-office': { type: 'stdio', command: LAUNCH_COMMAND, args: LAUNCH_ARGS },
+      'vantage-productivity': { type: 'stdio', command: LAUNCH_COMMAND, args: LAUNCH_ARGS },
     })
     expect(lstatSync(join(m.home, '.claude.json')).isSymbolicLink()).toBe(true)
-    expect(readJson(claudeTarget).mcpServers['aster-office'].command).toBe(LAUNCH_COMMAND)
+    expect(readJson(claudeTarget).mcpServers['vantage-productivity'].command).toBe(LAUNCH_COMMAND)
 
     const u = await run(['mcp', 'uninstall', 'cursor', '--json'], { env: m.env })
     expect(u.json().detail.agents[0].status).toBe('removed')
@@ -385,33 +414,37 @@ describe('genoffice mcp with a symlinked config', () => {
   })
 })
 
-describe('genoffice mcp with a symlinked config directory', () => {
+describe('vantage mcp with a symlinked config directory', () => {
   it('follows a relative link from the real directory, not the lexical one', async () => {
-    const m = fakeMachine([])
+    const m = fakeMachine([], true)
     const dotfiles = join(m.home, 'dotfiles')
     mkdirSync(join(dotfiles, 'cursor'), { recursive: true })
     mkdirSync(join(dotfiles, 'store'))
     const target = join(dotfiles, 'store', 'mcp.json')
     writeFileSync(target, JSON.stringify({ mcpServers: { other: { command: 'x' } } }))
     symlinkSync(join('..', 'store', 'mcp.json'), join(dotfiles, 'cursor', 'mcp.json'))
-    symlinkSync(join(dotfiles, 'cursor'), join(m.home, '.cursor'))
+    symlinkSync(
+      join(dotfiles, 'cursor'),
+      join(m.home, '.cursor'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
 
     const r = await run(['mcp', 'install', 'cursor', '--json'], { env: m.env })
     expect(r.code).toBe(0)
     expect(r.json().detail.agents[0].status).toBe('installed')
-    expect(readJson(target).mcpServers['aster-office'].command).toBe(LAUNCH_COMMAND)
+    expect(readJson(target).mcpServers['vantage-productivity'].command).toBe(LAUNCH_COMMAND)
     expect(lstatSync(join(m.home, '.cursor')).isSymbolicLink()).toBe(true)
     expect(lstatSync(join(dotfiles, 'cursor', 'mcp.json')).isSymbolicLink()).toBe(true)
     expect(existsSync(join(m.home, 'store'))).toBe(false)
   })
 })
 
-describe('genoffice mcp uninstall', () => {
+describe('vantage mcp uninstall', () => {
   it('words refusals for removing, not writing', async () => {
     const m = fakeMachine(['.gemini', '.cursor'])
     writeFileSync(
       join(m.home, '.gemini', 'settings.json'),
-      JSON.stringify({ mcpServers: { 'aster-office': { command: 'npx' } } }),
+      JSON.stringify({ mcpServers: { 'vantage-productivity': { command: 'npx' } } }),
     )
     writeFileSync(join(m.home, '.cursor', 'mcp.json'), '{ broken')
     const absent = await run(['mcp', 'uninstall', 'codex', '--json'], { env: m.env })
@@ -424,17 +457,19 @@ describe('genoffice mcp uninstall', () => {
     expect(occupied.json().suggestion).toBe('repeat with --force to remove the foreign entry')
     const manual = await run(['mcp', 'uninstall', 'cursor', '--json'], { env: m.env })
     expect(manual.code).toBe(2)
-    expect(manual.json().suggestion).toBe('remove the aster-office entry from the file yourself')
+    expect(manual.json().suggestion).toBe(
+      'remove the vantage-productivity entry from the file yourself',
+    )
     expect(manual.json().detail.snippet).toBeUndefined()
     const all = await run(['mcp', 'uninstall', 'all', '--json'], { env: m.env })
     expect(all.json().warnings.map((w: any) => w.suggestion)).toEqual([
-      'remove the aster-office entry from the file yourself',
+      'remove the vantage-productivity entry from the file yourself',
       'repeat with --force to remove the foreign entry',
     ])
     expect(all.json().warnings[0].message).toContain('remove the entry by hand')
   })
 
-  it('removes only the genoffice key and leaves the rest of the file', async () => {
+  it('removes only the vantage key and leaves the rest of the file', async () => {
     const m = fakeMachine(['.cursor', '.codex'])
     const json = join(m.home, '.cursor', 'mcp.json')
     writeFileSync(
@@ -442,7 +477,7 @@ describe('genoffice mcp uninstall', () => {
       JSON.stringify({
         mcpServers: {
           other: { url: 'https://x.test/mcp' },
-          'aster-office': { command: LAUNCH_COMMAND, args: LAUNCH_ARGS },
+          'vantage-productivity': { command: LAUNCH_COMMAND, args: LAUNCH_ARGS },
         },
         theme: 'dark',
       }),
@@ -450,7 +485,7 @@ describe('genoffice mcp uninstall', () => {
     const toml = join(m.home, '.codex', 'config.toml')
     writeFileSync(
       toml,
-      `model = "gpt-5"\n\n[mcp_servers.aster-office]\ncommand = ${JSON.stringify(LAUNCH_COMMAND)}\nargs = ${JSON.stringify(LAUNCH_ARGS)}\n\n[mcp_servers.other]\ncommand = "npx"\n`,
+      `model = "gpt-5"\n\n[mcp_servers.vantage-productivity]\ncommand = ${JSON.stringify(LAUNCH_COMMAND)}\nargs = ${JSON.stringify(LAUNCH_ARGS)}\n\n[mcp_servers.other]\ncommand = "npx"\n`,
     )
     const r = await run(['mcp', 'uninstall', 'all', '--json'], { env: m.env })
     expect(r.code).toBe(0)
@@ -476,18 +511,21 @@ describe('genoffice mcp uninstall', () => {
   it('does not remove an entry that starts another program unless --force', async () => {
     const m = fakeMachine(['.gemini'])
     const file = join(m.home, '.gemini', 'settings.json')
-    writeFileSync(file, JSON.stringify({ mcpServers: { 'aster-office': { command: 'npx' } } }))
+    writeFileSync(
+      file,
+      JSON.stringify({ mcpServers: { 'vantage-productivity': { command: 'npx' } } }),
+    )
     const r = await run(['mcp', 'uninstall', 'gemini', '--json'], { env: m.env })
     expect(r.code).toBe(2)
     expect(r.json().detail.status).toBe('occupied')
-    expect(readJson(file).mcpServers['aster-office'].command).toBe('npx')
+    expect(readJson(file).mcpServers['vantage-productivity'].command).toBe('npx')
     const forced = await run(['mcp', 'uninstall', 'gemini', '--force', '--json'], { env: m.env })
     expect(forced.code).toBe(0)
     expect(readJson(file)).toEqual({ mcpServers: {} })
   })
 })
 
-describe('genoffice mcp argument parsing', () => {
+describe('vantage mcp argument parsing', () => {
   it('keeps serving flags and subcommands apart', async () => {
     const m = fakeMachine([])
     const mixed = await run(['mcp', 'install', 'all', '--http', '3000', '--json'], { env: m.env })

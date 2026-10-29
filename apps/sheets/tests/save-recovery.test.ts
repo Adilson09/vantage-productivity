@@ -1,4 +1,4 @@
-// Aster Office: real filesystem checks around the native workbook save boundary.
+// Vantage Productivity: real filesystem checks around the native workbook save boundary.
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,14 +12,14 @@ import { withNativeSaveRecovery } from '../src/main/save-recovery'
 let dir: string
 let previousRoot: string | undefined
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'aster-native-save-'))
-  previousRoot = process.env.ASTER_RECOVERY_ROOT
-  process.env.ASTER_RECOVERY_ROOT = join(dir, 'history')
+  dir = await mkdtemp(join(tmpdir(), 'vantage-native-save-'))
+  previousRoot = process.env.VANTAGE_RECOVERY_ROOT
+  process.env.VANTAGE_RECOVERY_ROOT = join(dir, 'history')
 })
 afterEach(async () => {
-  if (previousRoot === undefined) delete process.env.ASTER_RECOVERY_ROOT
-  else process.env.ASTER_RECOVERY_ROOT = previousRoot
-  if (!dir.startsWith(join(tmpdir(), 'aster-native-save-')))
+  if (previousRoot === undefined) delete process.env.VANTAGE_RECOVERY_ROOT
+  else process.env.VANTAGE_RECOVERY_ROOT = previousRoot
+  if (!dir.startsWith(join(tmpdir(), 'vantage-native-save-')))
     throw new Error('Unexpected test folder')
   await rm(dir, { recursive: true, force: true })
 })
@@ -29,14 +29,14 @@ describe('native workbook save recovery', () => {
     const target = join(dir, 'book.xlsx')
     await writeFile(target, 'original')
     const result = await withNativeSaveRecovery(target, async () => {
-      expect(await listRecoveryEntries(process.env.ASTER_RECOVERY_ROOT!)).toHaveLength(1)
+      expect(await listRecoveryEntries(process.env.VANTAGE_RECOVERY_ROOT!)).toHaveLength(1)
       await writeFile(target, 'native output')
       return { mutation: 'done' }
     })
     expect(result).toEqual({ mutation: 'done' })
-    const [entry] = await listRecoveryEntries(process.env.ASTER_RECOVERY_ROOT!)
+    const [entry] = await listRecoveryEntries(process.env.VANTAGE_RECOVERY_ROOT!)
     await restoreRecoveryCopy(
-      process.env.ASTER_RECOVERY_ROOT!,
+      process.env.VANTAGE_RECOVERY_ROOT!,
       entry!.id,
       join(dir, 'restored.xlsx'),
     )
@@ -47,7 +47,7 @@ describe('native workbook save recovery', () => {
   it('never invokes the native writer when the configured vault is unavailable', async () => {
     const target = join(dir, 'book.xlsx')
     await writeFile(target, 'original')
-    await writeFile(process.env.ASTER_RECOVERY_ROOT!, 'blocks directory creation')
+    await writeFile(process.env.VANTAGE_RECOVERY_ROOT!, 'blocks directory creation')
     const write = vi.fn()
     await expect(withNativeSaveRecovery(target, write)).rejects.toThrow(
       'workbook was not overwritten',
@@ -56,10 +56,10 @@ describe('native workbook save recovery', () => {
     expect(await readFile(target, 'utf8')).toBe('original')
   })
 
-  it('allows a new file without inventing previous history', async () => {
+  it('captures a first-save baseline only after the native writer publishes', async () => {
     const target = join(dir, 'new.xlsx')
     await withNativeSaveRecovery(target, () => writeFile(target, 'new'))
-    expect(await listRecoveryEntries(process.env.ASTER_RECOVERY_ROOT!)).toEqual([])
+    expect(await listRecoveryEntries(process.env.VANTAGE_RECOVERY_ROOT!)).toMatchObject([{ originalPath: target, kind: 'first-save' }])
     expect(await readFile(target, 'utf8')).toBe('new')
   })
 
@@ -86,11 +86,11 @@ describe('native workbook save recovery', () => {
     release()
     await Promise.all([first, second])
     expect(await readFile(target, 'utf8')).toBe('second')
-    const entries = await listRecoveryEntries(process.env.ASTER_RECOVERY_ROOT!)
+    const entries = await listRecoveryEntries(process.env.VANTAGE_RECOVERY_ROOT!)
     expect(entries).toHaveLength(2)
     const originals = await Promise.all(
       entries.map((entry) =>
-        readFile(join(process.env.ASTER_RECOVERY_ROOT!, `${entry.id}.bin`), 'utf8'),
+        readFile(join(process.env.VANTAGE_RECOVERY_ROOT!, `${entry.id}.bin`), 'utf8'),
       ),
     )
     expect(originals.sort()).toEqual(['first', 'original'])

@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl, screenshotPath } from './helpers'
 
-// the preload exposes window.__genofficeDebug only under this env var; the
+// the preload exposes window.__vantageDebug only under this env var; the
 // spec reads cell data and cell geometry through Univer's Facade
-process.env.GENOFFICE_DEBUG_HOOKS = '1'
+process.env.VANTAGE_DEBUG_HOOKS = '1'
 
 /**
  * Home › Superscript / Subscript (issue #2212). Two halves:
@@ -38,7 +38,7 @@ interface CellProbe {
 async function inkBox(sheets: Page, row: number, col: number): Promise<InkBox | null> {
   return sheets.evaluate(
     ({ row, col }) => {
-      const debug = (window as unknown as Record<string, unknown>).__genofficeDebug as {
+      const debug = (window as unknown as Record<string, unknown>).__vantageDebug as {
         univerAPI: {
           getActiveWorkbook(): {
             getActiveSheet(): {
@@ -105,7 +105,7 @@ async function inkBox(sheets: Page, row: number, col: number): Promise<InkBox | 
 async function probeCell(sheets: Page, row: number, col: number): Promise<CellProbe> {
   return sheets.evaluate(
     ({ row, col }) => {
-      const debug = (window as unknown as Record<string, unknown>).__genofficeDebug as {
+      const debug = (window as unknown as Record<string, unknown>).__vantageDebug as {
         univerAPI: {
           getActiveWorkbook(): {
             getActiveSheet(): {
@@ -150,7 +150,7 @@ async function probeCell(sheets: Page, row: number, col: number): Promise<CellPr
 
 test.describe('sheets: superscript and subscript', () => {
   test('whole-cell vertAlign is painted; in the editor it formats the selection', async () => {
-    const scratch = await mkdtemp(join(tmpdir(), 'genoffice-superscript-'))
+    const scratch = await mkdtemp(join(tmpdir(), 'vantage-superscript-'))
     const launched = await launchShell({
       onboardingSeen: true,
       videoDir: 'sheets-superscript',

@@ -13,6 +13,16 @@ import { nativeAdmission } from './native-admission'
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 let rescueFetch: FetchLike | null = null
+let requestGuard: ((url: string, kind: 'http' | 'command') => void) | undefined
+/** The host checks permission before either an HTTP request or a command provider starts. */
+export function setAiRequestGuard(
+  guard: ((url: string, kind: 'http' | 'command') => void) | undefined,
+): void {
+  requestGuard = guard
+}
+export function checkAiRequestPermission(url: string, kind: 'http' | 'command' = 'http'): void {
+  requestGuard?.(url, kind)
+}
 
 export function setRescueFetch(fn: FetchLike | null): void {
   rescueFetch = fn
@@ -24,7 +34,7 @@ export function setRescueFetch(fn: FetchLike | null): void {
  * clients to identify themselves and flags "broad" user agents). Main
  * processes refine the default with the app version.
  */
-export const AI_DEFAULT_USER_AGENT = 'GenOffice'
+export const AI_DEFAULT_USER_AGENT = 'Vantage'
 
 let userAgent = AI_DEFAULT_USER_AGENT
 
@@ -57,6 +67,7 @@ function isBlockPage(response: Response): boolean {
 }
 
 export async function aiFetch(url: string, rawInit: RequestInit): Promise<Response> {
+  checkAiRequestPermission(url)
   const init = await nativeAdmission.prepare(url, withUserAgent(rawInit), (u, i) => fetch(u, i))
   const signal = init.signal as AbortSignal | null | undefined
   let response: Response

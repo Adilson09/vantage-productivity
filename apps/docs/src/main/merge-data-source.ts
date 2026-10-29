@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
-import { mergeDataFromRows, type MergeRecord } from '@genoffice/docx-engine'
-import { decodeCsvBuffer, parseCsv } from '@genoffice/xlsx-gateway/gateway/csv-import'
-import { readSheetRows } from '@genoffice/xlsx-gateway/gateway/xlsx-gateway'
+import { mergeDataFromRows, type MergeRecord } from '@vantage/docx-engine'
+import { decodeCsvBuffer, parseCsv } from '@vantage/xlsx-gateway/gateway/csv-import'
+import { readSheetRows } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 
 /**
  * The data source of a mail merge: the local spreadsheet the records come
@@ -12,7 +12,7 @@ import { readSheetRows } from '@genoffice/xlsx-gateway/gateway/xlsx-gateway'
  * The parsing itself belongs to xlsx-gateway (the CSV reader Sheets opens a
  * .csv with, the workbook reader), and the record shape to the docx engine —
  * so a list that opens correctly in Sheets opens correctly here.
- * genoffice#2097.
+ * vantage#2097.
  */
 
 /** A data source the mail merge reads: the field names and the records. */

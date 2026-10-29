@@ -4,8 +4,6 @@
 
 Mô hình và khóa được cấu hình trong Cài đặt (hàng tài khoản ở góc dưới bên trái của Trang chủ):
 
-![Cửa sổ Cài đặt](img/settings-general.png)
-
 - **Genspark đám mây**: đăng nhập (luồng mã thiết bị) rồi dùng — không phải cấu hình gì.
 - **Điểm cuối tùy chỉnh (BYOK)**: Cài đặt ▸ AI nhận một URL cơ sở và một khóa API cho từng giao thức — tương thích OpenAI, Anthropic, Gemini, DeepSeek, DashScope (qwen) và hơn thế. Khóa được lưu trong tệp cài đặt của ứng dụng trên máy này và chỉ được gửi trong phần đầu yêu cầu. Atlas Cloud nằm trong các giao thức dựng sẵn.
 - Có thể chọn mô hình khác nhau cho từng năng lực: trò chuyện/tạo sinh, tạo hình ảnh, phân tích hình ảnh.

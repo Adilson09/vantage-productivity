@@ -5,7 +5,7 @@ import {
   type Block,
   type TableCell,
   type TableModel,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import { buildDocx } from '../../../packages/docx-engine/tests/helpers/build-docx'
 import {
   blocksToPmDoc,

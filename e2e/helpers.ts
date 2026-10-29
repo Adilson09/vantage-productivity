@@ -1,9 +1,9 @@
-// Aster Office modification (2026): keep test profiles and command-tool state in scratch directories.
+// Vantage Productivity modification (2026): keep test profiles and command-tool state in scratch directories.
 /**
  * Shared launcher for Electron E2E tests.
  *
  * Each test boots the built shell (`apps/shell/out`) against a scratch
- * userData dir (via GENOFFICE_USER_DATA) so runs never touch real settings
+ * userData dir (via VANTAGE_USER_DATA) so runs never touch real settings
  * and never collide with a running install's single-instance lock.
  * Build first: `npm run build:all`.
  */
@@ -22,7 +22,7 @@ const SHELL_MAIN = join(SHELL_DIR, 'out/main/index.js')
 interface LaunchOptions {
   /** reuse a previous scratch dir to simulate a second launch */
   userDataDir?: string
-  /** UI language override (GENOFFICE_LANG); defaults to English for stable assertions */
+  /** UI language override (VANTAGE_LANG); defaults to English for stable assertions */
   lang?: string
   /** pre-seed app-settings.json with onboardingSeen=true to start at the home screen */
   onboardingSeen?: boolean
@@ -46,7 +46,7 @@ export async function launchShell(options: LaunchOptions): Promise<LaunchedApp> 
   if (!existsSync(SHELL_MAIN)) {
     throw new Error(`Missing build output at ${SHELL_MAIN} — run \`npm run build:all\` first`)
   }
-  const userDataDir = options.userDataDir ?? (await mkdtemp(join(tmpdir(), 'genoffice-e2e-')))
+  const userDataDir = options.userDataDir ?? (await mkdtemp(join(tmpdir(), 'vantage-e2e-')))
   const safeDefaults = options.userDataDir
     ? {}
     : { defaultSaveDir: join(userDataDir, 'test-documents') }
@@ -80,12 +80,10 @@ export async function launchShell(options: LaunchOptions): Promise<LaunchedApp> 
     args,
     env: {
       ...hostEnv,
-      ASTER_USER_DATA: userDataDir,
-      ASTER_AUTH_DIR: join(userDataDir, 'cli'),
-      GENOFFICE_AUTH_DIR: join(userDataDir, 'cli'),
-      GENOFFICE_USER_DATA: userDataDir,
-      GENOFFICE_NO_SPARE_VIEW: '1',
-      GENOFFICE_LANG: options.lang ?? 'en',
+      VANTAGE_USER_DATA: userDataDir,
+      VANTAGE_AUTH_DIR: join(userDataDir, 'cli'),
+      VANTAGE_NO_SPARE_VIEW: '1',
+      VANTAGE_LANG: options.lang ?? 'en',
       ...(options.env ?? {}),
       ...(process.platform === 'linux' ? { ELECTRON_DISABLE_SANDBOX: '1' } : {}),
     },
@@ -100,8 +98,19 @@ export async function launchShell(options: LaunchOptions): Promise<LaunchedApp> 
             size: { width: 1280, height: 800 },
           },
   })
-  const page = await app.firstWindow()
+  await app.firstWindow()
+  const page = await waitForPageWithUrl(app, '/shell/out/')
+  const startupErrors: string[] = []
+  page.on('pageerror', (error) => startupErrors.push(error.message))
+  page.on('crash', () => startupErrors.push('The workspace renderer crashed.'))
   await waitForDocumentReady(app, page)
+  if (options.onboardingSeen && !options.openFile && !options.userDataDir) {
+    try {
+      await page.locator('.vantage-create-grid').waitFor({ state: 'visible', timeout: 30_000 })
+    } catch {
+      throw new Error(`Workspace did not become ready at ${page.url()}. ${startupErrors.join(' ')}`)
+    }
+  }
   return { app, page, userDataDir }
 }
 

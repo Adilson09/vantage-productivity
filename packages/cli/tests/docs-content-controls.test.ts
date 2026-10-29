@@ -8,7 +8,7 @@ import { run, tempDir } from './helpers'
 /**
  * Block-level content controls (w:sdt): a law firm wraps the parts of a
  * filing that must not be reflowed in one, with a tag and a lock, and finds
- * them again by tag (genoffice#2062).
+ * them again by tag (vantage#2062).
  */
 const SDT =
   '<w:sdt><w:sdtPr><w:alias w:val="Caption"/><w:tag w:val="example:caption"/>' +

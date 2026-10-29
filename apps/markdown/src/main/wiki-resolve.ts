@@ -58,7 +58,7 @@ interface CachedListing extends Listing {
   checkedAt: number
 }
 
-/** the real filesystem; listings are cached per instance and revalidated by directory mtime */
+/** The real filesystem; listings are cached per instance for one typing burst. */
 export function nodeFs(): WikiFs {
   const cache = new Map<string, CachedListing>()
   return {
@@ -74,10 +74,9 @@ export function nodeFs(): WikiFs {
       const hit = cache.get(dir)
       if (hit && now - hit.checkedAt < LISTING_TTL_MS) return hit
       const mtimeMs = (await stat(dir)).mtimeMs
-      if (hit && hit.mtimeMs === mtimeMs) {
-        hit.checkedAt = now
-        return hit
-      }
+      // Some removable/network filesystems have coarse directory timestamps.
+      // After the trust window, reread even an unchanged mtime: two changes in
+      // the same timestamp tick must not leave a newly created note invisible.
       const files: string[] = []
       const dirs: string[] = []
       for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -187,11 +186,13 @@ export async function resolveWikiLinks(
   //    else; a path with a directory is also tried from the root, the way
   //    Obsidian reads `[[folder/Note]]`
   const remaining: typeof pending = []
-  const bases = [options.fromPath ? dirname(options.fromPath) : '', options.root].filter(Boolean)
   for (const item of pending) {
     let hit: string | null = null
+    const bases = [
+      options.fromPath ? dirname(options.fromPath) : '',
+      hasDir(item.name) ? options.root : '',
+    ].filter(Boolean)
     for (const base of bases) {
-      if (base === options.root && !hasDir(item.name)) continue
       hit = await firstExisting(fs, base, item.name)
       if (hit) break
     }
@@ -227,7 +228,15 @@ export async function resolveWikiLinks(
           const listing = listings[i]!
           budget -= listing.files.length + listing.dirs.length
           const relDir = slashes(relative(options.root, dir))
-          for (const file of listing.files) {
+          // Directory enumeration is not ordered on exFAT/network drives.
+          // Keep the same .md/.markdown/.txt preference as direct lookup when
+          // the breadth-first walk finds several spellings at the same depth.
+          const extensionRank = (file: string) => {
+            const index = NOTE_EXTS.indexOf(extname(file).toLowerCase())
+            return index < 0 ? NOTE_EXTS.length : index
+          }
+          const files = [...listing.files].sort((a, b) => extensionRank(a) - extensionRank(b) || a.localeCompare(b))
+          for (const file of files) {
             // indexed under both spellings: a bare `[[Name]]` matches the stem,
             // an explicit `[[Figure 1.png]]` has to match the file as written
             const stem = basename(file, extname(file))

@@ -4,8 +4,6 @@ This chapter covers the file operations shared by every editor; each editor's ow
 
 The row's **⋯ menu** (hover a file row) gathers these actions:
 
-![A file row's ⋯ menu](img/file-ops.png)
-
 ## Rename
 
 Two entry points, one set of checks:
@@ -17,7 +15,7 @@ Rules: the extension is preserved automatically; illegal characters, trailing do
 
 ## Delete
 
-- Home **⋯ ▸ Delete**: asks which files, then moves them to the **system trash**, where the OS can restore them. GenOffice keeps no undo of its own for this — recovery is the trash's job, not a toast's.
+- Home **⋯ ▸ Delete**: asks which files, then moves them to the **system trash**, where the OS can restore them. Vantage keeps no undo of its own for this — recovery is the trash's job, not a toast's.
 
 ## Duplicate
 

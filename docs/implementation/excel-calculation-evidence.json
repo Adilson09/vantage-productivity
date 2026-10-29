@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-10-29T16:35:20.1869138Z",
+  "status": "passed",
+  "reference": "New owned Excel COM instance, fresh scratch workbook, macros disabled; no user files opened.",
+  "caseCount": 1200,
+  "passed": 1200,
+  "failures": [],
+  "excelVersion": "16.0",
+  "excelBuild": "20527",
+  "excelOperatingSystem": "Windows (64-bit) NT 10.00",
+  "liveDependencyRefresh": true,
+  "limitations": [
+    "Twelve deterministic function categories; not all Excel functions or advanced models.",
+    "No volatile functions or external connections.",
+    "Machine locale and installed Excel version apply to this reference."
+  ],
+  "elapsedMs": 3855
+}

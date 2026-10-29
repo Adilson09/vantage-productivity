@@ -3,9 +3,9 @@ import type { StringKey, TFunc } from './locale'
 import type { FoundSkill, RecommendedSkill } from '../../shared/found-skill'
 
 /**
- * The skills the user installed into GenOffice.
+ * The skills the user installed into Vantage.
  *
- * Only GenOffice's own folder is listed. A skill gets in one way: the user
+ * Only Vantage's own folder is listed. A skill gets in one way: the user
  * picks a folder or a zip and presses Import. Nothing on this screen runs
  * anything.
  */

@@ -9,31 +9,31 @@ const local = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
-      '@genoffice/docx-engine/lazy-media': local('../../packages/docx-engine/src/lazy-media.ts'),
-      '@genoffice/docx-engine': local('../../packages/docx-engine/src/index.ts'),
-      '@genoffice/font-metrics/resolve': local('../../packages/font-metrics/src/resolve.ts'),
-      '@genoffice/font-metrics/word-faces.json': local(
+      '@vantage/docx-engine/lazy-media': local('../../packages/docx-engine/src/lazy-media.ts'),
+      '@vantage/docx-engine': local('../../packages/docx-engine/src/index.ts'),
+      '@vantage/font-metrics/resolve': local('../../packages/font-metrics/src/resolve.ts'),
+      '@vantage/font-metrics/word-faces.json': local(
         '../../packages/font-metrics/word-faces.json',
       ),
-      '@genoffice/font-metrics': local('../../packages/font-metrics/src/index.ts'),
+      '@vantage/font-metrics': local('../../packages/font-metrics/src/index.ts'),
       // subpath before the bare name: string aliases are prefix replacements
-      '@genoffice/electron-utils/headless-export': local(
+      '@vantage/electron-utils/headless-export': local(
         '../../packages/electron-utils/src/headless-export.ts',
       ),
-      '@genoffice/electron-utils/atomic-write': local(
+      '@vantage/electron-utils/atomic-write': local(
         '../../packages/electron-utils/src/atomic-write.ts',
       ),
-      '@genoffice/electron-utils/safe-external-url': local(
+      '@vantage/electron-utils/safe-external-url': local(
         '../../packages/electron-utils/src/safe-external-url.ts',
       ),
-      '@genoffice/electron-utils/print-job': local(
+      '@vantage/electron-utils/print-job': local(
         '../../packages/electron-utils/src/print-job.ts',
       ),
-      '@genoffice/electron-utils': local('../../packages/electron-utils/src/index.ts'),
-      '@genoffice/ai-provider/browser': local('../../packages/ai-provider/src/browser.ts'),
-      '@genoffice/ai-provider': local('../../packages/ai-provider/src/index.ts'),
-      '@genoffice/i18n': local('../../packages/i18n/src/index.ts'),
-      '@genoffice/ui': local('../../packages/ui/src/index.ts'),
+      '@vantage/electron-utils': local('../../packages/electron-utils/src/index.ts'),
+      '@vantage/ai-provider/browser': local('../../packages/ai-provider/src/browser.ts'),
+      '@vantage/ai-provider': local('../../packages/ai-provider/src/index.ts'),
+      '@vantage/i18n': local('../../packages/i18n/src/index.ts'),
+      '@vantage/ui': local('../../packages/ui/src/index.ts'),
     },
   },
   test: {

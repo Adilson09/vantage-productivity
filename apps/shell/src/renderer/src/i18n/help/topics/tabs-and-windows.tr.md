@@ -2,8 +2,6 @@
 
 Açık olan her dosya tek bir pencereyi paylaşır; üstteki sekme şeridi, tarayıcı tarzında aralarında geçiş yapar.
 
-![Sekme şeridi: Giriş artı iki belge](img/tabs.png)
-
 ## Temeller
 
 - **Geçiş**: bir sekmeye tıklayın ya da şeridin üzerinde tekerleği kaydırarak sırayla dolaşın.

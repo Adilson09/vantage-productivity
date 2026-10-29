@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { BooleanNumber, numfmt } from '@univerjs/core'
-import { Dropdown, shapePreviewPath, useDismissablePopover } from '@genoffice/ui'
+import { Dropdown, shapePreviewPath, useDismissablePopover } from '@vantage/ui'
 
 import type { createUniver } from './create-univer'
 
@@ -14,8 +14,8 @@ import {
   scatterAxisBounds,
   splitSheetRef,
   valueAxisScale,
-} from '@genoffice/xlsx-gateway/domain/chart-visual'
-import { parseAddress } from '@genoffice/xlsx-gateway/domain/cell-address'
+} from '@vantage/xlsx-gateway/domain/chart-visual'
+import { parseAddress } from '@vantage/xlsx-gateway/domain/cell-address'
 import { ColorDropdown } from './ColorDropdown'
 import { t } from './i18n/locale'
 import { oleCaption, oleFrameStyle, oleRenderKind } from './ole-visual'

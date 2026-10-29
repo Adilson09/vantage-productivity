@@ -2,12 +2,10 @@
 
 Todos os ficheiros abertos partilham uma janela; a barra de guias no topo muda entre eles, ao estilo de um navegador.
 
-![A barra de guias: Início e dois documentos](img/tabs.png)
-
 ## Noções básicas
 
 - **Mudar**: clique numa guia, ou rode a roda do rato sobre a barra para percorrer as guias.
-- **Fechar**: o × na guia, ou ⌘W/ctrl+W. Se houver alterações por salvar, o GenOffice pergunta primeiro.
+- **Fechar**: o × na guia, ou ⌘W/ctrl+W. Se houver alterações por salvar, o Vantage pergunta primeiro.
 - **Nova**: o + no extremo direito da barra.
 - **Ativação imediata**: premir uma guia muda para ela logo que é premida, sem esperar que o clique termine.
 

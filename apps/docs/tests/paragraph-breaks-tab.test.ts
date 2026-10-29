@@ -10,7 +10,7 @@ import {
   mergePPrFormat,
   parseDocx,
   type ParaFormat,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import { buildDocx } from '../../../packages/docx-engine/tests/helpers/build-docx'
 import { editorExtensions } from '../src/renderer/editor/extensions'
 import {

@@ -36,7 +36,7 @@ pub struct Settings {
     /// a slip of «select all» must not take thousands of them out.
     pub bulk_ask_above: u32,
     pub templates: Vec<Template>,
-    /// `auto`, `notify` or `off`; the Aster companion defaults to `off`.
+    /// `auto`, `notify` or `off`; the Vantage companion defaults to `off`.
     #[cfg_attr(test, ts(type = "\"auto\" | \"notify\" | \"off\""))]
     pub updates: String,
     /// `auto` (from the system locale, default), `en` or `ru`.

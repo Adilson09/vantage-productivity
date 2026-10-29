@@ -134,10 +134,10 @@ export interface CjkPunctShrinkStorage {
 }
 
 /** dispatched on document after the doc-scoped <style> commits (App) */
-export const DOC_CSS_COMMITTED_EVENT = 'genoffice:doc-css'
+export const DOC_CSS_COMMITTED_EVENT = 'vantage:doc-css'
 /** the paginator applied per-block wrap widths (section widths, columns,
  *  letter-spacing): the line breaks the shrink loops measured are stale */
-export const WRAP_WIDTHS_COMMITTED_EVENT = 'genoffice:wrap-widths'
+export const WRAP_WIDTHS_COMMITTED_EVENT = 'vantage:wrap-widths'
 
 export function measuresAlignment(textAlign: string, legacyLayout: boolean): boolean {
   return textAlign === 'justify' || legacyLayout

@@ -4,8 +4,6 @@
 
 La fila de cuenta de la parte inferior izquierda de Inicio abre el panel de configuración (muestra «Iniciar sesión» cuando está desconectado). Tiene seis secciones: Cuenta, Modelo de IA, Medios de IA y búsqueda, General, Integraciones y Acerca de.
 
-![Configuración ▸ General, donde están el idioma, el tema, el guardado automático y el interruptor de estadísticas de uso](img/settings-general.png)
-
 La configuración de modelos tiene su propio artículo; en **Medios de IA y búsqueda** se activan, por proveedor, la generación de imágenes, el análisis de imágenes, el análisis de vídeo, la búsqueda web y la búsqueda de archivos locales.
 
 ## Idioma
@@ -23,7 +21,7 @@ Claro / Oscuro / Seguir el sistema. «Seguir el sistema» sigue la apariencia de
 - **Posición de la barra lateral de IA** (izquierda o derecha), **Tamaño del texto del panel de IA** y **Corrección ortográfica en el chat de IA**.
 - **Abrir el panel de IA en documentos nuevos** — desactivado, un documento nuevo empieza con el panel plegado, a un clic de distancia.
 - **Guardar automáticamente todos los documentos** activa el guardado automático de forma predeterminada en todos los editores; todavía puedes desactivarlo para una ventana.
-- **Ubicación de guardado** con un botón **Cambiar** y **App predeterminada para documentos de Office** para reclamar .docx / .xlsx / .pptx para GenOffice.
+- **Ubicación de guardado** con un botón **Cambiar** y **App predeterminada para documentos de Office** para reclamar .docx / .xlsx / .pptx para Vantage.
 
 ## Medios de IA y búsqueda
 
@@ -39,7 +37,7 @@ No son conmutadores: cada capacidad elige el proveedor que la sirve, y la clave 
 
 ## Aplicaciones predeterminadas
 
-La configuración puede registrar GenOffice como programa predeterminado para .docx / .xlsx / .pptx / .pdf y formatos similares (registro de aplicación predeterminada a nivel de plataforma; confirme cuando se le pida).
+La configuración puede registrar Vantage como programa predeterminado para .docx / .xlsx / .pptx / .pdf y formatos similares (registro de aplicación predeterminada a nivel de plataforma; confirme cuando se le pida).
 
 ## Avisos de software de terceros y actualizaciones
 
@@ -48,15 +46,13 @@ La configuración puede registrar GenOffice como programa predeterminado para .d
 
 ## Iniciar sesión en Genspark
 
-- El acceso a la sesión (en la configuración o en la lista de proyectos de la nube) usa un flujo de **código de dispositivo**: GenOffice muestra un código y abre el inicio de sesión en el navegador; continúa solo cuando ha terminado.
+- El acceso a la sesión (en la configuración o en la lista de proyectos de la nube) usa un flujo de **código de dispositivo**: Vantage muestra un código y abre el inicio de sesión en el navegador; continúa solo cuando ha terminado.
 - El inicio de sesión solo se usa para: la lista de proyectos de la nube y los modelos alojados de Genspark. Sin él, todas las funciones locales y los modelos personalizados siguen funcionando.
 - Cerrar la sesión es un clic en la configuración.
 
 ## Integración MCP (para usuarios avanzados / clientes de IA)
 
-**Integraciones** es el panel que conecta GenOffice con un agente de programación, y tiene su propio artículo: Conectar un agente de programación. La versión corta: elija una vía (la línea de comandos o MCP), siga esa sección y después abra una conversación nueva y pregunte.
-
-![Configuración ▸ Integraciones: los tres pasos, luego las filas de habilidades y las opciones de MCP](img/settings-integrations.png)
+**Integraciones** es el panel que conecta Vantage con un agente de programación, y tiene su propio artículo: Conectar un agente de programación. La versión corta: elija una vía (la línea de comandos o MCP), siga esa sección y después abra una conversación nueva y pregunte.
 
 En **Servidor HTTP local**, la aplicación también puede ejecutar el servidor por su cuenta —un interruptor de activación y un puerto— y **Avanzado** añade la URL de comprobación de estado y el archivo de registro, en lugar de dejarlo en manos del asistente. Solo escucha en localhost.
 
@@ -64,6 +60,6 @@ En **Servidor HTTP local**, la aplicación también puede ejecutar el servidor p
 
 | Comando            | Qué hace                      |
 | ------------------ | ----------------------------- |
-| `genoffice <file>` | abrir un archivo              |
-| `genoffice mcp`    | iniciar el servidor MCP local |
-| `genoffice --help` | todos los comandos y opciones |
+| `vantage <file>` | abrir un archivo              |
+| `vantage mcp`    | iniciar el servidor MCP local |
+| `vantage --help` | todos los comandos y opciones |

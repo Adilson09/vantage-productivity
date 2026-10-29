@@ -4,8 +4,6 @@
 
 Baris akun di kiri bawah Beranda membuka panel pengaturan (bacaannya Masuk saat Anda belum masuk). Panel ini punya enam bagian: Akun, Model AI, Media & Pencarian AI, Umum, Integrasi, dan Tentang.
 
-![Pengaturan ▸ Umum, tempat bahasa, tema, Autosave, dan sakelar statistik penggunaan berada](img/settings-general.png)
-
 Konfigurasi model punya bab tersendiri; di **Media & Pencarian AI** Anda menyalakan pembuatan gambar, analisis gambar, analisis video, pencarian web, dan pencarian file lokal untuk tiap penyedia.
 
 ## Bahasa
@@ -23,7 +21,7 @@ Terang / Gelap / Ikuti Sistem. Mode Ikuti Sistem mengikuti tampilan sistem opera
 - **Posisi bilah samping AI** (kiri atau kanan), **Ukuran teks panel AI** dan **Pemeriksaan ejaan di obrolan AI**.
 - **Buka panel AI di dokumen baru** — nonaktif, dokumen baru dimulai dengan panel tertutup, sekali klik lagi.
 - **Simpan otomatis semua dokumen** menyalakan AutoSave secara default di setiap editor; Anda tetap bisa mematikannya untuk satu jendela.
-- **Lokasi penyimpanan** dengan tombol **Ubah**, dan **Aplikasi default untuk dokumen Office** untuk mengambil alih .docx / .xlsx / .pptx bagi GenOffice.
+- **Lokasi penyimpanan** dengan tombol **Ubah**, dan **Aplikasi default untuk dokumen Office** untuk mengambil alih .docx / .xlsx / .pptx bagi Vantage.
 
 ## Media & Pencarian AI
 
@@ -39,7 +37,7 @@ Bukan sakelar — setiap kemampuan memilih vendor yang melayaninya, dan kunci se
 
 ## Pengikatan aplikasi predefinida
 
-Pengaturan dapat mendaftarkan GenOffice sebagai aplikasi penangan .docx / .xlsx / .pptx / .pdf dan sejenisnya (pendaftaran aplikasi predefinida tingkat sistem; konfirmasi saat diminta).
+Pengaturan dapat mendaftarkan Vantage sebagai aplikasi penangan .docx / .xlsx / .pptx / .pdf dan sejenisnya (pendaftaran aplikasi predefinida tingkat sistem; konfirmasi saat diminta).
 
 ## Pemberitahuan pihak ketiga dan pembaruan
 
@@ -48,15 +46,13 @@ Pengaturan dapat mendaftarkan GenOffice sebagai aplikasi penangan .docx / .xlsx 
 
 ## Masuk dengan Genspark
 
-- Jalur masuk (di pengaturan atau di daftar proyek cloud) memakai alur **device-code**: GenOffice menampilkan kode dan membuka login di browser; prosesnya dilanjutkan otomatis setelah selesai.
+- Jalur masuk (di pengaturan atau di daftar proyek cloud) memakai alur **device-code**: Vantage menampilkan kode dan membuka login di browser; prosesnya dilanjutkan otomatis setelah selesai.
 - Login hanya dipakai untuk: daftar proyek cloud dan model terkelola Genspark. Tanpa login, semua fitur lokal dan model kustom tetap berfungsi.
 - Keluar cukup satu klik di pengaturan.
 
 ## Integrasi MCP (untuk pengguna lanjutan / klien AI)
 
-**Integrasi** adalah panel yang menghubungkan GenOffice dengan agen pemrograman, dan ia punya artikel tersendiri: Menghubungkan agen pemrograman. Versi singkat — pilih jalurnya (baris perintah, atau MCP), ikuti bagian itu, lalu mulai obrolan baru dan bertanya.
-
-![Pengaturan ▸ Integrasi: tiga langkah, lalu baris skill dan opsi MCP](img/settings-integrations.png)
+**Integrasi** adalah panel yang menghubungkan Vantage dengan agen pemrograman, dan ia punya artikel tersendiri: Menghubungkan agen pemrograman. Versi singkat — pilih jalurnya (baris perintah, atau MCP), ikuti bagian itu, lalu mulai obrolan baru dan bertanya.
 
 Di bawah **Server HTTP lokal**, aplikasi juga bisa menjalankan server itu sendiri — sakelar aktif dan port — dan **Lanjutan** menambahkan URL pemeriksaan kesehatan serta file log, alih-alih menghandalkannya kepada asisten. Ia hanya mendengarkan di localhost.
 
@@ -64,6 +60,6 @@ Di bawah **Server HTTP lokal**, aplikasi juga bisa menjalankan server itu sendir
 
 | Perintah           | Fungsinya                |
 | ------------------ | ------------------------ |
-| `genoffice <file>` | membuka sebuah file      |
-| `genoffice mcp`    | memulai server MCP lokal |
-| `genoffice --help` | semua perintah dan opsi  |
+| `vantage <file>` | membuka sebuah file      |
+| `vantage mcp`    | memulai server MCP lokal |
+| `vantage --help` | semua perintah dan opsi  |

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Aster Mail fork: show the independent name while keeping upstream attribution visible.
+  // Vantage Mail fork: show the independent name while keeping upstream attribution visible.
   import { api } from "../lib/api";
   import Search from "@lucide/svelte/icons/search";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";

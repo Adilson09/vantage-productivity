@@ -1,4 +1,4 @@
-// Aster Office modification (2026): no inherited promotional interruption in this independent fork.
+// Vantage Productivity modification (2026): no inherited promotional interruption in this independent fork.
 import { useEffect, useState } from 'react'
 import { Home } from './Home'
 import { Onboarding } from './Onboarding'

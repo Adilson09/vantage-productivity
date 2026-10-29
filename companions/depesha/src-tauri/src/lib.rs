@@ -1,4 +1,4 @@
-// Aster Office fork: isolated companion identity and optional test profile.
+// Vantage Productivity fork: isolated companion identity and optional test profile.
 mod aster_paths;
 mod aster_profile;
 mod background;
@@ -122,7 +122,7 @@ fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
     let handle = app.handle().clone();
     app.dialog()
         .message(crate::localize::error_now(e))
-        .title(crate::lang::pick("Aster Mail", "Aster Mail"))
+        .title(crate::lang::pick("Vantage Mail", "Vantage Mail"))
         .kind(MessageDialogKind::Error)
         .show(move |_| handle.exit(1));
 }
@@ -138,7 +138,7 @@ fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
 )]
 pub fn run() {
     if let Err(error) = aster_profile::initialize() {
-        eprintln!("Aster Mail: {error}");
+        eprintln!("Vantage Mail: {error}");
         std::process::exit(1);
     }
     // Mesa's GBM frees a device twice when WebKitWebProcess exits and the process dies with
@@ -244,7 +244,7 @@ pub fn run() {
             state.apply_language();
 
             // A `aster-mail://` link: the deep-link plugin read one from the command line at
-            // startup (a toast click while Aster Mail was closed), and emits an event for one
+            // startup (a toast click while Vantage Mail was closed), and emits an event for one
             // that arrives later (a second process, the app already running). The startup
             // URL waits for the main window to listen; the later one goes straight to it.
             {
@@ -475,7 +475,7 @@ pub fn run() {
             drafts::draft_cache_drop,
         ])
         .build(context())
-        .expect("error while running Aster Mail")
+        .expect("error while running Vantage Mail")
         .run(|app, event| {
             // The main window gone (the cache refused to open) takes the app with it.
             // A letter's window gone frees a quit that was waiting for it.

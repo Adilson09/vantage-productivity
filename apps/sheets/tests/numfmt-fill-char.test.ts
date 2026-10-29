@@ -30,16 +30,16 @@ describe('sectionFillToken', () => {
     expect(sectionFillToken('')).toBeNull()
   })
 
-  it('ignores asterisks inside quotes, escapes, skip-width tokens and brackets', () => {
+  it('ignores vantageisks inside quotes, escapes, skip-width tokens and brackets', () => {
     expect(sectionFillToken('"*"0')).toBeNull()
     expect(sectionFillToken('0\\*')).toBeNull()
     expect(sectionFillToken('0_*')).toBeNull()
     expect(sectionFillToken('[$*-409]0')).toBeNull()
-    // A trailing bare asterisk has nothing to repeat.
+    // A trailing bare vantageisk has nothing to repeat.
     expect(sectionFillToken('0*')).toBeNull()
   })
 
-  it('honours the last asterisk when a section carries several (ECMA-376 18.8.31)', () => {
+  it('honours the last vantageisk when a section carries several (ECMA-376 18.8.31)', () => {
     expect(sectionFillToken('0*-*x')).toEqual({ start: 3, end: 5, fill: 'x' })
     expect(sectionFillToken('* "$"* #,##0')).toEqual({ start: 5, end: 7, fill: ' ' })
   })
@@ -141,7 +141,7 @@ describe('expandAsteriskFill', () => {
     expect(text?.endsWith(NBSP)).toBe(true)
   })
 
-  it('honours only the last asterisk of a section', () => {
+  it('honours only the last vantageisk of a section', () => {
     // `0*-*x`: the `*-` is ignored (dropped, as numfmt renders it), `*x` fills.
     expect(expandAsteriskFill('0*-*x', 5, 15, measure)).toBe(`5${'x'.repeat(9)}`)
   })

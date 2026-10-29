@@ -1,7 +1,12 @@
-// Aster Office addition: bounded, local, previous-version snapshots and copy-only recovery.
+// Vantage Productivity addition: bounded, local, previous-version snapshots and copy-only recovery.
 import { createHash, randomUUID } from 'node:crypto'
 import { link, mkdir, open, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { assertRecoveryFreeSpace, getRecoveryPolicy, RECOVERY_POLICY, type RecoveryPolicy } from './recovery-policy'
+import { isEncryptedRecoveryPayload, recoveryCipherFor } from './recovery-encryption'
+import { publishExclusiveCopy } from './publish-exclusive'
+export { RECOVERY_POLICY, RECOVERY_POLICY_CEILING, getRecoveryPolicy, setRecoveryPolicy } from './recovery-policy'
+export type { RecoveryPolicy } from './recovery-policy'
 
 export interface RecoveryEntry {
   id: string
@@ -10,14 +15,11 @@ export interface RecoveryEntry {
   createdAt: string
   bytes: number
   sha256: string
+  /** Stored size differs from plaintext bytes for an authenticated encrypted payload. */
+  storedBytes?: number
+  encryption?: 'aes-256-gcm'
+  kind?: 'previous-version' | 'first-save'
 }
-
-export const RECOVERY_POLICY = {
-  maxFileBytes: 32 * 1024 * 1024,
-  maxVaultBytes: 128 * 1024 * 1024,
-  maxRevisionsPerFile: 10,
-  maxEntries: 128,
-} as const
 
 const DOCUMENT_EXTENSIONS = new Set([
   '.docx',
@@ -39,9 +41,9 @@ const DOCUMENT_EXTENSIONS = new Set([
 ])
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const registry = globalThis as typeof globalThis & {
-  __asterRecoveryVaultLocks?: Map<string, Promise<unknown>>
+  __vantageRecoveryVaultLocks?: Map<string, Promise<unknown>>
 }
-const locks = (registry.__asterRecoveryVaultLocks ??= new Map<string, Promise<unknown>>())
+const locks = (registry.__vantageRecoveryVaultLocks ??= new Map<string, Promise<unknown>>())
 const pathKey = (path: string) =>
   process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
 const isWithin = (root: string, path: string) => {
@@ -120,6 +122,9 @@ function validEntry(value: unknown, id: string): value is RecoveryEntry {
     Number.isSafeInteger(entry.bytes) &&
     entry.bytes >= 0 &&
     entry.bytes <= RECOVERY_POLICY.maxFileBytes &&
+    (entry.storedBytes === undefined || (Number.isSafeInteger(entry.storedBytes) && entry.storedBytes >= entry.bytes && entry.storedBytes <= RECOVERY_POLICY.maxFileBytes + 128)) &&
+    (entry.encryption === undefined || entry.encryption === 'aes-256-gcm') &&
+    (entry.kind === undefined || entry.kind === 'previous-version' || entry.kind === 'first-save') &&
     typeof entry.sha256 === 'string' &&
     /^[a-f0-9]{64}$/.test(entry.sha256)
   )
@@ -148,7 +153,7 @@ async function entriesIn(root: string): Promise<RecoveryEntry[]> {
       )
       if (!validEntry(value, id)) continue
       const blob = await stat(join(root, `${id}.bin`))
-      if (!blob.isFile() || blob.size !== value.bytes) continue
+      if (!blob.isFile() || blob.size !== (value.storedBytes ?? value.bytes)) continue
       entries.push(value)
     } catch (error) {
       // Ignore incomplete/crash-written or invalid entries, but not an unreadable vault.
@@ -160,6 +165,61 @@ async function entriesIn(root: string): Promise<RecoveryEntry[]> {
 
 export async function listRecoveryEntries(root: string): Promise<RecoveryEntry[]> {
   return locked(root, () => entriesIn(root))
+}
+
+async function readRecoveryPayload(root: string, entry: RecoveryEntry): Promise<Buffer> {
+  const payload = await readStableFile(join(root, `${entry.id}.bin`), RECOVERY_POLICY.maxFileBytes + 128, entry.storedBytes ?? entry.bytes)
+  if (entry.encryption) {
+    const cipher = recoveryCipherFor(root)
+    if (!cipher) throw new Error('Unlock OS-protected recovery storage before restoring this version')
+    const plain = cipher.decrypt(payload)
+    if (plain.length !== entry.bytes) throw new Error('Recovery data failed its integrity check')
+    return plain
+  }
+  if (isEncryptedRecoveryPayload(payload)) throw new Error('Recovery metadata does not match the encrypted payload')
+  return payload
+}
+
+/** Returns only verified content; used by preview and portable backup. */
+export async function readRecoveryEntry(root: string, id: string): Promise<{ entry: RecoveryEntry; bytes: Buffer }> {
+  if (!ID.test(id)) throw new Error('Invalid recovery entry')
+  return locked(root, async () => {
+    const entry = (await entriesIn(root)).find((item) => item.id === id)
+    if (!entry) throw new Error('The recovery entry no longer exists')
+    const bytes = await readRecoveryPayload(root, entry)
+    if (hash(bytes) !== entry.sha256) throw new Error('Recovery data failed its integrity check')
+    return { entry, bytes }
+  })
+}
+
+export async function previewRecoveryEntry(root: string, id: string): Promise<{ entry: RecoveryEntry; text: string | null; truncated: boolean }> {
+  const { entry, bytes } = await readRecoveryEntry(root, id)
+  const text = new Set(['.md', '.markdown', '.html', '.htm', '.csv', '.tsv']).has(extname(entry.fileName).toLowerCase())
+  return { entry, text: text ? bytes.subarray(0, 128 * 1024).toString('utf8') : null, truncated: text && bytes.length > 128 * 1024 }
+}
+
+export async function getRecoveryVaultStatus(root: string): Promise<{
+  policy: RecoveryPolicy; entries: number; payloadBytes: number; occupiedBytes: number;
+  orphanBytes: number; availableBytes: number; encryptionEnabled: boolean; plaintextEntries: number
+}> {
+  return locked(root, async () => {
+    const policy = await getRecoveryPolicy(root)
+    const entries = await entriesIn(root)
+    let occupiedBytes = 0
+    try {
+      const files = await readdir(root, { withFileTypes: true })
+      if (files.length > 2048) throw new Error('Recovery storage exceeds its inspection limit')
+      for (const file of files) if (file.isFile()) occupiedBytes += (await stat(join(root, file.name))).size
+    } catch (error) { if (errno(error) !== 'ENOENT') throw error }
+    const payloadBytes = entries.reduce((sum, entry) => sum + (entry.storedBytes ?? entry.bytes), 0)
+    let blobBytes = 0
+    try {
+      for (const file of await readdir(root)) if (file.endsWith('.bin') && ID.test(file.slice(0, -4))) blobBytes += (await stat(join(root, file))).size
+    } catch (error) { if (errno(error) !== 'ENOENT') throw error }
+    return { policy, entries: entries.length, payloadBytes, occupiedBytes,
+      orphanBytes: Math.max(0, blobBytes - payloadBytes), availableBytes: Math.max(0, policy.maxVaultBytes - blobBytes),
+      encryptionEnabled: !!recoveryCipherFor(root), plaintextEntries: entries.filter((entry) => !entry.encryption).length }
+  })
 }
 
 async function removeEntry(root: string, entry: RecoveryEntry): Promise<void> {
@@ -177,6 +237,7 @@ async function prune(
   root: string,
   entries: RecoveryEntry[],
   keepId?: string,
+  policy: RecoveryPolicy = { ...RECOVERY_POLICY },
 ): Promise<RecoveryEntry[]> {
   const counts = new Map<string, number>()
   const retained: RecoveryEntry[] = []
@@ -184,18 +245,18 @@ async function prune(
     const key = pathKey(entry.originalPath)
     const count = (counts.get(key) ?? 0) + 1
     counts.set(key, count)
-    if (count > RECOVERY_POLICY.maxRevisionsPerFile && entry.id !== keepId)
+    if (count > policy.maxRevisionsPerFile && entry.id !== keepId)
       await removeEntry(root, entry)
     else retained.push(entry)
   }
-  let total = retained.reduce((sum, entry) => sum + entry.bytes, 0)
-  while (retained.length > RECOVERY_POLICY.maxEntries || total > RECOVERY_POLICY.maxVaultBytes) {
+  let total = retained.reduce((sum, entry) => sum + (entry.storedBytes ?? entry.bytes), 0)
+  while (retained.length > policy.maxEntries || total > policy.maxVaultBytes) {
     let index = retained.length - 1
     while (index >= 0 && retained[index]!.id === keepId) index -= 1
     if (index < 0) throw new Error('The recovery snapshot exceeds the vault budget')
     const [entry] = retained.splice(index, 1)
     await removeEntry(root, entry!)
-    total -= entry!.bytes
+    total -= entry!.storedBytes ?? entry!.bytes
   }
   return retained
 }
@@ -205,6 +266,7 @@ async function reserveSnapshotRoom(
   entries: RecoveryEntry[],
   bytes: number,
   originalPath: string,
+  policy: RecoveryPolicy,
 ): Promise<RecoveryEntry[]> {
   // Count unindexed crash leftovers too: they must not let repeated interrupted
   // saves grow storage without bound. Unknown files are never deleted here.
@@ -218,14 +280,14 @@ async function reserveSnapshotRoom(
   const key = pathKey(originalPath)
   let revisions = remaining.filter((entry) => pathKey(entry.originalPath) === key).length
   while (
-    occupied + bytes > RECOVERY_POLICY.maxVaultBytes ||
-    remaining.length >= RECOVERY_POLICY.maxEntries ||
-    revisions >= RECOVERY_POLICY.maxRevisionsPerFile
+    occupied + bytes > policy.maxVaultBytes ||
+    remaining.length >= policy.maxEntries ||
+    revisions >= policy.maxRevisionsPerFile
   ) {
     let index = remaining.length - 1
     // Reserve this document's slot first; do not discard another document's
     // version merely because this one already has ten revisions.
-    if (revisions >= RECOVERY_POLICY.maxRevisionsPerFile) {
+    if (revisions >= policy.maxRevisionsPerFile) {
       while (index >= 0 && pathKey(remaining[index]!.originalPath) !== key) index -= 1
     }
     const oldest = index < 0 ? undefined : remaining.splice(index, 1)[0]
@@ -234,7 +296,7 @@ async function reserveSnapshotRoom(
         'The recovery vault is full of incomplete or unindexed data. Save As to a new file to preserve your work.',
       )
     await removeEntry(root, oldest)
-    occupied -= oldest.bytes
+    occupied -= oldest.storedBytes ?? oldest.bytes
     if (pathKey(oldest.originalPath) === key) revisions -= 1
   }
   return remaining
@@ -242,21 +304,25 @@ async function reserveSnapshotRoom(
 
 /**
  * Called only after the new save temp is complete and before publishing it.
- * The root is supplied by the desktop shell through ASTER_RECOVERY_ROOT so
+ * The root is supplied by the desktop shell through VANTAGE_RECOVERY_ROOT so
  * independently bundled editor modules share the same local history folder.
  * New files, non-document state and files larger than 32 MiB are excluded.
- * ASTER_RECOVERY_EXCLUDE_ROOT excludes the shell's application data tree so
+ * VANTAGE_RECOVERY_EXCLUDE_ROOT excludes the shell's application data tree so
  * background crash-recovery copies and caches never become document history.
  * A configured vault failure rejects replacement; Save As to a new file remains possible.
  */
 export async function captureRecoverySnapshot(
   filePath: string,
-  root = process.env.ASTER_RECOVERY_ROOT,
+  root = process.env.VANTAGE_RECOVERY_ROOT,
+  kind: RecoveryEntry['kind'] = 'previous-version',
+  expectedSha256?: string,
 ): Promise<RecoveryEntry | null> {
   if (!root || !DOCUMENT_EXTENSIONS.has(extname(filePath).toLowerCase())) return null
   const absolute = resolve(filePath)
-  const excluded = process.env.ASTER_RECOVERY_EXCLUDE_ROOT
+  const excluded = process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT
   if (excluded && isWithin(excluded, absolute)) return null
+  // Never snapshot the vault into itself, including a user-selected vault outside userData.
+  if (isWithin(root, absolute)) return null
   return locked(root, async () => {
     let info
     try {
@@ -265,26 +331,34 @@ export async function captureRecoverySnapshot(
       if (errno(error) === 'ENOENT') return null
       throw error
     }
-    if (!info.isFile() || info.size > RECOVERY_POLICY.maxFileBytes) return null
+    const policy = await getRecoveryPolicy(root)
+    if (!info.isFile() || info.size > policy.maxFileBytes) return null
     await mkdir(root, { recursive: true, mode: 0o700 })
     // Recover from a previous interrupted prune before allocating another snapshot.
-    let entries = await prune(root, await entriesIn(root))
-    const bytes = await readStableFile(absolute, RECOVERY_POLICY.maxFileBytes)
+    let entries = await prune(root, await entriesIn(root), undefined, policy)
+    const bytes = await readStableFile(absolute, policy.maxFileBytes)
     const digest = hash(bytes)
+    if (expectedSha256 !== undefined && digest !== expectedSha256)
+      throw new Error('The document changed before its first-save recovery baseline could be captured')
     const last = entries.find((entry) => pathKey(entry.originalPath) === pathKey(absolute))
     if (last?.sha256 === digest) {
-      const stored = await readStableFile(
-        join(root, `${last.id}.bin`),
-        RECOVERY_POLICY.maxFileBytes,
-        last.bytes,
-      )
+      const stored = await readRecoveryPayload(root, last)
       if (hash(stored) !== digest)
         throw new Error(
           'Existing recovery data failed its integrity check. The document was not overwritten.',
         )
       return last
     }
-    entries = await reserveSnapshotRoom(root, entries, bytes.length, absolute)
+    const cipher = recoveryCipherFor(root)
+    // A persistent protected key means the user enabled encryption previously.
+    // A missed startup unlock must never silently write a new plaintext snapshot.
+    if (!cipher && await stat(join(root, 'protected-key.bin')).then(() => true, (error: unknown) => {
+      if (errno(error) === 'ENOENT') return false
+      throw error
+    })) throw new Error('Unlock OS-protected recovery storage before saving another recovery version')
+    const payload = cipher ? cipher.encrypt(bytes) : bytes
+    await assertRecoveryFreeSpace(root, payload.length + 16 * 1024, policy)
+    entries = await reserveSnapshotRoom(root, entries, payload.length, absolute, policy)
     const entry: RecoveryEntry = {
       id: randomUUID(),
       originalPath: absolute,
@@ -294,12 +368,14 @@ export async function captureRecoverySnapshot(
       ).toISOString(),
       bytes: bytes.length,
       sha256: digest,
+      kind,
+      ...(cipher ? { encryption: 'aes-256-gcm' as const, storedBytes: payload.length } : {}),
     }
     const blob = join(root, `${entry.id}.bin`)
     const metadata = join(root, `${entry.id}.json`)
     const pending = `${metadata}.tmp`
     try {
-      await writeFile(blob, bytes, { flag: 'wx', mode: 0o600 })
+      await writeFile(blob, payload, { flag: 'wx', mode: 0o600 })
       await flushFile(blob)
       await writeFile(pending, JSON.stringify(entry), { flag: 'wx', mode: 0o600 })
       await flushFile(pending)
@@ -309,7 +385,7 @@ export async function captureRecoverySnapshot(
       await unlink(blob).catch(() => {})
       throw error
     }
-    await prune(root, [entry, ...entries], entry.id)
+    await prune(root, [entry, ...entries], entry.id, policy)
     return entry
   })
 }
@@ -326,11 +402,7 @@ export async function restoreRecoveryCopy(
     if (!entry) throw new Error('The recovery entry no longer exists')
     if (pathKey(destination) === pathKey(entry.originalPath))
       throw new Error('Recovery must be saved as a new copy, not over the original')
-    const bytes = await readStableFile(
-      join(root, `${id}.bin`),
-      RECOVERY_POLICY.maxFileBytes,
-      entry.bytes,
-    )
+    const bytes = await readRecoveryPayload(root, entry)
     if (bytes.length !== entry.bytes || hash(bytes) !== entry.sha256)
       throw new Error('Recovery data failed its integrity check')
     const temp = join(
@@ -346,9 +418,7 @@ export async function restoreRecoveryCopy(
       await handle.sync()
       await handle.close()
       handle = undefined
-      // A hard link publishes exclusively and atomically on the destination filesystem.
-      // Refuse filesystems without this facility rather than race an overwrite via rename.
-      await link(temp, resolve(destination))
+      await publishExclusiveCopy(temp, resolve(destination), { bytes: entry.bytes, sha256: entry.sha256 })
     } finally {
       await handle?.close().catch(() => {})
       if (ownsTemp) await unlink(temp).catch(() => {})

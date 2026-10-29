@@ -63,10 +63,10 @@ En|ews-denied|access denied (Exchange: ErrorAccessDenied)
 En|ews-unknown|Exchange answered ErrorWhatever: msg
 En|busy-retrying|the Exchange server is busy; the mailbox will try again in 3 s
 En|busy-not|the Exchange server is busy; nothing was done, try again in 1 s
-En|http-auth|Exchange accepts only Negotiate on EWS; Aster Mail signs in with Basic or NTLM. Ask the administrator to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true
+En|http-auth|Exchange accepts only Negotiate on EWS; Vantage Mail signs in with Basic or NTLM. Ask the administrator to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true
 En|paused|the mailbox is paused until its settings are fixed
-En|private|192.168.0.1 is an address in a private network; Aster Mail does not send requests there from a letter
-En|cache-too-new|the local mail cache was saved by a newer version of Aster Mail (format 20, this version reads up to 18). Install the newer version; the cache was left as it is
+En|private|192.168.0.1 is an address in a private network; Vantage Mail does not send requests there from a letter
+En|cache-too-new|the local mail cache was saved by a newer version of Vantage Mail (format 20, this version reads up to 18). Install the newer version; the cache was left as it is
 En|folder-changed|the folder changed on the server before the action ran; nothing was done, try again
 En|label-stripping|The label is still being removed, try again in a minute
 En|label-check|this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run
@@ -139,10 +139,10 @@ Ru|ews-denied|доступ запрещён (Exchange: ErrorAccessDenied)
 Ru|ews-unknown|Exchange ответил ErrorWhatever: msg
 Ru|busy-retrying|сервер Exchange занят; ящик повторит запрос через 3 с
 Ru|busy-not|сервер Exchange занят; ничего не сделано, повторите через 1 с
-Ru|http-auth|Exchange принимает на EWS только Negotiate, а Aster Mail входит через Basic или NTLM. Попросите администратора включить один из них: Set-WebServicesVirtualDirectory -WindowsAuthentication $true
+Ru|http-auth|Exchange принимает на EWS только Negotiate, а Vantage Mail входит через Basic или NTLM. Попросите администратора включить один из них: Set-WebServicesVirtualDirectory -WindowsAuthentication $true
 Ru|paused|ящик приостановлен, пока не исправлены его настройки
-Ru|private|192.168.0.1 — адрес во внутренней сети; по ссылке из письма Aster Mail туда не обращается
-Ru|cache-too-new|локальный кэш почты сохранён более новой версией Aster Mail (формат 20, эта версия читает до 18). Установите новую версию; кэш оставлен как есть
+Ru|private|192.168.0.1 — адрес во внутренней сети; по ссылке из письма Vantage Mail туда не обращается
+Ru|cache-too-new|локальный кэш почты сохранён более новой версией Vantage Mail (формат 20, эта версия читает до 18). Установите новую версию; кэш оставлен как есть
 Ru|folder-changed|папка изменилась на сервере, пока действие ждало очереди; ничего не сделано, повторите действие
 Ru|label-stripping|Метка ещё удаляется, попробуйте через минуту
 Ru|label-check|на этом сервере нет UIDPLUS: проверка меток не сможет удалить тестовое письмо, поэтому она не выполняется

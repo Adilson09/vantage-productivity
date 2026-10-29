@@ -1,4 +1,4 @@
-import type { AgentToolCall } from '@genoffice/agent-core'
+import type { AgentToolCall } from '@vantage/agent-core'
 import type { AiTokenUsage } from '../types'
 
 // ---- endpoint URL composition ----

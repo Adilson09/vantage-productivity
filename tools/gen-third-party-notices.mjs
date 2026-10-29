@@ -102,7 +102,7 @@ function bareName(spec) {
   if (spec.startsWith('.') || spec.startsWith('/')) return null
   const parts = spec.split('/')
   const name = spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
-  if (BUILTIN.has(name) || name.startsWith('@genoffice/')) return null
+  if (BUILTIN.has(name) || name.startsWith('@vantage/')) return null
   // the specifier regex also fires on prose inside string concatenations
   return NPM_NAME.test(name) ? name : null
 }
@@ -232,7 +232,7 @@ const seed = importedNames()
 const { resolved, missing } = closure(seed)
 resolved.sort(([a], [b]) => a.localeCompare(b))
 
-let out = `GenOffice — Third-Party Software Notices
+let out = `Vantage Productivity — Third-Party Software Notices
 
 This application includes third-party software components under the licenses
 reproduced below.

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { FieldDisplay } from '@genoffice/docx-engine'
+import type { FieldDisplay } from '@vantage/docx-engine'
 import { renderFieldSpec } from '../src/renderer/editor/protected-render'
 
 type Span = [string, Record<string, string>, string]

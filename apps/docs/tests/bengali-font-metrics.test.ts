@@ -9,10 +9,10 @@ import { describe, expect, it } from 'vitest'
 import { advanceEm, readWoff2 } from './helpers/woff2-metrics'
 
 const FONTS = join(__dirname, '../src/renderer/fonts')
-const regular = readWoff2(join(FONTS, 'GenOfficeBengali-Regular.woff2'))
-const bold = readWoff2(join(FONTS, 'GenOfficeBengali-Bold.woff2'))
+const regular = readWoff2(join(FONTS, 'VantageBengali-Regular.woff2'))
+const bold = readWoff2(join(FONTS, 'VantageBengali-Bold.woff2'))
 
-describe('GenOffice Bengali (Nirmala UI-normalized)', () => {
+describe('Vantage Bengali (Nirmala UI-normalized)', () => {
   it('space, danda and Bengali digits match Nirmala UI', () => {
     expect(advanceEm(regular, 0x20)).toBeCloseTo(0.274, 3)
     expect(advanceEm(regular, 0x0964)).toBeCloseTo(0.432, 3)

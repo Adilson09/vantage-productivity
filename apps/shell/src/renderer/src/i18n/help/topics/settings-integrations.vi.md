@@ -4,8 +4,6 @@
 
 Hàng tài khoản ở góc dưới bên trái của Trang chủ mở bảng cài đặt (khi bạn chưa đăng nhập, hàng đó ghi "Đăng nhập"). Bảng đó có sáu mục: Tài khoản, Mô hình AI, Phương tiện AI & Tìm kiếm, Chung, Tích hợp và Giới thiệu.
 
-![Cài đặt ▸ Chung, nơi có ngôn ngữ, chủ đề, tự động lưu và công tắc thống kê sử dụng](img/settings-general.png)
-
 Việc cấu hình mô hình có bài riêng; trong **Phương tiện AI & Tìm kiếm**, bạn bật tạo hình ảnh, phân tích hình ảnh, phân tích video, tìm kiếm web và tìm kiếm tệp cục bộ cho từng nhà cung cấp.
 
 ## Ngôn ngữ
@@ -23,7 +21,7 @@ Sáng / Tối / Theo hệ thống. Khi chọn Theo hệ thống, giao diện bá
 - **Vị trí thanh bên AI** (trái hoặc phải), **Cỡ chữ bảng điều khiển AI** và **Kiểm tra chính tả trong trò chuyện AI**.
 - **Mở bảng AI trong tài liệu mới** — tắt, tài liệu mới sẽ bắt đầu với bảng AI đã thu gọn, chỉ một cú nhấp là mở ra.
 - **Tự động lưu tất cả tài liệu** bật AutoSave theo mặc định trong mọi trình soạn thảo; bạn vẫn có thể tắt nó cho một cửa sổ.
-- **Vị trí lữu** kèm nút **Thay đổi**, và **Ứng dụng mặc định cho tài liệu Office** để nhận .docx / .xlsx / .pptx về cho GenOffice.
+- **Vị trí lữu** kèm nút **Thay đổi**, và **Ứng dụng mặc định cho tài liệu Office** để nhận .docx / .xlsx / .pptx về cho Vantage.
 
 ## Phương tiện AI & Tìm kiếm
 
@@ -39,7 +37,7 @@ Sáng / Tối / Theo hệ thống. Khi chọn Theo hệ thống, giao diện bá
 
 ## Đăng ký ứng dụng mặc định
 
-Cài đặt có thể đăng ký GenOffice làm ứng dụng xử lý .docx / .xlsx / .pptx / .pdf và các định dạng liên quan (đăng ký ứng dụng mặc định ở cấp nền tảng; xác nhận khi được hỏi).
+Cài đặt có thể đăng ký Vantage làm ứng dụng xử lý .docx / .xlsx / .pptx / .pdf và các định dạng liên quan (đăng ký ứng dụng mặc định ở cấp nền tảng; xác nhận khi được hỏi).
 
 ## Thông báo bên thứ ba và cập nhật
 
@@ -48,15 +46,13 @@ Cài đặt có thể đăng ký GenOffice làm ứng dụng xử lý .docx / .x
 
 ## Đăng nhập Genspark
 
-- Lối đăng nhập (trong cài đặt hoặc danh sách dự án đám mây) dùng luồng **mã thiết bị**: GenOffice hiển thị một mã và mở trang đăng nhập trong trình duyệt; xong thì nó tự tiếp tục.
+- Lối đăng nhập (trong cài đặt hoặc danh sách dự án đám mây) dùng luồng **mã thiết bị**: Vantage hiển thị một mã và mở trang đăng nhập trong trình duyệt; xong thì nó tự tiếp tục.
 - Đăng nhập chỉ dùng cho: danh sách dự án đám mây và các mô hình đám mây của Genspark. Không đăng nhập thì mọi tính năng cục bộ và mô hình tùy chỉnh vẫn hoạt động bình thường.
 - Đăng xuất chỉ cần một cú nhấp trong cài đặt.
 
 ## Tích hợp MCP (dành cho người dùng nâng cao / ứng dụng AI)
 
-**Tích hợp** là bảng nối GenOffice với một tác nhân lập trình, và nó có bài riêng: Kết nối tác nhân lập trình. Nói ngắn gọn — chọn một lối (dòng lệnh, hoặc MCP), làm theo phần đó, rồi mở một cuộc trò chuyện mới và hỏi.
-
-![Cài đặt ▸ Tích hợp: ba bước, rồi đến các hàng kỹ năng và tuỳ chọn MCP](img/settings-integrations.png)
+**Tích hợp** là bảng nối Vantage với một tác nhân lập trình, và nó có bài riêng: Kết nối tác nhân lập trình. Nói ngắn gọn — chọn một lối (dòng lệnh, hoặc MCP), làm theo phần đó, rồi mở một cuộc trò chuyện mới và hỏi.
 
 Dưới **Máy chủ HTTP cục bộ**, ứng dụng cũng có thể tự chạy máy chủ đó — công tắc bật và cổng —, còn **Nâng cao** thêm URL kiểm tra tình trạng và tệp nhật ký, thay vì để dành cho trợ lý. Nó chỉ lắng nghe trên localhost.
 
@@ -64,6 +60,6 @@ Dưới **Máy chủ HTTP cục bộ**, ứng dụng cũng có thể tự chạy
 
 | Lệnh               | Tác dụng                     |
 | ------------------ | ---------------------------- |
-| `genoffice <file>` | mở một tập tin               |
-| `genoffice mcp`    | khởi động máy chủ MCP cục bộ |
-| `genoffice --help` | mọi lệnh và tuỳ chọn         |
+| `vantage <file>` | mở một tập tin               |
+| `vantage mcp`    | khởi động máy chủ MCP cục bộ |
+| `vantage --help` | mọi lệnh và tuỳ chọn         |

@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { useRedactLabelField } from '@genoffice/ui'
+import { useRedactLabelField } from '@vantage/ui'
 import { useI18n } from '../i18n/locale'
 
 /**

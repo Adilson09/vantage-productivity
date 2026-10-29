@@ -8,7 +8,15 @@ export default defineConfig({
   // so externalizing them would break Node ESM resolution at runtime.
   main: {
     // node:sqlite is a Node 22+ builtin the bundler's builtin list may predate
-    build: { rollupOptions: { external: ['node:sqlite'] } },
+    build: {
+      rollupOptions: {
+        external: ['node:sqlite'],
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          'workspace-audit-child': resolve(__dirname, 'src/main/workspace-audit-child.ts'),
+        },
+      },
+    },
   },
   preload: {
     build: {

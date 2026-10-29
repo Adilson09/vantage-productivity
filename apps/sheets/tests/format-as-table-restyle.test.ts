@@ -10,7 +10,7 @@ import { buildEditFixture, buildKitchenSinkFixture } from './fixture-builder'
 import {
   createBufferEntrySource,
   planCellEditsToXlsx,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-gateway'
+} from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 
 vi.mock('../src/renderer/univer-sync', async (original) => ({
   ...(await original<typeof import('../src/renderer/univer-sync')>()),

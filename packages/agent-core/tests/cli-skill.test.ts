@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createCliSkill,
   LOAD_GUIDE_TOOL,
-  RUN_GENOFFICE_TOOL,
+  RUN_VANTAGE_TOOL,
   type CliRunRequest,
   type CliRunResult,
   type CliSkillDeps,
@@ -30,9 +30,9 @@ function makeDeps(
 const call = (name: string, input: Record<string, unknown>) => ({ id: 't1', name, input })
 
 describe('createCliSkill', () => {
-  it('exposes run_genoffice and load_guide and names the directories in context', () => {
+  it('exposes run_vantage and load_guide and names the directories in context', () => {
     const skill = createCliSkill(makeDeps())
-    expect(skill.tools.map((t) => t.name)).toEqual([RUN_GENOFFICE_TOOL, LOAD_GUIDE_TOOL])
+    expect(skill.tools.map((t) => t.name)).toEqual([RUN_VANTAGE_TOOL, LOAD_GUIDE_TOOL])
     expect(skill.buildContext?.()).toContain(CTX.workDir)
     expect(skill.buildContext?.()).toContain(CTX.outDir)
   })
@@ -50,7 +50,7 @@ describe('createCliSkill', () => {
     })
     const skill = createCliSkill(deps)
     const res = await skill.executeTool(
-      call(RUN_GENOFFICE_TOOL, {
+      call(RUN_VANTAGE_TOOL, {
         args: ['create', '--type', 'docx', '--from', 'report.md', '--out', out],
         files: [{ name: 'report.md', content: '# Weekly' }],
       }),
@@ -73,7 +73,7 @@ describe('createCliSkill', () => {
         json: { status: 'error', command: 'docs', code: 2, message: 'op_rejected: setFont' },
       }),
     )
-    const res = await skill.executeTool(call(RUN_GENOFFICE_TOOL, { args: ['docs', 'apply'] }))
+    const res = await skill.executeTool(call(RUN_VANTAGE_TOOL, { args: ['docs', 'apply'] }))
     expect(res.isError).toBe(true)
     expect(res.output).toContain('exit 2')
     expect(res.output).toContain('op_rejected')
@@ -83,10 +83,10 @@ describe('createCliSkill', () => {
   it('rejects malformed args and files without running anything', async () => {
     const deps = makeDeps()
     const skill = createCliSkill(deps)
-    expect((await skill.executeTool(call(RUN_GENOFFICE_TOOL, { args: [] }))).isError).toBe(true)
-    expect((await skill.executeTool(call(RUN_GENOFFICE_TOOL, { args: 'info' }))).isError).toBe(true)
+    expect((await skill.executeTool(call(RUN_VANTAGE_TOOL, { args: [] }))).isError).toBe(true)
+    expect((await skill.executeTool(call(RUN_VANTAGE_TOOL, { args: 'info' }))).isError).toBe(true)
     expect(
-      (await skill.executeTool(call(RUN_GENOFFICE_TOOL, { args: ['info'], files: [{ name: 1 }] })))
+      (await skill.executeTool(call(RUN_VANTAGE_TOOL, { args: ['info'], files: [{ name: 1 }] })))
         .isError,
     ).toBe(true)
     expect(deps.runs).toEqual([])
@@ -97,7 +97,7 @@ describe('createCliSkill', () => {
       json: {
         status: 'ok',
         command: 'guide',
-        summary: 'Word ops (genoffice docs apply)\n  setFont {…}',
+        summary: 'Word ops (vantage docs apply)\n  setFont {…}',
       },
     })
     const skill = createCliSkill(deps)
@@ -111,11 +111,11 @@ describe('createCliSkill', () => {
   it('verifyResponse pushes back on a saved claim with no successful run', () => {
     const skill = createCliSkill(makeDeps())
     expect(skill.verifyResponse?.('I have saved the workbook to Documents.', [])).toMatch(
-      /no run_genoffice call succeeded/,
+      /no run_vantage call succeeded/,
     )
     expect(
       skill.verifyResponse?.('I have saved the workbook.', [
-        { name: RUN_GENOFFICE_TOOL, ok: true },
+        { name: RUN_VANTAGE_TOOL, ok: true },
       ]),
     ).toBeNull()
     expect(skill.verifyResponse?.('The file was created in 2019.', [])).toBeNull()

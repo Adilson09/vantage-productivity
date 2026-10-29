@@ -14,9 +14,9 @@ import type {
   AddTableRowOperation,
   DeleteTableColumnOperation,
   DeleteTableRowOperation,
-} from '@genoffice/xlsx-gateway/domain/workbook-dsl'
-import { columnLabel, parseAddress, parseRange } from '@genoffice/xlsx-gateway/domain/cell-address'
-import { renameRefSheet } from '@genoffice/xlsx-gateway/domain/chart-visual'
+} from '@vantage/xlsx-gateway/domain/workbook-dsl'
+import { columnLabel, parseAddress, parseRange } from '@vantage/xlsx-gateway/domain/cell-address'
+import { renameRefSheet } from '@vantage/xlsx-gateway/domain/chart-visual'
 import {
   areasOverlap,
   buildPivotLayout,
@@ -27,7 +27,7 @@ import {
   type PivotArea,
   type PivotLayout,
   type PivotLayoutErrorCode,
-} from '@genoffice/xlsx-gateway/domain/pivot-layout'
+} from '@vantage/xlsx-gateway/domain/pivot-layout'
 import type {
   WorkbookPivotAdd,
   WorkbookTableAdd,
@@ -45,7 +45,7 @@ import { optionsOfTableAdd } from './table-design'
 import { DEFAULT_TABLE_STYLE, builtinTablePalette, tableThemeJson } from './table-styles'
 import { t } from './i18n/locale'
 import type { OoXmlPivotConfig, PivotField } from './PivotDialog'
-import type { PivotDefinition } from '@genoffice/xlsx-gateway/gateway/xlsx-pivot'
+import type { PivotDefinition } from '@vantage/xlsx-gateway/gateway/xlsx-pivot'
 import { applyFormatPatchToRange, nextSessionPivotName, nextSessionTableName } from './univer-sync'
 import type { LazyWorkbookState, UniverRuntime, UniverWorksheet } from './univer-state'
 

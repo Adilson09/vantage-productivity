@@ -2,8 +2,6 @@
 
 Todos los archivos abiertos comparten una sola ventana; la barra de pestañas de arriba permite pasar de uno a otro al estilo de un navegador.
 
-![La barra de pestañas: Inicio más dos documentos](img/tabs.png)
-
 ## Fundamentos
 
 - **Cambiar**: haga clic en una pestaña o gire la rueda sobre la barra para recorrerlas.

@@ -1,12 +1,22 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { tempDir } from './helpers'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 const SCRIPT = join(__dirname, '../../../tools/check-skill-version.mjs')
 
 let repo: string
+const fixtureRoot =
+  process.platform === 'win32' && process.env.LOCALAPPDATA
+    ? join(process.env.LOCALAPPDATA, 'Temp', 'vantage-skill-version-fixtures')
+    : join(tmpdir(), 'vantage-skill-version-fixtures')
+afterEach(() => {
+  if (!repo) return
+  if (!resolve(repo).startsWith(resolve(fixtureRoot) + sep))
+    throw new Error('Refusing fixture cleanup outside the test root')
+  rmSync(repo, { recursive: true, force: true })
+})
 
 function git(...args: string[]): void {
   execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
@@ -31,10 +41,13 @@ function check(): { ok: boolean; stderr: string } {
 
 describe('check-skill-version', () => {
   beforeEach(() => {
-    repo = tempDir()
+    mkdirSync(fixtureRoot, { recursive: true })
+    repo = mkdtempSync(join(fixtureRoot, 'repo-'))
     git('init', '-q')
     git('config', 'user.email', 'ci@example.com')
     git('config', 'user.name', 'ci')
+    git('config', 'commit.gpgsign', 'false')
+    git('config', 'core.hooksPath', join(repo, '.git', 'disabled-hooks'))
     writeSkill('demo', skill('demo', '1.0.0', 'Run `demo --help`.'))
     git('add', '.')
     git('commit', '-q', '-m', 'base')

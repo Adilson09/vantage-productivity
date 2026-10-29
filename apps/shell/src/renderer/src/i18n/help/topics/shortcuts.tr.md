@@ -26,7 +26,7 @@ Her düzenleyicinin kendi tuş atamaları vardır ve bunlardan yalnızca birkaç
 
 - macOS sütunu tanıdık simgeleri kullanır: `⌘` Command, `⌥` Option, `⇧` Shift, `⌃` Control.
 - Windows / Linux sütunu bunları açık yazar: `Ctrl`, `Alt`, `Shift`.
-- GenOffice'in iki platformda gerçekten farklı tuşlara ihtiyaç duyduğu yerlerde tablo bunu gösterir. Yaygın durumlar Bul ve Değiştir için `⌃H` (macOS'te `⌘H` Gizle'ye aittir), Git için `⌥⌘G` ve Slides'ın kapatma tuşudur.
+- Vantage'in iki platformda gerçekten farklı tuşlara ihtiyaç duyduğu yerlerde tablo bunu gösterir. Yaygın durumlar Bul ve Değiştir için `⌃H` (macOS'te `⌘H` Gizle'ye aittir), Git için `⌥⌘G` ve Slides'ın kapatma tuşudur.
 - Yalnızca bir seçimle çalışan bir tuş bileşimi, ayrı bir sütun yerine Eylem sütununda yazılır; böylece tablo üç sütun genişliğinde kalır.
 
 ## Word
@@ -159,7 +159,7 @@ F1 **Kullanıcı Kılavuzu**'nu açar, bu listeyi değil. Kısayol sayfası ⌘/
 
 ## Sheets
 
-GenOffice Sheets, Excel uyumlu bir kılavuzdur. Aşağıdaki kısayolların çoğu zaten bildiğiniz Excel kısayollarıdır.
+Vantage Sheets, Excel uyumlu bir kılavuzdur. Aşağıdaki kısayolların çoğu zaten bildiğiniz Excel kısayollarıdır.
 
 > **Düzenleme kazanır.** Sheets'teki neredeyse her kısayol, bir hücreyi düzenlerken ya da **formül çubuğuna** yazarken yok sayılır; böylece yazma, imleci taşıma ve Backspace normal metin düzenleme anlamlarını korur. Bir tuş hiçbir şey yapmıyor gibi görünüyorsa düzenlemenin ortasında olup olmadığınıza bakın: önce Esc veya Enter'a basın, sonra yeniden deneyin. Seçim üzerinde çalışan komutlar da bir iletişim kutusu açıkken hiçbir şey yapmaz. Bir bileşim bu kuralın istisnasıysa tablo bunu belirtir.
 
@@ -287,7 +287,7 @@ Excel'in filtre kısayolu Ctrl+Shift+L, Windows ve Linux'ta hiçbir şey yapmaz.
 
 ## Slides
 
-GenOffice Slides, PowerPoint tarzı bir sunu düzenleyicisidir. Çoğu tuş nerede olursanız olun aynı şeyi yapar, ancak birkaçı odağa göre anlam değiştirir — bir metin kutusunun içinde ya da **küçük resim bölmesi**, **ana hat bölmesi** veya **slayt sıralayıcısı** klavye odağındayken. Bu durumlar Eylem sütununda belirtilmiştir.
+Vantage Slides, PowerPoint tarzı bir sunu düzenleyicisidir. Çoğu tuş nerede olursanız olun aynı şeyi yapar, ancak birkaçı odağa göre anlam değiştirir — bir metin kutusunun içinde ya da **küçük resim bölmesi**, **ana hat bölmesi** veya **slayt sıralayıcısı** klavye odağındayken. Bu durumlar Eylem sütununda belirtilmiştir.
 
 ### Dosya ve uygulama
 
@@ -482,7 +482,7 @@ Escape katmanları teker teker çözer — önce açık iletişim kutusu, sonra 
 
 ## Markdown
 
-GenOffice Markdown, yanında canlı önizlemeyle Markdown düzenler.
+Vantage Markdown, yanında canlı önizlemeyle Markdown düzenler.
 
 ### Dosya ve görünüm
 
@@ -523,7 +523,7 @@ Boş bir formül uygulamak bunun yerine bloğu siler. Düzenleyici, belgedeki he
 
 ## HTML
 
-GenOffice HTML, canlı önizlemenin yanında bir kod düzenleyicisi gösterir. Bir sayfa öğesi üzerinde çalışan tuşlar yalnızca önizlemenin kendisi klavye odağındayken uygulanır.
+Vantage HTML, canlı önizlemenin yanında bir kod düzenleyicisi gösterir. Bir sayfa öğesi üzerinde çalışan tuşlar yalnızca önizlemenin kendisi klavye odağındayken uygulanır.
 
 ### Dosya ve kaynak görünümü
 

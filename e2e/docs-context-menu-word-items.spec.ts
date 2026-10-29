@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Word context-menu and Review-tab parity: right-clicking a hyperlink offers
  * Edit / Open / Copy / Remove Hyperlink instead of the generic "Hyperlink…",

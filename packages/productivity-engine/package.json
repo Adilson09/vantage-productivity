@@ -1,0 +1,30 @@
+{
+  "name": "@vantage/productivity-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Local Vantage database, calendar and contact workflows with bounded imports",
+  "exports": {
+    ".": "./src/index.ts",
+    "./calendar": "./src/calendar.ts",
+    "./database": "./src/database.ts",
+    "./database-isolated": "./src/database-isolated.ts",
+    "./collaboration": "./src/collaboration.ts",
+    "./providers": "./src/providers.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "cli": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "ical.js": "2.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "tsx": "^4.21.0",
+    "vitest": "^4.1.12"
+  }
+}

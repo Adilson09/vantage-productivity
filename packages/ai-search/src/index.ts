@@ -21,7 +21,7 @@ import { parallelMcpSearch } from './parallel-mcp'
 
 export type { ImageSearchResult, WebSearchResult } from './shared'
 export * from './gsk'
-export * from './genoffice-auth'
+export * from './vantage-auth'
 export * from './media-tools'
 export * from './search-tools'
 
@@ -133,7 +133,7 @@ async function serperWebSearch(
 }
 
 /** Serply's Google results API authenticates with X-Api-Key on a GET query string. */
-const SERPLY_HEADERS = (key: string) => ({ 'X-Api-Key': key, 'User-Agent': 'genoffice' })
+const SERPLY_HEADERS = (key: string) => ({ 'X-Api-Key': key, 'User-Agent': 'vantage' })
 
 /** Serply Google web search; null when the key is empty, the call fails, or nothing comes back */
 async function serplyWebSearch(
@@ -248,7 +248,7 @@ async function parallelWebSearch(
     const raw: unknown[] = Array.isArray(data.results) ? data.results : []
     const results: WebSearchResult[] = []
     for (const item of raw) {
-      // v1 search has no result-count parameter, so GenOffice's limit is applied
+      // v1 search has no result-count parameter, so Vantage's limit is applied
       // here. Cut the loop off once the list is full instead of slicing the source
       // first: the URL check below drops entries, and slicing first would both
       // concatenate excerpts for results that are then thrown away and under-fill
@@ -369,7 +369,7 @@ async function firecrawlWebSearch(
 }
 
 /** The keyless endpoint identifies the calling app by this header instead of a key. */
-const KEENABLE_TITLE = 'GenOffice'
+const KEENABLE_TITLE = 'Vantage'
 const KEENABLE_SNIPPET_CHARS = 500
 
 /**
@@ -530,7 +530,7 @@ export async function imageSearch(
 
 /** Icons, buttons and avatars render as junk when a slide crops them into a
  * content frame — anything a backend reports smaller than this is dropped
- * (genoffice#1819). Entries without dimension metadata are kept (no evidence, no verdict). */
+ * (vantage#1819). Entries without dimension metadata are kept (no evidence, no verdict). */
 export const MIN_USABLE_IMAGE_PX = 200
 
 export function filterUsableImages(images: ImageSearchResult[]): ImageSearchResult[] {

@@ -1,5 +1,5 @@
 import { Mark, type Editor } from '@tiptap/core'
-import { REDACT_EL } from '@genoffice/docx-engine'
+import { REDACT_EL } from '@vantage/docx-engine'
 import { REDACT_MARK } from '../ai/redact'
 
 declare module '@tiptap/core' {

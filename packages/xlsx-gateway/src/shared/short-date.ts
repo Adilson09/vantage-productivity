@@ -1,4 +1,4 @@
-/// Excel renders builtin numFmtIds 14/22 — the asterisked short-date entries
+/// Excel renders builtin numFmtIds 14/22 — the vantageisked short-date entries
 /// in the Format Cells dialog — per the OS regional short-date setting, not a
 /// fixed pattern. The region drives the pattern, not the UI language: an
 /// English UI on a yyyy/m/d-region machine still shows yyyy/m/d.

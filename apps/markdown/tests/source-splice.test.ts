@@ -1,10 +1,11 @@
-import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { execFileSync, execSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Editor } from '@tiptap/core'
 import { buildExtensions } from '../src/renderer/editor/extensions'
 import { buildSourceMap, spliceMarkdown } from '../src/renderer/markdown/sourceSplice'
+import { parseDocText, stripLegacyFencedDivs } from '../src/renderer/markdown/docText'
 
 const editors: Editor[] = []
 afterAll(() => {
@@ -256,17 +257,21 @@ describe('source splice', () => {
   // while finishing in ~7 s on its own. Budget for growth rather than trimming
   // the assertion to keep the files it exists to check; the in-app manual added
   // 294 topic bodies, which is what pushed it over on this branch.
-  it('round-trips every markdown file in the repository', { timeout: 120_000 }, () => {
+  it('round-trips every repository Markdown body through the real loading normalization', { timeout: 120_000 }, () => {
     const root = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()
-    const files = execSync('git ls-files -- "*.md"', { cwd: root, encoding: 'utf8' })
-      .split('\n')
-      .filter(Boolean)
+    const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.md'], { cwd: root, encoding: 'utf8' })
+      .split('\0')
+      .filter((path) => path && existsSync(join(root, path)))
     expect(files.length).toBeGreaterThan(20)
     const editor = createEditor()
     const declined: string[] = []
     const differs: string[] = []
     for (const file of files) {
-      const source = readFileSync(join(root, file), 'utf8')
+      // The app captures original bytes separately, then passes the normalized
+      // Markdown body to buildSourceMap. Exercise every file through that same
+      // path; the complete-byte/no-op corpus lives in roundtrip-serializer.test.
+      const envelope = parseDocText(readFileSync(join(root, file), 'utf8'))
+      const source = stripLegacyFencedDivs(envelope.body)
       const map = load(editor, source)
       if (!map) {
         declined.push(file)

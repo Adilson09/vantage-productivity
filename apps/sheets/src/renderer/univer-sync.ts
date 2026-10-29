@@ -53,24 +53,24 @@ import type {
   StyleColorInput,
   SetDataValidationOperation,
   SetHyperlinkOperation,
-} from '@genoffice/xlsx-gateway/domain/workbook-dsl'
+} from '@vantage/xlsx-gateway/domain/workbook-dsl'
 import {
   columnIndex,
   columnLabel,
   parseAddress,
   parseRange,
   rangeCellCount,
-} from '@genoffice/xlsx-gateway/domain/cell-address'
-import { splitSheetRef, type CellBounds } from '@genoffice/xlsx-gateway/domain/chart-visual'
-import { InMemoryWorkbookAdapter } from '@genoffice/xlsx-gateway/domain/in-memory-workbook'
-import { normalizeStyleColor, resolveStyleColor } from '@genoffice/xlsx-gateway/domain/style-color'
-import { WORST_FIRST_ICON_SETS } from '@genoffice/xlsx-gateway/gateway/xlsx-cf'
+} from '@vantage/xlsx-gateway/domain/cell-address'
+import { splitSheetRef, type CellBounds } from '@vantage/xlsx-gateway/domain/chart-visual'
+import { InMemoryWorkbookAdapter } from '@vantage/xlsx-gateway/domain/in-memory-workbook'
+import { normalizeStyleColor, resolveStyleColor } from '@vantage/xlsx-gateway/domain/style-color'
+import { WORST_FIRST_ICON_SETS } from '@vantage/xlsx-gateway/gateway/xlsx-cf'
 import type {
   CellFormatState,
   CellScalar,
   CellState,
   WorkbookSnapshot,
-} from '@genoffice/xlsx-gateway/domain/workbook.types'
+} from '@vantage/xlsx-gateway/domain/workbook.types'
 import type {
   WorkbookCellStyle,
   WorkbookCfState,
@@ -124,7 +124,7 @@ import {
 import { isPlainArithmeticFormula } from './formula-cached-fallback'
 import { degradeQuadraticFormulaCells } from './formula-cost'
 import { extractFunctionNames } from './formula-functions'
-import { DEFAULT_SHORT_DATE, setSystemShortDate } from '@genoffice/xlsx-gateway/shared/short-date'
+import { DEFAULT_SHORT_DATE, setSystemShortDate } from '@vantage/xlsx-gateway/shared/short-date'
 import { getWorkbookMdw, REORDER_JOURNAL_MAX_CELLS, setWorkbookMdw } from './app-constants'
 import { excelRowPitchPx } from './autofit-line-pitch'
 import { batchWrapRowHeights, createUniverWrapMeasurer } from './wrap-row-height-batch'
@@ -4372,7 +4372,7 @@ export function usesLocaleDependentFunction(formula: string): boolean {
 /// Whether a formula's cached <v> must be kept instead of recalculated:
 /// Google-only, locale-dependent or unsupported functions, defined names and
 /// table references. The verdict only applies when the cell has a cache — with
-/// nothing to keep, the engine's attempt beats a blank cell (genoffice#2125).
+/// nothing to keep, the engine's attempt beats a blank cell (vantage#2125).
 const keepsCacheMemo = new Map<string, boolean>()
 
 /// Window onto the running formula engine's function registry. Installed
@@ -4966,7 +4966,7 @@ export function patchWorksheetRangeInner(
       // SELECTION — conditional formatting strips the selected cells from
       // every rule, a rule-range rectangle decomposition that costs seconds
       // per eviction on wide rules and permanently fragments the rule
-      // (genoffice#158). Eviction is internal bookkeeping; only cells move.
+      // (vantage#158). Eviction is internal bookkeeping; only cells move.
       // Engine-owned closure cells must survive the eviction ({} is a merge
       // no-op, so pinned cells stay untouched — clearing and re-installing a
       // formula re-dirties its whole dependency web).
@@ -5395,7 +5395,7 @@ interface PivotBand {
 
 /// Excel keeps pivot styling out of cell xfs entirely; paint the style bands
 /// resolved sidecar-side from pivotTableStyleInfo (calibrated against Excel
-/// for Mac: genoffice-sample/sheets/calib/pivot-style-truths.json).
+/// for Mac: vantage-sample/sheets/calib/pivot-style-truths.json).
 ///
 /// Precedence, lowest first: wholeTable, row stripe, column stripe,
 /// firstColumn (row-label columns), subheading / subtotal, header (+ the

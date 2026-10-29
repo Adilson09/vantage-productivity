@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Aster Mail: Gmail starts in Google's browser flow and never falls back to an account password.
+// Vantage Mail: Gmail starts in Google's browser flow and never falls back to an account password.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("../lib/testing").then((m) => m.eventModule));
@@ -38,7 +38,7 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 
-describe("Aster Mail Google entry", () => {
+describe("Vantage Mail Google entry", () => {
   it("always offers Google and routes an unconfigured build to real setup without starting authentication", async () => {
     const root = start();
     await vi.waitFor(() => expect(button(root, "Sign in with Google")).toBeDefined());
@@ -81,7 +81,7 @@ describe("Aster Mail Google entry", () => {
   });
 });
 
-describe("Aster Mail Google registration setup", () => {
+describe("Vantage Mail Google registration setup", () => {
   it("saves only a local Desktop registration, preserves other providers and then requires an explicit Google sign-in", async () => {
     const other = { client_id: "other-provider" };
     api.settings.mockResolvedValue({ ...settings(), oauth_clients: { yandex: other } });

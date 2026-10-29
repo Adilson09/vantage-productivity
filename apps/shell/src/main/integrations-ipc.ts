@@ -13,8 +13,8 @@ import {
   uninstallSkill,
   type BundledSkill,
   type SkillLedger,
-} from '@genoffice/cli/agent-skills'
-import { inspectCliLink } from '@genoffice/cli/install'
+} from '@vantage/cli/agent-skills'
+import { inspectCliLink } from '@vantage/cli/install'
 import { readAppSettings, writeAppSetting } from './app-settings'
 import { isEphemeralInstall } from './cli-link'
 import {
@@ -42,9 +42,9 @@ export interface IntegrationsDeps {
   settingsPath: () => string
   /** the shell window dialogs attach to */
   window: () => BrowserWindow | null
-  /** directory holding genoffice / genoffice.cmd and, packaged, skills/genoffice/SKILL.md */
+  /** directory holding vantage / vantage.cmd and, packaged, skills/vantage/SKILL.md */
   cliDir: string
-  /** skills/genoffice/SKILL.md (repo file in dev, Resources/cli/skills/... packaged) */
+  /** skills/vantage/SKILL.md (repo file in dev, Resources/cli/skills/... packaged) */
   skillPath: string
   /** packages/cli/package.json (its version is the CLI version) */
   cliPackageJson: string
@@ -69,7 +69,7 @@ export function registerIntegrationsIpc(deps: IntegrationsDeps): void {
   ipcMain.handle(INTEGRATIONS_CHANNELS.status, (): IntegrationsStatus => {
     const skill = bundled()
     const l = ledger()
-    const launcher = join(deps.cliDir, process.platform === 'win32' ? 'genoffice.cmd' : 'genoffice')
+    const launcher = join(deps.cliDir, process.platform === 'win32' ? 'vantage.cmd' : 'vantage')
     return {
       cli: {
         ...inspectCliLink({ launcher }),
@@ -131,7 +131,7 @@ export function registerIntegrationsIpc(deps: IntegrationsDeps): void {
       const skill = bundled()
       const opts: Electron.SaveDialogOptions = {
         title: String(title ?? ''),
-        defaultPath: join(app.getPath('downloads'), `aster-office-skill-${skill.version}.zip`),
+        defaultPath: join(app.getPath('downloads'), `vantage-productivity-skill-${skill.version}.zip`),
         filters: [{ name: 'ZIP', extensions: ['zip'] }],
       }
       const win = deps.window()

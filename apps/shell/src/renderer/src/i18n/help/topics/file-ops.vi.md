@@ -4,8 +4,6 @@ Chương này nói về các thao tác tập tin dùng chung cho mọi trình so
 
 Menu **⋯** của một hàng tập tin (rê chuột lên hàng tập tin) gom các thao tác này:
 
-![Menu ⋯ của một hàng tập tin](img/file-ops.png)
-
 ## Đổi tên
 
 Hai lối vào, một bộ kiểm tra duy nhất:
@@ -17,7 +15,7 @@ Quy tắc: phần mở rộng được giữ tự động; ký tự không hợp
 
 ## Xóa
 
-- **⋯ ▸ Xóa** ở Trang chủ: hỏi những tập tin nào, rồi chuyển chúng vào **thùng rác hệ thống**, nơi hệ điều hành có thể khôi phục. GenOffice không giữ thao tác hoàn tác riêng cho việc này — khôi phục là việc của thùng rác, không phải của thông báo.
+- **⋯ ▸ Xóa** ở Trang chủ: hỏi những tập tin nào, rồi chuyển chúng vào **thùng rác hệ thống**, nơi hệ điều hành có thể khôi phục. Vantage không giữ thao tác hoàn tác riêng cho việc này — khôi phục là việc của thùng rác, không phải của thông báo.
 
 ## Nhân bản
 

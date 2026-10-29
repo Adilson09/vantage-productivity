@@ -8,7 +8,7 @@
  * this list rather than an invisible one.
  */
 
-import { LANGS } from '@genoffice/i18n'
+import { LANGS } from '@vantage/i18n'
 import { topicTitle } from './help-titles'
 
 export type HelpGroupId = 'start' | 'apps' | 'ai' | 'manage'
@@ -290,7 +290,7 @@ export const HELP_TOPICS: HelpTopicMeta[] = [
     id: 'cli',
     group: 'manage',
     order: 3,
-    keywords: ['命令行', 'cli', 'genoffice', 'convert', 'render', '命令行工具', '终端'],
+    keywords: ['命令行', 'cli', 'vantage', 'convert', 'render', '命令行工具', '终端'],
   },
   {
     id: 'mcp',

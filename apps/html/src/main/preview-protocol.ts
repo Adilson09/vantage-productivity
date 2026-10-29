@@ -2,7 +2,7 @@ import {
   DOCX_MEDIA_SCHEME_PRIVILEGE,
   SLIDE_MEDIA_SCHEME_PRIVILEGE,
   RENDERER_SCHEME_PRIVILEGE,
-} from '@genoffice/electron-utils'
+} from '@vantage/electron-utils'
 import { protocol } from 'electron'
 import { ASSET_SCHEME, PREVIEW_SCHEME, buildPreviewDocument } from './preview-document'
 

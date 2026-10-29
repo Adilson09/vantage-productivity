@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NativeWaf, nativeWaf, nativeWafHosts } from '../src/native-waf'
-import { reloadGenofficeAuth } from '../src/genoffice-auth'
+import { reloadVantageAuth } from '../src/vantage-auth'
 
 const url = 'https://www.genspark.ai/api/api_tokens/create'
 const pass = () => `${Math.floor(Date.now() / 1000)}-${'a'.repeat(43)}`
@@ -19,7 +19,7 @@ describe('optional cookie admission', () => {
           finish = resolve
         }),
     )
-    reloadGenofficeAuth()
+    reloadVantageAuth()
     finish(Response.json({ data: { token } }))
     expect(new Headers((await pending).headers).get('X-Genspark-Native-Pass')).toBe(token)
     nativeWaf.clear()
@@ -92,7 +92,7 @@ describe('optional cookie admission', () => {
       'office.example.com',
     ])
     expect([
-      ...nativeWafHosts({ GENOFFICE_NATIVE_WAF_HOSTS: ' Tenant.Example.com, ,second.example.com' }),
+      ...nativeWafHosts({ VANTAGE_NATIVE_WAF_HOSTS: ' Tenant.Example.com, ,second.example.com' }),
     ]).toEqual(['www.genspark.ai', 'tenant.example.com', 'second.example.com'])
 
     const admission = new NativeWaf()
@@ -104,7 +104,7 @@ describe('optional cookie admission', () => {
         'X-Genspark-Native-Pass',
       ),
     ).toBe(false)
-    process.env.GENOFFICE_NATIVE_WAF_HOSTS = 'tenant.example.com'
+    process.env.VANTAGE_NATIVE_WAF_HOSTS = 'tenant.example.com'
     try {
       expect(
         new Headers((await admission.prepare(tenant, init(), fetcher)).headers).get(
@@ -112,7 +112,7 @@ describe('optional cookie admission', () => {
         ),
       ).toBe(token)
     } finally {
-      delete process.env.GENOFFICE_NATIVE_WAF_HOSTS
+      delete process.env.VANTAGE_NATIVE_WAF_HOSTS
     }
   })
 })

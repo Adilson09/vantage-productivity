@@ -1,11 +1,11 @@
 {
-  "name": "@genoffice/sheets",
-  "productName": "GenOffice Sheets",
+  "name": "@vantage/sheets",
+  "productName": "Vantage Sheets",
   "version": "0.1.0",
   "private": true,
   "description": "Cross-platform AI-native spreadsheet compatibility prototype",
   "license": "Apache-2.0",
-  "x-aster-office-modifications": "Aster Office changed native build and test commands to use Cargo.lock and reuse release artifacts (2026-10-28).",
+  "x-vantage-productivity-modifications": "Vantage Productivity changed native build and test commands to use Cargo.lock and reuse release artifacts (2026-10-28).",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -25,16 +25,16 @@
   },
   "dependencies": {
     "@fluentui/react-icons": "^2.0.333",
-    "@genoffice/agent-core": "*",
-    "@genoffice/ai-provider": "*",
-    "@genoffice/ai-search": "*",
-    "@genoffice/docx-engine": "*",
-    "@genoffice/electron-utils": "*",
-    "@genoffice/file-parse": "*",
-    "@genoffice/i18n": "*",
-    "@genoffice/ui": "*",
-    "@genoffice/pptx-render": "*",
-    "@genoffice/xlsx-gateway": "*",
+    "@vantage/agent-core": "*",
+    "@vantage/ai-provider": "*",
+    "@vantage/ai-search": "*",
+    "@vantage/docx-engine": "*",
+    "@vantage/electron-utils": "*",
+    "@vantage/file-parse": "*",
+    "@vantage/i18n": "*",
+    "@vantage/ui": "*",
+    "@vantage/pptx-render": "*",
+    "@vantage/xlsx-gateway": "*",
     "@univerjs/core": "^0.25.1",
     "@univerjs/data-validation": "^0.25.1",
     "@univerjs/engine-render": "^0.25.1",
@@ -59,7 +59,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@genoffice/project-store": "*",
+    "@vantage/project-store": "*",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -71,5 +71,5 @@
     "vite": "^7.3.7",
     "vitest": "^4.1.12"
   },
-  "author": "GenOffice"
+  "author": "Vantage"
 }

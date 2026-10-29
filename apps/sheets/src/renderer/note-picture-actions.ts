@@ -11,7 +11,7 @@
  * note carries one picture, and a note that says nothing about its picture
  * keeps the one the file already had.
  */
-import { formatAddress } from '@genoffice/xlsx-gateway/domain/cell-address'
+import { formatAddress } from '@vantage/xlsx-gateway/domain/cell-address'
 
 import { journalSize, recordNoteChange, recordNotePicture } from './edit-journal'
 import { t } from './i18n/locale'

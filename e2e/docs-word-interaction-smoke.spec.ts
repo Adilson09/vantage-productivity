@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -249,7 +249,7 @@ test.describe.serial('docs Word interaction smoke', () => {
 
   test.beforeAll(async () => {
     test.setTimeout(90_000)
-    dir = realpathSync(mkdtempSync(join(tmpdir(), 'genoffice-e2e-word-smoke-')))
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'vantage-e2e-word-smoke-')))
     launched = await launchShell({
       onboardingSeen: true,
       videoDir: 'docs-word-interaction-smoke',

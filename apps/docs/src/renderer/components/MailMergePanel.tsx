@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Editor } from '@tiptap/core'
-import { mergeFieldInstruction } from '@genoffice/docx-engine'
+import { mergeFieldInstruction } from '@vantage/docx-engine'
 import type { MergeDataSource } from '../../shared/ipc'
 import type { PmNode } from '../editor/convert'
 import { documentText, substituteMergeFields } from '../mail-merge/template'
@@ -15,7 +15,7 @@ import { useModalKeys } from './modal-keys'
  * The panel asks for things and shows what comes back — the record list comes
  * from the main process, the preview from the merge module, the documents from
  * the app. It holds no merge logic of its own.
- * genoffice#2097.
+ * vantage#2097.
  */
 
 export interface MailMergePanelProps {

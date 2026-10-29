@@ -1,25 +1,25 @@
 import { createRoot } from 'react-dom/client'
-import { htmlDir, htmlLang, type Lang } from '@genoffice/i18n'
+import { htmlDir, htmlLang, type Lang } from '@vantage/i18n'
 import App from './App'
 import { LocaleProvider } from './i18n/locale'
 import type { DocTheme, UiTheme } from '../shared/ipc'
-import '@genoffice/ui/tokens.css'
-import '@genoffice/ui/screentip.css'
-import '@genoffice/ui/ai-model-picker.css'
-import '@genoffice/ui/ai-queue-strip.css'
-import '@genoffice/ui/ai-usage.css'
-import '@genoffice/ui/ai-skills.css'
-import '@genoffice/ui/dropdown.css'
-import '@genoffice/ui/find-panel.css'
-import '@genoffice/ui/ribbon-collapse.css'
-import '@genoffice/ui/markdown.css'
-import '@genoffice/ui/ai-panel-prefs.css'
-import '@genoffice/ui/ai-scope-quote.css'
-import '@genoffice/ui/image-viewer.css'
+import '@vantage/ui/tokens.css'
+import '@vantage/ui/screentip.css'
+import '@vantage/ui/ai-model-picker.css'
+import '@vantage/ui/ai-queue-strip.css'
+import '@vantage/ui/ai-usage.css'
+import '@vantage/ui/ai-skills.css'
+import '@vantage/ui/dropdown.css'
+import '@vantage/ui/find-panel.css'
+import '@vantage/ui/ribbon-collapse.css'
+import '@vantage/ui/markdown.css'
+import '@vantage/ui/ai-panel-prefs.css'
+import '@vantage/ui/ai-scope-quote.css'
+import '@vantage/ui/image-viewer.css'
 import 'katex/dist/katex.min.css'
 import './styles.css'
 import './markdown-themes.css'
-import { applyAiPanelPrefs, installScreenTips } from '@genoffice/ui'
+import { applyAiPanelPrefs, installScreenTips } from '@vantage/ui'
 import type { MarkdownTheme } from '../shared/markdown-theme'
 
 installScreenTips()
@@ -36,7 +36,7 @@ function applyMarkdownTheme(theme: MarkdownTheme): void {
 }
 
 function applyDocumentTheme(theme: DocTheme): void {
-  // data-doc-theme drives the preview paper (genoffice#1811); absent means 'follow' the UI theme
+  // data-doc-theme drives the preview paper (vantage#1811); absent means 'follow' the UI theme
   if (theme === 'follow') document.documentElement.removeAttribute('data-doc-theme')
   else document.documentElement.setAttribute('data-doc-theme', theme)
 }

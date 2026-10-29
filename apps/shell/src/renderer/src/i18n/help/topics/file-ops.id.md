@@ -4,8 +4,6 @@ Bab ini mencakup operasi file yang dipakai bersama oleh semua editor; pilihan ek
 
 **Menu ⋯** pada baris file (arahkan kursor ke baris file) mengumpulkan tindakan berikut:
 
-![Menu ⋯ pada baris file](img/file-ops.png)
-
 ## Mengganti nama
 
 Ada dua pintu masuk, satu set pemeriksaan:
@@ -17,7 +15,7 @@ Aturannya: ekstensi dipertahankan otomatis; karakter terlarang, titik di akhir, 
 
 ## Menghapus
 
-- **⋯ ▸ Hapus** di Beranda: menanyakan file mana, lalu memindahkannya ke **tempat sampah sistem**, tempat sistem operasi dapat memulihkannya. GenOffice tidak menyimpan undo sendiri untuk ini — pemulihan adalah urusan tempat sampah, bukan notifikasi.
+- **⋯ ▸ Hapus** di Beranda: menanyakan file mana, lalu memindahkannya ke **tempat sampah sistem**, tempat sistem operasi dapat memulihkannya. Vantage tidak menyimpan undo sendiri untuk ini — pemulihan adalah urusan tempat sampah, bukan notifikasi.
 
 ## Duplikat
 

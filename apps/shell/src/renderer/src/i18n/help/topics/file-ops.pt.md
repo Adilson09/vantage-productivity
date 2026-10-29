@@ -4,8 +4,6 @@ Este capítulo cobre as operações de arquivo comuns a todos os editores; as op
 
 O **menu ⋯** da linha do arquivo (passe o cursor sobre a linha do arquivo) reúne estas ações:
 
-![O menu ⋯ de uma linha de arquivo](img/file-ops.png)
-
 ## Renomear
 
 Dois pontos de entrada, um conjunto de verificações:
@@ -17,7 +15,7 @@ As regras: a extensão é preservada automaticamente; caracteres proibidos, pont
 
 ## Excluir
 
-- **⋯ ▸ Excluir** no Início: pergunta quais os ficheiros e depois move-os para a **lixeira do sistema**, onde o sistema operacional os pode restaurar. O GenOffice não guarda nenhum desfazer próprio para isto — a recuperação é responsabilidade da lixeira, não de um aviso.
+- **⋯ ▸ Excluir** no Início: pergunta quais os ficheiros e depois move-os para a **lixeira do sistema**, onde o sistema operacional os pode restaurar. O Vantage não guarda nenhum desfazer próprio para isto — a recuperação é responsabilidade da lixeira, não de um aviso.
 
 ## Duplicar
 

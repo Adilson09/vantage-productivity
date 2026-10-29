@@ -1,22 +1,22 @@
 <p align="center">
-  <a href="https://genoffice.ai/">
+  <a href="https://vantage.ai/">
     <picture>
       <source srcset="../assets/readme/hero-dark.webp" media="(prefers-color-scheme: dark)">
-      <img src="../assets/readme/hero.webp" alt="GenOffice — açık kaynaklı yapay zekâ Office paketi: yerleşik yapay zekâ paneliyle Docs, Sheets, Slides, PDF, Markdown ve HTML" width="100%">
+      <img src="../assets/readme/hero.webp" alt="Vantage — açık kaynaklı yapay zekâ Office paketi: yerleşik yapay zekâ paneliyle Docs, Sheets, Slides, PDF, Markdown ve HTML" width="100%">
     </picture>
   </a>
 </p>
 
-<h1 align="center">GenOffice</h1>
+<h1 align="center">Vantage</h1>
 
 <p align="center"><b>Dünyanın ilk tam özellikli açık kaynaklı yapay zekâ Office paketi.</b><br>
 Word, Excel, PowerPoint ve PDF dosyaları; siz ve yapay zekânız tarafından düzenlenir, gerçek biçimlerinde geri kaydedilir.</p>
 
 <p align="center">
-  <a href="../../LICENSE"><img src="https://img.shields.io/github/license/genspark-ai/genoffice" alt="Lisans: Apache-2.0"></a>
-  <a href="https://github.com/genspark-ai/genoffice/releases/latest"><img src="https://img.shields.io/github/v/release/genspark-ai/genoffice" alt="Son sürüm"></a>
-  <a href="https://github.com/genspark-ai/genoffice/releases"><img src="https://img.shields.io/github/downloads/genspark-ai/genoffice/total" alt="İndirmeler"></a>
-  <a href="https://github.com/genspark-ai/genoffice/stargazers"><img src="https://img.shields.io/github/stars/genspark-ai/genoffice?style=flat" alt="GitHub yıldızları"></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/github/license/genspark-ai/vantage" alt="Lisans: Apache-2.0"></a>
+  <a href="https://github.com/Adilson09/aster-office/releases/latest"><img src="https://img.shields.io/github/v/release/genspark-ai/vantage" alt="Son sürüm"></a>
+  <a href="https://github.com/Adilson09/aster-office/releases"><img src="https://img.shields.io/github/downloads/genspark-ai/vantage/total" alt="İndirmeler"></a>
+  <a href="https://github.com/Adilson09/aster-office/stargazers"><img src="https://img.shields.io/github/stars/genspark-ai/vantage?style=flat" alt="GitHub yıldızları"></a>
   <a href="https://x.com/merrickbuilds"><img src="https://img.shields.io/badge/follow-%40merrickbuilds-000000?logo=x&logoColor=white" alt="X'te @merrickbuilds'i takip edin"></a>
 </p>
 
@@ -27,13 +27,13 @@ Word, Excel, PowerPoint ve PDF dosyaları; siz ve yapay zekânız tarafından d�
   <a href="#skills"><b>Skills</b></a> ·
   <a href="#command-line-and-agent-skill"><b>CLI</b></a> ·
   <a href="#mcp-server"><b>MCP</b></a> ·
-  <a href="https://genoffice.ai/"><b>Web sitesi</b></a> ·
-  <a href="https://genoffice.ai/join"><b>Topluluk</b></a> ·
+  <a href="https://vantage.ai/"><b>Web sitesi</b></a> ·
+  <a href="https://vantage.ai/join"><b>Topluluk</b></a> ·
   <a href="https://x.com/merrickbuilds"><b>X</b></a> ·
   <a href="../../PRIVACY.md"><b>Gizlilik</b></a>
 </p>
 
-GenOffice; macOS, Windows ve Linux için ücretsiz, açık kaynaklı bir Microsoft
+Vantage; macOS, Windows ve Linux için ücretsiz, açık kaynaklı bir Microsoft
 Office alternatifidir. Yerel `.docx`, `.xlsx` ve `.pptx` dosyalarını açar ve
 kaydeder, PDF, Markdown ve HTML düzenler ve her belgenin yanına bir yapay zekâ
 ajanı koyar — kenara iliştirilmiş bir sohbet kutusu değil, dosyayı okuyan,
@@ -73,15 +73,15 @@ yönündedir — kaydetme her zaman OOXML yazar, asla ODF yazmaz.
   Qwen, Doubao, MiniMax, Grok, Mistral, OpenRouter, Requesty, Opper, Cheaper
   Inference, Atlas Cloud veya yerel sunucular dahil herhangi bir OpenAI uyumlu
   uç nokta için kendi anahtarınızı getirin.
-- **Betiklenebilir ve ajanlara hazır.** Uygulama bir `genoffice` komut satırı
+- **Betiklenebilir ve ajanlara hazır.** Uygulama bir `vantage` komut satırı
   ve Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode ve
   Windsurf için bir skill ile gelir; böylece bir kodlama ajanı, hiçbir pencere
   açmadan makinenizde gerçek Office dosyaları oluşturabilir, dönüştürebilir,
   okuyabilir ve düzenleyebilir.
 
-**Edinin:** [macOS](https://github.com/genspark-ai/genoffice/releases/latest) (Apple Silicon ve Intel) ·
-[Windows](https://github.com/genspark-ai/genoffice/releases/latest) (x64 ve Arm) ·
-[Linux](https://github.com/genspark-ai/genoffice/releases/latest) (deb, rpm, AppImage) —
+**Edinin:** [macOS](https://github.com/Adilson09/aster-office/releases/latest) (Apple Silicon ve Intel) ·
+[Windows](https://github.com/Adilson09/aster-office/releases/latest) (x64 ve Arm) ·
+[Linux](https://github.com/Adilson09/aster-office/releases/latest) (deb, rpm, AppImage) —
 ayrıntılar ve gereksinimler [İndir](#download) bölümünde.
 
 ## Demo
@@ -96,8 +96,8 @@ yönlendirilmiştir.
 
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/docs-report.webp" alt="GenOffice Docs; tam genişlikte kapak görseli, gölgeli KPI tablosu, üst bilgi ve alt bilgi içeren iki sütunlu bir yıllık rapor sayfasını, yapay zekâ paneli daraltılmış hâlde %80 yakınlaştırmada gösteriyor"></td>
-<td width="50%"><img src="../assets/readme/docs-ai.webp" alt="GenOffice Docs: banner görselli bir şirket tanıtımı; yapay zekâ Genel Bakış bölümünü sıkılaştırdı ve madde işaretli yeni bir bölüm ekledi, panel tek tıkla geri alma sunuyor"></td>
+<td width="50%"><img src="../assets/readme/docs-report.webp" alt="Vantage Docs; tam genişlikte kapak görseli, gölgeli KPI tablosu, üst bilgi ve alt bilgi içeren iki sütunlu bir yıllık rapor sayfasını, yapay zekâ paneli daraltılmış hâlde %80 yakınlaştırmada gösteriyor"></td>
+<td width="50%"><img src="../assets/readme/docs-ai.webp" alt="Vantage Docs: banner görselli bir şirket tanıtımı; yapay zekâ Genel Bakış bölümünü sıkılaştırdı ve madde işaretli yeni bir bölüm ekledi, panel tek tıkla geri alma sunuyor"></td>
 </tr>
 <tr>
 <td><b>Dosyayı Word'ün yerleştirdiği gibi açar</b> — iki sütunlu bölümler, taşmalı görseller, gölgeli tablolar, üst ve alt bilgiler, Word'ün satır ölçülerine göre sayfalama. Stiller, yorumlar, izlenen değişiklikler, denklemler, mürekkep ve içerik denetimleri dokunulmadan gidip gelir. <b>Mailings</b> sekmesi belgeyi bir birleştirme şablonuna dönüştürür: bir <code>.xlsx</code> veya <code>.csv</code> alıcı listesi seçin, gerçek <code>MERGEFIELD</code> alanları ekleyin, kayıt kayıt önizleyin ve tek bir belgeye ya da kayıt başına bir <code>.docx</code> dosyasına birleştirin.</td>
@@ -109,8 +109,8 @@ yönlendirilmiştir.
 
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/sheets-ai.webp" alt="GenOffice Sheets: yapay zekâ, SUMIF formülleriyle bölge ve kategoriye göre geliri içeren bir Summary sayfası ve bir sütun grafiği ekledi ve bir Geri Al düğmesiyle 43 uygulanan değişiklik bildiriyor"></td>
-<td width="50%"><img src="../assets/readme/sheets-qa.webp" alt="GenOffice Sheets: 2. çeyrek gelirinde hangi bölgenin önde olduğu sorulduğunda yapay zekâ, kategori dökümüyle birlikte Avrupa yanıtını veriyor ve kullandığı hücreleri Orders sayfasının yanında bağlantı olarak gösteriyor"></td>
+<td width="50%"><img src="../assets/readme/sheets-ai.webp" alt="Vantage Sheets: yapay zekâ, SUMIF formülleriyle bölge ve kategoriye göre geliri içeren bir Summary sayfası ve bir sütun grafiği ekledi ve bir Geri Al düğmesiyle 43 uygulanan değişiklik bildiriyor"></td>
+<td width="50%"><img src="../assets/readme/sheets-qa.webp" alt="Vantage Sheets: 2. çeyrek gelirinde hangi bölgenin önde olduğu sorulduğunda yapay zekâ, kategori dökümüyle birlikte Avrupa yanıtını veriyor ve kullandığı hücreleri Orders sayfasının yanında bağlantı olarak gösteriyor"></td>
 </tr>
 <tr>
 <td><b>Oluşturun</b> — tek bir cümleden ajan, bölge ve kategoriye göre gerçek <code>SUMIF</code> formülleri içeren bir Summary sayfası ekler, bir sütun grafiği yerleştirir ve 43 değişikliği tek bir geri alınabilir toplu işlem olarak uygular.</td>
@@ -120,15 +120,15 @@ yönlendirilmiştir.
 
 ### 3 · Slides — bir istemden `.pptx` sunumuna
 
-<img src="../assets/readme/slides-generate.webp" alt="GenOffice Slides'ın Aurora Home yatırımcı sunumunu üretmesinin hızlandırılmış kaydı: yapay zekâ panelde hikâye akışını planlıyor, slaytlar tuvalde art arda beliriyor ve bitmiş sunum kapanış çağrısıyla sona eriyor" width="100%">
+<img src="../assets/readme/slides-generate.webp" alt="Vantage Slides'ın Aurora Home yatırımcı sunumunu üretmesinin hızlandırılmış kaydı: yapay zekâ panelde hikâye akışını planlıyor, slaytlar tuvalde art arda beliriyor ve bitmiş sunum kapanış çağrısıyla sona eriyor" width="100%">
 
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/slides-cover.webp" alt="GenOffice Slides: yapay zekâ tarafından üretilen Aurora Home yatırımcı sunumunun kapak slaytı tuvalde, özgün tek satırlık istem ve yapay zekânın ne oluşturduğuna dair özeti panelde"></td>
-<td width="50%"><img src="../assets/readme/slides-ai.webp" alt="GenOffice Slides: aynı 11 slaytlık sunumun tasarlanmış kapanış slaytı, solda küçük resim şeridi ve hikâye akışını özetleyen yapay zekâ paneliyle"></td>
+<td width="50%"><img src="../assets/readme/slides-cover.webp" alt="Vantage Slides: yapay zekâ tarafından üretilen Aurora Home yatırımcı sunumunun kapak slaytı tuvalde, özgün tek satırlık istem ve yapay zekânın ne oluşturduğuna dair özeti panelde"></td>
+<td width="50%"><img src="../assets/readme/slides-ai.webp" alt="Vantage Slides: aynı 11 slaytlık sunumun tasarlanmış kapanış slaytı, solda küçük resim şeridi ve hikâye akışını özetleyen yapay zekâ paneliyle"></td>
 </tr>
 <tr>
-<td><b>Tek satır girdi</b> — "Aurora Home için 10 slaytlık bir yatırımcı sunumu oluştur…". GenOffice hikâye akışını planlar, rakamları araştırır ve her slaytı gerçek bir <code>.pptx</code> olarak tuvale taslaklar.</td>
+<td><b>Tek satır girdi</b> — "Aurora Home için 10 slaytlık bir yatırımcı sunumu oluştur…". Vantage hikâye akışını planlar, rakamları araştırır ve her slaytı gerçek bir <code>.pptx</code> olarak tuvale taslaklar.</td>
 <td><b>Bitmiş bir sunum çıktı</b> — tutarlı tipografi, görseller ve kapanış eylem çağrısıyla on bir tasarlanmış slayt; asıl slaytlar, düzenler, akıllı kılavuzlar ve yıkıcı olmayan kırpma ile düzenlemeye devam edin ya da panelden yeniden biçimlendirmesini, yeniden yazmasını ve yeniden sıralamasını isteyin. Bir <code>.glb</code> ekleyin; gerçek bir 3B modeldir: düzenleyicide sürükleyerek döndürün, PowerPoint'in 3B sakladığı biçimde saklanır, PowerPoint'te de 3B kalır.</td>
 </tr>
 </table>
@@ -141,8 +141,8 @@ desteğiyle seslendirir. Anlatım ve ölçtüğü otomatik ilerleme süreleri
 
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/pdf-edit.webp" alt="GenOffice PDF: Metin düzenleme modu, yerinde düzenleme için sayfadaki her metin bloğunu çerçeveliyor; yapay zekâ paneli raporla ilgili bir soruyu sayfa alıntılarıyla yanıtlıyor"></td>
-<td width="50%"><img src="../assets/readme/pdf-convert.webp" alt="GenOffice Docs, Helios üç aylık değerlendirme PDF'sinden yerel olarak dönüştürülmüş bir Word belgesini, özgün PDF'nin yanındaki ikinci bir sekmede gösteriyor"></td>
+<td width="50%"><img src="../assets/readme/pdf-edit.webp" alt="Vantage PDF: Metin düzenleme modu, yerinde düzenleme için sayfadaki her metin bloğunu çerçeveliyor; yapay zekâ paneli raporla ilgili bir soruyu sayfa alıntılarıyla yanıtlıyor"></td>
+<td width="50%"><img src="../assets/readme/pdf-convert.webp" alt="Vantage Docs, Helios üç aylık değerlendirme PDF'sinden yerel olarak dönüştürülmüş bir Word belgesini, özgün PDF'nin yanındaki ikinci bir sekmede gösteriyor"></td>
 </tr>
 <tr>
 <td><b>Sayfanın içinde düzenleyin</b> — Metin düzenleme modu, yerinde yeniden yazmak için her metin bloğunu çerçeveler; içerik akışı, üstünü örten bir açıklama notuyla değil, özgün yazı tipleriyle PDFium üzerinden yeniden yazılır. Yapay zekâya uzun bir rapor hakkında soru sorun ve sayfa alıntılı yanıtlar alın.</td>
@@ -156,11 +156,11 @@ Sayfanın ne için ve kimin için olduğunu söyleyin. Yapay zekâ önce bir **t
 özeti** önerir — kanca, palet, tipografi ve stil yönleri — ardından bu
 belirteçlere göre tek, kendi kendine yeten bir `.html` dosyası oluşturur.
 
-<img src="../assets/readme/html-restyle-motion.webp" alt="GenOffice HTML'nin Lumen açılış sayfasını yeniden biçimlendirmesinin hızlandırılmış kaydı: paneldeki tek bir Restyle isteği, karanlık Midnight Studio sayfasını sıcak Solar Daybreak sürümüne dönüştürürken her bölüm ve tüm metin yerinde kalıyor" width="100%">
+<img src="../assets/readme/html-restyle-motion.webp" alt="Vantage HTML'nin Lumen açılış sayfasını yeniden biçimlendirmesinin hızlandırılmış kaydı: paneldeki tek bir Restyle isteği, karanlık Midnight Studio sayfasını sıcak Solar Daybreak sürümüne dönüştürürken her bölüm ve tüm metin yerinde kalıyor" width="100%">
 
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/html-ai.webp" alt="GenOffice HTML: güneş enerjili bir masa lambası için karanlık Midnight Studio yönünde üretilmiş bir açılış sayfası, canlı önizlemede ve az önce oluşturduğu sayfayı özetleyen yapay zekâ paneliyle gösteriliyor"></td>
+<td width="50%"><img src="../assets/readme/html-ai.webp" alt="Vantage HTML: güneş enerjili bir masa lambası için karanlık Midnight Studio yönünde üretilmiş bir açılış sayfası, canlı önizlemede ve az önce oluşturduğu sayfayı özetleyen yapay zekâ paneliyle gösteriliyor"></td>
 <td width="50%"><img src="../assets/readme/html-restyle.webp" alt="Aynı Lumen açılış sayfası yapay zekâ tarafından sıcak Solar Daybreak yönüne yeniden biçimlendirilmiş: kâğıt arka plan, serifli başlıklar ve turuncu bir vurgu; her bölüm ve tüm metin korunmuş"></td>
 </tr>
 <tr>
@@ -170,8 +170,8 @@ belirteçlere göre tek, kendi kendine yeten bir `.html` dosyası oluşturur.
 </table>
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/html-dashboard.webp" alt="GenOffice HTML: serbest çalışan bir tasarımcı için sıcak keten tarzında üretilmiş kişisel bir gösterge paneli arayüzü; sol şerit, serifli karşılama ve dört metrik kartıyla"></td>
-<td width="50%"><img src="../assets/readme/html-report.webp" alt="GenOffice HTML: geniş sayfa gazete tarzında üretilmiş bir elektrikli araç pazarı veri raporu; serifli bir başlık bandı, 17,3 milyonluk bir manşet rakamı ve bir istatistik satırıyla"></td>
+<td width="50%"><img src="../assets/readme/html-dashboard.webp" alt="Vantage HTML: serbest çalışan bir tasarımcı için sıcak keten tarzında üretilmiş kişisel bir gösterge paneli arayüzü; sol şerit, serifli karşılama ve dört metrik kartıyla"></td>
+<td width="50%"><img src="../assets/readme/html-report.webp" alt="Vantage HTML: geniş sayfa gazete tarzında üretilmiş bir elektrikli araç pazarı veri raporu; serifli bir başlık bandı, 17,3 milyonluk bir manşet rakamı ve bir istatistik satırıyla"></td>
 </tr>
 <tr>
 <td><b>Arayüz taslakları</b> — "kişisel gösterge paneli" başlangıç şablonu bir personayı çalışan bir düzene dönüştürür: sol şerit, karşılama, faturalandırılabilir saat çizgi grafiği, fatura ve kullanım kartları; hepsi bir geliştiriciye teslim edebileceğiniz gerçek HTML.</td>
@@ -183,8 +183,8 @@ belirteçlere göre tek, kendi kendine yeten bir `.html` dosyası oluşturur.
 
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/markdown-ai.webp" alt="GenOffice Markdown: seçili bir paragrafta, yazılmış bir talimat ve Polish, Make more concise, Expand ve Fix grammar gibi öneri çipleri ile Send now ve Add to queue düğmeleri içeren bir Ask AI açılır penceresi görünüyor"></td>
-<td width="50%"><img src="../assets/readme/markdown-render.webp" alt="GenOffice Markdown; bir tablo, bir Mermaid akış şeması ve bir görev listesi içeren lansman notları belgesini, solda yapay zekâ panelinin başlangıç istemleriyle gösteriyor"></td>
+<td width="50%"><img src="../assets/readme/markdown-ai.webp" alt="Vantage Markdown: seçili bir paragrafta, yazılmış bir talimat ve Polish, Make more concise, Expand ve Fix grammar gibi öneri çipleri ile Send now ve Add to queue düğmeleri içeren bir Ask AI açılır penceresi görünüyor"></td>
+<td width="50%"><img src="../assets/readme/markdown-render.webp" alt="Vantage Markdown; bir tablo, bir Mermaid akış şeması ve bir görev listesi içeren lansman notları belgesini, solda yapay zekâ panelinin başlangıç istemleriyle gösteriyor"></td>
 </tr>
 <tr>
 <td><b>Bir seçim hakkında yapay zekâya sorun</b> — herhangi bir pasajı seçin, bir <b>Ask AI</b> çipi belirir: bir talimat yazın ya da bir öneri seçin, hemen gönderin ya da birkaç bağlantılı düzenlemeyi kuyruğa alıp tek seferde çalıştırın. Aynı giriş her uygulamada vardır.</td>
@@ -209,12 +209,12 @@ kalibre edilmiş alaka puanı döndüren System One modeliyle değerlendirilir.
 Liste bu puana göre yeniden sıralanır; çağrı başarısız olur veya zaman aşımına
 uğrarsa yerel sıra korunur.
 
-<img src="../assets/readme/search-jev-motion.webp" alt="GenOffice ana ekranının ekran kaydı: laptop refresh policy yazıldığında önce bir tarayıcı önbelleği politikası, bir marka yenileme planı ve bir gösterge paneli yenileme takvimi listeleniyor, ekipman standartları belgesi ise en sonda; Ayarlar sayfası, AI Media & Search altında TypeSafe uç noktasıyla Jev search reranking seçeneğinin açıldığını gösteriyor; aynı arama ardından ekipman standartları belgesini, sonuç sayısının yanındaki Jev rozetiyle ilk sırada gösteriyor" width="100%">
+<img src="../assets/readme/search-jev-motion.webp" alt="Vantage ana ekranının ekran kaydı: laptop refresh policy yazıldığında önce bir tarayıcı önbelleği politikası, bir marka yenileme planı ve bir gösterge paneli yenileme takvimi listeleniyor, ekipman standartları belgesi ise en sonda; Ayarlar sayfası, AI Media & Search altında TypeSafe uç noktasıyla Jev search reranking seçeneğinin açıldığını gösteriyor; aynı arama ardından ekipman standartları belgesini, sonuç sayısının yanındaki Jev rozetiyle ilk sırada gösteriyor" width="100%">
 
 <table>
 <tr>
 <td width="50%"><img src="../assets/readme/search-jev-before-after.webp" alt="laptop refresh policy sorgusu için yan yana iki sonuç listesi: Jev olmadan gösterge paneli yenileme takvimi, marka yenileme planı ve tarayıcı önbelleği yenileme politikası önde, şirket ekipman standartları belgesi beşinci; Jev ile üç yıllık dizüstü bilgisayar değiştirme döngüsünü belirten ekipman standartları belgesi ilk sırada"></td>
-<td width="50%"><img src="../assets/readme/search-jev-settings.webp" alt="GenOffice Ayarlar, AI Media & Search sayfası: Jev search reranking anahtarı, OpenRouter ile TypeSafe arasındaki uç nokta seçimi ve API anahtarı alanını içeren Local file search bloğu"></td>
+<td width="50%"><img src="../assets/readme/search-jev-settings.webp" alt="Vantage Ayarlar, AI Media & Search sayfası: Jev search reranking anahtarı, OpenRouter ile TypeSafe arasındaki uç nokta seçimi ve API anahtarı alanını içeren Local file search bloğu"></td>
 </tr>
 <tr>
 <td><b>Aynı sözcükler, farklı yanıtlar</b> — "laptop refresh policy" bir tarayıcı önbelleği yenileme politikası, bir marka yenileme planı ve bir gösterge paneli yenileme takvimiyle sözcük sözcük eşleşir; bu yüzden tam metin sıralaması onları öne koyar. Jev alıntıları okur ve üç yıllık değiştirme döngüsünü belirten ekipman standartları belgesini en üste taşır. Sonuç sayısının yanındaki <b>Jev</b> rozeti, sıranın modelden geldiğini gösterir.</td>
@@ -233,51 +233,51 @@ modele görsel girdi olarak gider — ve her soru kendi konuşması olarak
 saklanır: aralarında geçiş yapın, yenisini başlatın, birini silin; liste
 yeniden başlatmadan sonra da korunur.
 
-<img src="../assets/readme/home-ask-ai-motion.webp" alt="GenOffice Ask AI ekran kaydı: ana ekrana kısa özet, 3. çeyrek büyümemizi ne sürükledi ve Asya-Pasifik nasıl performans gösterdi sorusu yazılıyor; ajan iki yıldızlı dosyayı okuyup Aurora X1 lansmanı ve Asya-Pasifik genişlemesiyle yanıtlıyor, her iddiayı üç aylık raporu ya da bölgesel satış çalışma kitabını adlandıran bir alıntı çipi izliyor; çalışma kitabı çipine tıklamak onu Asya-Pasifik satırı vurgulanmış hâlde Sheets'te açıyor" width="100%">
+<img src="../assets/readme/home-ask-ai-motion.webp" alt="Vantage Ask AI ekran kaydı: ana ekrana kısa özet, 3. çeyrek büyümemizi ne sürükledi ve Asya-Pasifik nasıl performans gösterdi sorusu yazılıyor; ajan iki yıldızlı dosyayı okuyup Aurora X1 lansmanı ve Asya-Pasifik genişlemesiyle yanıtlıyor, her iddiayı üç aylık raporu ya da bölgesel satış çalışma kitabını adlandıran bir alıntı çipi izliyor; çalışma kitabı çipine tıklamak onu Asya-Pasifik satırı vurgulanmış hâlde Sheets'te açıyor" width="100%">
 
 Ask AI,
 [Arama](#7--search--find-the-file-that-answers-the-question-with-typesafe-jev)
 ile aynı cihaz üzeri tam metin dizininde arar ve dosyaları sayfa sayfa okur;
 böylece model yalnızca isabetleri ve istediği pasajları, seçtiğiniz sağlayıcı
 üzerinden görür. Ayrıca dosyaları doğrudan oluşturmak için yerleşik
-`genoffice` CLI'yi çağırabilir; her biri yanıtın altında bir yapıt kartı
+`vantage` CLI'yi çağırabilir; her biri yanıtın altında bir yapıt kartı
 olarak görünür ve bir tıklamayla açılır.
 
-### 9 · CLI — kodlama ajanınız GenOffice'i makinenizde yönetir
+### 9 · CLI — kodlama ajanınız Vantage'i makinenizde yönetir
 
-GenOffice bir `genoffice` komut satırı ve bir ajan skill'i ile gelir. Skill'i
+Vantage bir `vantage` komut satırı ve bir ajan skill'i ile gelir. Skill'i
 kurun; Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode ya da
 Windsurf, hiçbir pencere açmadan uygulamalarla aynı motorlar üzerinden gerçek
 Office dosyaları oluşturabilir, dönüştürebilir, okuyabilir ve düzenleyebilir.
 
-<img src="../assets/readme/cli-deck-in-app.webp" alt="GenOffice Slides, bir kodlama ajanının genoffice komut satırı üzerinden oluşturduğu sekiz slaytlık bir Güneş Sistemi sunumunu gösteriyor: kapak slaytı tuvalde, solda sekiz küçük resim ve yapay zekâ paneli açık" width="100%">
+<img src="../assets/readme/cli-deck-in-app.webp" alt="Vantage Slides, bir kodlama ajanının vantage komut satırı üzerinden oluşturduğu sekiz slaytlık bir Güneş Sistemi sunumunu gösteriyor: kapak slaytı tuvalde, solda sekiz küçük resim ve yapay zekâ paneli açık" width="100%">
 
 <table>
 <tr>
 <td width="50%"><img src="../assets/readme/cli-slides-grid.webp" alt="Güneş Sistemi sunumunun işlenmiş sekiz slaytı yan yana: kapak, keşif zaman çizelgesi, dört temel rakam, gezegen çapı çubuk grafiği, kayaç gezegenler ile devler, Güneş'in %99,8'lik hero rakamı, dört dev gezegen ızgarası ve çıkarımlar"></td>
-<td width="50%"><img src="../assets/readme/cli-integrations.webp" alt="GenOffice Ayarlar, Integrations sayfası: genoffice skill'i Claude Code'a kurulmuş, Codex ve Cursor'ın yanında Install düğmeleri"></td>
+<td width="50%"><img src="../assets/readme/cli-integrations.webp" alt="Vantage Ayarlar, Integrations sayfası: vantage skill'i Claude Code'a kurulmuş, Codex ve Cursor'ın yanında Install düğmeleri"></td>
 </tr>
 <tr>
-<td><b>Ajanınıza tek bir istem</b> — "Güneş Sistemi hakkında sekiz slaytlık bir sunum oluştur." Ajan skill'i okur, bir stil sayfası, bir ana hat ve slayt başına bir sayfa spesifikasyonu yazar, iki fotoğrafı <code>genoffice image</code> ile üretir ve <code>genoffice create</code> dosyayı <code>.pptx</code> olarak birleştirip <code>slides render</code> bakmanız için slayt başına bir PNG vermeden önce <code>genoffice slides check</code> komutunun taşan ya da çakışan her şeyi reddetmesine izin verir.</td>
-<td><b>Bir kez kurun, Ayarlar → Integrations üzerinden</b> — GenOffice bu bilgisayarda bulduğu kodlama ajanlarını listeler ve skill'i seçtiğiniz her birine yazar. Ya da skill'i zip olarak indirin ya da <code>npx skills add genspark-ai/genoffice</code> çalıştırın. Komutlar ve tam iş akışı <a href="#command-line-and-agent-skill">Komut satırı ve ajan skill'i</a> bölümünde.</td>
+<td><b>Ajanınıza tek bir istem</b> — "Güneş Sistemi hakkında sekiz slaytlık bir sunum oluştur." Ajan skill'i okur, bir stil sayfası, bir ana hat ve slayt başına bir sayfa spesifikasyonu yazar, iki fotoğrafı <code>vantage image</code> ile üretir ve <code>vantage create</code> dosyayı <code>.pptx</code> olarak birleştirip <code>slides render</code> bakmanız için slayt başına bir PNG vermeden önce <code>vantage slides check</code> komutunun taşan ya da çakışan her şeyi reddetmesine izin verir.</td>
+<td><b>Bir kez kurun, Ayarlar → Integrations üzerinden</b> — Vantage bu bilgisayarda bulduğu kodlama ajanlarını listeler ve skill'i seçtiğiniz her birine yazar. Ya da skill'i zip olarak indirin ya da <code>npx skills add genspark-ai/vantage</code> çalıştırın. Komutlar ve tam iş akışı <a href="#command-line-and-agent-skill">Komut satırı ve ajan skill'i</a> bölümünde.</td>
 </tr>
 </table>
 
 ### 10 · MCP — aynı araçlar, Model Context Protocol üzerinden
 
-Her `genoffice` komutu aynı zamanda bir MCP aracıdır. Claude Code, Claude
+Her `vantage` komutu aynı zamanda bir MCP aracıdır. Claude Code, Claude
 Desktop, Cursor ve diğer tüm MCP istemcileri, kurulacak skill ve açık pencere
-olmadan `genoffice mcp` komutunu kendileri başlatabilir ve 29 aracın yanı sıra
+olmadan `vantage mcp` komutunu kendileri başlatabilir ve 29 aracın yanı sıra
 op başvurularını kaynak olarak alabilir. Uygulama içindeki ikinci bir HTTP
 sunucusu, bir ajanın siz izlerken görünür bir düzenleyici sekmesinde Word
 belgesi oluşturmasına izin verir.
 
-<img src="../assets/readme/mcp-deck-motion.webp" alt="Claude Code'un genoffice MCP sunucusu üzerinden sekiz slaytlık bir yenilenebilir enerji yatırımcı brifingi oluşturmasının hızlandırılmış kaydı: rakamları ve fotoğrafları arıyor, her aday resmi media ile kontrol ediyor, deck_start stil sayfasını ve ana hattı yazıyor, deck_page her seferinde kontrol edilmiş bir sayfa ekliyor, deck_build .pptx dosyasını birleştiriyor ve slides_render her slaytın bir resmini döndürüyor; bitmiş sunum ardından GenOffice Slides'ta açılıyor" width="100%">
+<img src="../assets/readme/mcp-deck-motion.webp" alt="Claude Code'un vantage MCP sunucusu üzerinden sekiz slaytlık bir yenilenebilir enerji yatırımcı brifingi oluşturmasının hızlandırılmış kaydı: rakamları ve fotoğrafları arıyor, her aday resmi media ile kontrol ediyor, deck_start stil sayfasını ve ana hattı yazıyor, deck_page her seferinde kontrol edilmiş bir sayfa ekliyor, deck_build .pptx dosyasını birleştiriyor ve slides_render her slaytın bir resmini döndürüyor; bitmiş sunum ardından Vantage Slides'ta açılıyor" width="100%">
 
 <table>
 <tr>
-<td width="50%"><img src="../assets/readme/mcp-deck-in-app.webp" alt="GenOffice Slides, Claude Code'un genoffice MCP sunucusu üzerinden oluşturduğu sekiz slaytlık Renewable Energy 2026 sunumunu gösteriyor: rüzgâr çiftliği fotoğraflı kapak slaytı tuvalde ve solda sekiz küçük resim"></td>
-<td width="50%"><img src="../assets/readme/mcp-integrations.webp" alt="GenOffice Ayarlar, Integrations sayfası, MCP bölümü: Claude Code için tek satırlık claude mcp add komutu, Cursor, Claude Desktop ve diğer MCP istemcileri için JSON bloğu ve altında yerel HTTP sunucusu seçeneği"></td>
+<td width="50%"><img src="../assets/readme/mcp-deck-in-app.webp" alt="Vantage Slides, Claude Code'un vantage MCP sunucusu üzerinden oluşturduğu sekiz slaytlık Renewable Energy 2026 sunumunu gösteriyor: rüzgâr çiftliği fotoğraflı kapak slaytı tuvalde ve solda sekiz küçük resim"></td>
+<td width="50%"><img src="../assets/readme/mcp-integrations.webp" alt="Vantage Ayarlar, Integrations sayfası, MCP bölümü: Claude Code için tek satırlık claude mcp add komutu, Cursor, Claude Desktop ve diğer MCP istemcileri için JSON bloğu ve altında yerel HTTP sunucusu seçeneği"></td>
 </tr>
 <tr>
 <td><b>Tek istem, 38 araç çağrısı, kabuk yok</b> — "2026'da yenilenebilir enerji hakkında, kapakta ve fotoğrafın yardımcı olduğu her yerde gerçek bir fotoğraf bulunan sekiz slaytlık bir yatırımcı brifingi oluştur." Ajan rakamları ve fotoğrafları <code>search</code> ile çeker, her aday resmin gerçek bir fotoğraf olup olmadığını <code>media</code> ile sorar, bir stil sayfası ve ana hat ile <code>deck_start</code>'ı, ardından slayt başına bir kez <code>deck_page</code>'i çağırır; her sayfa saklanmadan önce ana hatta ve palete göre kontrol edilir, <code>deck_build</code> <code>.pptx</code> dosyasını birleştirir, <code>slides_audit</code> taşma arar, <code>slides_render</code> modelin bakabileceği görsel içerik olarak slayt başına bir PNG verir ve <code>deck_replace</code> beğenmediği üç sayfayı düzeltir.</td>
@@ -285,7 +285,7 @@ belgesi oluşturmasına izin verir.
 </tr>
 </table>
 
-## Neden GenOffice
+## Neden Vantage
 
 - **Açık kaynak**, Apache-2.0, GitHub'da açıkta geliştiriliyor.
 - **Sizin çalıştırdığınız.** macOS, Windows ve Linux için yerel uygulamalar;
@@ -312,7 +312,7 @@ belgesi oluşturmasına izin verir.
   gösterir.
 - **Skills.** Hazır skill'ler ya da kendi `SKILL.md` dosyanız, herhangi bir
   yapay zekâ panelinin **+** menüsünden eklenir.
-- **Betiklenebilir.** Bir `genoffice` komut satırı, bir ajan skill'i ve bir
+- **Betiklenebilir.** Bir `vantage` komut satırı, bir ajan skill'i ve bir
   MCP sunucusu, her motoru Claude Code, Claude Desktop, Codex, Cursor ve diğer
   ajanların hizmetine, yine cihaz üzerinde sunar.
 - **Ücretsiz**, bireyler ve ekipler için aynı şekilde.
@@ -357,7 +357,7 @@ her zaman belgenin kendi renklerini korur.
 ## Skills
 
 Bir skill, yapay zekâya tek bir işi iyi yapmayı anlatan bir `SKILL.md`
-dosyasıdır: haftalık rapor, gizlilik sözleşmesi, ders planı. GenOffice bunların
+dosyasıdır: haftalık rapor, gizlilik sözleşmesi, ders planı. Vantage bunların
 bir setiyle gelir ve kodlama ajanlarının kullandığı biçimde kendi skill'lerinizi
 de kabul eder.
 
@@ -372,10 +372,10 @@ de kabul eder.
 
 ## Komut satırı ve ajan skill'i
 
-Uygulamaların bir dosyaya yapabildiği her şeyi `genoffice` komut satırı bir
+Uygulamaların bir dosyaya yapabildiği her şeyi `vantage` komut satırı bir
 terminalden yapabilir: Word, Excel, PowerPoint, PDF, Markdown ve HTML'yi aynı
 motorlar üzerinde, başsız olarak inceleyin, dönüştürün, oluşturun, okuyun ve
-düzenleyin. GenOffice ile birlikte kurulur, kendi çalışma zamanına ihtiyaç
+düzenleyin. Vantage ile birlikte kurulur, kendi çalışma zamanına ihtiyaç
 duymaz ve hiçbir belgeyi hiçbir yere göndermez. Birlikte gelen **ajan
 skill'i** ile eşleştirildiğinde, bir kodlama ajanını Markdown yaklaşımları
 yerine gerçek Office dosyaları üreten bir belge çalışanına dönüştürür.
@@ -389,31 +389,31 @@ istemcisi.
 
 | Nasıl                                  | Ne olur                                                                                                                                                                       |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Uygulamada **Ayarlar → Integrations**  | Bu bilgisayarda bulunan ajanları listeler; tek tık skill'i seçtiğiniz her birine yazar. Bir GenOffice sürümü daha yeni bir skill getirdiğinde bir **Update** düğmesi belirir. |
+| Uygulamada **Ayarlar → Integrations**  | Bu bilgisayarda bulunan ajanları listeler; tek tık skill'i seçtiğiniz her birine yazar. Bir Vantage sürümü daha yeni bir skill getirdiğinde bir **Update** düğmesi belirir. |
 | Aynı sayfadaki **Download as zip**     | claude.ai, Claude masaüstü uygulamaları ve diğer asistanların yüklenen skill olarak kabul ettiği düzen.                                                                       |
-| `npx skills add genspark-ai/genoffice` | Bu depodan skill uyumlu herhangi bir ajana kurar.                                                                                                                             |
+| `npx skills add genspark-ai/vantage` | Bu depodan skill uyumlu herhangi bir ajana kurar.                                                                                                                             |
 
 Ardından yeni bir sohbet başlatın ve bir belge isteyin. Skill, ajana ne zaman
-`genoffice`'e başvuracağını, bir dosyayı düzenlemeden önce nasıl okuyacağını
+`vantage`'e başvuracağını, bir dosyayı düzenlemeden önce nasıl okuyacağını
 ve kendi işini nasıl kontrol edeceğini öğretir.
 
 ### Terminalden hızlı başlangıç
 
 ```bash
-genoffice --version
-genoffice info report.docx --json                  # headings and blocks; or sheets, slides, pages
-genoffice convert report.md --to pdf               # md/html/docx/xlsx/pptx → pdf, pdf → docx/xlsx/pptx/md/html, odt/ods/odp → docx/xlsx/pptx, …
-genoffice create --type docx --from notes.md --out notes.docx
-genoffice create --type xlsx --from table.json --out sales.xlsx   # "=SUM(B2:B9)" cells stay live formulas
-genoffice docs read report.docx --range 0-9 --json # then `docs apply --ops edits.json` edits in place
-genoffice docs compare original.docx revised.docx --out redline.docx   # the differences as tracked Word revisions
-genoffice render report.docx --out shots/          # one PNG per page, to look at what you made
-genoffice open sales.xlsx                          # hand the result to the editor
+vantage --version
+vantage info report.docx --json                  # headings and blocks; or sheets, slides, pages
+vantage convert report.md --to pdf               # md/html/docx/xlsx/pptx → pdf, pdf → docx/xlsx/pptx/md/html, odt/ods/odp → docx/xlsx/pptx, …
+vantage create --type docx --from notes.md --out notes.docx
+vantage create --type xlsx --from table.json --out sales.xlsx   # "=SUM(B2:B9)" cells stay live formulas
+vantage docs read report.docx --range 0-9 --json # then `docs apply --ops edits.json` edits in place
+vantage docs compare original.docx revised.docx --out redline.docx   # the differences as tracked Word revisions
+vantage render report.docx --out shots/          # one PNG per page, to look at what you made
+vantage open sales.xlsx                          # hand the result to the editor
 ```
 
 Her komut tek satırlık bir özet ya da `--json` ile tek bir JSON nesnesi
 yazdırır. Düzenlemeler atomiktir: reddedilen bir op dosyayı olduğu gibi bırakır
-ve yol gösterici bir hatayla geri döner. `genoffice help` güncel komut
+ve yol gösterici bir hatayla geri döner. `vantage help` güncel komut
 yüzeyini listeler; tam başvuru
 [packages/cli/README.md](../../packages/cli/README.md) dosyasındadır.
 
@@ -424,21 +424,21 @@ aldı. Arkasında ajan, skill'in aşamalı iş akışını izledi ve CLI, bir so
 başlamadan önce her aşamayı kontrol etti:
 
 ```bash
-genoffice capabilities --json                        # which cloud tools GenOffice has configured
-genoffice guide slides design                        # the deck workflow and layout library
-genoffice image "the eight planets in a row …" --aspect 16:9 --out deck/assets/cover.jpg
-genoffice slides check deck/outline.json --json      # 8 pages, no findings
-genoffice slides check deck/pages/01.json --json     # builds one slide, audits overflow and overlap
+vantage capabilities --json                        # which cloud tools Vantage has configured
+vantage guide slides design                        # the deck workflow and layout library
+vantage image "the eight planets in a row …" --aspect 16:9 --out deck/assets/cover.jpg
+vantage slides check deck/outline.json --json      # 8 pages, no findings
+vantage slides check deck/pages/01.json --json     # builds one slide, audits overflow and overlap
 …                                                    # one page file per slide, fixed until each check is clean
-genoffice create --type pptx --spec deck/pages --outline deck/outline.json --out deck/solar-system.pptx --json
-genoffice slides render deck/solar-system.pptx --out deck/shots --json
-genoffice slides audit deck/solar-system.pptx --json    # 8 slides, no layout issues
-genoffice slides replace deck/solar-system.pptx --slide 4 --spec deck/pages/05.json --json
-genoffice open deck/solar-system.pptx
+vantage create --type pptx --spec deck/pages --outline deck/outline.json --out deck/solar-system.pptx --json
+vantage slides render deck/solar-system.pptx --out deck/shots --json
+vantage slides audit deck/solar-system.pptx --json    # 8 slides, no layout issues
+vantage slides replace deck/solar-system.pptx --slide 4 --spec deck/pages/05.json --json
+vantage open deck/solar-system.pptx
 ```
 
-`genoffice` içinde hiçbir model çağrısı yapılmaz: düşünmeyi ajan yapar,
-oluşturmayı ve kontrolü CLI yapar ve sonuç GenOffice'te ya da PowerPoint'te
+`vantage` içinde hiçbir model çağrısı yapılmaz: düşünmeyi ajan yapar,
+oluşturmayı ve kontrolü CLI yapar ve sonuç Vantage'te ya da PowerPoint'te
 sıradan bir `.pptx` olarak açılır.
 
 ### MCP sunucusu
@@ -450,26 +450,26 @@ Integrations → MCP** altında kopyalamaya hazır parçacıklarla gösterilir:
 
 | Yol                                | Nedir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A · `genoffice mcp`** (önerilen) | Asistanın kendisinin başlattığı bir stdio sunucusu; GenOffice'in açık olması gerekmez. Komut başına bir araç (`info`, `convert`, `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf`, `docs_read` / `docs_apply` / `docs_check`, `sheet_*`, `slides_*`, `render`, `guide`, `search`, `image`, `media`, `open`) ve aşamalı sunum akışı `deck_start` → `deck_page` → `deck_build` → `deck_replace`. Op'lar, spesifikasyonlar ve Markdown satır içi aktarılır; böylece dosya sistemi olmayan bir istemci de çalışır. |
-| **B · Yerel HTTP sunucusu**        | GenOffice uygulamasının içinde `http://127.0.0.1:3093/mcp` adresinde çalışır (Streamable HTTP, eski SSE ile). Araçları görünür bir Word düzenleyici sekmesini yönetir: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`; belgenin şekillenmesini izlersiniz. Varsayılan olarak kapalıdır; aynı ayarlar bölmesinden açın.                                                                                                                                              |
-| **C · `genoffice mcp --http`**     | Stdio araç seti, başka makinelerdeki istemciler için bir Streamable HTTP sunucusu olarak: bir konteyner, bir sandbox, ağınızdaki paylaşılan bir makine. Dosyalar çağrılarla birlikte yolculuk eder: `PUT /files/<name>` bir dosya yükler ve bir URL döndürür, her `file` parametresi bir http(s) URL'si alır ve dosya yazan bir araç onu bir indirme URL'si olarak, küçükse ayrıca baytları bir MCP kaynağı olarak geri verir. `--host 0.0.0.0` onu ağa açar, `--token` korur.                                          |
+| **A · `vantage mcp`** (önerilen) | Asistanın kendisinin başlattığı bir stdio sunucusu; Vantage'in açık olması gerekmez. Komut başına bir araç (`info`, `convert`, `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf`, `docs_read` / `docs_apply` / `docs_check`, `sheet_*`, `slides_*`, `render`, `guide`, `search`, `image`, `media`, `open`) ve aşamalı sunum akışı `deck_start` → `deck_page` → `deck_build` → `deck_replace`. Op'lar, spesifikasyonlar ve Markdown satır içi aktarılır; böylece dosya sistemi olmayan bir istemci de çalışır. |
+| **B · Yerel HTTP sunucusu**        | Vantage uygulamasının içinde `http://127.0.0.1:3093/mcp` adresinde çalışır (Streamable HTTP, eski SSE ile). Araçları görünür bir Word düzenleyici sekmesini yönetir: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`; belgenin şekillenmesini izlersiniz. Varsayılan olarak kapalıdır; aynı ayarlar bölmesinden açın.                                                                                                                                              |
+| **C · `vantage mcp --http`**     | Stdio araç seti, başka makinelerdeki istemciler için bir Streamable HTTP sunucusu olarak: bir konteyner, bir sandbox, ağınızdaki paylaşılan bir makine. Dosyalar çağrılarla birlikte yolculuk eder: `PUT /files/<name>` bir dosya yükler ve bir URL döndürür, her `file` parametresi bir http(s) URL'si alır ve dosya yazan bir araç onu bir indirme URL'si olarak, küçükse ayrıca baytları bir MCP kaynağı olarak geri verir. `--host 0.0.0.0` onu ağa açar, `--token` korur.                                          |
 
 ```bash
 # Claude Code
-claude mcp add --transport stdio genoffice -- genoffice mcp
+claude mcp add --transport stdio vantage -- vantage mcp
 ```
 
 ```jsonc
 // Cursor, Claude Desktop or any other MCP client
-{ "mcpServers": { "genoffice": { "command": "genoffice", "args": ["mcp"] } } }
+{ "mcpServers": { "vantage": { "command": "vantage", "args": ["mcp"] } } }
 ```
 
 ```bash
-# On the machine that has GenOffice (private network; add --token for a shared box)
-genoffice mcp --http 3093 --host 0.0.0.0 --token "$GENOFFICE_MCP_TOKEN"
+# On the machine that has Vantage (private network; add --token for a shared box)
+vantage mcp --http 3093 --host 0.0.0.0 --token "$VANTAGE_MCP_TOKEN"
 
 # From the client: upload, then use the URL wherever a tool takes a file
-curl -T report.docx -H "Authorization: Bearer $GENOFFICE_MCP_TOKEN" http://server:3093/files/
+curl -T report.docx -H "Authorization: Bearer $VANTAGE_MCP_TOKEN" http://server:3093/files/
 #   → { "url": "http://server:3093/files/<id>/report.docx", ... }
 #   docs_read({ "file": "http://server:3093/files/<id>/report.docx" })
 #   docs_apply(...) → output_url, downloadable with curl -o
@@ -477,23 +477,23 @@ curl -T report.docx -H "Authorization: Bearer $GENOFFICE_MCP_TOKEN" http://serve
 
 HTTP üzerinden her oturum özel bir çalışma klasörü alır, göreli yollar ve
 sunum klasörleri bunun içinde çözümlenir, `open` sunulmaz ve
-`GENOFFICE_ALLOWED_ROOTS` ayarlanmamışken araçlar sunucunun kendi dosya
+`VANTAGE_ALLOWED_ROOTS` ayarlanmamışken araçlar sunucunun kendi dosya
 deposunun dışına çıkamaz. `render`, PDF'ye `convert` ve `create_pdf` yine de
-gizli bir GenOffice süreci başlatır; bu yüzden başsız bir ana makinede
+gizli bir Vantage süreci başlatır; bu yüzden başsız bir ana makinede
 uygulamanın kurulu olması ve bir sanal ekran (`xvfb-run`) gerekir.
 
-Buradaki `genoffice`, uygulamanın içinde gelen CLI'dir (macOS'te
-`/Applications/GenOffice.app/Contents/Resources/cli/genoffice`; ayarlar
+Buradaki `vantage`, uygulamanın içinde gelen CLI'dir (macOS'te
+`/Applications/Vantage.app/Contents/Resources/cli/vantage`; ayarlar
 bölmesi kurulumunuz için tam yolu yazdırır). Sunucu kendi iş akışı
-talimatlarını taşır ve op başvurularını `genoffice://guide/*` kaynakları
+talimatlarını taşır ve op başvurularını `vantage://guide/*` kaynakları
 olarak sunar; bu yüzden skill gerekmez. Skill ve MCP sunucusu bir arada
 bulunabilir, asistan birini seçer. Bulut özellikleri (`search`, `image`,
-`media`) yine GenOffice'te yapılandırılan sağlayıcı üzerinden gider; geri
-kalan her şey yerel çalışır ve `GENOFFICE_ALLOWED_ROOTS` her aracı
+`media`) yine Vantage'te yapılandırılan sağlayıcı üzerinden gider; geri
+kalan her şey yerel çalışır ve `VANTAGE_ALLOWED_ROOTS` her aracı
 listelediğiniz klasörlerle sınırlar.
 
 [Demo](#demo) bölümündeki yenilenebilir enerji sunumu, Claude Code'da yalnızca
-`genoffice` MCP sunucusu bağlıyken tek bir istemin protokol tarafından nasıl
+`vantage` MCP sunucusu bağlıyken tek bir istemin protokol tarafından nasıl
 göründüğüdür:
 
 ```text
@@ -514,38 +514,38 @@ deck_replace(dir, n, page) ×3 · slides_render(file, out)
 Otuz sekiz çağrı, yaklaşık on üç dakika ve asistan hiç kabuğa dokunmadı:
 rakamlar, fotoğraflar, kılavuzlar, kontroller ve işlenmiş görüntülerin tamamı
 MCP araç sonuçları olarak yolculuk etti. Makineden yalnızca `search` ve
-`media`, GenOffice'te yapılandırılan sağlayıcıya gitti.
+`media`, Vantage'te yapılandırılan sağlayıcıya gitti.
 
 ## İndir
 
 | Platform                             | Gereksinimler                                         | İndirme                                                                                |
 | ------------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **macOS** — Apple Silicon (arm64)    | macOS 11+                                             | [Son `.dmg` (arm64)](https://github.com/genspark-ai/genoffice/releases/latest)         |
-| **macOS** — Intel (x64)              | macOS 11+                                             | [Son `.dmg` (x64)](https://github.com/genspark-ai/genoffice/releases/latest)           |
-| **Windows** (x64, çoğu PC)           | Windows 10+, Intel/AMD                                | [Son `-x64.exe` yükleyici](https://github.com/genspark-ai/genoffice/releases/latest)   |
-| **Windows** Arm üzerinde (ARM64)     | Arm üzerinde Windows 11 (Snapdragon X ve benzerleri)  | [Son `-arm64.exe` yükleyici](https://github.com/genspark-ai/genoffice/releases/latest) |
-| **Linux** — Debian / Ubuntu          | x86_64, glibc 2.34+ (Ubuntu 22.04 veya daha yeni)     | [Son `.deb`](https://github.com/genspark-ai/genoffice/releases/latest)                 |
-| **Linux** — Fedora / RHEL / openSUSE | x86_64, glibc 2.34+ (Fedora 35+, RHEL 9+, Leap 15.6+) | [Son `.rpm`](https://github.com/genspark-ai/genoffice/releases/latest)                 |
-| **Linux** — diğer dağıtımlar         | x86_64, glibc 2.34+, FUSE 2                           | [Son `.AppImage`](https://github.com/genspark-ai/genoffice/releases/latest)            |
+| **macOS** — Apple Silicon (arm64)    | macOS 11+                                             | [Son `.dmg` (arm64)](https://github.com/Adilson09/aster-office/releases/latest)         |
+| **macOS** — Intel (x64)              | macOS 11+                                             | [Son `.dmg` (x64)](https://github.com/Adilson09/aster-office/releases/latest)           |
+| **Windows** (x64, çoğu PC)           | Windows 10+, Intel/AMD                                | [Son `-x64.exe` yükleyici](https://github.com/Adilson09/aster-office/releases/latest)   |
+| **Windows** Arm üzerinde (ARM64)     | Arm üzerinde Windows 11 (Snapdragon X ve benzerleri)  | [Son `-arm64.exe` yükleyici](https://github.com/Adilson09/aster-office/releases/latest) |
+| **Linux** — Debian / Ubuntu          | x86_64, glibc 2.34+ (Ubuntu 22.04 veya daha yeni)     | [Son `.deb`](https://github.com/Adilson09/aster-office/releases/latest)                 |
+| **Linux** — Fedora / RHEL / openSUSE | x86_64, glibc 2.34+ (Fedora 35+, RHEL 9+, Leap 15.6+) | [Son `.rpm`](https://github.com/Adilson09/aster-office/releases/latest)                 |
+| **Linux** — diğer dağıtımlar         | x86_64, glibc 2.34+, FUSE 2                           | [Son `.AppImage`](https://github.com/Adilson09/aster-office/releases/latest)            |
 
 Tüm derlemeler `main` dalından gelir; macOS ve Windows yükleyicileri imzalıdır.
-Eski sürümler [Releases](https://github.com/genspark-ai/genoffice/releases) sayfasındadır.
+Eski sürümler [Releases](https://github.com/Adilson09/aster-office/releases) sayfasındadır.
 
 <details>
 <summary><b>Linux'a kurulum</b></summary>
 
-Deb paketi apt ile kurulur — bağımlılıkları çeker ve GenOffice'i uygulama
+Deb paketi apt ile kurulur — bağımlılıkları çeker ve Vantage'i uygulama
 menüsüne ekler:
 
 ```bash
-sudo apt install ./genoffice_<version>_amd64.deb
+sudo apt install ./vantage_<version>_amd64.deb
 ```
 
 Fedora / RHEL ailesi / openSUSE üzerinde bunun yerine rpm'i kurun:
 
 ```bash
-sudo dnf install ./genoffice-<version>.x86_64.rpm     # Fedora / RHEL family
-sudo zypper install ./genoffice-<version>.x86_64.rpm  # openSUSE
+sudo dnf install ./vantage-<version>.x86_64.rpm     # Fedora / RHEL family
+sudo zypper install ./vantage-<version>.x86_64.rpm  # openSUSE
 ```
 
 AppImage olduğu yerde çalışır: FUSE 2 çalışma zamanını kurun
@@ -553,8 +553,8 @@ AppImage olduğu yerde çalışır: FUSE 2 çalışma zamanını kurun
 çalıştırılabilir yapın, ardından çalıştırın:
 
 ```bash
-chmod +x GenOffice-<version>.AppImage
-./GenOffice-<version>.AppImage
+chmod +x Vantage-<version>.AppImage
+./Vantage-<version>.AppImage
 ```
 
 </details>
@@ -595,45 +595,45 @@ npm run dist:linux   # package Linux AppImage + deb + rpm
 ```
 
 Sheets uygulaması xlsx yardımcı süreci için ayrıca bir Rust araç zincirine
-(PATH üzerinde `cargo`) ihtiyaç duyar; `npm run build -w @genoffice/sheets`
+(PATH üzerinde `cargo`) ihtiyaç duyar; `npm run build -w @vantage/sheets`
 bunu otomatik derler. Her değişikliğin geçmesi gereken kontroller ve çekme
 isteklerinin nasıl birleştirildiği için [CONTRIBUTING.md](../../CONTRIBUTING.md)
 dosyasına bakın.
 
 ## Topluluk
 
-GenOffice etkin geliştirme aşamasındadır ve geri bildiriminiz onu şekillendirir.
+Vantage etkin geliştirme aşamasındadır ve geri bildiriminiz onu şekillendirir.
 
 - **Hata bildirin ya da özellik isteyin:**
-  [GitHub Issues](https://github.com/genspark-ai/genoffice/issues).
-- **GenOffice grup sohbetine katılın:** ekiple ve diğer kullanıcılarla konuşmak
-  için [GenTeam](https://genoffice.ai/join).
+  [GitHub Issues](https://github.com/Adilson09/aster-office/issues).
+- **Vantage grup sohbetine katılın:** ekiple ve diğer kullanıcılarla konuşmak
+  için [GenTeam](https://vantage.ai/join).
 - **X'te [@merrickbuilds](https://x.com/merrickbuilds) hesabını takip edin:**
   sürüm notları, demolar ve sırada ne olduğu için.
-- **Depoya yıldız verin:** GenOffice size yararlıysa, projeyi desteklemenin en
+- **Depoya yıldız verin:** Vantage size yararlıysa, projeyi desteklemenin en
   iyi yolu budur.
 
 ## SSS
 
 <details>
-<summary><b>GenOffice ücretsiz mi?</b></summary>
+<summary><b>Vantage ücretsiz mi?</b></summary>
 
-Evet. GenOffice, Apache-2.0 lisansı altında ücretsiz ve açık kaynaklıdır —
+Evet. Vantage, Apache-2.0 lisansı altında ücretsiz ve açık kaynaklıdır —
 deneme süresi yok, uygulamaların kendisi için ücretli katman yok.
 
 </details>
 
 <details>
-<summary><b>GenOffice, Microsoft Word, Excel ve PowerPoint dosyalarını açabilir mi?</b></summary>
+<summary><b>Vantage, Microsoft Word, Excel ve PowerPoint dosyalarını açabilir mi?</b></summary>
 
-Evet. GenOffice yerel `.docx`, `.xlsx` ve `.pptx` dosyalarını açar ve kaydeder.
+Evet. Vantage yerel `.docx`, `.xlsx` ve `.pptx` dosyalarını açar ve kaydeder.
 Kaydetme bayt bayt korur: dosyanın dokunmadığınız kısımları bayt bayt geri
 yazılır; böylece belgeler Microsoft Office'te çalışmaya devam eder.
 
 </details>
 
 <details>
-<summary><b>GenOffice çevrimdışı çalışır mı?</b></summary>
+<summary><b>Vantage çevrimdışı çalışır mı?</b></summary>
 
 Belge düzenleme tamamen yereldir — dosyalar açılmak, düzenlenmek, kaydedilmek
 ya da dönüştürülmek için makinenizden asla çıkmaz. Yapay zekâ özellikleri
@@ -643,7 +643,7 @@ da kendi model API anahtarınızı gerektirir.
 </details>
 
 <details>
-<summary><b>GenOffice PDF dosyalarını düzenleyebilir mi?</b></summary>
+<summary><b>Vantage PDF dosyalarını düzenleyebilir mi?</b></summary>
 
 Evet — üstünü örten açıklama notları değil, sayfa içerik akışını özgün yazı
 tiplerini koruyarak yeniden yazan gerçek PDF metin ve görsel düzenleme.
@@ -651,7 +651,7 @@ tiplerini koruyarak yeniden yazan gerçek PDF metin ve görsel düzenleme.
 </details>
 
 <details>
-<summary><b>GenOffice PDF'yi Word, Excel ya da PowerPoint'e dönüştürebilir mi?</b></summary>
+<summary><b>Vantage PDF'yi Word, Excel ya da PowerPoint'e dönüştürebilir mi?</b></summary>
 
 Evet — tamamen cihaz üzerinde: PDFium karakter düzeyinde çıkarma ve geometri
 tabanlı düzen analizi; bulut hizmeti yok, yükleme yok. Taranmış sayfalar da
@@ -663,7 +663,7 @@ görüntüsü yerine düzenlenebilir metne dönüşürler.
 <details>
 <summary><b>Kendi yapay zekâ modelimi ya da API anahtarımı kullanabilir miyim?</b></summary>
 
-Evet. Anahtarsız Genspark oturumunun yanı sıra GenOffice; Claude, OpenAI,
+Evet. Anahtarsız Genspark oturumunun yanı sıra Vantage; Claude, OpenAI,
 Gemini, DeepSeek, Kimi, GLM, Qwen, Doubao, MiniMax, Grok, Mistral, OpenRouter,
 Requesty, Opper, Cheaper Inference, Atlas Cloud ve OpenCode Zen/Go için kendi
 anahtarınızı getirmeyi, ayrıca yerel model sunucuları dahil herhangi bir
@@ -683,7 +683,7 @@ başına açmayı bırakır. Açık bir yapay zekâ eylemi — bir şerit düğm
 </details>
 
 <details>
-<summary><b>GenOffice HTML'yi Word'e dönüştürebilir mi?</b></summary>
+<summary><b>Vantage HTML'yi Word'e dönüştürebilir mi?</b></summary>
 
 Evet — HTML uygulamasındaki Export as Word, tamamen cihaz üzerinde yerel,
 düzenlenebilir bir `.docx` üretir. Sayfa yerleşik Chromium'da işlenir ve
@@ -695,9 +695,9 @@ gömülür.
 </details>
 
 <details>
-<summary><b>GenOffice'i Claude Code, Codex, Cursor ya da bir betikten yönetebilir miyim?</b></summary>
+<summary><b>Vantage'i Claude Code, Codex, Cursor ya da bir betikten yönetebilir miyim?</b></summary>
 
-Evet. GenOffice, aynı motorları başsız çalıştıran bir `genoffice` komut satırı
+Evet. Vantage, aynı motorları başsız çalıştıran bir `vantage` komut satırı
 kurar: belgeleri bir terminalden ya da betikten inceleyin, dönüştürün,
 oluşturun, okuyun ve düzenleyin; programlar için `--json` çıktısıyla. Birlikte
 gelen ajan skill'i Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot,
@@ -707,13 +707,13 @@ OpenCode ve Windsurf'e onu kullanmayı öğretir; **Ayarlar → Integrations**
 </details>
 
 <details>
-<summary><b>GenOffice herhangi bir veri topluyor mu?</b></summary>
+<summary><b>Vantage herhangi bir veri topluyor mu?</b></summary>
 
 Resmî paketlenmiş derlemeler varsayılan olarak sınırlı kullanım analitiği
 gönderir ve raporlamayı Ayarlar → General altında istediğiniz zaman
 kapatabilirsiniz. Analitik asla belge içeriği, dosya adları, dosya yolları,
 hesap kimliği ya da e-posta adresi göndermez. Olay ve veri açıklamalarının
-tamamı için [GenOffice Gizlilik](../../PRIVACY.md) sayfasına bakın.
+tamamı için [Vantage Gizlilik](../../PRIVACY.md) sayfasına bakın.
 
 </details>
 
@@ -725,7 +725,7 @@ denetimi) ve yapay zekâ tarafından üretilen içerik için tehdit modelleri i�
 
 ## Teşekkürler
 
-GenOffice, şu açık kaynak projeler olmadan mümkün olmazdı:
+Vantage, şu açık kaynak projeler olmadan mümkün olmazdı:
 
 - [Electron](https://www.electronjs.org/) — her uygulamanın masaüstü çalışma
   zamanı.
@@ -771,10 +771,10 @@ MIT/Apache-2.0/BSD-3-Clause/OFL lisanslıdır.
 
 ## Lisans
 
-GenOffice, tek bir istisnayla [Apache License 2.0](../../LICENSE) altında
+Vantage, tek bir istisnayla [Apache License 2.0](../../LICENSE) altında
 lisanslanmıştır: `ee/` dizini gelecekteki kurumsal modüller için ayrılmıştır ve
-[GenOffice Enterprise License](../../ee/LICENSE) kapsamındadır.
+[Vantage Enterprise License](../../ee/LICENSE) kapsamındadır.
 
-GenOffice ve Genspark adları ile logoları Mainfunc, Inc.'in ticari
+Vantage ve Genspark adları ile logoları Mainfunc, Inc.'in ticari
 markalarıdır. Apache-2.0 lisansı bunları kullanma izni vermez (bkz. 6. bölüm);
 çatallar kendi markalarını kullanmalıdır.

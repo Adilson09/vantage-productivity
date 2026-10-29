@@ -1,5 +1,6 @@
-import type { AgentMessage, AgentToolDef } from '@genoffice/agent-core'
+import type { AgentMessage, AgentToolDef } from '@vantage/agent-core'
 import { withOutputCapFallback } from './output-cap'
+import { checkAiRequestPermission } from './fetch'
 import { streamAnthropic } from './protocols/anthropic'
 import { streamGemini } from './protocols/gemini'
 import { streamOpenAiCompatible } from './protocols/openai-compatible'
@@ -25,6 +26,10 @@ export async function streamForProvider(
   cb: StreamCallbacks,
 ): Promise<void> {
   const endpoint = getProviderAdapter(provider).resolveEndpoint(config)
+  checkAiRequestPermission(
+    endpoint.baseUrl,
+    endpoint.protocol === 'codex-app-server' ? 'command' : 'http',
+  )
   const { baseUrl } = endpoint
   if (endpoint.model) config = { ...config, model: endpoint.model }
   if (endpoint.protocol === 'codex-app-server') {

@@ -2,8 +2,6 @@
 
 Mọi tập tin đang mở dùng chung một cửa sổ; dải thẻ ở trên chuyển qua lại giữa chúng theo kiểu trình duyệt.
 
-![Dải thẻ: Trang chủ cùng hai tài liệu](img/tabs.png)
-
 ## Những điều cơ bản
 
 - **Chuyển thẻ**: nhấp vào một thẻ, hoặc lăn bánh xe chuột trên dải thẻ để lần lượt qua các thẻ.

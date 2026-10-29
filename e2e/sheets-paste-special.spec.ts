@@ -1,11 +1,11 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl } from './helpers'
 
-process.env.GENOFFICE_DEBUG_HOOKS = '1'
+process.env.VANTAGE_DEBUG_HOOKS = '1'
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control'
 
 interface SheetFacade {
@@ -32,7 +32,7 @@ interface SheetDims {
 }
 
 test('paste special: transpose, add operation, paste link, undo', async () => {
-  const scratch = await mkdtemp(join(tmpdir(), 'genoffice-paste-special-'))
+  const scratch = await mkdtemp(join(tmpdir(), 'vantage-paste-special-'))
   const launched = await launchShell({ onboardingSeen: true, videoDir: 'sheets-paste-special' })
   try {
     const { app, page } = launched
@@ -61,8 +61,8 @@ test('paste special: transpose, add operation, paste link, undo', async () => {
     const values = (r: number, c: number, rows: number, cols: number) =>
       sheets.evaluate(
         ([r, c, rows, cols]) => {
-          const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetFacade } })
-            .__genofficeDebug
+          const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetFacade } })
+            .__vantageDebug
           return debug.univerAPI
             .getActiveWorkbook()
             .getActiveSheet()
@@ -74,16 +74,16 @@ test('paste special: transpose, add operation, paste link, undo', async () => {
     const activate = (r: number, c: number, rows: number, cols: number) =>
       sheets.evaluate(
         ([r, c, rows, cols]) => {
-          const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetFacade } })
-            .__genofficeDebug
+          const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetFacade } })
+            .__vantageDebug
           debug.univerAPI.getActiveWorkbook().getActiveSheet().getRange(r, c, rows, cols).activate()
         },
         [r, c, rows, cols] as const,
       )
 
     await sheets.evaluate(async () => {
-      const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetFacade } })
-        .__genofficeDebug
+      const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetFacade } })
+        .__vantageDebug
       const sheet = debug.univerAPI.getActiveWorkbook().getActiveSheet()
       await sheet.getRange(0, 0, 2, 2).setValues([
         [1, 2],
@@ -136,8 +136,8 @@ test('paste special: transpose, add operation, paste link, undo', async () => {
     // paste link into G1, opened through the context-menu command id
     await activate(0, 6, 1, 1)
     await sheets.evaluate(() => {
-      const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetFacade } })
-        .__genofficeDebug
+      const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetFacade } })
+        .__vantageDebug
       void debug.univerAPI.executeCommand('sheets.paste-special.open')
     })
     await expect(dialog).toBeVisible()
@@ -145,8 +145,8 @@ test('paste special: transpose, add operation, paste link, undo', async () => {
     await expect(dialog).toBeHidden()
     await expect(async () => {
       const formulas = await sheets.evaluate(() => {
-        const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetFacade } })
-          .__genofficeDebug
+        const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetFacade } })
+          .__vantageDebug
         return debug.univerAPI
           .getActiveWorkbook()
           .getActiveSheet()
@@ -168,8 +168,8 @@ test('paste special: transpose, add operation, paste link, undo', async () => {
 
     // operation against a formula target uses its computed value
     await sheets.evaluate(async () => {
-      const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetFacade } })
-        .__genofficeDebug
+      const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetFacade } })
+        .__vantageDebug
       await debug.univerAPI
         .getActiveWorkbook()
         .getActiveSheet()
@@ -194,8 +194,8 @@ test('paste special: transpose, add operation, paste link, undo', async () => {
 
     // a transposed block past the last column grows the sheet
     const maxColumns = await sheets.evaluate(() => {
-      const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetDims } })
-        .__genofficeDebug
+      const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetDims } })
+        .__vantageDebug
       return debug.univerAPI.getActiveWorkbook().getActiveSheet().getMaxColumns()
     })
     await activate(0, 0, 2, 2)

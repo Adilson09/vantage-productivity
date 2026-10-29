@@ -1,18 +1,19 @@
-// Aster Office: audit real files without opening viewers, networking or modifying source bytes.
+// Vantage Productivity: audit real files without opening viewers, networking or modifying source bytes.
 import { mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import JSZip from 'jszip'
+import { PDFDocument } from 'pdf-lib'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { auditFile, AUDIT_MAX_FILE_BYTES } from '../src/main/workspace-audit'
-import type { WorkspaceAuditResult } from '../src/shared/aster-api'
+import type { WorkspaceAuditResult } from '../src/shared/vantage-api'
 
 let dir: string
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'aster-audit-'))
+  dir = await mkdtemp(join(tmpdir(), 'vantage-audit-'))
 })
 afterEach(async () => {
-  if (!dir.startsWith(join(tmpdir(), 'aster-audit-'))) throw new Error('Unexpected test folder')
+  if (!dir.startsWith(join(tmpdir(), 'vantage-audit-'))) throw new Error('Unexpected test folder')
   await rm(dir, { recursive: true, force: true })
 })
 const check = (result: WorkspaceAuditResult, id: string) =>
@@ -61,17 +62,80 @@ describe('local workspace inspection', () => {
     expect(check(result, 'scripts')).toMatchObject({ status: 'warning', count: 1 })
   })
 
-  it('limits PDF claims to signature and end-marker checks', async () => {
+  it('rejects a PDF with plausible markers but no object/page tree', async () => {
     const result = await auditFile(
       await textFile('sample.pdf', '%PDF-1.7\nThis is not a real PDF object tree.\n%%EOF'),
     )
     expect(check(result, 'pdf-header')?.status).toBe('pass')
     expect(check(result, 'pdf-eof')?.status).toBe('pass')
+    expect(check(result, 'pdf-structure')?.status).toBe('fail')
     expect(check(result, 'pdf-scope')?.detail).toContain('not parsed or certified')
     expect(result.summary.informational).toBe(1)
     const truncated = await auditFile(await textFile('truncated.pdf', 'not a PDF'))
     expect(check(truncated, 'pdf-header')?.status).toBe('fail')
     expect(check(truncated, 'pdf-eof')?.status).toBe('warning')
+  })
+
+  it('parses real PDF pages in a bounded worker without changing the source', async () => {
+    const pdf = await PDFDocument.create()
+    pdf.addPage([612, 792])
+    pdf.addPage([400, 300])
+    const path = await textFile('real.pdf', Buffer.from(await pdf.save()))
+    const before = await readFile(path)
+    const result = await auditFile(path)
+    expect(check(result, 'pdf-structure')).toMatchObject({ status: 'pass', count: 2 })
+    expect(check(result, 'pdf-structure')?.detail).toContain('not rendered')
+    expect(await readFile(path)).toEqual(before)
+  })
+
+  it.each([
+    '',
+    'not-pdf',
+    '%PDF-1.7',
+    '%PDF-1.7\n%%EOF',
+    '%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF',
+    '%PDF-1.7\n1 0 obj << /Type /Pages /Count 1 /Kids [7 0 R] >> endobj\n%%EOF',
+    '%PDF-1.7\n1 0 obj << /Type /Page /MediaBox [0 0 1 1] >> endobj\n%%EOF',
+    '%PDF-1.7\ntrailer << /Root 99 0 R >>\n%%EOF',
+    '%PDF-1.7\nxref\n0 2\n0000000000 65535 f\n0000000010 00000 n\n%%EOF',
+    '%PDF-1.7\n1 0 obj << /Length 999999999 >> stream\nbad\n%%EOF',
+  ])('does not pass an incomplete or malformed PDF object tree (%#)', async (body) => {
+    const path = await textFile('malformed.pdf', body)
+    const before = await readFile(path)
+    const result = await auditFile(path)
+    expect(check(result, 'pdf-structure')?.status).not.toBe('pass')
+    expect(await readFile(path)).toEqual(before)
+  })
+
+  it('resolves internal relationship targets relative to their source parts', async () => {
+    const result = await auditFile(
+      await officeFile('targets.docx', {
+        'word/document.xml': '<document/>',
+        'word/media/image 1.png': Buffer.from('image bytes'),
+        'word/_rels/document.xml.rels':
+          '<Relationships><Relationship Id="r1" Target="media/image%201.png"/><Relationship Id="r2" Target="/word/document.xml#bookmark"/></Relationships>',
+      }),
+    )
+    expect(check(result, 'relationship-targets')).toMatchObject({ status: 'pass', count: 0 })
+  })
+
+  it.each([
+    'missing.png',
+    '../../../escape.xml',
+    'https://example.invalid/file',
+    '%ZZ',
+    'C:/file.xml',
+    'media\\file.png',
+    '',
+    '%2e%2e/%2e%2e/file.xml',
+  ])('reports broken or unsafe internal relationship %s', async (target) => {
+    const result = await auditFile(
+      await officeFile('broken-target.docx', {
+        'word/document.xml': '<document/>',
+        'word/_rels/document.xml.rels': `<Relationships><Relationship Id="r1" Target="${target}"/></Relationships>`,
+      }),
+    )
+    expect(check(result, 'relationship-targets')).toMatchObject({ status: 'fail', count: 1 })
   })
 
   it('finds DOCX revisions, image descriptions, language and external relationships', async () => {

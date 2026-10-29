@@ -21,14 +21,14 @@ const request = {
 }
 
 describe('startAiTrace', () => {
-  it('is off without GENOFFICE_AI_TRACE_DIR', () => {
+  it('is off without VANTAGE_AI_TRACE_DIR', () => {
     expect(startAiTrace(request, {})).toBeNull()
   })
 
   it('appends one JSON line per turn with the streamed response', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ai-trace-'))
     dirs.push(dir)
-    const env = { GENOFFICE_AI_TRACE_DIR: dir }
+    const env = { VANTAGE_AI_TRACE_DIR: dir }
     const a = startAiTrace(request, env)!
     a.onReasoningDelta('think ')
     a.onDelta('Hel')

@@ -1,4 +1,4 @@
-import { clampZoom, notchStep, type ZoomWheelIntent } from '@genoffice/ui'
+import { clampZoom, notchStep, type ZoomWheelIntent } from '@vantage/ui'
 
 export const DOCS_ZOOM_MIN = 10
 export const DOCS_ZOOM_MAX = 500

@@ -200,7 +200,7 @@ impl AppState {
         if let Some(w) = self.app.get_webview_window("main") {
             best_effort(
                 "set the window title",
-                w.set_title(crate::lang::pick("Aster Mail", "Aster Mail")),
+                w.set_title(crate::lang::pick("Vantage Mail", "Vantage Mail")),
             );
         }
     }

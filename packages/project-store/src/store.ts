@@ -987,7 +987,7 @@ export class ProjectStore {
 
   /**
    * Lists files that currently exist for a project. Stored paths are historical
-   * records and may outlive files deleted or moved outside GenOffice.
+   * records and may outlive files deleted or moved outside Vantage.
    */
   listProjectFiles(projectId: string): string[] {
     const proj = this.readProject(projectId)

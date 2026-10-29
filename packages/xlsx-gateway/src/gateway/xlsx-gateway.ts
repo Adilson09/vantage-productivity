@@ -4,7 +4,10 @@ import { rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
 import JSZip from 'jszip'
-import { assertZipInflatesWithinLimits } from '@genoffice/zip-gate'
+import { atomicWriteFile, withAtomicSaveQueue } from '../../../electron-utils/src/atomic-write'
+import { assertMacroMutationPlanSafe, assertMacroStructurePreserved, assertPackageSignaturePreserved, inspectMacroPreservation } from './xlsx-macro-preservation'
+export { MacroPreservationError, inspectMacroPreservation } from './xlsx-macro-preservation'
+import { assertZipInflatesWithinLimits } from '@vantage/zip-gate'
 
 import type {
   CellState,
@@ -490,6 +493,10 @@ function markDynamicArrayAnchor(worksheetXml: string, address: string, cm: numbe
 
 export async function createBufferEntrySource(buffer: Buffer): Promise<EntrySource> {
   const zip = await loadSafeZip(buffer)
+  return zipEntrySource(zip)
+}
+
+function zipEntrySource(zip: JSZip): EntrySource {
   return {
     paths: async () =>
       Object.entries(zip.files)
@@ -506,6 +513,7 @@ export async function createBufferEntrySource(buffer: Buffer): Promise<EntrySour
 /// path.
 export async function assembleWithJsZip(source: Buffer, plan: MutationPlan): Promise<XlsxMutation> {
   const zip = await loadSafeZip(source)
+  await assertMacroMutationPlanSafe(zipEntrySource(zip), plan)
   const beforeEntries = await inventoryXlsx(source)
   for (const path of plan.removedEntries) zip.remove(path)
   for (const [path, content] of plan.replaced) zip.file(path, content, { createFolders: false })
@@ -573,7 +581,7 @@ export async function readBasicWorkbook(buffer: Buffer): Promise<ImportedXlsx> {
  * merge) holds what the file last calculated. So the cell's own <v> is what
  * this reads, exactly like the pivot source reader does.
  *
- * The first sheet is read unless a sheet is named. genoffice#2097.
+ * The first sheet is read unless a sheet is named. vantage#2097.
  */
 export async function readSheetRows(buffer: Buffer, sheetName?: string): Promise<string[][]> {
   const zip = await createBufferEntrySource(buffer)
@@ -747,7 +755,9 @@ export async function applyPlanToXlsx(
   plan: ChangePlan,
   sheetNamesById: Readonly<Record<string, string>>,
 ): Promise<XlsxMutation> {
-  const pkg = new PackageEditor(await createBufferEntrySource(source))
+  const entrySource = await createBufferEntrySource(source)
+  await assertMacroStructurePreserved(entrySource, { legacySheetRenames: plan.sheetRenames.length > 0 })
+  const pkg = new PackageEditor(entrySource)
   const touchedEntries = new Set<string>()
 
   for (const rename of plan.sheetRenames) {
@@ -962,6 +972,11 @@ export async function planCellEditsToXlsx(
   // marks (CLI, the second phase of a split save), so the part stays as it is.
   redactionStates: readonly SheetRedactionState[] | null = null,
 ): Promise<MutationPlan> {
+  const macroInfo = await inspectMacroPreservation(source)
+  const requestedMutation = [edits, structuralOps, chartEdits, filterStates, hyperlinkEdits, cfStates, dvStates, sheetProtections, visualAdditions, pageSetupStates, noteStates, tableAdditions, pivotAdditions, pivotCacheRefreshPaths, pivotRefreshUpdates, visualEdits, sparklineAdditions, formulaValues, protectedRangeStates, bulkConstantFills, tabColorStates, tableEdits, cellImageAdditions].some((items) => items.length > 0) || sheetPlan !== undefined || definedNamesState !== null || themeState !== null || workbookProtectionState !== null || redactionStates !== null
+  assertPackageSignaturePreserved(macroInfo, requestedMutation)
+  if (macroInfo.packageSigned && !requestedMutation) return { replaced: new Map(), added: new Map(), addedBinary: new Map(), removedEntries: [], addedEntries: [], touchedEntries: [] }
+  await assertMacroStructurePreserved(source, { sheetPlan, structuralOps }, macroInfo)
   // A pending pivot pins final coordinates for its source and output; shifts
   // on either sheet, and sheet renames (worksheetSource@sheet), would desync
   // the recorded ranges. Fail closed, mirroring the table-add guard.
@@ -1743,7 +1758,9 @@ export async function planCellEditsToXlsx(
     touchedEntries.add(workbookPath)
   }
 
-  return pkg.toPlan(touchedEntries)
+  const result = pkg.toPlan(touchedEntries)
+  await assertMacroMutationPlanSafe(source, result)
+  return result
 }
 
 /// Assigns non-colliding part paths, sheetId attributes, and relationship
@@ -2142,15 +2159,7 @@ export async function syncFileBestEffort(path: string): Promise<void> {
 }
 
 export async function writeXlsxAtomically(path: string, buffer: Buffer): Promise<void> {
-  const temporaryPath = join(dirname(path), `${basename(path)}.${crypto.randomUUID()}.tmp`)
-  try {
-    writeFileSync(temporaryPath, buffer, { flag: 'wx' })
-    await syncFileBestEffort(temporaryPath)
-    await rename(temporaryPath, path)
-  } catch (error: unknown) {
-    await rm(temporaryPath, { force: true })
-    throw error
-  }
+  return atomicWriteFile(path, buffer)
 }
 
 export async function mutateXlsxFile(
@@ -2159,13 +2168,15 @@ export async function mutateXlsxFile(
   plan: ChangePlan,
   sheetNamesById: Readonly<Record<string, string>>,
 ): Promise<XlsxMutation> {
-  const source = readFileSync(path)
-  if (sha256(source) !== expectedSha256) {
-    throw new Error('The workbook changed on disk after preview.')
-  }
-  const mutation = await applyPlanToXlsx(source, plan, sheetNamesById)
-  await writeXlsxAtomically(path, mutation.buffer)
-  return mutation
+  return withAtomicSaveQueue(path, async () => {
+    const source = readFileSync(path)
+    if (sha256(source) !== expectedSha256) {
+      throw new Error('The workbook changed on disk after preview.')
+    }
+    const mutation = await applyPlanToXlsx(source, plan, sheetNamesById)
+    await writeXlsxAtomically(path, mutation.buffer)
+    return mutation
+  })
 }
 
 export function sha256(input: Buffer | string): string {
@@ -2174,7 +2185,7 @@ export function sha256(input: Buffer | string): string {
 
 /// Package-relative form of a ZIP entry name, null when it escapes the root.
 /// '\' separators, a leading '/' and empty segments are producer quirks Excel
-/// tolerates (genoffice#196 shipped `/xl/workbook.xml`); folding them keeps
+/// tolerates (vantage#196 shipped `/xl/workbook.xml`); folding them keeps
 /// lookups and the saved package on conformant names.
 function canonicalEntryName(raw: string): string | null {
   if (raw.includes('\0')) return null

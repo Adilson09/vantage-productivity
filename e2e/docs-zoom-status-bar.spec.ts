@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Word's zoom range and status bar: the slider spans 10–500 and the page keeps
  * rendering at both ends, the percentage opens the Zoom dialog, the page

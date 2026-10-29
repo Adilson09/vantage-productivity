@@ -63,7 +63,7 @@ impl Words for English {
         "possibly sent: check “Sent”".to_owned()
     }
     fn not_on_time(&self) -> String {
-        "not sent on time: Aster Mail was closed or the computer was asleep".to_owned()
+        "not sent on time: Vantage Mail was closed or the computer was asleep".to_owned()
     }
     fn account_removed(&self) -> String {
         "the account was removed".to_owned()

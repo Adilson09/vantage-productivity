@@ -17,7 +17,7 @@ const KINDS = [
 
 for (const { ext, url, channel } of KINDS) {
   test(`empty .${ext} opens blank and saves back to its own path`, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'genoffice-empty-'))
+    const dir = await mkdtemp(join(tmpdir(), 'vantage-empty-'))
     const filePath = join(dir, `empty.${ext}`)
     await writeFile(filePath, '')
     const launched = await launchShell({
@@ -33,7 +33,7 @@ for (const { ext, url, channel } of KINDS) {
         }) as typeof dialog.showSaveDialog
       })
       const editor = await waitForPageWithUrl(app, url)
-      // Aster Office: a navigated WebContents may still be parsing/mounting its
+      // Vantage Productivity: a navigated WebContents may still be parsing/mounting its
       // editor. Wait for the actual document model instead of a fixed delay.
       if (ext === 'docx') {
         await expect(editor).toHaveTitle('empty.docx', { timeout: 30_000 })

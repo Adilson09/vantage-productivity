@@ -4,8 +4,6 @@ Dit hoofdstuk behandelt de bestandsbewerkingen die alle editors delen; de eigen 
 
 Het **⋯-menu** in de rij (verschijnt als je over een bestandsrij zweeft) bundelt deze acties:
 
-![Het ⋯-menu van een bestandsrij](img/file-ops.png)
-
 ## Hernoemen
 
 Twee instappen, één set controles:
@@ -17,7 +15,7 @@ Regels: de extensie blijft automatisch behouden; ongeldige tekens, afsluitende p
 
 ## Verwijderen
 
-- **⋯ ▸ Verwijderen** op Start: vraagt welke bestanden, verplaatst ze daarna naar de **prullenbak van het systeem**, waar het besturingssysteem ze kan herstellen. GenOffice bewaart hiervoor zelf geen ongedaan maken — herstel is de taak van de prullenbak, niet van een melding.
+- **⋯ ▸ Verwijderen** op Start: vraagt welke bestanden, verplaatst ze daarna naar de **prullenbak van het systeem**, waar het besturingssysteem ze kan herstellen. Vantage bewaart hiervoor zelf geen ongedaan maken — herstel is de taak van de prullenbak, niet van een melding.
 
 ## Dupliceren
 

@@ -8,7 +8,7 @@ import type {
   ChartRenderNode,
   PictureRenderNode,
   TableRenderNode,
-} from '@genoffice/pptx-render'
+} from '@vantage/pptx-render'
 import { animGalleryKind } from './animation-play'
 import { handleSlidesControl, type ControlRequest } from './control'
 import type {
@@ -110,7 +110,7 @@ import {
   aiPanelInitiallyOpen,
   rememberAiPanelOpen,
   useAiSidebarEnabled,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 import type { ChartPresetDef, IconDef, SmartArtDef } from './insert-presets'
 import { GensparkMark, IconAiBeautify, IconAiFactCheck, IconAiImage } from './components/icons'
 import { ToastHost } from './components/toast'
@@ -145,7 +145,7 @@ import * as clipboardActions from './clipboard-actions'
 import * as insertActions from './insert-actions'
 import * as model3dActions from './model3d/actions'
 import { Model3dTurnHandle } from './model3d/Model3dTurnHandle'
-import type { Model3dRotation } from '@genoffice/pptx-engine/model3d'
+import type { Model3dRotation } from '@vantage/pptx-engine/model3d'
 import { bytesToBase64 } from './insert-actions'
 import { classifyDroppedFile, fileExt } from '../shared/media-kinds'
 import * as animationActions from './animation-actions'
@@ -3261,9 +3261,9 @@ export function App() {
 
   const _fileName = slide ? path?.split('/').pop() || t('appUntitledPresentation') : undefined
 
-  // genoffice CLI (`open --slide/--el`, `selection`): the shell evaluates this hook
+  // vantage CLI (`open --slide/--el`, `selection`): the shell evaluates this hook
   useEffect(() => {
-    ;(window as unknown as Record<string, unknown>).__genofficeControl = (req: ControlRequest) =>
+    ;(window as unknown as Record<string, unknown>).__vantageControl = (req: ControlRequest) =>
       handleSlidesControl(req, {
         slides,
         path,

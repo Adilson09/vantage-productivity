@@ -1,4 +1,4 @@
-// Aster Mail: provider registration is configuration, never proof of authentication.
+// Vantage Mail: provider registration is configuration, never proof of authentication.
 import type { OAuthClient } from "./types";
 
 export function googleClient(clientId: string, clientSecret = ""): OAuthClient {

@@ -19,15 +19,15 @@
 /// while the read tools address sheets by id. `buildRedactionIndex` is where
 /// that translation happens, so no call site has to remember it.
 
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 
 import { parseAddressParts } from '../formula-values'
-import type { CellScalar } from '@genoffice/xlsx-gateway/domain/workbook.types'
+import type { CellScalar } from '@vantage/xlsx-gateway/domain/workbook.types'
 import {
   placeholderInstruction as buildInstruction,
   sanitizeLabel as coreSanitizeLabel,
   type PlaceholderSpec,
-} from '@genoffice/agent-core/redact-core'
+} from '@vantage/agent-core/redact-core'
 
 /**
  * Clean a label for storage and for the model prompt.
@@ -304,4 +304,4 @@ export {
   isWholePlaceholder,
   readPlaceholderLabel,
   type PlaceholderIssue,
-} from '@genoffice/agent-core/redact-core'
+} from '@vantage/agent-core/redact-core'

@@ -8,17 +8,17 @@
  * for the default account the call failed and the feature quietly did nothing.
  *
  * This module resolves the provider the way the rest of the app does: the
- * shared `resolveAiSettings` + `activeProvider` from `@genoffice/ai-provider`,
+ * shared `resolveAiSettings` + `activeProvider` from `@vantage/ai-provider`,
  * the Genspark key from the gsk login state, and a custom endpoint's
  * credential reference resolved from the environment.
  */
-import type { AiProviderConfig, AiProviderId } from '@genoffice/ai-provider'
+import type { AiProviderConfig, AiProviderId } from '@vantage/ai-provider'
 import {
   activeProvider,
   defaultAiSettings,
   resolveAiSettings,
   resolveProfileCredential,
-} from '@genoffice/ai-provider'
+} from '@vantage/ai-provider'
 
 /** The provider to call, and the credentials to call it with. */
 export interface NamingProvider {

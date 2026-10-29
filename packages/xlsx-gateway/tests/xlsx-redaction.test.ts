@@ -270,10 +270,53 @@ describe('writing the part into the package', () => {
       .then(() => applyRedactionPart(pkg, pkg.touched, STATES))
       .then(() => {
         const rels = pkg.files.get('xl/_rels/workbook.xml.rels') ?? ''
-        expect(rels.match(/gxRedactions\.xml/g)?.length ?? 0).toBeLessThanOrEqual(1)
+        expect(rels.match(/Target="gxRedactions\.json"/g)?.length ?? 0).toBe(1)
         const types = pkg.files.get('[Content_Types].xml') ?? ''
         expect(types.match(/gxRedactions\.json/g)?.length ?? 0).toBe(1)
       })
+  })
+
+  it('keeps legacy marks and migrates their relationship without adding a duplicate', async () => {
+    const legacyType = 'https://schemas.genspark.ai/genoffice/2026/relationships/redactions'
+    const pkg = fakePackage({
+      'xl/_rels/workbook.xml.rels': RELS.replace(
+        '</Relationships>',
+        `<Relationship Id="rId9" Type='${legacyType}' Target="gxRedactions.json"/></Relationships>`,
+      ),
+      '[Content_Types].xml': TYPES,
+      [REDACTION_PART_PATH]: serializeRedactionPart(STATES),
+    })
+    expect(parseRedactionPart(pkg.files.get(REDACTION_PART_PATH)!)).toEqual(STATES)
+    await applyRedactionPart(pkg, pkg.touched, STATES)
+    await applyRedactionPart(pkg, pkg.touched, STATES)
+    const rels = pkg.files.get('xl/_rels/workbook.xml.rels')!
+    expect(rels).not.toContain(legacyType)
+    expect(rels).toContain(
+      "Type='https://schemas.genspark.ai/vantage/2026/relationships/redactions'",
+    )
+    expect(rels).toContain('Id="rId9"')
+    expect(rels.match(/Target="gxRedactions\.json"/g)).toHaveLength(1)
+    expect(rels).toContain('<Relationship Id="rId1" Type="x" Target="a.xml"/>')
+    expect(parseRedactionPart(pkg.files.get(REDACTION_PART_PATH)!)).toEqual(STATES)
+  })
+
+  it('clears legacy and current declarations together without leaving a dangling link', async () => {
+    const pkg = fakePackage({
+      'xl/_rels/workbook.xml.rels': RELS.replace(
+        '</Relationships>',
+        '<Relationship Id="rId8" Type="https://schemas.genspark.ai/genoffice/2026/relationships/redactions" Target="gxRedactions.json"/>' +
+          '<Relationship Id="rId9" Type="https://schemas.genspark.ai/vantage/2026/relationships/redactions" Target="gxRedactions.json"/></Relationships>',
+      ),
+      '[Content_Types].xml': TYPES.replace(
+        '</Types>',
+        '<Override PartName="/xl/gxRedactions.json" ContentType="application/json"/></Types>',
+      ),
+      [REDACTION_PART_PATH]: serializeRedactionPart(STATES),
+    })
+    await applyRedactionPart(pkg, pkg.touched, [])
+    expect(pkg.files.has(REDACTION_PART_PATH)).toBe(false)
+    expect(pkg.files.get('xl/_rels/workbook.xml.rels')).toBe(RELS)
+    expect(pkg.files.get('[Content_Types].xml')).toBe(TYPES)
   })
 
   it('removes the part when the last mark is cleared', async () => {
@@ -301,7 +344,7 @@ describe('writing the part into the package', () => {
       'xl/_rels/workbook.xml.rels':
         '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
         '<Relationship Id="rId9" Type="' +
-        'https://schemas.genspark.ai/genoffice/2026/relationships/redactions' +
+        'https://schemas.genspark.ai/vantage/2026/relationships/redactions' +
         '" Target="gxRedactions.json"/></Relationships>',
       '[Content_Types].xml':
         '<Types xmlns="x"><Override PartName="/xl/gxRedactions.json" ContentType="y"/>' +

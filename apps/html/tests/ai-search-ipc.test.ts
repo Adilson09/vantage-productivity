@@ -17,7 +17,7 @@ vi.mock('electron', () => ({
 const webSearchTool = vi.fn()
 const imageSearchTool = vi.fn()
 
-vi.mock('@genoffice/ai-search', () => ({
+vi.mock('@vantage/ai-search', () => ({
   webSearchTool: (...args: unknown[]) => webSearchTool(...(args as [])),
   imageSearchTool: (...args: unknown[]) => imageSearchTool(...(args as [])),
 }))

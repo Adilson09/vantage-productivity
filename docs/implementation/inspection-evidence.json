@@ -1,0 +1,71 @@
+{
+  "updatedAt": "2026-10-29T16:52:28.4800686Z",
+  "reviewItems": [
+    "02",
+    "03",
+    "04",
+    "05",
+    "18",
+    "19",
+    "20",
+    "32"
+  ],
+  "implemented": [
+    "Callable local LibreOffice conversion and qpdf/veraPDF adapter APIs plus CLI",
+    "Direct native executable invocation with deadlines, bounded output and cancellation; Windows timeout terminates only owned process tree",
+    "SHA256-pinned portable engine manifests with relative descendant paths",
+    "Separate conversion outputs, independent input copy, no overwrite, checked container signature, output/source hashes",
+    "Isolated PDF-lib object/page parser worker with128MiB old-generation heap and5second deadline",
+    "Internal OOXML relationship target validation, including missing/outside-package/invalid URI cases",
+    "50existingDOCX and32PPTX (2existing+30synthetic) native parse/save/reopen preservation corpus",
+    "Raster comparison tool enforcing page counts/dimensions and<=1percent non-antialias pixel differences",
+    "Pinned installed Office environment and safe scratch-only reference rendering tooling"
+  ],
+  "checks": {
+    "qpdfReviewPdf": "Passed real qpdf12.4.2 structural check",
+    "bridgeToolTests": 14,
+    "nativeCasesWithNoEditableText": 3,
+    "officeReferenceRasterPairsPassed": 5,
+    "nativeTargetedEditsPassed": 79,
+    "officeReferenceRasterPairsFailed": 0,
+    "auditTests": 34,
+    "nativeNoOpCasesPassed": 82
+  },
+  "externalTools": {
+    "verapdf": {
+      "reason": "Adapter implemented; no installed distribution validated",
+      "available": false
+    },
+    "qpdf": {
+      "available": true,
+      "source": "https://github.com/qpdf/qpdf/releases/tag/v12.4.2",
+      "version": "12.4.2",
+      "archiveSha256": "db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d",
+      "executableSha256": "1bdaf878f37eaffea1ea3c30591214c77636a0f2fc7432427516b6e22e36c0ff"
+    },
+    "libreoffice": {
+      "state": "Runtime unavailable: initial DOCX conversion timed out60s; software-raster retry version probes timed out; direct minimum HTML conversion with fresh profile initialized but timed out15s. No successful conversion established.",
+      "source": "https://download.documentfoundation.org/libreoffice/stable/26.8.2/",
+      "version": "26.8.2",
+      "archiveSha256": "ff4b911403b67ee9e6249f820f9782c44bb32c94fdaa45b0da53a8e419e5307a",
+      "executableSha256": "4f133aba4d8db66122ec34bc17eeaa8b274cfa5ded03feb384953f6ae357d4cf"
+    }
+  },
+  "limits": [
+    "Full Office visual reference corpus interrupted by Word COM oracle failure during host commit-memory pressure; preserved raw record and classified subsequent dead-COM calls as untested",
+    "Human critical-layout/repair-prompt/nativeUI rendering acceptance incomplete",
+    "Native1000live-calculation case gate belongs to advanced spreadsheet workstream; bridge supports Calc conversion but does not establish formula parity",
+    "OS-level process sandbox/network/memory isolation is not claimed for external tools",
+    "Installer invocation was automatically blocked by policy; file-only lessmsi extraction used instead"
+  ],
+  "artifacts": {
+    "interruptedFullOracle": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-corpus\\office-reference-evidence.json",
+    "officeRaster": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\office-raster-evidence.json",
+    "nativeCorpus": "D:\\Codex-builds\\vantage-engine-tools\\native-corpus\\native-corpus-evidence.json",
+    "officeEnvironmentAndRenders": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke\\office-reference-evidence.json",
+    "realEngineSmoke": "D:\\Codex-builds\\vantage-engine-tools\\engine-smoke\\engine-smoke-evidence.json",
+    "sourceOfficeEnvironmentSnapshot": "docs/implementation/office-reference-evidence.json",
+    "softwareRasterRetry": "D:\\Codex-builds\\vantage-engine-tools\\engine-smoke-software-raster-2\\engine-smoke-evidence.json",
+    "minimumHtmlProbe": "D:\\Codex-builds\\vantage-engine-tools\\minimum-html-probe\\probe-evidence.json"
+  }
+}

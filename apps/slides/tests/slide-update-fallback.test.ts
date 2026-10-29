@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { RenderSlide } from '@genoffice/pptx-render'
+import type { RenderSlide } from '@vantage/pptx-render'
 import { mergeBroadcastUpdate } from '../src/shared/slide-update'
 
 const slide = (partPath: string) => ({ partPath }) as RenderSlide

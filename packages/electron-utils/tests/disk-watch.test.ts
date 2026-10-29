@@ -85,7 +85,7 @@ describe('createDocumentDiskWatcher', () => {
     expect(await w.isCurrent()).toBe(false)
   })
 
-  it('ignores a deleted file and fires when it is recreated with new content', async () => {
+  it('treats deletion as an external conflict and reports a recreated file', async () => {
     const disk = fakeFs()
     disk.set('/a.md', { mtimeMs: 10, size: 5 })
     const seen: string[] = []
@@ -93,11 +93,11 @@ describe('createDocumentDiskWatcher', () => {
     await w.watch('/a.md')
     disk.remove('/a.md')
     disk.tick('/a.md')
-    expect(seen).toEqual([])
-    expect(await w.isCurrent()).toBe(true)
+    expect(seen).toEqual(['/a.md'])
+    expect(await w.isCurrent()).toBe(false)
     disk.set('/a.md', { mtimeMs: 40, size: 5 })
     disk.tick('/a.md')
-    expect(seen).toEqual(['/a.md'])
+    expect(seen).toEqual(['/a.md', '/a.md'])
   })
 
   it('follows Save As onto the new path and drops the old listener', async () => {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import JSZip from 'jszip'
-import { parseDocx, saveDocx, REDACT_NS, REDACT_PREFIX } from '@genoffice/docx-engine'
+import { parseDocx, saveDocx, REDACT_NS, REDACT_PREFIX } from '@vantage/docx-engine'
 import { buildDocx } from '../../../packages/docx-engine/tests/helpers/build-docx'
 import { blocksToPmDoc, pmDocToSavePlan, type PmNode } from '../src/renderer/editor/convert'
 import { editorExtensions } from '../src/renderer/editor/extensions'
@@ -172,6 +172,21 @@ describe('a saved file is XML a word processor can open', () => {
 })
 
 describe('a withheld span survives the .docx', () => {
+  it('keeps a legacy namespace mark through an edit, save and reopen', async () => {
+    const docx = await buildDocx({
+      bodyXml:
+        '<w:p><w:r><w:rPr><w:bdr w:val="single" w:sz="6" w:color="6B4FC0"/>' +
+        '<go:redact w:label="client phone"/></w:rPr><w:t>13800138000</w:t></w:r></w:p>',
+      docRootExtraAttrs: 'xmlns:go="https://genspark.ai/genoffice/redaction/2026"',
+    })
+    const editor = await open(docx)
+    expect(redactionMarks(editor).map((attrs) => attrs.label)).toEqual(['client phone'])
+    editor.commands.insertContentAt(editor.state.doc.content.size - 1, ' now')
+    const reopened = await open(await save(editor, docx))
+    expect(redactionMarks(reopened).map((attrs) => attrs.label)).toContain('client phone')
+    expect(reopened.state.doc.textContent).toContain(SECRET)
+  })
+
   it('recovers from a file that already carries the mark', async () => {
     const docx = await makeDocx(
       '<w:r><w:t xml:space="preserve">Call </w:t></w:r>' +

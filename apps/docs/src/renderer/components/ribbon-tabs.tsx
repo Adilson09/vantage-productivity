@@ -7,7 +7,7 @@ import {
   useDismissablePopover,
   wordArtSolidColor,
   type WordArtPreset,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 import {
   buildLineParagraphXml,
   buildShapeParagraphXml,
@@ -17,7 +17,7 @@ import {
   type HeaderFooter,
   type StyleInfo,
   type TextboxDisplay,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import type { DocsTabInfo } from '../../shared/ipc'
 import { runUiOps } from '../ai/ops'
 import { stepDocsZoom } from '../wheel-zoom'
@@ -1580,7 +1580,7 @@ export function ViewTab({
                     }}
                   >
                     {w.focused ? '✓ ' : ''}
-                    {w.title || 'GenOffice Docs'}
+                    {w.title || 'Vantage Docs'}
                   </button>
                 ))}
               </div>

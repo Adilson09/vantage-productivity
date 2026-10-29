@@ -7,7 +7,7 @@ import {
   openPptx,
   promoteSlideBackground,
   savePptx,
-} from '@genoffice/pptx-engine'
+} from '@vantage/pptx-engine'
 import {
   buildPagePptx,
   parsePageSpecObject,

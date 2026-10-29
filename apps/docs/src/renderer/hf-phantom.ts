@@ -17,7 +17,7 @@ import {
   type HfParagraph,
   type StyleDisplay,
   type StyleInfo,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import { hfParasOf } from './editor/hf-text'
 import type { HfKind, HfResolved } from './hf-sections'
 

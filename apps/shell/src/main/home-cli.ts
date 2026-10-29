@@ -11,12 +11,12 @@ import {
   resolve,
   sep,
 } from 'node:path'
-import { parseArgs, type ParsedArgs } from '@genoffice/cli/args'
-import type { CliRunRequest, CliRunResult, CliStagedFile } from '@genoffice/agent-core'
+import { parseArgs, type ParsedArgs } from '@vantage/cli/args'
+import type { CliRunRequest, CliRunResult, CliStagedFile } from '@vantage/agent-core'
 import type { CliRunner } from './mcp/cli-runner'
 
 /**
- * The home screen's Ask AI running the bundled `genoffice` CLI. The renderer
+ * The home screen's Ask AI running the bundled `vantage` CLI. The renderer
  * sends a command line and the files it wants staged; this module decides what
  * may run and where it may touch the disk:
  *
@@ -25,7 +25,7 @@ import type { CliRunner } from './mcp/cli-runner'
  *   for a file inside the output directory, and a copy of the original goes
  *   to the work directory first — a starred source elsewhere is never
  *   rewritten;
- * - reads and writes confined by GENOFFICE_ALLOWED_ROOTS to the conversation's
+ * - reads and writes confined by VANTAGE_ALLOWED_ROOTS to the conversation's
  *   work directory, the save folder, and the folders of the starred files and
  *   of the files attached to the conversation;
  * - staged files land inside the work directory only (relative, no `..`).
@@ -204,7 +204,7 @@ export function homeCliContext(deps: HomeCliDeps, sessionId: string): HomeCliCon
   return { workDir: join(deps.workRoot(), validateSessionId(sessionId)), outDir: deps.outDir() }
 }
 
-/** PATH-style GENOFFICE_ALLOWED_ROOTS for one run */
+/** PATH-style VANTAGE_ALLOWED_ROOTS for one run */
 export function allowedRootsFor(ctx: HomeCliContext, sourcePaths: readonly string[]): string {
   const roots = new Set<string>([resolve(ctx.workDir), resolve(ctx.outDir)])
   for (const path of sourcePaths) roots.add(resolve(dirname(path)))
@@ -248,7 +248,7 @@ export async function runHomeCli(
   const outcome = await deps.runner().run(args, {
     cwd: ctx.workDir,
     env: {
-      GENOFFICE_ALLOWED_ROOTS: allowedRootsFor(ctx, [
+      VANTAGE_ALLOWED_ROOTS: allowedRootsFor(ctx, [
         ...deps.sourcePaths(),
         ...validateSources(request.sources),
       ]),

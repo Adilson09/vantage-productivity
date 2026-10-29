@@ -40,8 +40,6 @@ Seis ferramentas: **Desenho livre, Retângulo, Elipse, Seta, Nota**, mais a **Ce
   1. Separador Anotar ▸ clique **Censurar área** (a ferramenta arma-se).
   2. **Arraste uma caixa sobre o conteúdo** — fica coberto por um traço hachurado, e a barra de ferramentas ganha os botões **Limpar marcações** e **Aplicar censura**:
 
-  ![A página depois de marcar uma área para censurar](img/pdf-redact.png)
-
   3. Clique **Aplicar censura** e confirme — o resultado é uma cópia de trabalho em que o texto e as imagens cobertas são removidos a sério (não apenas tapados), e isso não pode ser anulado; o documento original fica intacto.
 
   Errou? O botão de limpar marcações apaga as marcações atuais para poder desenhar de novo.

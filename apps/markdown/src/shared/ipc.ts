@@ -1,11 +1,11 @@
-import type { AiPanelPrefs } from '@genoffice/ui'
-import type { Lang } from '@genoffice/i18n'
+import type { AiPanelPrefs } from '@vantage/ui'
+import type { Lang } from '@vantage/i18n'
 import type {
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
   GenSparkAccountStatus,
-} from '@genoffice/ai-provider'
+} from '@vantage/ai-provider'
 import type { ExportImageMime } from './export-image-mime'
 
 export const MAX_PASTED_IMAGE_BYTES = 50 * 1024 * 1024
@@ -33,6 +33,7 @@ export const MARKDOWN_CHANNELS = {
   readTextRequest: 'markdown:read-text-request',
   readTextResult: 'markdown:read-text-result',
   dirtyChanged: 'markdown:dirty-changed',
+  writeDraft: 'markdown:write-draft',
   closeSaveRequest: 'markdown:close-save-request',
   closeSaveResult: 'markdown:close-save-result',
   fileRenamed: 'markdown:file-renamed',
@@ -47,7 +48,7 @@ export const MARKDOWN_CHANNELS = {
   getMarkdownTheme: 'markdown:get-theme',
   setMarkdownTheme: 'markdown:set-theme',
   uploadImage: 'markdown:upload-image',
-  viewImage: 'genoffice:view-image',
+  viewImage: 'vantage:view-image',
   exportRequest: 'markdown:export-request',
   exportDocx: 'markdown:export-docx',
   exportPdf: 'markdown:export-pdf',
@@ -159,14 +160,14 @@ export interface WikiGraph {
 export type UiTheme = 'light' | 'dark' | 'system'
 
 /**
- * Document page theme preference (genoffice#1811): what the editors' canvas/paper does
+ * Document page theme preference (vantage#1811): what the editors' canvas/paper does
  * relative to the UI theme. 'follow' keeps the previous single-theme behavior.
  */
 export type DocTheme = 'follow' | 'light' | 'dark'
 
 /**
  * Bring-your-own image host for pasted/dropped pictures in Markdown
- * (genoffice#388). Keys are stored plaintext in the user's own settings file,
+ * (vantage#388). Keys are stored plaintext in the user's own settings file,
  * like every other credential in the app. The local assets/ copy stays the
  * fallback whenever the host is disabled, unconfigured or the upload fails.
  */
@@ -370,6 +371,8 @@ export interface MarkdownApi {
   save(request: SaveMarkdownRequest): Promise<SaveMarkdownResult>
   /** Mirror unsaved-changes state to the main process; drives the save prompt before closing a tab/window */
   setDirty(dirty: boolean): void
+  /** Periodic crash journal, including unnamed documents; independent of saved versions. */
+  writeDraft(text: string): Promise<{ ok: true } | { ok: false; error: string }>
   /** Shell menu Save / Save As → renderer serializes and calls save() with the given mode */
   onSaveRequest(handler: (mode: SaveMode) => void): () => void
   /** Resolves a menu-save waiter when doSave exits without ever invoking save() (busy/loading) */
@@ -401,7 +404,7 @@ export interface MarkdownApi {
    */
   saveImage(data: { base64: string; ext: string }): Promise<string | null>
   /**
-   * The configured image host (genoffice#388), or null when none was ever
+   * The configured image host (vantage#388), or null when none was ever
    * saved. Pasted/dropped images upload here first and fall back to the
    * local `assets/` copy when the upload fails or the host is disabled.
    */
@@ -466,7 +469,7 @@ export interface MarkdownApi {
   openAiModelSettings(): Promise<void>
   /** shell only: switch to Home and open Settings › Integrations (the skills list) */
   openSkillsSettings(): Promise<void>
-  /** the skills the user installed into GenOffice (userData/skills) */
+  /** the skills the user installed into Vantage (userData/skills) */
   skillsList(): Promise<UserSkillEntry[]>
   /** the body of one installed skill, by name — the main process resolves the path */
   skillText(name: string): Promise<string>

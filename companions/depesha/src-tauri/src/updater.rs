@@ -36,7 +36,7 @@ pub enum Install {
 }
 
 pub fn install_kind() -> Install {
-    // Aster Office preview updates only with the suite, never from Depesha releases.
+    // Vantage Productivity preview updates only with the suite, never from Depesha releases.
     if !crate::aster_profile::UPDATES_ENABLED {
         return Install::Unsupported;
     }
@@ -145,8 +145,8 @@ pub async fn check(state: &AppState, manual: bool) -> UpdateStatus {
         set(state, |s| {
             s.state = UpdateState::Error;
             s.error = Some(tr!(
-                "Independent updates are disabled in Aster Mail. Update the Aster suite.",
-                "Обновления в Aster Mail отключены. Обновите комплект Aster."
+                "Independent updates are disabled in Vantage Mail. Update the Vantage Productivity suite.",
+                "Обновления в Vantage Mail отключены. Обновите комплект Vantage."
             ));
         });
         return state.updates.status();
@@ -211,7 +211,7 @@ async fn check_inner(state: &AppState, manual: bool) -> Result<(), String> {
         download(state).await?;
     } else if !manual {
         state.notify(
-            pick("A new version of Aster Mail is available", "Доступна новая версия Aster Mail"),
+            pick("A new version of Vantage Mail is available", "Доступна новая версия Vantage Mail"),
             &tr!(
                 "Version {version}. Install it in Settings.",
                 "Версия {version}. Установить можно в настройках."
@@ -281,8 +281,8 @@ fn reason(e: &tauri_plugin_updater::Error) -> String {
 pub async fn install(state: &AppState) -> Result<UpdateStatus, String> {
     if !crate::aster_profile::UPDATES_ENABLED {
         return Err(tr!(
-            "Independent updates are disabled in Aster Mail. Update the Aster suite.",
-            "Обновления в Aster Mail отключены. Обновите комплект Aster."
+            "Independent updates are disabled in Vantage Mail. Update the Vantage Productivity suite.",
+            "Обновления в Vantage Mail отключены. Обновите комплект Vantage."
         ));
     }
     if state.updates.busy.swap(true, Ordering::SeqCst) {

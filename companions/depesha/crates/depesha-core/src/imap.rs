@@ -738,7 +738,7 @@ pub async fn check_labels(
         return Err(Error::LabelCheckUnsupported);
     }
     let raw = format!(
-        "From: Aster Mail <noreply@depesha.local>\r\nTo: noreply@depesha.local\r\nSubject: {subject}\r\n\
+        "From: Vantage Mail <noreply@depesha.local>\r\nTo: noreply@depesha.local\r\nSubject: {subject}\r\n\
          Message-ID: <{message_id}>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{subject}\r\n"
     );
     // APPEND with \Seen, so the test letter does not show unread on the user's phone. The

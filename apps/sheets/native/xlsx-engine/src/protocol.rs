@@ -13,6 +13,9 @@ use crate::archive::{
     EntryContent, archive_manifest, read_entries_to_dir, save_archive, scan_entries_for_text,
 };
 use crate::find::FindCellsRequest;
+use crate::edit_backend::{CalculationStamp, OpenEditSession, source_fingerprint};
+use crate::session::SessionError;
+use crate::transaction::TransactionCommand;
 use crate::recalc::{RecalcCache, RecalcEdit, RecalcRead, recalc_cells};
 use crate::{CellRange, SidecarError, THREADS, WorkbookSessions};
 use serde::{Deserialize, Serialize};
@@ -103,6 +106,44 @@ pub enum Command {
         edits: Vec<RecalcEdit>,
         reads: Vec<RecalcRead>,
     },
+    OpenEditSession(OpenEditSession),
+    ApplyTransaction(TransactionCommand),
+    Snapshot(SnapshotRequest),
+    CommandResult(CommandResultRequest),
+    RecalcSnapshot(RecalcSnapshotRequest),
+    CloseEditSession(CloseEditSessionRequest),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotRequest {
+    api_version: u32,
+    workbook_id: String,
+    revision: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommandResultRequest {
+    api_version: u32,
+    workbook_id: String,
+    command_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecalcSnapshotRequest {
+    api_version: u32,
+    workbook_id: String,
+    revision: u64,
+    reads: Vec<RecalcRead>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CloseEditSessionRequest {
+    api_version: u32,
+    workbook_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,6 +171,8 @@ pub struct Response {
 pub struct ErrorBody {
     code: &'static str,
     message: String,
+    #[serde(rename = "currentRevision", skip_serializing_if = "Option::is_none")]
+    current_revision: Option<u64>,
 }
 
 pub type SharedOutput = Arc<Mutex<BufWriter<io::Stdout>>>;
@@ -216,6 +259,7 @@ impl RecalcWorker {
     }
 
     /// The synchronous recalc body (also the unit-test entry point).
+    #[cfg(test)]
     fn run(
         &self,
         request_id: String,
@@ -223,13 +267,59 @@ impl RecalcWorker {
         edits: &[RecalcEdit],
         reads: &[RecalcRead],
     ) -> Response {
+        self.run_stamped(request_id, path, edits, reads, None)
+    }
+
+    fn run_stamped(
+        &self,
+        request_id: String,
+        path: &PathBuf,
+        edits: &[RecalcEdit],
+        reads: &[RecalcRead],
+        stamp: Option<&CalculationStamp>,
+    ) -> Response {
+        if let Some(stamp) = stamp {
+            if !stamp.is_current() {
+                return Response::failure(request_id, "stale_revision", "Calculation snapshot is no longer current.".into());
+            }
+            match source_fingerprint(path) {
+                Ok(fingerprint) if fingerprint == stamp.source_fingerprint => {},
+                Ok(_) => return Response::failure(request_id, "source_changed", "The workbook source changed after its edit session opened.".into()),
+                Err(error) => return Response::from_session_error(request_id, error),
+            }
+        }
         let mut cache = self
             .cache
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         self.drain_purges(&mut cache);
         let response = match recalc_cells(&mut cache, path, edits, reads).and_then(to_json_value) {
-            Ok(value) => Response::success(request_id, value),
+            Ok(mut value) => {
+                if let Some(stamp) = stamp {
+                    // Native API callers may supply a source outside the
+                    // host's immutable snapshot store. Detect changes during
+                    // import/evaluation too; never publish such values as the
+                    // acknowledged input revision or retain that model.
+                    match source_fingerprint(path) {
+                        Ok(fingerprint) if fingerprint == stamp.source_fingerprint => {},
+                        other => {
+                            cache.purge(path);
+                            self.drain_purges(&mut cache);
+                            return match other {
+                                Err(error) => Response::from_session_error(request_id, error),
+                                Ok(_) => Response::failure(request_id, "source_changed", "The workbook source changed during calculation.".into()),
+                            };
+                        }
+                    }
+                    if !stamp.is_current() {
+                        self.drain_purges(&mut cache);
+                        return Response::failure(request_id, "stale_revision", "Workbook changed while this calculation was running.".into());
+                    }
+                    value["workbookId"] = serde_json::json!(stamp.workbook_id);
+                    value["revision"] = serde_json::json!(stamp.revision);
+                }
+                Response::success(request_id, value)
+            },
             Err(error) => Response::from_error(request_id, error),
         };
         // A Close racing this recalc queued its purge after the drain above;
@@ -251,8 +341,20 @@ impl RecalcWorker {
         reads: Vec<RecalcRead>,
         output: &SharedOutput,
     ) -> Option<Response> {
+        self.dispatch_stamped(request_id, path, edits, reads, None, output)
+    }
+
+    fn dispatch_stamped(
+        &self,
+        request_id: String,
+        path: PathBuf,
+        edits: Vec<RecalcEdit>,
+        reads: Vec<RecalcRead>,
+        stamp: Option<CalculationStamp>,
+        output: &SharedOutput,
+    ) -> Option<Response> {
         if !THREADS {
-            return Some(self.run(request_id, &path, &edits, &reads));
+            return Some(self.run_stamped(request_id, &path, &edits, &reads, stamp.as_ref()));
         }
         if self
             .busy
@@ -276,7 +378,7 @@ impl RecalcWorker {
             .name("xlsx-recalc".into())
             .spawn(move || {
                 let reset = BusyReset(Arc::clone(&worker.busy));
-                let response = worker.run(request_id, &path, &edits, &reads);
+                let response = worker.run_stamped(request_id, &path, &edits, &reads, stamp.as_ref());
                 // Clear busy before replying: a sequential caller issues its
                 // next recalc the moment the response lands, and hitting the
                 // still-set flag bounced it with recalc_busy.
@@ -507,6 +609,39 @@ pub fn handle_request(
 
     let request_id = request.request_id;
     let result = match request.command {
+        Command::OpenEditSession(request) => {
+            return Some(edit_response(request_id, sessions.edits.open(request)));
+        }
+        Command::ApplyTransaction(command) => {
+            return Some(edit_response(request_id, sessions.edits.apply(command)));
+        }
+        Command::Snapshot(SnapshotRequest { api_version, workbook_id, revision }) => {
+            let result = require_edit_version(api_version).and_then(|()| {
+                sessions.edits.snapshot(&workbook_id, revision)
+                    .and_then(|snapshot| serde_json::to_value(&*snapshot).map_err(edit_json_error))
+            });
+            return Some(edit_response(request_id, result));
+        }
+        Command::CommandResult(CommandResultRequest { api_version, workbook_id, command_id }) => {
+            return Some(edit_response(request_id, require_edit_version(api_version)
+                .and_then(|()| sessions.edits.command_result(&workbook_id, &command_id))));
+        }
+        Command::CloseEditSession(CloseEditSessionRequest { api_version, workbook_id }) => {
+            let result = require_edit_version(api_version).map(|()| {
+                let path = sessions.edits.close(&workbook_id);
+                if let Some(path) = &path { recalc.purge_now_or_queue(path); }
+                serde_json::json!({"closed": path.is_some()})
+            });
+            return Some(edit_response(request_id, result));
+        }
+        Command::RecalcSnapshot(RecalcSnapshotRequest { api_version, workbook_id, revision, reads }) => {
+            let prepared = require_edit_version(api_version)
+                .and_then(|()| sessions.edits.calculation(&workbook_id, revision));
+            return match prepared {
+                Ok(input) => recalc.dispatch_stamped(request_id, input.path, input.edits, reads, Some(input.stamp), output),
+                Err(error) => Some(Response::from_session_error(request_id, error)),
+            };
+        }
         Command::Open {
             path,
             locale,
@@ -624,7 +759,31 @@ fn to_json_value<T: Serialize>(value: T) -> Result<Value, SidecarError> {
     serde_json::to_value(value).map_err(SidecarError::from)
 }
 
+fn require_edit_version(version: u32) -> Result<(), SessionError> {
+    if version == 1 { return Ok(()); }
+    Err(SessionError { code: "unsupported_api_version", message: "Unsupported spreadsheet edit API version.".into(), current_revision: None })
+}
+
+fn edit_json_error(error: serde_json::Error) -> SessionError {
+    SessionError { code: "serialization_error", message: error.to_string(), current_revision: None }
+}
+
+fn edit_response<T: Serialize>(request_id: String, result: Result<T, SessionError>) -> Response {
+    match result {
+        Ok(value) => match serde_json::to_value(value) {
+            Ok(value) => Response::success(request_id, value),
+            Err(error) => Response::from_session_error(request_id, edit_json_error(error)),
+        },
+        Err(error) => Response::from_session_error(request_id, error),
+    }
+}
+
 impl Response {
+    pub fn from_session_error(request_id: String, error: SessionError) -> Self {
+        let mut response = Self::failure(request_id, error.code, error.to_string());
+        response.error.as_mut().unwrap().current_revision = error.current_revision;
+        response
+    }
     pub fn success(request_id: String, result: Value) -> Self {
         Self {
             version: PROTOCOL_VERSION,
@@ -651,7 +810,7 @@ impl Response {
             request_id,
             ok: false,
             result: None,
-            error: Some(ErrorBody { code, message }),
+            error: Some(ErrorBody { code, message, current_revision: None }),
         }
     }
 }

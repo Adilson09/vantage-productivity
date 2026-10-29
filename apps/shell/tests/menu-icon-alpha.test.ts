@@ -6,7 +6,7 @@
  *
  * A 1x PNG whose every pixel is fully transparent renders as NO icon at 100%
  * DPI — the menu shows the 2x representation only above 100% — which is how
- * the "+" menu's AI PDF entry lost its icon at 100% scaling (genoffice#2133):
+ * the "+" menu's AI PDF entry lost its icon at 100% scaling (vantage#2133):
  * menu-pdf.png had shipped as an all-zero-alpha image while menu-pdf@2x.png
  * carried the real pixels (menu-home.png had the same defect).
  *

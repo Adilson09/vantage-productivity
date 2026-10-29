@@ -1,4 +1,4 @@
-// Aster Office modification (2026): reuse the catalog icon type without loading the package barrel.
+// Vantage Productivity modification (2026): reuse the catalog icon type without loading the package barrel.
 import { createElement, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 

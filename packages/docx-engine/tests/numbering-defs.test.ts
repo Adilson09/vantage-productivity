@@ -435,7 +435,7 @@ describe('w14 custom numFmt (mc:AlternateContent)', () => {
     expect(formatNumber(3, 'custom')).toBe('3')
   })
 
-  // genoffice#2121: the dialog shape dropped the enumeration, so a reused or
+  // vantage#2121: the dialog shape dropped the enumeration, so a reused or
   // re-saved custom level came back as plain digits ("Za 1:")
   it('customLevelFromNumberingLevel carries the enumeration', async () => {
     const doc = await parseDocx(

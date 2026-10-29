@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-10-29T16:50:32.987Z",
+  "status": "targeted-validation-passed",
+  "validation": {
+    "runtime": "Node 24.19.0",
+    "passedTests": 17,
+    "log": "D:/Codex-builds/vantage-implementation-validation/advanced-repaired-gateway.log",
+    "gatewayTypecheck": "passed",
+    "typecheckLog": "D:/Codex-builds/vantage-implementation-validation/advanced-repaired-gateway-typecheck.log"
+  },
+  "reviewItem": 21,
+  "fixtureFile": "packages/xlsx-gateway/tests/review-macro-preservation.test.ts",
+  "fixtureCount": 10,
+  "additionalGuardTests": 7,
+  "fixtureKinds": [
+    "VBA project and worksheet/workbook code names",
+    "Classic VBA project signature relationship",
+    "Agile and V3 VBA project signatures",
+    "ActiveX XML, binary and persistence relationships",
+    "VML form button and macro binding",
+    "Custom ribbon callback and resources",
+    "Embedded OLE object and worksheet relationship",
+    "XLM macro-sheet preservation",
+    "Form-control properties and relationship IDs",
+    "OPC document package signature with edit refusal"
+  ],
+  "implementedGuards": [
+    "Preserve macro/control/signature/embedded-resource bytes and bindings for ordinary cell edits.",
+    "Refuse sheet management and row/column or merge changes when macro/control bindings cannot be rewritten safely.",
+    "Refuse changes to OPC-signed document parts rather than retaining an invalidated document signature.",
+    "Permit no-op signed-package copying with no touched entries.",
+    "Protect direct assembler plans from deleting macro/control payloads, their relationships or macro-enabled content types.",
+    "Distinguish proven note-only VML from controls, allowing normal note addition/update/removal without weakening mixed/unknown/control preservation.",
+    "Shared planner guards cover native sidecar and in-memory saves; no changes to xlsx-package-io.ts."
+  ],
+  "sourceInspection": {
+    "xlsm": "Sheets interactive Save As already retains .xlsm and macro-enabled content types; native archive saves copy untouched parts. New tests and guards strengthen this preserve-only path.",
+    "docm": "No dedicated .docm editing/save acceptance found. The DOCX engine recognizes .docm only in embedded altChunk classification; desktop open/save filters target .docx.",
+    "pptm": "No dedicated .pptm editing/save acceptance found; desktop launcher/save paths target .pptx. PPTX cleanup can collect removed slide-owned ActiveX/control resources, so XLSM results do not certify PPTM behavior."
+  },
+  "limits": [
+    "Fixtures contain inert synthetic binary/signature sentinels, not actual executable or cryptographically valid VBA/ActiveX/OLE projects.",
+    "Byte hashes and relationship preservation do not establish signature validity or macro execution support.",
+    "No VBA or XLM runtime was introduced, and no fixture was opened or executed in Excel.",
+    "DOCM/PPTM remain outside the demonstrated macro-preservation scope.",
+    "Targeted source tests passed; final packaged-candidate acceptance is recorded separately by the release coordinator."
+  ]
+}

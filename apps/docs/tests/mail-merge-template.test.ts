@@ -9,7 +9,7 @@ import {
 
 /**
  * The template half of the mail merge: the document with its merge fields
- * filled from a record. genoffice#2097.
+ * filled from a record. vantage#2097.
  */
 
 const mark = (instr: string): PmMark => ({ type: 'instrField', attrs: { instr } })

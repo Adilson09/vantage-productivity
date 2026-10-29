@@ -4,8 +4,6 @@ Dieses Kapitel behandelt die Dateivorgänge, die allen Editoren gemeinsam sind; 
 
 Das **⋯-Menü** einer Zeile (fahren Sie über eine Dateizeile) bündelt diese Aktionen:
 
-![Das ⋯-Menü einer Dateizeile](img/file-ops.png)
-
 ## Umbenennen
 
 Zwei Einstiegspunkte, dieselben Prüfungen:
@@ -17,7 +15,7 @@ Regeln: Die Dateiendung bleibt automatisch erhalten; unzulässige Zeichen, Punkt
 
 ## Löschen
 
-- **⋯ ▸ Löschen** auf der Startseite: fragt ab, welche Dateien, und verschiebt sie in den **Papierkorb des Systems**, von dort über das Betriebssystem wiederherstellbar. GenOffice führt dafür kein eigenes Rückgängig — die Wiederherstellung ist Sache des Papierkorbs, nicht einer Meldung.
+- **⋯ ▸ Löschen** auf der Startseite: fragt ab, welche Dateien, und verschiebt sie in den **Papierkorb des Systems**, von dort über das Betriebssystem wiederherstellbar. Vantage führt dafür kein eigenes Rückgängig — die Wiederherstellung ist Sache des Papierkorbs, nicht einer Meldung.
 
 ## Duplizieren
 

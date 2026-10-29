@@ -19,6 +19,17 @@ function isLoose(token: MarkdownToken): boolean {
   )
 }
 
+/** Upstream ordered-list parsing can emit an empty listItem or start it with
+ * a nested block. The schema requires a paragraph first, even for a bare
+ * `1.` placeholder. Keep all parsed blocks and supply only that required node.
+ */
+function withRequiredListParagraph(node: JSONContent): JSONContent {
+  let content = node.content?.map(withRequiredListParagraph)
+  if ((node.type === 'listItem' || node.type === 'taskItem') && content?.[0]?.type !== 'paragraph')
+    content = [{ type: 'paragraph' }, ...(content ?? [])]
+  return content ? { ...node, content } : node
+}
+
 function withLoose(list: Node): Node {
   const base = list.config.parseMarkdown!
   return list.extend({
@@ -30,8 +41,9 @@ function withLoose(list: Node): Node {
     },
     parseMarkdown: (token: MarkdownToken, h: MarkdownParseHelpers) => {
       const out = base(token, h) as JSONContent | JSONContent[]
-      if (Array.isArray(out)) return out
-      return { ...out, attrs: { ...out.attrs, loose: isLoose(token) } }
+      if (Array.isArray(out)) return out.map(withRequiredListParagraph)
+      const valid = withRequiredListParagraph(out)
+      return { ...valid, attrs: { ...valid.attrs, loose: isLoose(token) } }
     },
     renderMarkdown: renderList,
   })

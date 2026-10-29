@@ -3,7 +3,7 @@ import {
   AiPanelSideButton,
   AiModelPicker,
   type AiModelPickerBridge,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 import React, { useEffect, useRef, useState } from 'react'
 import {
   AiComposer,
@@ -15,12 +15,12 @@ import {
   type AiScopeQuoteData,
   type AiTokenUsageView,
   useChatRunQueue,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 import { GensparkMark } from '../ribbon-icons'
-import type { ChangePlan } from '@genoffice/xlsx-gateway/domain/workbook.types'
+import type { ChangePlan } from '@vantage/xlsx-gateway/domain/workbook.types'
 import { ATTACHMENT_IMAGE_EXTS, type AttachmentMeta } from '../../shared/desktop-api'
 import { useI18n, type TFunc } from '../i18n/locale'
-import { AiSkillChips, AiSkillsMenu, createFileNav, Markdown } from '@genoffice/ui'
+import { AiSkillChips, AiSkillsMenu, createFileNav, Markdown } from '@vantage/ui'
 import { SHEET_NAV_SCHEME } from './sheet-nav'
 import sendEnterOn from '../assets/send-enter-on.png'
 import sendEnterOff from '../assets/send-enter-off.png'

@@ -1,6 +1,6 @@
 /**
  * Model file naming for the sheets editor: the app-side half of
- * `suggestFileName` (`@genoffice/ui`).
+ * `suggestFileName` (`@vantage/ui`).
  *
  * ## A name only when the reader asks for one
  *
@@ -29,7 +29,7 @@
  * naming would drift from that one the moment a mark was added or cleared, and
  * the drift is silent: the file would simply start carrying a secret.
  */
-import { suggestFileName } from '@genoffice/ui'
+import { suggestFileName } from '@vantage/ui'
 import { modelTextOf, type ModelViewWorkbook } from './ai/redact-view'
 import { redactionsOf, type WorkbookReadContext } from './ai/workbook-readers'
 

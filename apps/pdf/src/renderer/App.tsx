@@ -179,7 +179,7 @@ import {
   spliceCharColors,
 } from './color-runs'
 import type { CharStyle } from './color-runs'
-import { platformShortcuts } from '@genoffice/i18n'
+import { platformShortcuts } from '@vantage/i18n'
 import {
   Dropdown,
   aiPanelInitiallyOpen,
@@ -187,7 +187,7 @@ import {
   useDismissablePopover,
   useRibbonCollapse,
   useAiSidebarEnabled,
-} from '@genoffice/ui'
+} from '@vantage/ui'
 import { useI18n } from './i18n/locale'
 import { useAutosave } from './useAutosave'
 import type {
@@ -392,7 +392,7 @@ type RibbonTab = (typeof RIBBON_TABS)[number]['id'] | 'fillForm' | 'formDesign'
 
 export default function App() {
   const { lang, t } = useI18n()
-  const collapse = useRibbonCollapse('genoffice-pdf-ribbon-collapsed', {
+  const collapse = useRibbonCollapse('vantage-pdf-ribbon-collapsed', {
     collapse: t('ribbonCollapse'),
     expand: t('ribbonExpand'),
     // ⌥⌘K / Ctrl+Alt+K: the icon-only middle density (docs parity, see #362)
@@ -483,14 +483,14 @@ export default function App() {
   }
   // Persisted so a closed AI panel stays closed on next launch (docs/slides parity)
   const [aiCollapsed, setAiCollapsed] = useState(
-    () => !aiPanelInitiallyOpen('genoffice-pdf-show-ai'),
+    () => !aiPanelInitiallyOpen('vantage-pdf-show-ai'),
   )
   /** the panel setter in the "true = visible" sense the sidebar hook expects */
   const setAiOpen = useCallback((open: boolean) => setAiCollapsed(!open), [])
   // the sidebar switch is a soft hide; it closes the panel when it turns off
   const aiSidebarEnabled = useAiSidebarEnabled(setAiOpen)
   useEffect(() => {
-    rememberAiPanelOpen('genoffice-pdf-show-ai', !aiCollapsed)
+    rememberAiPanelOpen('vantage-pdf-show-ai', !aiCollapsed)
   }, [aiCollapsed])
   /** One-shot prompt pushed by the ribbon AI buttons; the panel auto-runs it (docs preset pattern) */
   const [aiPreset, setAiPreset] = useState<{ text: string; nonce: number } | null>(null)
@@ -1823,9 +1823,9 @@ export default function App() {
     el.scrollTop = rowTop(rowOfVis(target - 1)) - PAGE_GAP / 2
   }
 
-  // genoffice CLI (`open --page`, `selection`): the shell evaluates this hook
+  // vantage CLI (`open --page`, `selection`): the shell evaluates this hook
   useEffect(() => {
-    ;(window as unknown as Record<string, unknown>).__genofficeControl = (req: ControlRequest) =>
+    ;(window as unknown as Record<string, unknown>).__vantageControl = (req: ControlRequest) =>
       handlePdfControl(req, {
         loaded: doc !== null,
         pageCount,

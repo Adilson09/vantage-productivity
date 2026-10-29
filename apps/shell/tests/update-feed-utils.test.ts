@@ -101,20 +101,20 @@ describe('update-feed-utils', () => {
     const feed = [
       'version: 0.12.29',
       'files:',
-      '  - url: GenOffice-0.12.29-mac.zip',
+      '  - url: Vantage-0.12.29-mac.zip',
       '    sha512: ZIP==',
       '    size: 10',
-      '  - url: GenOffice-0.12.29-arm64.dmg',
+      '  - url: Vantage-0.12.29-arm64.dmg',
       '    sha512: OLD==',
       '    size: 1',
-      'path: GenOffice-0.12.29-mac.zip',
+      'path: Vantage-0.12.29-mac.zip',
       'sha512: ZIP==',
     ].join('\n')
     const out = refreshFeedEntries(feed, {
-      'GenOffice-0.12.29-arm64.dmg': { sha512: 'NEW==', size: 2 },
+      'Vantage-0.12.29-arm64.dmg': { sha512: 'NEW==', size: 2 },
     })
-    expect(out).toContain('  - url: GenOffice-0.12.29-arm64.dmg\n    sha512: NEW==\n    size: 2')
-    expect(out).toContain('  - url: GenOffice-0.12.29-mac.zip\n    sha512: ZIP==\n    size: 10')
-    expect(out).toContain('path: GenOffice-0.12.29-mac.zip\nsha512: ZIP==')
+    expect(out).toContain('  - url: Vantage-0.12.29-arm64.dmg\n    sha512: NEW==\n    size: 2')
+    expect(out).toContain('  - url: Vantage-0.12.29-mac.zip\n    sha512: ZIP==\n    size: 10')
+    expect(out).toContain('path: Vantage-0.12.29-mac.zip\nsha512: ZIP==')
   })
 })

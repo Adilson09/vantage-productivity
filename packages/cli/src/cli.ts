@@ -22,6 +22,9 @@ import { renderCommand } from './commands/render'
 import { sheetCommand } from './commands/sheet'
 import { skillCommand } from './commands/skill'
 import { slidesCommand } from './commands/slides'
+import { calendarCommand, contactsCommand, databaseCommand } from './commands/productivity'
+import { checkoutCommand } from './commands/checkout'
+import { providerCommand } from './commands/provider'
 import { CommandRegistry, commandHelp, type CommandContext } from './registry'
 import {
   CliError,
@@ -35,11 +38,11 @@ import {
 } from './result'
 import { didYouMean } from './suggest'
 
-declare const __GENOFFICE_VERSION__: string | undefined
+declare const __VANTAGE_VERSION__: string | undefined
 
-/** The @genoffice/cli package version: inlined by build.mjs, read from disk when running from source. */
+/** The @vantage/cli package version: inlined by build.mjs, read from disk when running from source. */
 export const VERSION: string =
-  typeof __GENOFFICE_VERSION__ === 'string' ? __GENOFFICE_VERSION__ : devVersion()
+  typeof __VANTAGE_VERSION__ === 'string' ? __VANTAGE_VERSION__ : devVersion()
 
 function devVersion(): string {
   try {
@@ -71,6 +74,11 @@ export function defaultRegistry(): CommandRegistry {
     .register(installCommand)
     .register(mcpCommand)
     .register(skillCommand)
+    .register(calendarCommand)
+    .register(contactsCommand)
+    .register(databaseCommand)
+    .register(checkoutCommand)
+    .register(providerCommand)
 }
 
 export interface RunIo {
@@ -103,7 +111,7 @@ export async function runCli(argv: readonly string[], opts: RunOptions = {}): Pr
   }
 
   if (flagBool(args, 'version')) {
-    io.stdout(json ? JSON.stringify({ status: 'ok', version: VERSION }) : `genoffice ${VERSION}`)
+    io.stdout(json ? JSON.stringify({ status: 'ok', version: VERSION }) : `vantage ${VERSION}`)
     return EXIT.ok
   }
   if (name === null || (name === 'help' && args.positionals.length === 0)) {
@@ -124,7 +132,7 @@ export async function runCli(argv: readonly string[], opts: RunOptions = {}): Pr
               name,
               registry.list().map((d) => d.name),
             ),
-            'run `genoffice help` for the command list',
+            'run `vantage help` for the command list',
           ),
         },
       ),
@@ -145,7 +153,7 @@ export async function runCli(argv: readonly string[], opts: RunOptions = {}): Pr
           reason: 'unknown_option',
           suggestion: withGuess(
             didYouMean(unknown[0]!, known),
-            `run \`genoffice help ${def.name}\` for its options`,
+            `run \`vantage help ${def.name}\` for its options`,
             '--',
           ),
         },
@@ -229,9 +237,9 @@ function globalHelp(registry: CommandRegistry): string {
   const defs = registry.list()
   const width = Math.max(...defs.map((d) => d.name.length))
   return [
-    `genoffice ${VERSION} — GenOffice command line`,
+    `vantage ${VERSION} — Vantage command line`,
     '',
-    'Usage: genoffice <command> [options]',
+    'Usage: vantage <command> [options]',
     '',
     'Commands:',
     ...defs.map((d) => `  ${d.name.padEnd(width)}  ${d.summary}`),
@@ -255,7 +263,7 @@ if (isMain) {
   const exit = (code: number) => process.stdout.write('', () => process.exit(code))
   runCli(process.argv.slice(2)).then(exit, (err) => {
     process.stderr.write(
-      `genoffice: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+      `vantage: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
     )
     exit(EXIT.conversion)
   })

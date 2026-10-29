@@ -1,6 +1,6 @@
-# Instalace GenOffice
+# Instalace Vantage
 
-Každá sestavení je zveřejněno na [stránce Releases](https://github.com/genspark-ai/genoffice/releases/latest). Všechna pocházejí z `main`; instalátory pro macOS a Windows jsou podepsané.
+Každá sestavení je zveřejněno na [stránce Releases](https://github.com/Adilson09/aster-office/releases/latest). Všechna pocházejí z `main`; instalátory pro macOS a Windows jsou podepsané.
 
 ## Vyberte soubor pro svůj počítač
 
@@ -18,32 +18,32 @@ Starší verze zůstávají na stránce Releases.
 
 ## V systému macOS
 
-Otevřete soubor `.dmg` a přetáhněte **GenOffice** do složky Aplikace. U sestavení Intel vás při prvním spuštění požádá o potvrzení otevření: klikněte na aplikaci v Aplikacích pravým tlačítkem ▸ Otevřít. To je Gatekeeper, který narazí na obraz disku, který vypadá jako nepodepsaný, a ne poškozené stažení.
+Otevřete soubor `.dmg` a přetáhněte **Vantage** do složky Aplikace. U sestavení Intel vás při prvním spuštění požádá o potvrzení otevření: klikněte na aplikaci v Aplikacích pravým tlačítkem ▸ Otevřít. To je Gatekeeper, který narazí na obraz disku, který vypadá jako nepodepsaný, a ne poškozené stažení.
 
 ## V systému Windows
 
-Spusťte instalátor `.exe`. Umístí GenOffice do nabídky Start a zaregistruje `.docx`, `.xlsx`, `.pptx`, `.pdf` a podobné, takže dvojklik na soubor jej otevře.
+Spusťte instalátor `.exe`. Umístí Vantage do nabídky Start a zaregistruje `.docx`, `.xlsx`, `.pptx`, `.pdf` a podobné, takže dvojklik na soubor jej otevře.
 
 ## V systému Linux
 
 **Debian / Ubuntu**
 
 ```sh
-sudo apt install ./genoffice_<version>_amd64.deb
+sudo apt install ./vantage_<version>_amd64.deb
 ```
 
 **Fedora / RHEL / openSUSE**
 
 ```sh
-sudo dnf install ./genoffice-<version>.x86_64.rpm     # Fedora / RHEL family
-sudo zypper install ./genoffice-<version>.x86_64.rpm  # openSUSE
+sudo dnf install ./vantage-<version>.x86_64.rpm     # Fedora / RHEL family
+sudo zypper install ./vantage-<version>.x86_64.rpm  # openSUSE
 ```
 
 **AppImage** — běží tam, kde je, bez žádného instalačního kroku:
 
 ```sh
-chmod +x GenOffice-<version>.AppImage
-./GenOffice-<version>.AppImage
+chmod +x Vantage-<version>.AppImage
+./Vantage-<version>.AppImage
 ```
 
 Potřebuje běhové prostředí FUSE 2. Pokud jej nechcete instalovat, spusťte jej s `--appimage-extract-and-run` a izolovaný proces poběží z rozbalené složky.
@@ -51,8 +51,6 @@ Potřebuje běhové prostředí FUSE 2. Pokud jej nechcete instalovat, spusťte 
 ## Sestavení, které právě běží
 
 **Nastavení ▸ O aplikaci** je místo, kde aplikace oznamuje sestavení, které máte, kanál, kterého sleduje, a kde projekt sídlí. Jakmile se na tom kanálu objeví novější sestavení, stejný panel nabídne i aktualizaci; instalace přes Flatpak, Nix nebo Docker nikoli, protože je nahrazuje nástroj, který je tam nainstaloval.
-
-![Nastavení ▸ O aplikaci — zobrazuje nainstalovanou verzi, kanál aktualizací, kterého aplikace sleduje, a odkaz na GitHub projektu](img/install.png)
 
 ## Tři další cesty
 
@@ -64,4 +62,4 @@ Všechny tři obalí zveřejněné artefakty místo toho, aby aplikaci znovu ses
 
 ## Příkazová řádka je součástí
 
-Každá instalace obsahuje příkaz `genoffice`, který mluví se stejnými enginy jako okno, takže se nikdy neshodnou v tom, jaký soubor je. V systémech macOS a Windows je uvnitř balíčku aplikace; `genoffice install-cli` jej umístí do vaší `PATH`. Co umí, se dozvíte v kapitole **Příkazová řádka a agenti**.
+Každá instalace obsahuje příkaz `vantage`, který mluví se stejnými enginy jako okno, takže se nikdy neshodnou v tom, jaký soubor je. V systémech macOS a Windows je uvnitř balíčku aplikace; `vantage install-cli` jej umístí do vaší `PATH`. Co umí, se dozvíte v kapitole **Příkazová řádka a agenti**.

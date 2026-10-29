@@ -1,4 +1,4 @@
-import { CREATE_DOCUMENT_TOOL, RUN_GENOFFICE_TOOL, type AgentToolCall } from '@genoffice/agent-core'
+import { CREATE_DOCUMENT_TOOL, RUN_VANTAGE_TOOL, type AgentToolCall } from '@vantage/agent-core'
 
 /**
  * The task card of one Ask AI answer: every file the turn set out to build,
@@ -27,14 +27,14 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
 }
 
-/** the --out value of a run_genoffice call, or the title of a create_document call */
+/** the --out value of a run_vantage call, or the title of a create_document call */
 export function artifactTarget(call: AgentToolCall): string | null {
   if (call.name === CREATE_DOCUMENT_TOOL) {
     const title = typeof call.input.title === 'string' ? call.input.title.trim() : ''
     const format = call.input.format === 'md' ? 'md' : 'docx'
     return `${title || 'Untitled'}.${format}`
   }
-  if (call.name !== RUN_GENOFFICE_TOOL || !Array.isArray(call.input.args)) return null
+  if (call.name !== RUN_VANTAGE_TOOL || !Array.isArray(call.input.args)) return null
   const args = call.input.args as unknown[]
   const at = args.indexOf('--out')
   const out = at >= 0 ? args[at + 1] : undefined
@@ -52,7 +52,7 @@ export function artifactTarget(call: AgentToolCall): string | null {
 export function artifactFromCall(call: AgentToolCall, outDir?: string | null): Artifact | null {
   const target = artifactTarget(call)
   if (!target) return null
-  if (outDir && call.name === RUN_GENOFFICE_TOOL && !isInside(outDir, target)) return null
+  if (outDir && call.name === RUN_VANTAGE_TOOL && !isInside(outDir, target)) return null
   return { callId: call.id, name: baseName(target), status: 'building' }
 }
 

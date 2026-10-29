@@ -9,9 +9,9 @@ import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import { z } from 'zod'
 
-import { decryptOoxml, encryptOoxml, isEncryptedOoxml } from '@genoffice/electron-utils'
-import { blankXlsxBuffer } from '@genoffice/xlsx-gateway/gateway/csv-import'
-import { saveWorkbookViaSidecar } from '@genoffice/xlsx-gateway/gateway/xlsx-package-io'
+import { decryptOoxml, encryptOoxml, isEncryptedOoxml } from '@vantage/electron-utils'
+import { blankXlsxBuffer } from '@vantage/xlsx-gateway/gateway/csv-import'
+import { saveWorkbookViaSidecar } from '@vantage/xlsx-gateway/gateway/xlsx-package-io'
 import { XlsxSidecarClient } from '../src/main/xlsx-sidecar-client'
 import { workbookRangeResultSchema } from '../src/shared/desktop-api'
 import { buildCompatibilityFixture } from './fixture-builder'
@@ -210,13 +210,27 @@ describe('XLSX Rust sidecar', () => {
     try {
       const opened = openResultSchema.parse(await client.open(path))
       sessionId = opened.sessionId
-      const result = workbookRangeResultSchema.parse(
-        await client.readRange({
-          sessionId,
-          sheetId: 'sheet-1',
-          range: { startRow: 0, endRow: 0, startColumn: 0, endColumn: 1 },
-        }),
-      )
+      const request = {
+        sessionId,
+        sheetId: 'sheet-1',
+        range: { startRow: 0, endRow: 0, startColumn: 0, endColumn: 1 },
+      }
+      const readIndexedRange = async () => {
+        const deadline = Date.now() + 10_000
+        do {
+          const result = workbookRangeResultSchema.parse(await client.readRange(request))
+          if (
+            result.indexingComplete ||
+            (result.indexedThroughRow !== null && result.indexedThroughRow >= request.range.endRow)
+          )
+            return result
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        } while (Date.now() < deadline)
+        throw new Error(
+          'CRLF fixture did not finish indexing the requested rows within 10 seconds.',
+        )
+      }
+      const result = await readIndexedRange()
       expect(result.cells).toEqual([
         { row: 0, column: 0, value: 'Shared\nBreak', styleIndex: 0 },
         { row: 0, column: 1, value: 'Inline\nBreak', styleIndex: 0 },
@@ -226,7 +240,7 @@ describe('XLSX Rust sidecar', () => {
       client.stop()
       await rm(directory, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 
   it('opens a blankXlsxBuffer workbook and saves a first edit into it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'xlsx-sidecar-blank-'))

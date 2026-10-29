@@ -14,7 +14,7 @@ import {
   parseRedactionPart,
   serializeRedactionPart,
   type SheetRedactionState,
-} from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+} from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 import type { SelectionRequest } from '../src/renderer/redact-menu'
 import { createWorkbookSkill } from '../src/renderer/ai/workbook-skill'
 

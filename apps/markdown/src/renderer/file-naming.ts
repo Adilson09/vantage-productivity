@@ -1,6 +1,6 @@
 /**
  * Model file naming for the markdown editor: the app-side half of
- * `suggestFileName` (`@genoffice/ui`).
+ * `suggestFileName` (`@vantage/ui`).
  *
  * ## The text is the projected text
  *
@@ -20,7 +20,7 @@
  * reader's explicit request reaches the model.
  */
 import type { Editor } from '@tiptap/core'
-import { suggestFileName } from '@genoffice/ui'
+import { suggestFileName } from '@vantage/ui'
 import { modelTextOf } from './editor/redact'
 import { deriveAutoFileName } from './auto-file-name'
 

@@ -1,4 +1,4 @@
-import type { AgentSkill } from '@genoffice/agent-core'
+import type { AgentSkill } from '@vantage/agent-core'
 import type { Editor } from '@tiptap/core'
 import type { AiDocWriter } from './doc-writer'
 import { redactLabelsOf, placeholderInstruction } from '../editor/redact'
@@ -24,7 +24,7 @@ export const MARKDOWN_RULES = [
 ].join('\n')
 
 const AGENT_SYSTEM_PROMPT = [
-  'You are the writing assistant inside GenOffice Markdown, a markdown document editor.',
+  'You are the writing assistant inside Vantage Markdown, a markdown document editor.',
   'You read and edit the open document through tools that address top-level blocks by 0-based index.',
   '',
   '## Markdown syntax rules',

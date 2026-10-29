@@ -1,4 +1,4 @@
-// Aster Office modification (2026): verify fork identity and accessible launcher after onboarding.
+// Vantage Productivity modification (2026): verify fork identity and accessible launcher after onboarding.
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -12,7 +12,7 @@ test.describe('first-run onboarding', () => {
       const overlay = page.locator('.onb-overlay')
       await expect(overlay).toBeVisible()
       await expect(page.locator('.onb-slide.active .onb-title')).toHaveText(
-        'Welcome to Aster Office',
+        'Welcome to Vantage Productivity',
       )
       await page.screenshot({ path: screenshotPath('onboarding-slide-1') })
 

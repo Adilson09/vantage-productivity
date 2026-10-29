@@ -33,8 +33,8 @@ import {
   handleExportCsv,
   serializeActiveSheetCsv,
 } from './csv-export'
-import type { CellState } from '@genoffice/xlsx-gateway/domain/workbook.types'
-import type { SheetRedactionState } from '@genoffice/xlsx-gateway/gateway/xlsx-redaction'
+import type { CellState } from '@vantage/xlsx-gateway/domain/workbook.types'
+import type { SheetRedactionState } from '@vantage/xlsx-gateway/gateway/xlsx-redaction'
 import { verifiedFormulaValues } from './formula-values'
 import { t } from './i18n/locale'
 import { abortStagedEditsTransfer, stageEditsForSave, type StagedEdits } from './save-edits-staging'

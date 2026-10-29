@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Navigation pane (Word for Mac model): heading tree with caret highlight,
  * click moves the caret, collapse, search results with document highlights,

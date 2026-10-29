@@ -8,11 +8,11 @@ const pass = (seconds = Math.floor(Date.now() / 1000)) => `${seconds}-${'A'.repe
 const issued = (token: string, family = 'llm') => Response.json({ data: { token, family } })
 
 beforeEach(() => {
-  process.env.GENOFFICE_NATIVE_WAF = '1'
+  process.env.VANTAGE_NATIVE_WAF = '1'
 })
 
 afterEach(() => {
-  delete process.env.GENOFFICE_NATIVE_WAF
+  delete process.env.VANTAGE_NATIVE_WAF
   vi.unstubAllGlobals()
 })
 
@@ -27,7 +27,7 @@ function recorder(reply: (url: string, init: RequestInit) => Response | Promise<
 
 describe('native admission for Genspark provider requests', () => {
   it('is off by default: no issuer call and the init passes through untouched', async () => {
-    delete process.env.GENOFFICE_NATIVE_WAF
+    delete process.env.VANTAGE_NATIVE_WAF
     const { fetcher } = recorder(() => issued(pass()))
     const init = { headers: { Authorization: 'Bearer gsk-k' } }
     expect(await createNativeAdmission().prepare(OPENAI, init, fetcher)).toBe(init)
@@ -169,7 +169,7 @@ describe('native admission for Genspark provider requests', () => {
     const headers = new Headers(business.init.headers)
     expect(headers.get('x-genspark-token-pass')).toBe(token)
     expect(headers.get('authorization')).toBe('Bearer gsk-live')
-    expect(headers.get('user-agent')).toBe('GenOffice')
+    expect(headers.get('user-agent')).toBe('Vantage')
     expect(business.init.body).toBe('{"a":1}')
     expect(business.init.redirect).toBe('error')
   })
@@ -184,7 +184,7 @@ describe('nativeAdmissionHosts', () => {
     ])
     expect([
       ...nativeAdmissionHosts({
-        GENOFFICE_NATIVE_WAF_HOSTS: ' Tenant.Example.com, ,second.example.com',
+        VANTAGE_NATIVE_WAF_HOSTS: ' Tenant.Example.com, ,second.example.com',
       }),
     ]).toEqual(['www.genspark.ai', 'tenant.example.com', 'second.example.com'])
   })

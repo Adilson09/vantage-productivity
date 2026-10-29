@@ -18,7 +18,7 @@ use crate::error::{CmdError, CmdResult};
 
 /// The folder the local copies live in.
 pub fn dir(app: &AppHandle) -> CmdResult<PathBuf> {
-    // Aster Office fork: local drafts stay in the selected mail profile.
+    // Vantage Productivity fork: local drafts stay in the selected mail profile.
     Ok(crate::aster_paths::data(app)?.join("drafts"))
 }
 

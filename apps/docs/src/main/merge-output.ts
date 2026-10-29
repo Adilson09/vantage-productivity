@@ -7,7 +7,7 @@ import { join } from 'node:path'
  * The renderer picks the name (it comes from the record), so the main process
  * keeps only its last part: a name must not carry a folder into the directory
  * the user chose, and two records of the same name must not overwrite each
- * other. genoffice#2097.
+ * other. vantage#2097.
  */
 
 /** the name a merged document is written under, as a .docx file name */

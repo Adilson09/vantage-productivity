@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inlinePictureDrawingXml } from '@genoffice/docx-engine'
+import { inlinePictureDrawingXml } from '@vantage/docx-engine'
 import { inlineToRuns, type PmNode } from '../src/renderer/editor/convert'
 
 /** a header-cell / table-cell picture dragged to a new size saves that size into its drawing */

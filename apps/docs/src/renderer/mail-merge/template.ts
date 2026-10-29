@@ -4,7 +4,7 @@ import {
   mergeFieldText,
   splitInstruction,
   type MergeRecord,
-} from '@genoffice/docx-engine'
+} from '@vantage/docx-engine'
 import type { PmNode } from '../editor/convert'
 
 /**
@@ -18,7 +18,7 @@ import type { PmNode } from '../editor/convert'
  * behave here exactly as they do in a merge.
  *
  * Nothing here knows about the UI: the panel asks for a preview and asks for
- * a merge, and this is what answers. genoffice#2097.
+ * a merge, and this is what answers. vantage#2097.
  */
 
 /** the mark a field carries */

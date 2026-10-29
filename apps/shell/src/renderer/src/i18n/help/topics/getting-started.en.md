@@ -1,10 +1,8 @@
 # Quick start: the interface and the basics
 
-GenOffice is an office suite that runs entirely on your machine: one window, one row of tabs, holding six editors — Docs (word processing), Sheets (spreadsheets), Slides (presentations), PDF, Markdown and HTML. Files are genuine .docx / .xlsx / .pptx / .pdf, fully interchangeable with Word, Excel and PowerPoint. No network required.
+Vantage Productivity is a desktop office suite with six editors — Docs (word processing), Sheets (spreadsheets), Slides (presentations), PDF, Markdown and HTML. It supports common .docx / .xlsx / .pptx / .pdf files. Compatibility and offline behavior depend on the file, editor and enabled features; full Microsoft Office fidelity has not been established for this preview.
 
 ## Interface overview
-
-![The Home screen](img/home-screen.png)
 
 The window has three parts:
 
@@ -18,7 +16,7 @@ Any of:
 
 - Click a quick-create card in the [Quick start](help://getting-started) section of **Home** (AI Docs, AI Sheets, AI Slides, ...).
 - Menu **File ▸ New**: Docs (⌘N/ctrl+N), Sheets, Slides, Markdown, HTML or PDF.
-- Drag a file onto the window, or double-click it in your file manager (if GenOffice is the default app).
+- Drag a file onto the window, or double-click it in your file manager (if Vantage is the default app).
 
 A new document opens untitled; the file on disk is only created at the first save.
 
@@ -26,14 +24,14 @@ A new document opens untitled; the file on disk is only created at the first sav
 
 - Menu **File ▸ Open** (⌘O/ctrl+O) opens the system picker: .docx / .doc / .xlsx / .xls / .csv / .tsv / .pptx / .ppt / .pdf / .md / .html.
 - Click anything in Home's **Recent** list.
-- `genoffice <file>` from a terminal also opens files.
+- `vantage <file>` from a terminal also opens files.
 
 ## The save model
 
 - **Manual save**: ⌘S/ctrl+S, or File ▸ Save / Save As. The first save asks for location and name.
 - **Autosave** turns on only after you have saved the file manually at least once — a PDF you only read is never silently rewritten. Autosave fires shortly after content changes.
 - Closing a tab with unsaved changes asks Save / Discard / Cancel first.
-- Every write lands atomically (temp file + rename), so a power cut cannot leave half a file.
+- Save operations use temporary files and a publication step to reduce partial-write risk. A power cut, disk failure or other error can still prevent saving; recovery is limited to available saved versions.
 
 ## Common shortcuts
 
@@ -52,7 +50,7 @@ Shortcuts inside each editor (format painter, find & replace, table ops, ...) ar
 
 ## The Option+Command chords
 
-Option+Command is the layer Word reserves for structured jumps, and GenOffice fills it the same way. Docs takes most of it; Sheets takes two of its own for Excel parity; one chord works everywhere.
+Option+Command is the layer Word reserves for structured jumps, and Vantage fills it the same way. Docs takes most of it; Sheets takes two of its own for Excel parity; one chord works everywhere.
 
 **Docs**
 
@@ -81,7 +79,7 @@ Note that **⌥⌘0 means Normal in Docs and Outside borders in Sheets**. They n
 
 **Every editor**: **⌥⌘R / Ctrl+F1** folds the ribbon, as described above.
 
-That leaves ⌥⌘D free for GenOffice to use on macOS, if a future command wants it.
+That leaves ⌥⌘D free for Vantage to use on macOS, if a future command wants it.
 
 ## Where to go next
 

@@ -4,8 +4,6 @@
 
 Die Kontenzeile unten links auf der Startseite öffnet den Einstellungsbereich (wenn Sie abgemeldet sind, steht dort „Anmelden“). Er hat sechs Abschnitte: Konto, KI-Modell, KI-Medien & Suche, Allgemein, Integrationen und Über.
 
-![Einstellungen ▸ Allgemein, wo Sprache, Design, AutoSave und der Schalter für die Nutzungsstatistik liegen](img/settings-general.png)
-
 Die Modellkonfiguration hat einen eigenen Artikel; unter **KI-Medien & Suche** schalten Sie je nach Anbieter Bildgenerierung, Bildanalyse, Videoanalyse, Websuche und lokale Dateisuche ein.
 
 ## Sprache
@@ -23,7 +21,7 @@ Hell / Dunkel / System folgen. „System folgen“ richtet sich nach dem Erschei
 - **Position der KI-Seitenleiste** (links oder rechts), **Textgröße im KI-Bereich** und **Rechtschreibprüfung im KI-Chat**.
 - **KI-Panel in neuen Dokumenten öffnen** — aus, ein neues Dokument startet mit eingeklapptem Panel, einen Klick entfernt.
 - **Alle Dokumente automatisch speichern** schaltet AutoSave in jedem Editor standardmäßig ein; für ein einzelnes Fenster können Sie es weiterhin abschalten.
-- **Speicherort** mit der Schaltfläche **Ändern** und **Standard-App für Office-Dokumente**, um .docx / .xlsx / .pptx für GenOffice zu beanspruchen.
+- **Speicherort** mit der Schaltfläche **Ändern** und **Standard-App für Office-Dokumente**, um .docx / .xlsx / .pptx für Vantage zu beanspruchen.
 
 ## KI-Medien & Suche
 
@@ -39,7 +37,7 @@ Keine Schalter — jede Fähigkeit wählt den Anbieter, der sie bedient, und Sch
 
 ## Standard-App-Zuordnungen
 
-Die Einstellungen können GenOffice als Programm für .docx / .xlsx / .pptx / .pdf und verwandte Formate hinterlegen (Registrierung als Standard-App auf Plattformebene; bestätigen Sie, wenn Sie dazu aufgefordert werden).
+Die Einstellungen können Vantage als Programm für .docx / .xlsx / .pptx / .pdf und verwandte Formate hinterlegen (Registrierung als Standard-App auf Plattformebene; bestätigen Sie, wenn Sie dazu aufgefordert werden).
 
 ## Hinweise zu Drittanbietersoftware und Updates
 
@@ -48,15 +46,13 @@ Die Einstellungen können GenOffice als Programm für .docx / .xlsx / .pptx / .p
 
 ## Bei Genspark anmelden
 
-- Der Anmeldeeinstieg (Einstellungen oder Liste der Cloud-Projekte) nutzt ein **Gerätecode**-Verfahren: GenOffice zeigt einen Code und öffnet die Anmeldung im Browser; danach geht es automatisch weiter.
+- Der Anmeldeeinstieg (Einstellungen oder Liste der Cloud-Projekte) nutzt ein **Gerätecode**-Verfahren: Vantage zeigt einen Code und öffnet die Anmeldung im Browser; danach geht es automatisch weiter.
 - Die Anmeldung wird nur genutzt für: die Liste der Cloud-Projekte und die gehosteten Modelle von Genspark. Ohne sie funktionieren alle lokalen Funktionen und benutzerdefinierten Modelle weiter.
 - Das Abmelden ist in den Einstellungen ein Klick.
 
 ## MCP-Integration (für erfahrene Anwender / KI-Clients)
 
-**Integrationen** ist der Bereich, der GenOffice mit einem Coding-Agenten verbindet, und er hat einen eigenen Artikel: Einen Coding-Agenten anbinden. Die Kurzfassung — wählen Sie einen Weg (die Kommandozeile oder MCP), folgen Sie dem jeweiligen Abschnitt und starten Sie dann einen neuen Chat.
-
-![Einstellungen ▸ Integrationen: die drei Schritte, dann die Skill-Zeilen und die MCP-Optionen](img/settings-integrations.png)
+**Integrationen** ist der Bereich, der Vantage mit einem Coding-Agenten verbindet, und er hat einen eigenen Artikel: Einen Coding-Agenten anbinden. Die Kurzfassung — wählen Sie einen Weg (die Kommandozeile oder MCP), folgen Sie dem jeweiligen Abschnitt und starten Sie dann einen neuen Chat.
 
 Unter **Lokaler HTTP-Server** kann die App den Server auch selbst betreiben — ein Schalter zum Aktivieren und ein Port —, während **Erweitert** die Zustandsprüfung-URL und die Protokolldatei hinzufügt, statt ihn dem Assistenten zu überlassen. Er lauscht nur auf localhost.
 
@@ -64,6 +60,6 @@ Unter **Lokaler HTTP-Server** kann die App den Server auch selbst betreiben — 
 
 | Befehl             | Was er bewirkt             |
 | ------------------ | -------------------------- |
-| `genoffice <file>` | eine Datei öffnen          |
-| `genoffice mcp`    | lokalen MCP-Server starten |
-| `genoffice --help` | alle Befehle und Optionen  |
+| `vantage <file>` | eine Datei öffnen          |
+| `vantage mcp`    | lokalen MCP-Server starten |
+| `vantage --help` | alle Befehle und Optionen  |

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gskListPastProjects, type GskPastProjectsPage } from '@genoffice/ai-search'
+import { gskListPastProjects, type GskPastProjectsPage } from '@vantage/ai-search'
 import {
   cloudStoreOwner,
   clearCloudProjectsStore,
@@ -10,8 +10,8 @@ import {
   syncCloudProjects,
 } from '../src/main/cloud-projects'
 
-vi.mock('@genoffice/ai-search', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@genoffice/ai-search')>()
+vi.mock('@vantage/ai-search', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vantage/ai-search')>()
   return { ...actual, gskListPastProjects: vi.fn() }
 })
 

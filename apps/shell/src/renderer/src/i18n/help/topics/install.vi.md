@@ -1,6 +1,6 @@
-# Cài đặt GenOffice
+# Cài đặt Vantage
 
-Mọi bản dựng đều được công bố trên [trang phát hành](https://github.com/genspark-ai/genoffice/releases/latest). Tất cả đều đến từ `main`; và trình cài đặt cho macOS và Windows đã được ký.
+Mọi bản dựng đều được công bố trên [trang phát hành](https://github.com/Adilson09/aster-office/releases/latest). Tất cả đều đến từ `main`; và trình cài đặt cho macOS và Windows đã được ký.
 
 ## Chọn tệp cho máy của bạn
 
@@ -18,32 +18,32 @@ Các bản cũ hơn vẫn nằm trên trang phát hành.
 
 ## Trên macOS
 
-Mở tệp `.dmg` rồi kéo **GenOffice** vào Applications. Với bản dựng Intel, lần chạy đầu tiên sẽ yêu cầu bạn xác nhận việc mở: nhấp phải vào ứng dụng trong Applications ▸ Mở. Đó là Gatekeeper gặp một đĩa ảnh trông như không có chữ ký, chứ không phải tệp tải về bị hỏng.
+Mở tệp `.dmg` rồi kéo **Vantage** vào Applications. Với bản dựng Intel, lần chạy đầu tiên sẽ yêu cầu bạn xác nhận việc mở: nhấp phải vào ứng dụng trong Applications ▸ Mở. Đó là Gatekeeper gặp một đĩa ảnh trông như không có chữ ký, chứ không phải tệp tải về bị hỏng.
 
 ## Trên Windows
 
-Chạy trình cài đặt `.exe`. Nó đưa GenOffice vào menu Start và đăng ký `.docx`, `.xlsx`, `.pptx`, `.pdf` cùng các định dạng tương tự, để nhấp đúp vào một tệp là mở được tệp đó.
+Chạy trình cài đặt `.exe`. Nó đưa Vantage vào menu Start và đăng ký `.docx`, `.xlsx`, `.pptx`, `.pdf` cùng các định dạng tương tự, để nhấp đúp vào một tệp là mở được tệp đó.
 
 ## Trên Linux
 
 **Debian / Ubuntu**
 
 ```sh
-sudo apt install ./genoffice_<version>_amd64.deb
+sudo apt install ./vantage_<version>_amd64.deb
 ```
 
 **Fedora / RHEL / openSUSE**
 
 ```sh
-sudo dnf install ./genoffice-<version>.x86_64.rpm     # Fedora / RHEL family
-sudo zypper install ./genoffice-<version>.x86_64.rpm  # openSUSE
+sudo dnf install ./vantage-<version>.x86_64.rpm     # Fedora / RHEL family
+sudo zypper install ./vantage-<version>.x86_64.rpm  # openSUSE
 ```
 
 **AppImage** — chạy ngay tại chỗ, không cần bước cài đặt:
 
 ```sh
-chmod +x GenOffice-<version>.AppImage
-./GenOffice-<version>.AppImage
+chmod +x Vantage-<version>.AppImage
+./Vantage-<version>.AppImage
 ```
 
 Nó cần môi trường chạy FUSE 2. Nếu bạn không muốn cài đặt, hãy chạy với `--appimage-extract-and-run`, và hộp cát sẽ hoạt động từ thư mục đã giải nén.
@@ -51,8 +51,6 @@ Nó cần môi trường chạy FUSE 2. Nếu bạn không muốn cài đặt, h
 ## Bản dựng bạn đang chạy
 
 **Cài đặt ▸ Giới thiệu** là nơi ứng dụng báo bạn đang có bản dựng nào, đang theo kênh nào và dự án nằm ở đâu. Khi bản dựng mới hơn được phát hành trên kênh đó, chính bảng đó sẽ đề nghị cập nhật; bản cài đặt qua Flatpak, Nix hoặc Docker thì không, vì bị công cụ đã cài chúng thay thế.
-
-![Cài đặt ▸ Giới thiệu, hiển thị phiên bản đã cài, kênh cập nhật mà ứng dụng theo dõi và liên kết GitHub của dự án](img/install.png)
 
 ## Ba cách nữa
 
@@ -64,4 +62,4 @@ Cả ba đều bọc các tệp đã phát hành thay vì dựng lại ứng d�
 
 ## Dòng lệnh đi kèm luôn
 
-Mọi bản cài đặt đều kèm lệnh `genoffice` nói chuyện với đúng những engine mà cửa sổ dùng, nên cả hai không bao giờ bất đồng về một tệp. Trên macOS và Windows nó nằm trong gói ứng dụng; và `genoffice install-cli` đưa nó vào `PATH` của bạn. Xem **Dòng lệnh và tác nhân** để biết nó làm được gì.
+Mọi bản cài đặt đều kèm lệnh `vantage` nói chuyện với đúng những engine mà cửa sổ dùng, nên cả hai không bao giờ bất đồng về một tệp. Trên macOS và Windows nó nằm trong gói ứng dụng; và `vantage install-cli` đưa nó vào `PATH` của bạn. Xem **Dòng lệnh và tác nhân** để biết nó làm được gì.

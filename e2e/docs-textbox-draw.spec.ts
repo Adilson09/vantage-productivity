@@ -1,4 +1,4 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 /**
  * Insert > Text Box follows Word: "Draw Text Box" arms the crosshair draw mode
  * and a drag inserts a floating box of the dragged size with the caret inside

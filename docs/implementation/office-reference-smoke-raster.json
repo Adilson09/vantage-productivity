@@ -1,0 +1,157 @@
+{
+  "createdAt": "2026-10-29T16:36:45.385Z",
+  "referenceEnvironment": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke\\office-reference-evidence.json",
+  "dpi": 96,
+  "renderer": "Installed Word/PowerPoint PDF export, Poppler pdftoppm 96DPI rasterization",
+  "scope": "Independent Office renders of original and native-engine no-op output files, paired pixel comparison excluding antialias differences. Native UI rendering, targeted-edit visual review, repair dialogs and human critical layout review are separate acceptance requirements.",
+  "cases": [
+    {
+      "id": "docx-01",
+      "kind": "docx",
+      "status": "passed",
+      "createdAt": "2026-10-29T16:36:49.807Z",
+      "referenceDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\docx-01-reference",
+      "candidateDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\docx-01-native",
+      "tolerance": 0.01,
+      "passed": true,
+      "referencePages": 1,
+      "candidatePages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 861696
+        }
+      ],
+      "scope": "Compares corresponding raster pages with pixelmatch antialias exclusion. Pin renderer, DPI, fonts and document inputs separately. A passing pixel comparison does not replace human layout review or an independent Office reference."
+    },
+    {
+      "id": "docx-02",
+      "kind": "docx",
+      "status": "passed",
+      "createdAt": "2026-10-29T16:36:53.026Z",
+      "referenceDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\docx-02-reference",
+      "candidateDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\docx-02-native",
+      "tolerance": 0.01,
+      "passed": true,
+      "referencePages": 1,
+      "candidatePages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 861696
+        }
+      ],
+      "scope": "Compares corresponding raster pages with pixelmatch antialias exclusion. Pin renderer, DPI, fonts and document inputs separately. A passing pixel comparison does not replace human layout review or an independent Office reference."
+    },
+    {
+      "id": "docx-03",
+      "kind": "docx",
+      "status": "passed",
+      "createdAt": "2026-10-29T16:36:57.28Z",
+      "referenceDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\docx-03-reference",
+      "candidateDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\docx-03-native",
+      "tolerance": 0.01,
+      "passed": true,
+      "referencePages": 1,
+      "candidatePages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 861696
+        }
+      ],
+      "scope": "Compares corresponding raster pages with pixelmatch antialias exclusion. Pin renderer, DPI, fonts and document inputs separately. A passing pixel comparison does not replace human layout review or an independent Office reference."
+    },
+    {
+      "id": "pptx-01",
+      "kind": "pptx",
+      "status": "passed",
+      "createdAt": "2026-10-29T16:37:03.152Z",
+      "referenceDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\pptx-01-reference",
+      "candidateDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\pptx-01-native",
+      "tolerance": 0.01,
+      "passed": true,
+      "referencePages": 5,
+      "candidatePages": 5,
+      "pages": [
+        {
+          "page": 1,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 921600
+        },
+        {
+          "page": 2,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 921600
+        },
+        {
+          "page": 3,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 921600
+        },
+        {
+          "page": 4,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 921600
+        },
+        {
+          "page": 5,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 921600
+        }
+      ],
+      "scope": "Compares corresponding raster pages with pixelmatch antialias exclusion. Pin renderer, DPI, fonts and document inputs separately. A passing pixel comparison does not replace human layout review or an independent Office reference."
+    },
+    {
+      "id": "pptx-02",
+      "kind": "pptx",
+      "status": "passed",
+      "createdAt": "2026-10-29T16:37:04.968Z",
+      "referenceDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\pptx-02-reference",
+      "candidateDir": "D:\\Codex-builds\\vantage-engine-tools\\office-reference-smoke-raster\\pptx-02-native",
+      "tolerance": 0.01,
+      "passed": true,
+      "referencePages": 1,
+      "candidatePages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "passed": true,
+          "differentPixels": 0,
+          "nonAntialiasDifferenceRatio": 0,
+          "totalPixels": 921600
+        }
+      ],
+      "scope": "Compares corresponding raster pages with pixelmatch antialias exclusion. Pin renderer, DPI, fonts and document inputs separately. A passing pixel comparison does not replace human layout review or an independent Office reference."
+    },
+    {
+      "id": "pptx-03",
+      "status": "not-rendered",
+      "reason": "Active or embedded content fixture excluded from unattended reference rendering"
+    }
+  ],
+  "totals": {
+    "passed": 5,
+    "failed": 0,
+    "notRendered": 1
+  }
+}

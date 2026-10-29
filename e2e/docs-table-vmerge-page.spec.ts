@@ -1,7 +1,7 @@
 /**
  * A vertically merged group crossing a page boundary must not inflate its row.
  *
- * genoffice#2114: a table with rowspan groups over many rows rendered later
+ * vantage#2114: a table with rowspan groups over many rows rendered later
  * group-head rows at page-tall heights \u2014 one line of text and then blank
  * space. Three defects fed one another: an in-cell gap band anchored inside a
  * merged row's cell (its height shifted every row the merge covers), the
@@ -95,7 +95,7 @@ async function settledRowHeights(page: Page): Promise<number[]> {
 test.describe('a vertically merged table crossing pages', () => {
   test('keeps every row at its content height', async () => {
     test.setTimeout(300_000)
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'genoffice-e2e-vmerge-')))
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'vantage-e2e-vmerge-')))
     const docPath = join(dir, 'anchor.docx')
     writeFileSync(docPath, await minimalDocx())
 

@@ -1,4 +1,4 @@
-/* Shared chrome/AI-panel tokens come from @genoffice/ui/tokens.css (imported
+/* Shared chrome/AI-panel tokens come from @vantage/ui/tokens.css (imported
  * before this file in main.tsx); only shell-specific tokens live here. */
 :root {
   /* Genspark DS v4.1: guide/onboarding accent is the brand blue */
@@ -16,7 +16,7 @@
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 8%);
   --shadow-composer: 0 6px 30px rgb(0 0 0 / 8%);
 
-  /* genoffice-logo.svg is pure black-and-white; dark themes flip it to 1 */
+  /* vantage-logo.svg is pure black-and-white; dark themes flip it to 1 */
   --logo-invert: 0;
   /* lift for the kb-ask composer box */
 }
@@ -114,7 +114,7 @@ body.vib .home {
   overflow-y: auto;
 }
 
-/* drag strip straddling the sidebar's right border (genoffice#2169) */
+/* drag strip straddling the sidebar's right border (vantage#2169) */
 .sidebar-resizer {
   flex: none;
   position: relative;

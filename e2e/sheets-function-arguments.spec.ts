@@ -1,11 +1,11 @@
-// Aster Office modification (2026): use named real editor launchers.
+// Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl } from './helpers'
 
-process.env.GENOFFICE_DEBUG_HOOKS = '1'
+process.env.VANTAGE_DEBUG_HOOKS = '1'
 
 interface SheetFacade {
   getActiveWorkbook(): {
@@ -25,7 +25,7 @@ interface SheetFacade {
 }
 
 test('Insert Function leads into Function Arguments; fx reopens the call pre-filled', async () => {
-  const scratch = await mkdtemp(join(tmpdir(), 'genoffice-fn-args-'))
+  const scratch = await mkdtemp(join(tmpdir(), 'vantage-fn-args-'))
   const launched = await launchShell({
     onboardingSeen: true,
     videoDir: 'sheets-function-arguments',
@@ -55,8 +55,8 @@ test('Insert Function leads into Function Arguments; fx reopens the call pre-fil
 
     const debugSheet = (fn: string) =>
       sheets.evaluate((body) => {
-        const debug = (window as unknown as { __genofficeDebug: { univerAPI: SheetFacade } })
-          .__genofficeDebug
+        const debug = (window as unknown as { __vantageDebug: { univerAPI: SheetFacade } })
+          .__vantageDebug
         const sheet = debug.univerAPI.getActiveWorkbook().getActiveSheet()
         return new Function('sheet', body)(sheet) as unknown
       }, fn)
