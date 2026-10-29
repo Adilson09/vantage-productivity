@@ -1,0 +1,295 @@
+<script lang="ts">
+  // Aster Mail fork: Google authorization runs in the system browser, with explicit setup when needed.
+  import { onMount } from "svelte";
+  import { app } from "../lib/store.svelte";
+  import { focusBack } from "../lib/focusBack";
+  import CloseButton from "./CloseButton.svelte";
+  import { t } from "../lib/i18n.svelte";
+  import { AccountForm } from "../lib/accountForm.svelte";
+  import ConnectionFields from "./account/ConnectionFields.svelte";
+  import CheckError from "./account/CheckError.svelte";
+  import SignaturesField from "./account/SignaturesField.svelte";
+  import AttachmentsDirField from "./account/AttachmentsDirField.svelte";
+  import { PROVIDER_LOGO } from "./account/logos";
+  import GoogleSignInSetup from "./account/GoogleSignInSetup.svelte";
+
+  let {
+    embedded = false,
+    onDone,
+  }: {
+    /** A page of the settings window, not a window of its own. */
+    embedded?: boolean;
+    /** Saved: the settings window goes back to its list of mailboxes. */
+    onDone?: () => void;
+  } = $props();
+
+  /** A new mailbox; an existing one is edited on its page in the settings (account/AccountPage). */
+  // svelte-ignore state_referenced_locally
+  const form = new AccountForm(embedded ? null : (app.ui.wizard?.account ?? null), () => {
+    if (embedded) onDone?.();
+    else app.ui.wizard = null;
+  });
+  const existing = form.existing;
+
+  async function configuredGoogle() {
+    await form.refreshProviders();
+    if (!form.providers.find((p) => p.provider === "google")?.configured) {
+      throw new Error(form.providerError?.message ?? t("wizard.googleNotReady"));
+    }
+    form.googleSetup = false;
+  }
+
+  /** The cross shows once there is a mailbox to go back to (or an existing one is edited); Esc goes the same way. */
+  const canClose = $derived(app.mailboxes.accounts.length > 0 || !!existing);
+
+  /** What was typed is not thrown away unasked, like in the settings. */
+  async function leave() {
+    if (await form.mayLeave()) app.ui.wizard = null;
+  }
+
+  // The focus goes back to what opened the window.
+  const back = focusBack();
+  onMount(() => back);
+
+  function onKey(e: KeyboardEvent) {
+    if (embedded || e.key !== "Escape" || e.defaultPrevented || e.isComposing || !canClose || form.busy) return;
+    if (app.ui.confirmation || document.querySelector(".pop")) return;
+    e.preventDefault();
+    // The second step of a new mailbox (the servers by hand) goes back to the first one.
+    if (!existing && form.step === "settings") form.step = "start";
+    else void leave();
+  }
+</script>
+
+<svelte:window onkeydown={onKey} />
+
+{#snippet body()}
+    <div class="content">
+      {#if form.step === "start" && form.googleSetup}
+        <GoogleSignInSetup onConfigured={configuredGoogle} onCancel={() => (form.googleSetup = false)} />
+      {:else if form.step === "start" && form.mode !== "ews"}
+        <p class="muted lead">{t("wizard.lead")}</p>
+        <button class="btn google-sign-in" onclick={() => form.requestGoogleSignIn()} disabled={form.busy || form.providerLoading}>
+          <img src={PROVIDER_LOGO.google} alt="" width="20" height="20" />{t("wizard.signInWith", { provider: "Google" })}
+        </button>
+        <p class="muted small">{form.providerLoading ? t("wizard.googleChecking") : t("wizard.googleBrowserNote")}</p>
+        {#if form.providerError}
+          <p class="note" role="alert">{form.providerError.message} <button class="link" onclick={() => form.refreshProviders()} disabled={form.providerLoading}>{t("wizard.googleRetry")}</button></p>
+        {/if}
+        {#if form.available.some((p) => p !== "google")}
+          <div class="oauth">
+            {#each form.available.filter((p) => p !== "google") as p (p)}
+              <!-- While another provider is awaited, this one stays open: a click switches to it. -->
+              <button class="btn" onclick={() => form.signIn(p)} disabled={form.busy && (form.waitingFor === null || form.waitingFor === p)}>
+                <img src={PROVIDER_LOGO[p]} alt="" width="18" height="18" />{t("wizard.signInWith", { provider: form.providerTitle(p) })}
+              </button>
+            {/each}
+          </div>
+        {/if}
+        <p class="muted small or">{t("wizard.otherEmail")}</p>
+        <label class="field"><span>{t("wizard.yourName")}</span><input class="input" bind:value={form.name} placeholder={t("wizard.namePlaceholder")} /></label>
+        <label class="field"><span>{t("wizard.email")}</span>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input class="input" bind:value={form.email} type="email" autofocus placeholder={t("wizard.emailPlaceholder")} onkeydown={(e) => e.key === "Enter" && form.next()} />
+        </label>
+        {#if form.suggested === "google"}<p class="note">{t("wizard.googleAddressNote")}</p>
+        {:else if form.suggested && form.available.includes(form.suggested)}<p class="note">{t("wizard.oauthSuggested", { provider: form.providerTitle(form.suggested) })}</p>
+        <!-- Outlook.com has no app passwords any more: without OAuth there is nothing to suggest. -->
+        {:else if form.suggested && form.suggested !== "microsoft" && form.providers.length}<p class="note">{t("wizard.appPasswordSuggested", { provider: form.providerTitle(form.suggested) })}</p>{/if}
+        {#if form.suggested !== "google"}<label class="field"><span>{t("wizard.password")}</span><input class="input" bind:value={form.password} type="password" onkeydown={(e) => e.key === "Enter" && form.next()} /></label>{/if}
+        <p class="small"><button class="link" onclick={() => form.startExchange()} disabled={form.busy}>{t("wizard.exchangeLink")}</button></p>
+      {:else if form.step === "start"}
+        <p class="muted lead">{t("wizard.exchangeLead")}</p>
+        <label class="field"><span>{t("wizard.yourName")}</span><input class="input" bind:value={form.name} placeholder={t("wizard.namePlaceholder")} /></label>
+        <label class="field"><span>{t("wizard.email")}</span>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input class="input" bind:value={form.email} type="email" autofocus placeholder={t("wizard.emailPlaceholder")} />
+        </label>
+        <div class="grid">
+          <label class="field"><span>{t("wizard.login")}</span><input class="input" bind:value={form.username} placeholder={t("wizard.loginPlaceholder")} /></label>
+          <label class="field"><span>{t("wizard.password")}</span><input class="input" bind:value={form.password} type="password" onkeydown={(e) => e.key === "Enter" && form.next()} /></label>
+        </div>
+        <label class="field"><span>{t("wizard.exchangeServer")}</span><input class="input" bind:value={form.ewsServer} placeholder={t("wizard.exchangeServerPlaceholder")} onkeydown={(e) => e.key === "Enter" && form.next()} /></label>
+        <p class="small"><button class="link" onclick={() => (form.mode = "imap")} disabled={form.busy}>{t("wizard.back")}</button></p>
+      {:else}
+        {#if form.source}<p class="muted lead">{t("wizard.found", { source: form.source })}</p>{/if}
+        {#each form.notes as n (n)}<p class="note">⚠ {n}</p>{/each}
+
+        <div class="grid">
+          <label class="field"><span>{t("wizard.mailboxName")}</span><input class="input" bind:value={form.label} placeholder={form.email.trim() || t("wizard.mailboxNamePlaceholder")} /></label>
+          <label class="field"><span>{t("wizard.name")}</span><input class="input" bind:value={form.name} placeholder={t("wizard.namePlaceholder")} /></label>
+          <label class="field wide"><span>{t("wizard.address")}</span><input class="input" bind:value={form.email} disabled={!!existing} /></label>
+        </div>
+
+        <ConnectionFields {form} errors />
+        <SignaturesField {form} />
+        <AttachmentsDirField bind:value={form.attachmentsDir} />
+      {/if}
+
+      {#if form.step === "start"}<CheckError {form} />{/if}
+      {#if form.status}<p class="muted">{form.status}
+        {#if form.waitingBrowser}<button class="link" onclick={() => form.cancelSignIn()}>{t("cancel")}</button>{/if}</p>{/if}
+      {#if form.waitingFor === "google" || (form.error && form.lastSignInProvider === "google")}<p class="note">{t("wizard.googleAccessHelp")}</p>{/if}
+    </div>
+
+    {#if !form.googleSetup}<footer>
+      {#if existing}<button class="btn ghost danger-text" onclick={() => form.remove()} disabled={form.busy}>{t("wizard.remove")}</button>{/if}
+      <span class="spacer"></span>
+      {#if form.step === "start"}
+        <button class="btn primary" onclick={() => form.next()} disabled={form.busy || form.waitingBrowser || (form.suggested === "google" && form.providerLoading)}>{form.suggested === "google" ? t("wizard.signInWith", { provider: "Google" }) : t("wizard.next")}</button>
+      {:else}
+        {#if !existing}<button class="btn ghost" onclick={() => (form.step = "start")} disabled={form.busy}>{t("wizard.back")}</button>{/if}
+        <button class="btn primary" onclick={() => form.checkAndSave()} disabled={form.busy}>{form.busy ? t("wizard.checkingShort") : t("wizard.checkAndSave")}</button>
+      {/if}
+    </footer>{/if}
+{/snippet}
+
+{#if embedded}
+  <div class="wizard embedded" role="group" aria-label={t("cmd.addAccount")}>
+    {@render body()}
+  </div>
+{:else}
+<div class="modal-backdrop" role="presentation">
+  <div class="modal wizard" role="dialog" aria-label={t("wizard.label")}>
+    <header>
+      <h3>{existing ? t("wizard.editTitle", { email: existing.email }) : t("cmd.addAccount")}</h3>
+      {#if canClose}
+        <CloseButton onclick={() => void leave()} disabled={form.busy} />
+      {/if}
+    </header>
+
+    {@render body()}
+  </div>
+</div>
+{/if}
+
+<style>
+  .wizard {
+    width: min(640px, calc(100vw - 40px));
+  }
+
+  /* In the settings window: its page scrolls, the buttons stay at the bottom. */
+  .wizard.embedded {
+    width: auto;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .embedded .content {
+    flex: 1;
+    min-height: 0;
+    padding: 4px 24px 12px;
+  }
+
+  .embedded footer {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 14px 4px 22px;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 17px;
+  }
+
+  .content {
+    padding: 8px 22px 12px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .lead {
+    margin: 0;
+    line-height: 1.45;
+  }
+
+  .note {
+    margin: 0;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--warn) 12%, var(--paper));
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .oauth {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .google-sign-in {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    background: var(--paper);
+    font-weight: 600;
+  }
+
+  .google-sign-in img { flex: none; }
+
+  .oauth .btn {
+    flex: 1;
+    min-width: 150px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .oauth img {
+    flex: none;
+  }
+
+  .or {
+    margin: 2px 0 -4px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .grid .wide {
+    grid-column: 1 / -1;
+  }
+
+  .small {
+    font-size: 12px;
+  }
+
+  .link {
+    border: none;
+    background: none;
+    color: var(--link);
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  footer {
+    display: flex;
+    gap: 8px;
+    padding: 12px 22px 16px;
+    border-top: 1px solid var(--line);
+  }
+
+  .spacer {
+    flex: 1;
+  }
+</style>

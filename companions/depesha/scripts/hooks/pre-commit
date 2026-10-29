@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# Хук pre-commit: не пускает персональные данные и переносы строк внутри абзацев
+# (одна строка на абзац и пункт списка, scripts/md-onelines.mjs) в коммит.
+#
+# Шаблоны лежат ВНЕ репозитория (иначе сами попали бы в историю): одна строка —
+# одно регулярное выражение ERE, совпадение без учёта регистра, строки с «#» —
+# комментарии. Путь по умолчанию — ~/.config/depesha/private-patterns,
+# переопределяется переменной DEPESHA_PRIVATE_PATTERNS. Если файла нет, хук
+# молча пропускает коммит.
+#
+# Проверяются добавляемые строки (`git diff --cached`) и имена добавляемых,
+# переименованных и скопированных файлов. Совпадение печатается как «файл:строка»
+# (сам шаблон — никогда), код выхода 1.
+set -eu
+
+# Один абзац и один пункт списка — одна строка (scripts/md-onelines.mjs). Проверяется
+# содержимое из индекса (`git show :файл`), а не рабочая копия: в коммит идёт именно оно.
+# Черновики в docs/internal/ пропускаются, как и в check.sh.
+hook_dir=$(cd "$(dirname "$0")" && pwd)
+md_found=0
+while IFS= read -r md_file; do
+  [ -n "$md_file" ] || continue
+  case "$md_file" in docs/internal/*) continue ;; esac
+  if ! git show ":$md_file" 2>/dev/null | node "$hook_dir/../md-onelines.mjs" --stdin --name "$md_file"; then
+    md_found=1
+  fi
+done < <(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -- '*.md')
+[ "$md_found" -eq 0 ] || exit 1
+
+patterns_file="${DEPESHA_PRIVATE_PATTERNS:-$HOME/.config/depesha/private-patterns}"
+[ -f "$patterns_file" ] || exit 0
+
+patterns="$(grep -v '^[[:space:]]*#' "$patterns_file" 2>/dev/null \
+  | grep -v '^[[:space:]]*$' | paste -sd'|' -)"
+[ -n "$patterns" ] || exit 0
+
+# A UTF-8 locale, so `grep -i` folds the case of Cyrillic and not only of ASCII: without one
+# a pattern would slip through by its case. The hook stops rather than check in silence.
+set_utf8_locale() {
+  local candidate
+  for candidate in "${LC_ALL:-}" "${LC_CTYPE:-}" "${LANG:-}" C.UTF-8 C.utf8 en_US.UTF-8 ru_RU.UTF-8; do
+    [ -n "$candidate" ] || continue
+    if [ "$(LC_ALL="$candidate" locale charmap 2>/dev/null)" = "UTF-8" ]; then
+      export LC_ALL="$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+if ! set_utf8_locale; then
+  printf 'pre-commit: не удалось включить локаль UTF-8 — grep -i не сверит регистр кириллицы. Установите C.UTF-8 или задайте LC_ALL.\n' >&2
+  exit 1
+fi
+
+# A broken pattern makes grep fail with 2 and would let every commit through in silence.
+if printf '' | grep -E "$patterns" >/dev/null 2>&1; then
+  :
+elif [ "$?" -eq 2 ]; then
+  printf 'pre-commit: шаблоны в %s — некорректное регулярное выражение\n' "$patterns_file" >&2
+  exit 1
+fi
+
+found=0
+
+# A value against the patterns: 0 match, 1 no match, 2 an error (never a silent pass).
+matches() {
+  printf '%s' "$1" | grep -Eiq -e "$patterns" && return 0
+  local code=$?
+  [ "$code" -eq 1 ] && return 1
+  printf 'pre-commit: не удалось применить шаблоны (grep %s)\n' "$code" >&2
+  exit 1
+}
+
+# `--no-textconv --no-ext-diff`: check the bytes really staged, not what a textconv filter or
+# an external diff driver would show instead. `core.quotePath=false`, or a name with Cyrillic
+# comes as "\320\237…" and does not match the pattern.
+git_names() {
+  git -c core.quotePath=false diff --cached --name-status --no-ext-diff
+}
+git_diff() {
+  git -c core.quotePath=false diff --cached --text --no-color --no-textconv --no-ext-diff -U0 -- "$@"
+}
+
+status=0
+names="$(git_names)" || status=$?
+if [ "$status" -ne 0 ]; then
+  printf 'pre-commit: не удалось прочитать список файлов (git %s)\n' "$status" >&2
+  exit 1
+fi
+
+# Имена добавленных, переименованных и скопированных файлов.
+while IFS=$'\t' read -r state old new; do
+  case "$state" in
+    A|A*|R|R*|C|C*) ;;
+    *) continue ;;
+  esac
+  for name in "$old" "$new"; do
+    [ -n "$name" ] || continue
+    if matches "$name"; then
+      printf '%s\n' "$name"
+      found=1
+    fi
+  done
+done <<< "$names"
+
+# Содержимое текстовых файлов: бинарные пропускаем, у них проверяется только имя.
+text_files=()
+while IFS= read -r -d '' file; do
+  if ! git diff --cached --numstat -- "$file" | head -n1 | grep -q '^-'; then
+    text_files+=("$file")
+  fi
+done < <(git diff --cached --name-only -z)
+
+if [ "${#text_files[@]}" -gt 0 ]; then
+  # The whole diff is read first, so a failing `git diff` is seen and not lost in the pipe.
+  status=0
+  diff="$(git_diff "${text_files[@]}")" || status=$?
+  if [ "$status" -ne 0 ]; then
+    printf 'pre-commit: не удалось прочитать diff (git %s)\n' "$status" >&2
+    exit 1
+  fi
+  while IFS=$'\t' read -r file lineno content; do
+    [ -n "$file" ] || continue
+    if matches "$content"; then
+      printf '%s:%s\n' "$file" "$lineno"
+      found=1
+    fi
+  done < <(printf '%s\n' "$diff" | awk '
+      # `diff --git` opens the header of a file; the `+++`/`---` lines are read there only, so a
+      # staged line that itself begins with `++ b/` (shown as `+++ b/…`) is content, not a
+      # header. `@@` closes the header and starts the hunk.
+      /^diff --git / { header = 1; next }
+      header && /^\+\+\+ b\// { file = substr($0, 7); next }
+      header && /^\+\+\+ \/dev\/null/ { next }
+      /^@@ / { header = 0; match($0, /\+[0-9]+/); lineno = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
+      header { next }
+      /^\+/ { print file "\t" lineno "\t" substr($0, 2); lineno++; next }
+      /^-/ { next }
+      /^ / { lineno++; next }
+    ')
+fi
+
+[ "$found" -eq 0 ] || exit 1
+exit 0

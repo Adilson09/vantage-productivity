@@ -1,0 +1,35 @@
+{
+  "product": "Aster Office",
+  "version": "0.13.0",
+  "channel": "development preview",
+  "releaseDate": "2026-10-29",
+  "releaseTimeZone": "America/Toronto",
+  "mail": {
+    "product": "Aster Mail",
+    "upstreamVersion": "0.8.17",
+    "binarySha256": "897ae70184ece3adc0d8412f99f6b682519d6e932364babd2956014bbc304aa9"
+  },
+  "origins": [
+    {
+      "repository": "https://github.com/genspark-ai/genoffice",
+      "commit": "b239d2e591d3fe2e7f079354f4f3d5b61f598800",
+      "license": "Apache-2.0"
+    },
+    {
+      "repository": "https://github.com/fgbm/depesha",
+      "commit": "d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4",
+      "license": "MIT OR Apache-2.0"
+    }
+  ],
+  "sourceFiles": 6418,
+  "sourceExclusions": [
+    "restricted enterprise directory",
+    "Git history",
+    "installed dependencies",
+    "generated binaries and caches",
+    "mailbox profiles and sign-in tokens",
+    "owner registration JSON",
+    "personal launchers",
+    "workstation validation reports"
+  ]
+}

@@ -1,0 +1,14 @@
+Aster Office — independent development preview
+
+Based on genspark-ai/genoffice, upstream commit b239d2e591d3fe2e7f079354f4f3d5b61f598800.
+Original copyright and Apache-2.0 notices remain in LICENSE and NOTICE.
+Aster modifications (2026): independent desktop identity/profile; accessible workspace and command center; local quality checks; bounded recovery vault; strict save failure behavior; integration and validation additions.
+Modified source files carry Aster notices. Internal @genoffice package names and the compatible genoffice CLI are retained to preserve engine integration. This is an independent fork, not an official GenOffice or Microsoft product.
+The separately licensed ee directory is excluded from the distributable source and application.
+2026-10-29: Aster Office 0.13.0 adds Aster Mail, based on
+fgbm/depesha d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4 (0.8.17).
+Depesha is separately offered under MIT OR Apache-2.0. Its original licenses,
+vendored parser notices, dependency notices and fork modifications accompany
+the source and mail application. Mail uses an independent application/profile/
+credential namespace and is updated with the suite.
+

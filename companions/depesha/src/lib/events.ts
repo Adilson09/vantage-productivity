@@ -1,0 +1,239 @@
+// What the backend tells the windows. Both kinds of window handle the events in `common`
+// the same way; what only one of them hears is spelled out in `listenMain` and `listenWindow`.
+// Every subscription starts at once: nothing said while a window starts is lost.
+
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { extensions, listenForMail } from "./extensions.svelte";
+import { listenBackground } from "./background.svelte";
+import { peopleBook } from "./peopleBook.svelte";
+import { debounce } from "./debounce";
+import { t } from "./i18n.svelte";
+import { applyRules } from "./rules";
+import { api } from "./api";
+import { rooms } from "./room.svelte";
+import type { Undoable } from "./actions.svelte";
+import type { View } from "./list.svelte";
+import type { AppStore } from "./store.svelte";
+import type { AccountStatus, CmdError, Moved, Task, UpdateStatus } from "./types";
+import { labels } from "./labels.svelte";
+
+interface MailChanged {
+  account_id: string;
+  folder: string;
+}
+
+/** A letter's sender verdict, learned when the letter was opened (#108). */
+interface LetterVerdict {
+  account_id: string;
+  folder: string;
+  id: number;
+  logo: boolean;
+}
+
+function common(app: AppStore) {
+  // A series of settings saves from another window is read once (#71).
+  const settingsChanged = debounce(() => void applySettingsChanged(app), 250, 1000);
+  return [
+    listen("folders-changed", () => app.mailboxes.scheduleFolders()),
+    listen<{ account_id: string; status: AccountStatus }>("account-status", (e) => {
+      const a = app.mailboxes.accounts.find((x) => x.id === e.payload.account_id);
+      if (a) a.status = e.payload.status;
+    }),
+    // An answer going to "Waiting for reply" says so in one toast, once the letter has moved.
+    listen<{ subject: string; parking?: boolean }>("sent", (e) => {
+      if (!e.payload.parking) app.ui.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") }));
+    }),
+    // "Release" brought some of the snoozed letters back and some stayed in "Snoozed".
+    listen("unsnooze-partial", () => app.ui.toast(t("toast.unsnoozePartial"), true)),
+    listen<{ error: CmdError }>("send-failed", (e) => app.ui.toast(t("toast.sendFailed", { error: e.payload.error.message }), true)),
+    // The address book changed in another window: the cache follows.
+    listen("people-changed", () => peopleBook.changed()),
+    // Settings saved elsewhere (another window, a plugin) may change the language too.
+    listen("settings-changed", () => settingsChanged()),
+    // A label taken off every letter finishes in the background: the list follows.
+    listen<{ account_id: string }>("labels-changed", (e) => {
+      if (e.payload.account_id) void labels.refresh(e.payload.account_id);
+    }),
+  ];
+}
+
+/**
+ * Settings changed in another window: read them again, and follow the language and the
+ * extensions only when their own fields changed (#71).
+ */
+async function applySettingsChanged(app: AppStore) {
+  const before = app.settingsCtl.settings;
+  const language = before.language;
+  const disabled = (before.disabled_extensions ?? []).join("\u0000");
+  await app.settingsCtl.loadSettings();
+  if (app.settingsCtl.settings.language !== language) await app.settingsCtl.loadLanguage();
+  if ((app.settingsCtl.settings.disabled_extensions ?? []).join("\u0000") !== disabled) await extensions.load();
+}
+
+/** The main window: the list, the outbox, tasks, mail rules and updates. */
+export function listenMain(app: AppStore) {
+  const quit = quitDrafts(app);
+  return Promise.all([
+    ...common(app),
+    listen<MailChanged>("mail-changed", (e) => {
+      // My answers and drafts change how conversations look in every grouped list.
+      const role = app.mailboxes.folder(e.payload.account_id, e.payload.folder)?.role;
+      const threadPart = app.settingsCtl.settings.threads && (role === "sent" || role === "drafts");
+      if (threadPart || app.list.includes(e.payload.account_id, e.payload.folder)) app.selection.scheduleReload();
+      if (app.reader.opened?.row.account_id === e.payload.account_id) app.reader.scheduleConversation();
+      app.mailboxes.scheduleFolders();
+    }),
+    // Opening a letter learns what the mailbox's server did not say about its sender (#108): its
+    // row shows the logo at once, in every list the letter stands in.
+    listen<LetterVerdict>("letter-verdict", (e) => app.list.verdict(e.payload.id, e.payload.logo)),
+    // A queued answer marks its letter at once, and taking it back unmarks it.
+    listen("outbox-changed", () => {
+      app.mailboxes.loadOutbox();
+      app.selection.scheduleReload();
+    }),
+    listen<Parked>("parked", (e) => parked(app, e.payload)),
+    // An answer took its letter to the archive (#106): the same undo as the command "Archive".
+    listen<{ subject: string; moved: Moved }>("archived-after-send", (e) => archivedAfterSend(app, e.payload)),
+    listen<ParkFailed>("park-failed", (e) => {
+      const p = e.payload;
+      if (p.refused)
+        app.ui.toast(t("toast.parkRefused", { folder: p.folder }), true, {
+          label: t("toast.chooseFolder"),
+          run: () => app.ui.openSettings(`account:${p.account_id}`, "letters"),
+        });
+      else app.ui.toast(t("toast.parkFailed", { error: p.error ?? "" }), true);
+    }),
+    // The folder a wait parks in is gone: the letters cannot come back on their own.
+    listen<BringFailed>("bring-failed", (e) =>
+      app.ui.toast(t("toast.bringFailed", { folder: e.payload.folder, error: e.payload.error ?? "" }), true),
+    ),
+    listen<Task[]>("tasks-changed", (e) => (app.ui.tasks = e.payload)),
+    listen<{ message: string }>("app-error", (e) => app.ui.toast(e.payload.message, true)),
+    listen<{ id: string }>("extensions-changed", (e) => {
+      // A reinstalled extension starts with its new code.
+      extensions.stop(e.payload.id);
+      extensions.load();
+    }),
+    // Mail rules run in the main window only, or they would run twice.
+    listenForMail((ids) => applyRules(app, ids)),
+    listen<UpdateStatus>("update-status", (e) => (app.settingsCtl.update = e.payload)),
+    listen<{ account_id: string }>("server-changed", (e) => rooms.changed(e.payload.account_id)),
+    // A message window hands over what concerns the list.
+    listen<Undoable>("window-moved", (e) => {
+      app.actions.lastUndo = e.payload;
+      app.ui.toast(e.payload.text, false, { label: t("undo"), run: () => app.actions.undo() });
+      app.selection.reload();
+    }),
+    listen<View>("window-view", (e) => {
+      // Focus is cosmetic.
+      getCurrentWindow().setFocus().catch(() => {});
+      app.selection.setView(e.payload);
+    }),
+    // The closed window, quitting, the tray menu, a click on a notification (#4, #63).
+    ...listenBackground(app),
+    // A quit asks this window to keep the drafts it holds before it goes (#71).
+    listen("save-drafts", () => void quit.save()),
+    // The quit was called off: the next one must ask this window again.
+    listen("quit-cancelled", () => quit.cancel()),
+  ]);
+}
+
+/**
+ * A quit waits for the main window: it saves every composition, then says it is through.
+ * A cancel makes a save under way stale: "through" after it would take the window off the
+ * backend's list again (#91).
+ */
+function quitDrafts(app: AppStore) {
+  let quit = 0;
+  return {
+    async save() {
+      const mine = ++quit;
+      // The text typed in a mailbox's page is written with the drafts: a quit does not wait for the focus to leave.
+      // Neither a refused write nor a hung one holds the quit: it waits four seconds at most.
+      const settle = app.ui.settingsSettle?.();
+      const patience = new Promise<void>((r) => setTimeout(r, 4000));
+      await Promise.allSettled([app.compose.saveAll(4000), settle && Promise.race([settle, patience])]);
+      // A lost «saved» leaves this window in the backend's list of unsaved ones: the quit keeps waiting for it and is asked again.
+      if (quit === mine) await api.composeSaved().catch(() => {});
+    },
+    cancel() {
+      quit++;
+      // Only tells the backend whether a quit must ask; the next change tells again.
+      void api.composeUnsaved(app.compose.windows.length > 0 || app.ui.settingsTyping).catch(() => {});
+    },
+  };
+}
+
+interface Parked {
+  account_id: string;
+  /** The wait: the Message-ID of the answer. */
+  key: string;
+  subject: string;
+}
+
+interface ParkFailed {
+  account_id: string;
+  subject: string;
+  folder: string;
+  /** The server refused to make the folder; otherwise `error` says what went wrong. */
+  refused: boolean;
+  error?: string;
+}
+
+interface BringFailed {
+  account_id: string;
+  subject: string;
+  folder: string;
+  error?: string;
+}
+
+/** A toast takes its own move back, once: not after "z" has, not by a second press; whatever else was done since. */
+function takeUndo(app: AppStore, mine: Undoable) {
+  if (mine.undone) return false;
+  mine.undone = true;
+  if (app.actions.lastUndo === mine) app.actions.lastUndo = null;
+  return true;
+}
+
+/** The answer left and took its letter to "Waiting for reply": keeping it in the inbox is "z" too. */
+function parked(app: AppStore, p: Parked) {
+  const text = t("toast.sentParked", { subject: p.subject || t("noSubject") });
+  const keep = () => api.followupUnpark(p.account_id, p.key);
+  const mine: Undoable = { moved: [], text, run: keep };
+  app.actions.lastUndo = mine;
+  app.ui.toast(text, false, {
+    label: t("toast.keepInInbox"),
+    run: () => {
+            if (takeUndo(app, mine)) keep().then(() => app.ui.toast(t("done.undone")), (err) => app.ui.fail(err));
+    },
+  });
+}
+
+/** The answer's letter has been taken to the archive; "sent" was said when the answer left. */
+function archivedAfterSend(app: AppStore, p: { subject: string; moved: Moved }) {
+  const text = t("toast.archivedAfterSend");
+  const mine: Undoable = { moved: [p.moved], text };
+  app.actions.lastUndo = mine;
+  // The toast undoes its own move, once, even after other actions; not after "z" has undone it.
+  app.ui.toast(text, false, {
+    label: t("undo"),
+    run: () => {
+      if (!takeUndo(app, mine)) return;
+      api.undo([p.moved]).then(() => app.ui.toast(t("done.undone")), (err) => app.ui.fail(err, t("err.undo")));
+      void app.selection.reload();
+    },
+  });
+  app.selection.reload();
+}
+
+/** A message window: no list, only the letter it shows. */
+export function listenWindow(app: AppStore) {
+  return Promise.all([
+    ...common(app),
+    listen<MailChanged>("mail-changed", (e) => {
+      const row = app.reader.opened?.row;
+      if (row && row.account_id === e.payload.account_id && row.folder === e.payload.folder) app.reader.checkStillThere();
+    }),
+  ]);
+}

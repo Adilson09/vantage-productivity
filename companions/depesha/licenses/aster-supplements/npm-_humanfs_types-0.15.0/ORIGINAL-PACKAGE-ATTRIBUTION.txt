@@ -1,0 +1,30 @@
+Original published package: @humanfs/types 0.15.0
+Declared license: Apache-2.0
+Corresponding source: https://registry.npmjs.org/@humanfs/types/-/types-0.15.0.tgz
+
+{
+  "name": "@humanfs/types",
+  "version": "0.15.0",
+  "license": "Apache-2.0",
+  "author": "Nicholas C. Zakas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/humanwhocodes/humanfs.git"
+  },
+  "homepage": "https://github.com/humanwhocodes/humanfs#readme"
+}
+
+Original README.md:
+# `@humanfs/types`
+
+by [Nicholas C. Zakas](https://humanwhocodes.com)
+
+If you find this useful, please consider supporting my work with a [donation](https://humanwhocodes.com/donate) or [nominate me](https://stars.github.com/nominate/) for a GitHub Star.
+
+## Description
+
+Additional type definitions for humanfs. These are used primarily to share type definitions across packages because there is no easy way to export imported type definitions using JavaScript and JSDoc.
+
+## License
+
+Apache 2.0

@@ -1,0 +1,754 @@
+// Aster Mail fork: own registrations, Google desktop callback, and redacted client diagnostics.
+//! OAuth 2.0 sign-in for desktop apps (RFC 8252): the system browser opens the
+//! provider's page, the answer comes back to a one-shot HTTP server on the loopback
+//! interface, and PKCE (RFC 7636) protects the code. IMAP and SMTP then log in
+//! with the access token (SASL XOAUTH2); the refresh token lives in the keyring.
+
+use crate::best_effort;
+use std::future::Future;
+use std::time::Duration;
+
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+use crate::account::OAuthProvider;
+use crate::http;
+use crate::say::Say;
+use crate::{Error, Result};
+
+/// The words of the pages the browser shows when it comes back, in the user's language: the
+/// core knows none, so the caller brings them.
+#[derive(Debug, Clone, Default)]
+pub struct PageWords {
+    pub signed_in: String,
+    pub close_tab: String,
+    pub failed: String,
+    pub unexpected: String,
+    /// Why the page says the sign-in failed when the user did not allow access.
+    pub denied: String,
+}
+
+/// Fixed for registered Yandex/Microsoft callbacks; Google uses an available ephemeral port.
+pub const PORTS: [u16; 3] = [47851, 47852, 47853];
+pub const CALLBACK_PATH: &str = "/oauth/callback";
+/// How long the browser page may stay open before the sign-in gives up.
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// The app's registration at the provider. Desktop apps cannot keep a secret
+/// (RFC 8252, 8.5): Google and Yandex still issue one, PKCE is what protects the code.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct OAuthClient {
+    pub client_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub client_secret: Option<String>,
+}
+
+impl OAuthClient {
+    /// The client built into this copy of the app (environment variables at build time).
+    pub fn builtin(provider: OAuthProvider) -> Option<Self> {
+        let (id, secret) = match provider {
+            OAuthProvider::Google => (
+                option_env!("ASTER_MAIL_GOOGLE_CLIENT_ID"),
+                option_env!("ASTER_MAIL_GOOGLE_CLIENT_SECRET"),
+            ),
+            OAuthProvider::Yandex => (
+                option_env!("ASTER_MAIL_YANDEX_CLIENT_ID"),
+                option_env!("ASTER_MAIL_YANDEX_CLIENT_SECRET"),
+            ),
+            OAuthProvider::Microsoft => (option_env!("ASTER_MAIL_MICROSOFT_CLIENT_ID"), None),
+        };
+        let id = id.map(str::trim).filter(|s| !s.is_empty())?;
+        Some(Self {
+            client_id: id.to_owned(),
+            client_secret: secret.map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned),
+        })
+    }
+
+    pub fn is_set(&self) -> bool {
+        !self.client_id.trim().is_empty()
+    }
+
+    /// Removes surrounding paste whitespace without requiring an optional desktop client secret.
+    pub fn normalized(&self) -> Option<Self> {
+        let id = self.client_id.trim();
+        if id.is_empty() {
+            return None;
+        }
+        Some(Self {
+            client_id: id.to_owned(),
+            client_secret: self.client_secret.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned),
+        })
+    }
+}
+
+impl std::fmt::Debug for OAuthClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthClient")
+            .field("configured", &self.is_set())
+            .field("has_client_secret", &self.client_secret.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+struct Endpoints {
+    auth: &'static str,
+    token: &'static str,
+    scope: &'static str,
+    /// The part of `scope` IMAP needs. Google lets the user untick it on the consent page.
+    mail_scope: &'static str,
+    /// Host in the redirect URI: Microsoft registers `localhost`, the others take the IP.
+    redirect_host: &'static str,
+    callback_path: &'static str,
+    extra: &'static [(&'static str, &'static str)],
+}
+
+fn endpoints(provider: OAuthProvider) -> Endpoints {
+    match provider {
+        OAuthProvider::Google => Endpoints {
+            auth: "https://accounts.google.com/o/oauth2/v2/auth",
+            token: "https://oauth2.googleapis.com/token",
+            scope: "https://mail.google.com/ openid email profile",
+            mail_scope: "https://mail.google.com/",
+            redirect_host: "127.0.0.1",
+            callback_path: "/",
+            // Without consent on every sign-in Google returns no refresh token the second time.
+            extra: &[("access_type", "offline"), ("prompt", "consent")],
+        },
+        OAuthProvider::Yandex => Endpoints {
+            auth: "https://oauth.yandex.ru/authorize",
+            token: "https://oauth.yandex.ru/token",
+            scope: "mail:imap_full mail:smtp login:email login:info",
+            mail_scope: "mail:imap_full",
+            redirect_host: "127.0.0.1",
+            callback_path: CALLBACK_PATH,
+            extra: &[("force_confirm", "yes")],
+        },
+        OAuthProvider::Microsoft => Endpoints {
+            auth: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            token: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            scope: "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send \
+                    offline_access openid email profile",
+            mail_scope: "https://outlook.office.com/IMAP.AccessAsUser.All",
+            redirect_host: "localhost",
+            callback_path: CALLBACK_PATH,
+            extra: &[("prompt", "select_account")],
+        },
+    }
+}
+
+/// Tokens from the provider. `refresh_token` is empty when the provider kept the old one.
+#[derive(Clone, Default)]
+pub struct Tokens {
+    pub access_token: String,
+    pub refresh_token: String,
+    /// Unix time when the access token stops working.
+    pub expires_at: i64,
+}
+
+impl std::fmt::Debug for Tokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tokens")
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Result of a sign-in: who signed in, and the tokens.
+#[derive(Debug, Clone)]
+pub struct Grant {
+    pub provider: OAuthProvider,
+    pub email: String,
+    pub name: Option<String>,
+    pub tokens: Tokens,
+}
+
+/// The verifier and its S256 challenge.
+fn pkce() -> (String, String) {
+    let verifier = URL_SAFE_NO_PAD.encode(random_bytes::<32>());
+    (verifier.clone(), challenge_of(&verifier))
+}
+
+fn challenge_of(verifier: &str) -> String {
+    URL_SAFE_NO_PAD.encode(ring::digest::digest(&ring::digest::SHA256, verifier.as_bytes()))
+}
+
+fn random_bytes<const N: usize>() -> [u8; N] {
+    use ring::rand::{SecureRandom, SystemRandom};
+    let mut bytes = [0u8; N];
+    #[allow(
+        clippy::expect_used,
+        reason = "the system's random source is what TLS stands on: a host without it cannot run the app at all"
+    )]
+    SystemRandom::new().fill(&mut bytes).expect("system RNG");
+    bytes
+}
+
+async fn bind(provider: OAuthProvider) -> Result<(TcpListener, u16)> {
+    if provider == OAuthProvider::Google {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let port = listener.local_addr()?.port();
+        return Ok((listener, port));
+    }
+    let mut last = None;
+    for port in PORTS {
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => return Ok((l, port)),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(Error::Said(Say::SignInPortsBusy {
+        first: PORTS[0],
+        last: PORTS[PORTS.len() - 1],
+        why: last.map(|e| e.to_string()).unwrap_or_default(),
+    }))
+}
+
+pub fn authorize_url(
+    provider: OAuthProvider,
+    client: &OAuthClient,
+    redirect_uri: &str,
+    state: &str,
+    challenge: &str,
+    login_hint: Option<&str>,
+) -> String {
+    let ep = endpoints(provider);
+    let mut params = vec![
+        ("response_type", "code"),
+        ("client_id", client.client_id.trim()),
+        ("redirect_uri", redirect_uri),
+        ("scope", ep.scope),
+        ("state", state),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+    ];
+    params.extend(ep.extra.iter().copied());
+    if let Some(hint) = login_hint.filter(|h| !h.trim().is_empty()) {
+        params.push(("login_hint", hint.trim()));
+    }
+    #[allow(
+        clippy::expect_used,
+        reason = "`http::form` percent-encodes everything outside ASCII"
+    )]
+    let query = String::from_utf8(http::form(&params)).expect("ASCII");
+    format!("{}?{query}", ep.auth)
+}
+
+/// Opens the system browser for the user. `open` shows the URL; the call ends when
+/// the browser comes back, `cancel` completes, or after ten minutes.
+pub async fn sign_in(
+    provider: OAuthProvider,
+    client: &OAuthClient,
+    login_hint: Option<&str>,
+    open: impl FnOnce(&str) -> Result<()>,
+    cancel: impl Future<Output = ()>,
+    words: &PageWords,
+) -> Result<Grant> {
+    let client = client.normalized().ok_or_else(|| not_configured(provider))?;
+    let (listener, port) = bind(provider).await?;
+    let ep = endpoints(provider);
+    let redirect_uri = format!("http://{}:{port}{}", ep.redirect_host, ep.callback_path);
+    let state = URL_SAFE_NO_PAD.encode(random_bytes::<16>());
+    let (verifier, challenge) = pkce();
+    open(&authorize_url(
+        provider,
+        &client,
+        &redirect_uri,
+        &state,
+        &challenge,
+        login_hint,
+    ))?;
+
+    let code = tokio::select! {
+        r = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_code(&listener, &state, ep.callback_path, words)) => {
+            r.map_err(|_| Error::Said(Say::SignInTimeout))??
+        }
+        _ = cancel => return Err(Error::Said(Say::SignInCancelled)),
+    };
+    drop(listener);
+
+    let tokens = exchange(provider, &client, &code, &verifier, &redirect_uri).await?;
+    let (email, name) = identity(provider, &tokens).await?;
+    Ok(Grant {
+        provider,
+        email,
+        name,
+        tokens: tokens.tokens,
+    })
+}
+
+pub fn not_configured(provider: OAuthProvider) -> Error {
+    Error::Said(Say::OauthNotConfigured { provider })
+}
+
+/// Accepts browser requests until one brings the code (or an error) for our state.
+async fn wait_for_code(listener: &TcpListener, state: &str, callback_path: &str, words: &PageWords) -> Result<String> {
+    loop {
+        let (mut stream, _) = listener.accept().await?;
+        let Ok(Some(target)) = read_target(&mut stream).await else {
+            continue;
+        };
+        if target.split('?').next() != Some(callback_path) {
+            best_effort("answer the browser", respond(&mut stream, "404 Not Found", "").await);
+            continue;
+        }
+        let params = http::query_params(&target);
+        let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if get("state").as_deref() != Some(state) {
+            // Not our request (an old tab, another program): ignore it.
+            best_effort(
+                "answer the browser",
+                respond(&mut stream, "400 Bad Request", &words.unexpected).await,
+            );
+            continue;
+        }
+        if let Some(error) = get("error") {
+            let detail = get("error_description").unwrap_or_default();
+            let denied = error == "access_denied";
+            let text = if denied {
+                words.denied.clone()
+            } else {
+                format!("{error} {detail}").trim().to_owned()
+            };
+            best_effort(
+                "answer the browser",
+                respond(&mut stream, "200 OK", &page(words, false, &text)).await,
+            );
+            return Err(Error::Said(if denied {
+                Say::ProviderDenied
+            } else {
+                Say::ProviderRefused { text }
+            }));
+        }
+        let Some(code) = get("code").filter(|c| !c.is_empty()) else {
+            best_effort("answer the browser", respond(&mut stream, "400 Bad Request", "").await);
+            continue;
+        };
+        best_effort(
+            "answer the browser",
+            respond(&mut stream, "200 OK", &page(words, true, "")).await,
+        );
+        return Ok(code);
+    }
+}
+
+/// Request target of `GET /path?query HTTP/1.1`.
+async fn read_target(stream: &mut TcpStream) -> std::io::Result<Option<String>> {
+    let mut buf = Vec::with_capacity(2048);
+    let mut chunk = [0u8; 2048];
+    let read = async {
+        while !buf.windows(4).any(|w| w == b"\r\n\r\n") && buf.len() < 64 * 1024 {
+            let n = stream.read(&mut chunk).await?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        Ok::<_, std::io::Error>(())
+    };
+    if tokio::time::timeout(Duration::from_secs(10), read).await.is_err() {
+        return Ok(None);
+    }
+    let head = String::from_utf8_lossy(&buf);
+    let mut words = head.lines().next().unwrap_or_default().split_whitespace();
+    Ok(match (words.next(), words.next()) {
+        (Some("GET"), Some(target)) => Some(target.to_owned()),
+        _ => None,
+    })
+}
+
+async fn respond(stream: &mut TcpStream, status: &str, html: &str) -> std::io::Result<()> {
+    let head = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        html.len()
+    );
+    stream.write_all(head.as_bytes()).await?;
+    stream.write_all(html.as_bytes()).await?;
+    stream.shutdown().await
+}
+
+fn page(words: &PageWords, ok: bool, detail: &str) -> String {
+    let (title, text) = if ok {
+        (words.signed_in.as_str(), words.close_tab.as_str())
+    } else {
+        (words.failed.as_str(), detail)
+    };
+    let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    format!(
+        "<!doctype html><meta charset=utf-8><title>{t}</title>\
+         <body style=\"font:16px system-ui,sans-serif;max-width:32em;margin:15vh auto;padding:0 1em\">\
+         <h1 style=\"font-size:22px\">{t}</h1><p>{x}</p></body>",
+        t = escape(title),
+        x = escape(text)
+    )
+}
+
+#[derive(Deserialize)]
+struct TokenAnswer {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    expires_in: Option<serde_json::Value>,
+    id_token: Option<String>,
+    scope: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+struct Exchanged {
+    tokens: Tokens,
+    id_token: Option<String>,
+    /// Granted scopes, space-separated; `None` when the provider does not say (Yandex).
+    scope: Option<String>,
+}
+
+async fn token_request(provider: OAuthProvider, client: &OAuthClient, params: &[(&str, &str)]) -> Result<Exchanged> {
+    let mut params = params.to_vec();
+    params.push(("client_id", &client.client_id));
+    if let Some(secret) = &client.client_secret {
+        params.push(("client_secret", secret));
+    }
+    let resp = http::request(
+        "POST",
+        endpoints(provider).token,
+        &[
+            ("Content-Type", "application/x-www-form-urlencoded".into()),
+            ("Accept", "application/json".into()),
+        ],
+        http::form(&params),
+    )
+    .await?;
+    let answer: TokenAnswer = serde_json::from_slice(&resp.body).map_err(|_| {
+        Error::Said(Say::TokenEndpoint {
+            status: resp.status,
+            body: resp.text().chars().take(300).collect(),
+        })
+    })?;
+    if let Some(error) = answer.error {
+        let detail = answer.error_description.unwrap_or_default();
+        return Err(match error.as_str() {
+            // Revoked, expired (Google keeps test-mode tokens for 7 days) or password changed.
+            "invalid_grant" => Error::Said(Say::OauthInvalidGrant { provider, detail }),
+            "invalid_client" | "unauthorized_client" => Error::Said(Say::OauthInvalidClient { provider, detail }),
+            _ => Error::Auth(format!("{error}: {detail}")),
+        });
+    }
+    let access_token = answer
+        .access_token
+        .filter(|t| !t.is_empty())
+        .ok_or(Error::Said(Say::OauthNoToken))?;
+    let expires_in = match answer.expires_in {
+        Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(3600),
+        Some(serde_json::Value::String(s)) => s.parse().unwrap_or(3600),
+        _ => 3600,
+    };
+    Ok(Exchanged {
+        tokens: Tokens {
+            access_token,
+            refresh_token: answer.refresh_token.unwrap_or_default(),
+            expires_at: chrono::Utc::now().timestamp() + expires_in,
+        },
+        id_token: answer.id_token,
+        scope: answer.scope,
+    })
+}
+
+/// False only when the provider listed the granted scopes and mail is not among them.
+fn grants_mail(provider: OAuthProvider, granted: Option<&str>) -> bool {
+    let want = endpoints(provider).mail_scope;
+    granted.is_none_or(|s| s.split_whitespace().any(|g| g.eq_ignore_ascii_case(want)))
+}
+
+async fn exchange(
+    provider: OAuthProvider,
+    client: &OAuthClient,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<Exchanged> {
+    let ex = token_request(
+        provider,
+        client,
+        &[
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("code_verifier", verifier),
+            ("redirect_uri", redirect_uri),
+        ],
+    )
+    .await?;
+    if ex.tokens.refresh_token.is_empty() {
+        return Err(Error::Said(Say::OauthNoRefresh { provider }));
+    }
+    if !grants_mail(provider, ex.scope.as_deref()) {
+        return Err(Error::Said(Say::OauthNoMailAccess { provider }));
+    }
+    Ok(ex)
+}
+
+/// A new access token. The returned refresh token is empty unless the provider rotated it.
+pub async fn refresh(provider: OAuthProvider, client: &OAuthClient, refresh_token: &str) -> Result<Tokens> {
+    let client = client.normalized().ok_or_else(|| not_configured(provider))?;
+    let ex = token_request(
+        provider,
+        &client,
+        &[("grant_type", "refresh_token"), ("refresh_token", refresh_token)],
+    )
+    .await?;
+    Ok(ex.tokens)
+}
+
+/// The mailbox address and name of whoever signed in.
+async fn identity(provider: OAuthProvider, ex: &Exchanged) -> Result<(String, Option<String>)> {
+    if provider == OAuthProvider::Yandex {
+        let resp = http::request(
+            "GET",
+            "https://login.yandex.ru/info?format=json",
+            &[("Authorization", format!("OAuth {}", ex.tokens.access_token))],
+            Vec::new(),
+        )
+        .await?;
+        let v: serde_json::Value = serde_json::from_slice(&resp.body).unwrap_or_default();
+        let email = v["default_email"]
+            .as_str()
+            .map(str::to_owned)
+            .or_else(|| v["login"].as_str().map(|l| format!("{l}@yandex.ru")));
+        let name = v["real_name"]
+            .as_str()
+            .or(v["display_name"].as_str())
+            .map(str::to_owned);
+        return email
+            .map(|e| (e, name.filter(|n| !n.is_empty())))
+            .ok_or(Error::Said(Say::OauthNoAddress { provider }));
+    }
+    let claims = ex.id_token.as_deref().and_then(jwt_claims).unwrap_or_default();
+    let email = claims["email"]
+        .as_str()
+        .or(claims["preferred_username"].as_str())
+        .filter(|e| e.contains('@'))
+        .map(str::to_owned)
+        .ok_or(Error::Said(Say::OauthNoAddress { provider }))?;
+    let name = claims["name"].as_str().filter(|n| !n.is_empty()).map(str::to_owned);
+    Ok((email, name))
+}
+
+/// Claims of an ID token. It came straight from the token endpoint over TLS,
+/// so the signature need not be checked (OpenID Connect Core, 3.1.3.7).
+fn jwt_claims(jwt: &str) -> Option<serde_json::Value> {
+    let payload = jwt.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pkce_matches_rfc7636() {
+        // RFC 7636, appendix B.
+        assert_eq!(
+            challenge_of("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+        let (v, c) = pkce();
+        assert_eq!(v.len(), 43);
+        assert_eq!(challenge_of(&v), c);
+    }
+
+    #[test]
+    fn builds_authorize_url() {
+        let client = OAuthClient {
+            client_id: "id.apps".into(),
+            client_secret: None,
+        };
+        let url = authorize_url(
+            OAuthProvider::Google,
+            &client,
+            "http://127.0.0.1:47851/oauth/callback",
+            "st",
+            "ch",
+            Some("a@gmail.com"),
+        );
+        assert!(url.starts_with("https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=id.apps"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A47851%2Foauth%2Fcallback"));
+        assert!(url.contains("scope=https%3A%2F%2Fmail.google.com%2F%20openid"));
+        assert!(url.contains("code_challenge=ch&code_challenge_method=S256"));
+        assert!(url.contains("access_type=offline"));
+        assert!(url.contains("login_hint=a%40gmail.com"));
+        let ms = authorize_url(
+            OAuthProvider::Microsoft,
+            &client,
+            "http://localhost:1/oauth/callback",
+            "s",
+            "c",
+            None,
+        );
+        assert!(ms.contains("IMAP.AccessAsUser.All") && ms.contains("offline_access"));
+        assert!(!ms.contains("login_hint"));
+    }
+
+    #[test]
+    fn desktop_client_paste_is_normalized_and_debug_does_not_expose_credentials() {
+        let client = OAuthClient {
+            client_id: "  desktop.apps.googleusercontent.com\n".into(),
+            client_secret: Some("  synthetic-private-marker\n".into()),
+        };
+        let normalized = client.normalized().unwrap();
+        assert_eq!(normalized.client_id, "desktop.apps.googleusercontent.com");
+        assert_eq!(normalized.client_secret.as_deref(), Some("synthetic-private-marker"));
+        let debug = format!("{client:?}");
+        assert!(!debug.contains("synthetic-private-marker"));
+        assert!(!debug.contains("desktop.apps.googleusercontent.com"));
+        assert!(OAuthClient::default().normalized().is_none());
+        let without_secret = OAuthClient {
+            client_id: "desktop.apps.googleusercontent.com".into(),
+            client_secret: Some(" \n".into()),
+        };
+        assert_eq!(without_secret.normalized().unwrap().client_secret, None);
+    }
+
+    #[tokio::test]
+    async fn missing_registration_does_not_open_a_browser() {
+        let result = sign_in(
+            OAuthProvider::Google,
+            &OAuthClient::default(),
+            None,
+            |_| panic!("missing registration must fail before opening a browser"),
+            std::future::pending(),
+            &PageWords::default(),
+        )
+        .await;
+        assert!(matches!(result, Err(Error::Said(Say::OauthNotConfigured { .. }))));
+    }
+
+    #[tokio::test]
+    async fn google_desktop_browser_flow_uses_ephemeral_root_callback_and_denial_is_not_a_grant() {
+        let client = OAuthClient {
+            client_id: "  desktop.apps.googleusercontent.com  ".into(),
+            client_secret: Some("synthetic-client-secret".into()),
+        };
+        let mut browser = None;
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            sign_in(
+                OAuthProvider::Google,
+                &client,
+                Some("fixture@example.invalid"),
+                |url| {
+                    assert!(url.starts_with("https://accounts.google.com/o/oauth2/v2/auth?"));
+                    let query = http::query_params(url);
+                    let get = |key: &str| query.iter().find(|(name, _)| name == key).unwrap().1.clone();
+                    assert_eq!(get("client_id"), "desktop.apps.googleusercontent.com");
+                    assert_eq!(get("code_challenge_method"), "S256");
+                    assert_eq!(get("access_type"), "offline");
+                    assert!(get("scope").split_whitespace().any(|scope| scope == "https://mail.google.com/"));
+                    assert!(!url.contains("synthetic-client-secret") && !url.contains("client_secret"));
+                    let redirect = get("redirect_uri");
+                    let port = redirect.strip_prefix("http://127.0.0.1:").unwrap().strip_suffix('/').unwrap().parse::<u16>().unwrap();
+                    assert_ne!(port, 0);
+                    let state = get("state");
+                    browser = Some(tokio::spawn(async move {
+                        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+                        stream.write_all(format!("GET /?error=access_denied&state={state} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").as_bytes()).await.unwrap();
+                        let mut response = String::new();
+                        stream.read_to_string(&mut response).await.unwrap();
+                        assert!(response.starts_with("HTTP/1.1 200"));
+                    }));
+                    Ok(())
+                },
+                std::future::pending(),
+                &PageWords::default(),
+            ),
+        )
+        .await
+        .unwrap();
+        browser.unwrap().await.unwrap();
+        assert!(matches!(result, Err(Error::Said(Say::ProviderDenied))));
+    }
+
+    #[tokio::test]
+    async fn google_browser_sign_in_can_be_cancelled_without_requesting_tokens() {
+        let client = OAuthClient { client_id: "desktop.apps.googleusercontent.com".into(), client_secret: None };
+        let result = sign_in(
+            OAuthProvider::Google,
+            &client,
+            None,
+            |_| Ok(()),
+            std::future::ready(()),
+            &PageWords::default(),
+        )
+        .await;
+        assert!(matches!(result, Err(Error::Said(Say::SignInCancelled))));
+    }
+
+    #[test]
+    fn notices_unticked_mail_scope() {
+        let google = OAuthProvider::Google;
+        assert!(grants_mail(
+            google,
+            Some("openid https://mail.google.com/ https://www.googleapis.com/auth/userinfo.email")
+        ));
+        assert!(!grants_mail(
+            google,
+            Some("openid https://www.googleapis.com/auth/userinfo.email")
+        ));
+        assert!(grants_mail(OAuthProvider::Yandex, None));
+        assert!(grants_mail(
+            OAuthProvider::Microsoft,
+            Some("https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send")
+        ));
+    }
+
+    #[test]
+    fn reads_id_token_claims() {
+        let payload = URL_SAFE_NO_PAD.encode(r#"{"email":"a@outlook.com","name":"Анна"}"#);
+        let claims = jwt_claims(&format!("eyJhbGciOiJSUzI1NiJ9.{payload}.sig")).unwrap();
+        assert_eq!(claims["email"], "a@outlook.com");
+        assert_eq!(claims["name"], "Анна");
+        assert!(jwt_claims("garbage").is_none());
+    }
+
+    #[tokio::test]
+    async fn loopback_receives_the_code() {
+        let words = PageWords::default();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let browser = async move {
+            let get = |path: &'static str| async move {
+                let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+                s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+                    .await
+                    .unwrap();
+                let mut out = String::new();
+                s.read_to_string(&mut out).await.unwrap();
+                out
+            };
+            assert!(get("/favicon.ico").await.starts_with("HTTP/1.1 404"));
+            assert!(get("/oauth/callback-extra?code=x&state=good").await.starts_with("HTTP/1.1 404"));
+            assert!(
+                get("/oauth/callback?code=x&state=wrong")
+                    .await
+                    .starts_with("HTTP/1.1 400")
+            );
+            get("/oauth/callback?code=4%2F0Ab&state=good").await
+        };
+        let (code, page) = tokio::join!(wait_for_code(&listener, "good", CALLBACK_PATH, &words), browser);
+        assert_eq!(code.unwrap(), "4/0Ab");
+        assert!(page.starts_with("HTTP/1.1 200"));
+
+        let denied = async move {
+            let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            s.write_all(b"GET /oauth/callback?error=access_denied&state=good HTTP/1.1\r\n\r\n")
+                .await
+                .unwrap();
+            let mut out = String::new();
+            s.read_to_string(&mut out).await.unwrap();
+        };
+        let (r, ()) = tokio::join!(wait_for_code(&listener, "good", CALLBACK_PATH, &words), denied);
+        assert_eq!(r.unwrap_err().kind(), crate::error::ErrorKind::Auth);
+    }
+}

@@ -1,0 +1,47 @@
+//! Core of the Depesha mail client: IMAP sync, SMTP sending, the local cache
+//! and message parsing. It knows nothing about the GUI.
+
+pub mod account;
+pub mod acl;
+pub mod autodetect;
+pub mod avatar;
+mod best_effort;
+mod blocking;
+pub mod calendar;
+pub mod clear;
+pub mod dkim;
+pub mod domain;
+pub(crate) mod error;
+pub mod ews;
+pub(crate) mod http;
+pub mod idle_pace;
+pub mod imap;
+pub mod label_strip;
+mod lock;
+#[cfg(test)]
+mod log_sink;
+pub mod mail;
+pub mod message;
+pub(crate) mod net;
+pub mod ntlm;
+pub mod oauth;
+pub mod outbox;
+pub mod port;
+pub mod query;
+pub mod quota;
+pub mod say;
+pub mod sender;
+pub mod smtp;
+pub mod snippet;
+pub mod snooze;
+pub mod store;
+pub mod sync;
+pub mod tls;
+pub mod unsubscribe;
+pub mod utf7;
+pub mod waiting;
+pub(crate) mod watchdog;
+
+pub use best_effort::{best_effort, mailbox_tag, removed, unheard};
+pub use error::{Error, ErrorKind, EwsMeaning, ImapFault, Result, SmtpMeaning, seconds};
+pub use say::{Class, Say, Xoauth2Detail};

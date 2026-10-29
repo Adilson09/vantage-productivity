@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "Aster Mail",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 560,
+        "decorations": false,
+        "visible": false,
+        "shadow": false,
+        "dragDropEnabled": true
+      }
+    ]
+  }
+}

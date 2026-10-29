@@ -1,0 +1,20 @@
+{
+  "packageUrl": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg",
+  "nugetCatalog": "https://api.nuget.org/v3/catalog0/data/2026.02.16.08.48.05/microsoft.web.webview2.1.0.3800.47.json",
+  "packageSha256": "56c9f26bdd07916a2d1949fb58a5c7e434dfa1173577dca879206050c4e718db",
+  "packageSha512": "EASM6IwWa38ppWP825SH1xusVyN3fNCpi1xaDnHP80RVGgvCdBCwyw+Egqns3sdFSkWtDSp66Zj8NH6tFVmIiQ==",
+  "files": [
+    {
+      "path": "Microsoft-WebView2-LICENSE.txt",
+      "sourceUrl": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg#LICENSE.txt",
+      "revision": "Microsoft.Web.WebView2@1.0.3800.47",
+      "sha256": "0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55"
+    },
+    {
+      "path": "Microsoft-WebView2-NOTICE.txt",
+      "sourceUrl": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg#NOTICE.txt",
+      "revision": "Microsoft.Web.WebView2@1.0.3800.47",
+      "sha256": "106423785c5b7eba0a8e61d1837f2132e9c828e20ad530f565d981c1df60dd90"
+    }
+  ]
+}

@@ -1,0 +1,5938 @@
+#![allow(
+    clippy::let_underscore_must_use,
+    reason = "`#[tauri::command]` on an async fn expands to `let _ = …` in its glue; the commands' own code has none: it goes through `best_effort`"
+)]
+
+use depesha_core::{best_effort, mailbox_tag, unheard};
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use depesha_core::account::{self, Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
+use depesha_core::autodetect::{self, Detection};
+use depesha_core::avatar::Receiver;
+use depesha_core::calendar::{Meeting, Method, Notice};
+use depesha_core::domain::Addr;
+use depesha_core::domain::{Act, ActsOn, BodyFormat, Draft, FlagChange, FolderRole, OutgoingAttachment};
+use depesha_core::ews::{self, EwsDetection};
+use depesha_core::message::{self, MessageView, Unsubscribe};
+use depesha_core::port::MailQueue;
+use depesha_core::query::SearchQuery;
+use depesha_core::sender;
+use depesha_core::smtp;
+use depesha_core::snooze;
+use depesha_core::store::{
+    Added, FolderInfo, FollowupPlan, Forgotten, HintCount, HintState, ListQuery, Merge, Merged, MessageRow, OutboxItem,
+    Person, SearchTotals, Snapshot, Snooze, SortKey, Split, Suggestion,
+};
+use depesha_core::unsubscribe::Way;
+use depesha_core::waiting;
+use depesha_core::{Error, avatar, dkim, mail, oauth};
+use serde::{Deserialize, Serialize};
+use tauri::{Manager, State};
+use tauri_plugin_opener::OpenerExt;
+
+use crate::config::Settings;
+use crate::error::{CmdError, CmdResult};
+use crate::lang::pick;
+use crate::paths::Use;
+use crate::secrets;
+use crate::state::{AccountStatus, AppState, lock};
+use crate::tr;
+use crate::worker::{self, Output, Queue, Work};
+
+type St<'a> = State<'a, Arc<AppState>>;
+
+/// Total size of attachments in one message.
+const MAX_ATTACHMENTS: u64 = 50 * 1024 * 1024;
+
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AccountView {
+    #[serde(flatten)]
+    account: Account,
+    status: Option<AccountStatus>,
+}
+
+#[tauri::command]
+pub fn accounts(state: St<'_>) -> Vec<AccountView> {
+    state
+        .accounts()
+        .into_iter()
+        .map(|a| AccountView {
+            status: state.status(&a.id),
+            account: a,
+        })
+        .collect()
+}
+
+/// What the detection found, with its source and notes worded for the interface.
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "Detection"))]
+pub struct DetectionView {
+    imap: Option<depesha_core::account::ServerConfig>,
+    smtp: Option<depesha_core::account::ServerConfig>,
+    username: String,
+    source: String,
+    notes: Vec<String>,
+}
+
+impl From<Detection> for DetectionView {
+    fn from(d: Detection) -> Self {
+        let (source, notes) = crate::localize::source_and_notes(d.source.as_ref(), &d.notes, crate::lang::current());
+        Self {
+            imap: d.imap,
+            smtp: d.smtp,
+            username: d.username,
+            source,
+            notes,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn detect(email: String) -> DetectionView {
+    autodetect::detect(&email).await.into()
+}
+
+/// Where the Exchange address came from, worded for the interface.
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "EwsDetection"))]
+pub struct EwsDetectionView {
+    url: Option<String>,
+    source: String,
+    notes: Vec<String>,
+}
+
+/// Logs in to IMAP and SMTP (or EWS) with the given settings; nothing is saved.
+/// `grant` is a browser sign-in from `oauth_sign_in` for an account not saved yet.
+#[tauri::command]
+pub async fn account_check(
+    state: St<'_>,
+    account: Account,
+    password: Option<String>,
+    grant: Option<String>,
+) -> CmdResult<()> {
+    // Test builds: a check that takes a known time, so a test can act while it is under way.
+    #[cfg(feature = "e2e")]
+    if let Some(ms) = crate::state::e2e_env("DEPESHA_E2E_CHECK_DELAY_MS") {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+    let creds = match (&account.auth, grant) {
+        (AuthMethod::OAuth { .. }, Some(grant)) => {
+            let token = lock(&state.grants)
+                .get(&grant)
+                .map(|g| g.tokens.access_token.clone())
+                .ok_or_else(sign_in_again)?;
+            Credentials::oauth(account.username.clone(), token)
+        }
+        (AuthMethod::OAuth { .. }, None) => state.credentials(&account).await?,
+        (AuthMethod::Password, _) => {
+            let password = match password.filter(|p| !p.is_empty()) {
+                Some(p) => p,
+                None => secrets::get(&account.id).await?.ok_or_else(|| {
+                    CmdError::new(
+                        depesha_core::ErrorKind::Auth,
+                        tr!("enter the password", "введите пароль"),
+                    )
+                })?,
+            };
+            Credentials::new(account.username.clone(), password)
+        }
+    };
+    mail::check(&account, &creds)
+        .await
+        .map_err(|(proto, e)| prefix(proto, e))
+}
+
+fn sign_in_again() -> CmdError {
+    CmdError::new(
+        depesha_core::ErrorKind::Auth,
+        tr!(
+            "the sign-in has expired, sign in again",
+            "вход устарел, войдите ещё раз"
+        ),
+    )
+}
+
+fn prefix(proto: &str, e: depesha_core::Error) -> CmdError {
+    let mut err = CmdError::from(e);
+    err.message = format!("{proto}: {}", err.message);
+    err
+}
+
+/// The order of the mailboxes in the sidebar and wherever they are listed.
+#[tauri::command(async)]
+pub fn accounts_arrange(state: St<'_>, ids: Vec<String>) -> CmdResult<()> {
+    state.arrange_accounts(&ids)
+}
+
+/// How the mailbox is shown: its name in the app and its colour. Login data stays as is.
+#[tauri::command(async)]
+pub fn account_look(state: St<'_>, id: String, label: String, color: String) -> CmdResult<()> {
+    state.patch_account(&id, |account| apply_look(account, &label, &color))?;
+    Ok(())
+}
+
+/// The name in the app and the colour; the colour is only `#rrggbb`: the value ends up in CSS.
+fn apply_look(account: &mut Account, label: &str, color: &str) {
+    account.label = label.trim().to_owned();
+    account.color = hex_color(color);
+}
+
+/// What a mailbox's page saves as it is changed: the fields that do not reach the server. A
+/// field left out is not touched; an empty string takes the setting's value (no own format,
+/// view or signature).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OwnPatch {
+    pub label: Option<String>,
+    pub color: Option<String>,
+    pub display_name: Option<String>,
+    pub save_sent_copy: Option<bool>,
+    pub signatures: Option<Vec<account::Signature>>,
+    pub default_signature: Option<String>,
+    pub reply_signature: Option<String>,
+    pub attachments_dir: Option<String>,
+    pub compose_format: Option<String>,
+    pub letter_view: Option<String>,
+    pub waiting: Option<account::Waiting>,
+    /// Trust a sender by address where nothing could be checked (0.8.13, 6.1 Б).
+    pub trust_by_address: Option<bool>,
+    pub quota_warn: Option<bool>,
+    pub quota_limit_mb: Option<u64>,
+}
+
+fn hex_color(color: &str) -> String {
+    let color = color.trim();
+    if color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit()) {
+        color.to_ascii_lowercase()
+    } else {
+        String::new()
+    }
+}
+
+/// Puts the patch on the mailbox, keeping what the full save keeps: a default signature is one
+/// of the mailbox's, a name is never empty.
+fn apply_own(account: &mut Account, patch: OwnPatch) {
+    if let Some(v) = patch.label {
+        account.label = v.trim().to_owned();
+    }
+    if let Some(v) = patch.color {
+        account.color = hex_color(&v);
+    }
+    if let Some(v) = patch.display_name {
+        account.display_name = if v.trim().is_empty() {
+            account.email.clone()
+        } else {
+            v.trim().to_owned()
+        };
+    }
+    if let Some(v) = patch.save_sent_copy {
+        account.save_sent_copy = v;
+    }
+    if let Some(v) = patch.signatures {
+        account.signatures = v;
+    }
+    let some = |v: String| Some(v).filter(|v| !v.is_empty());
+    if let Some(v) = patch.default_signature {
+        account.default_signature = some(v);
+    }
+    if let Some(v) = patch.reply_signature {
+        account.reply_signature = some(v);
+    }
+    let has = |id: &Option<String>| account.signatures.iter().any(|s| id.as_deref() == Some(s.id.as_str()));
+    if !has(&account.default_signature) {
+        account.default_signature = None;
+    }
+    if !has(&account.reply_signature) {
+        account.reply_signature = None;
+    }
+    if let Some(v) = patch.attachments_dir {
+        account.attachments_dir = v.trim().to_owned();
+    }
+    if let Some(v) = patch.compose_format {
+        account.compose_format = match v.as_str() {
+            "plain" => Some(BodyFormat::Plain),
+            "html" => Some(BodyFormat::Html),
+            "markdown" => Some(BodyFormat::Markdown),
+            _ => None,
+        };
+    }
+    if let Some(v) = patch.letter_view {
+        account.letter_view = Some(v).filter(|v| ["html", "markdown", "text"].contains(&v.as_str()));
+    }
+    if let Some(v) = patch.waiting {
+        account.waiting = v;
+    }
+    if let Some(v) = patch.trust_by_address {
+        account.trust_by_address = v;
+    }
+    if let Some(v) = patch.quota_warn {
+        account.quota_warn = v;
+    }
+    if let Some(v) = patch.quota_limit_mb {
+        account.quota_limit_mb = v;
+    }
+}
+
+/// Saves the fields of a mailbox's page that do not reach the server, and only them. The
+/// mailbox's worker keeps running as it is: the connection is neither restarted nor checked,
+/// so this is fit to be called with every change (a login changed is `account_save`'s).
+#[tauri::command(async)]
+pub fn account_patch_own(state: St<'_>, id: String, patch: OwnPatch) -> CmdResult<Account> {
+    if let Some(folder) = &patch.attachments_dir {
+        check_save_folder(&state, &state.account(&id)?.attachments_dir, folder)?;
+    }
+    // Test builds: the write lands late, so a test can tell a quit that waits for it from one that does not.
+    #[cfg(feature = "e2e")]
+    if let Some(ms) = crate::state::e2e_env("DEPESHA_E2E_PATCH_DELAY_MS") {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+    state.patch_account(&id, |account| apply_own(account, patch))
+}
+
+#[tauri::command]
+pub async fn account_save(
+    state: St<'_>,
+    mut account: Account,
+    password: Option<String>,
+    grant: Option<String>,
+) -> CmdResult<Account> {
+    if account.id.is_empty() {
+        account.id = format!(
+            "{}-{}",
+            account.email.to_lowercase(),
+            chrono::Utc::now().timestamp_millis()
+        );
+        // Gmail and Exchange Web Services put sent mail into Sent themselves.
+        account.save_sent_copy = !account.imap.host.ends_with("gmail.com") && !account.is_ews();
+    }
+    if account.display_name.trim().is_empty() {
+        account.display_name = account.email.clone();
+    }
+    // The default is one of the mailbox's signatures, or none; and so does the reply one,
+    // which falls back to the default when it is not set.
+    if !account
+        .signatures
+        .iter()
+        .any(|s| account.default_signature.as_deref() == Some(s.id.as_str()))
+    {
+        account.default_signature = None;
+    }
+    if !account
+        .signatures
+        .iter()
+        .any(|s| account.reply_signature.as_deref() == Some(s.id.as_str()))
+    {
+        account.reply_signature = None;
+    }
+    let stored = state.accounts().into_iter().find(|a| a.id == account.id);
+    let before = stored.as_ref().map(|a| a.attachments_dir.clone()).unwrap_or_default();
+    check_save_folder(&state, &before, &account.attachments_dir)?;
+    // The addresses the mailbox has on its server are the server's word, which the page never
+    // carries: kept as they are, unless the login changed to what may be another mailbox, whose
+    // addresses the mailbox's worker asks for with its first pass (0.8.13, ступень 4).
+    account.addresses = match (&stored, account.is_ews()) {
+        (Some(stored), true) if same_login(stored, &account) => stored.addresses.clone(),
+        _ => Vec::new(),
+    };
+    let grant = grant.and_then(|g| lock(&state.grants).remove(&g));
+    match (&account.auth, grant) {
+        (AuthMethod::OAuth { .. }, Some(grant)) => {
+            secrets::set(&account.id, grant.tokens.refresh_token.clone()).await?;
+            lock(&state.tokens).insert(
+                account.id.clone(),
+                (grant.tokens.access_token.clone(), grant.tokens.expires_at),
+            );
+        }
+        (AuthMethod::OAuth { .. }, None) => {}
+        (AuthMethod::Password, _) => {
+            state.forget_token(&account.id);
+            if let Some(p) = password.filter(|p| !p.is_empty()) {
+                secrets::set(&account.id, p).await?;
+            }
+        }
+    }
+    state.save_account(account.clone())?;
+    let worker = worker::spawn(state.inner().clone(), account.clone());
+    state.set_worker(&account.id, Some(worker));
+    Ok(account)
+}
+
+/// Whether the page saved the same login: the mailbox, its server and the way it signs in. The
+/// addresses Exchange names go with the login, and another login may be another mailbox
+/// (0.8.13, ступень 4).
+fn same_login(stored: &Account, saved: &Account) -> bool {
+    stored.email.eq_ignore_ascii_case(saved.email.trim())
+        && stored.username == saved.username
+        && stored.auth == saved.auth
+        && stored.ews == saved.ews
+}
+
+#[tauri::command]
+pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
+    state.set_worker(&id, None);
+    state.tasks_forget_account(&id);
+    // What the app remembers of this mailbox's queued letters goes with them: a reused row id
+    // must not carry a «send now» or a run of connect timeouts into another mailbox's letter.
+    let queued: Vec<i64> = state
+        .store
+        .outbox()?
+        .into_iter()
+        .filter(|item| item.account_id == id)
+        .map(|item| item.id)
+        .collect();
+    for letter in queued {
+        crate::outbox::forget_letter(&state, letter);
+    }
+    // The cache first: while the account is in the settings, a failed removal can be
+    // repeated; after that nothing would remove its leftovers.
+    state.store.forget_account(&id)?;
+    state.remove_account(&id)?;
+    // The removed mailbox cannot be the default any more: a stale id would leave the
+    // settings with nothing to show and would live on through every save. Under the lock,
+    // so a patch written at the same time is not rolled back by a stale copy of the rest.
+    let mut cleared = false;
+    state.update_settings(|settings| {
+        if settings.default_account_id.as_deref() == Some(id.as_str()) {
+            settings.default_account_id = None;
+            cleared = true;
+        }
+        Ok(())
+    })?;
+    if cleared {
+        state.emit("settings-changed", serde_json::json!({}));
+    }
+    state.forget_token(&id);
+    secrets::delete(&id).await?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OAuthProviderView {
+    provider: OAuthProvider,
+    title: &'static str,
+    /// A client is built in or set by the user.
+    configured: bool,
+}
+
+#[tauri::command]
+pub fn oauth_providers(state: St<'_>) -> Vec<OAuthProviderView> {
+    let settings = state.settings();
+    OAuthProvider::ALL
+        .into_iter()
+        .map(|p| OAuthProviderView {
+            provider: p,
+            title: crate::localize::provider_title(p, crate::lang::current()),
+            configured: settings.oauth_client(p).is_some(),
+        })
+        .collect()
+}
+
+/// A finished browser sign-in; `id` is passed to `account_check` and `account_save`.
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "OAuthGrant"))]
+pub struct OAuthGrantView {
+    id: String,
+    provider: OAuthProvider,
+    email: String,
+    name: Option<String>,
+    imap: ServerConfig,
+    smtp: ServerConfig,
+}
+
+/// Opens the provider's sign-in page in the browser and waits for it to come back.
+#[tauri::command]
+pub async fn oauth_sign_in(
+    state: St<'_>,
+    provider: OAuthProvider,
+    login_hint: Option<String>,
+) -> CmdResult<OAuthGrantView> {
+    let client = state
+        .settings()
+        .oauth_client(provider)
+        .ok_or_else(|| oauth::not_configured(provider))?;
+    let app = state.app.clone();
+    let open = move |url: &str| {
+        app.opener().open_url(url, None::<&str>).map_err(|e| {
+            depesha_core::Error::Protocol(tr!(
+                "could not open the browser: {e}",
+                "не удалось открыть браузер: {e}"
+            ))
+        })
+    };
+    // Listening from the start: a cancel that comes while the browser opens is not lost
+    // (notify_waiters wakes only the waiters already there).
+    let cancel = state.oauth_cancel.notified();
+    tokio::pin!(cancel);
+    cancel.as_mut().enable();
+    let grant = oauth::sign_in(
+        provider,
+        &client,
+        login_hint.as_deref(),
+        open,
+        cancel,
+        &crate::localize::sign_in_pages(),
+    )
+    .await?;
+    let id = format!("{}-{}", provider.as_str(), chrono::Utc::now().timestamp_millis());
+    let (imap, smtp) = provider.servers();
+    let view = OAuthGrantView {
+        id: id.clone(),
+        provider,
+        email: grant.email.clone(),
+        name: grant.name.clone(),
+        imap,
+        smtp,
+    };
+    lock(&state.grants).insert(id, grant);
+    Ok(view)
+}
+
+#[tauri::command]
+pub fn oauth_cancel(state: St<'_>) {
+    state.oauth_cancel.notify_waiters();
+}
+
+/// Finds the EWS address of an Exchange mailbox (Autodiscover needs the login).
+#[tauri::command]
+pub async fn exchange_detect(
+    email: String,
+    username: String,
+    password: String,
+    server: Option<String>,
+) -> EwsDetectionView {
+    let creds = Credentials::new(username, password);
+    let d: EwsDetection = ews::discover(email.trim(), &creds, server.as_deref().filter(|s| !s.trim().is_empty())).await;
+    let (source, notes) = crate::localize::source_and_notes(d.source.as_ref(), &d.notes, crate::lang::current());
+    EwsDetectionView {
+        url: d.url,
+        source,
+        notes,
+    }
+}
+
+// Commands that read the cache run off the main thread (`async`): while a sync holds
+// the database, the window must keep drawing and taking input.
+#[tauri::command(async)]
+pub fn folders(state: St<'_>, account_id: Option<String>) -> CmdResult<Vec<FolderInfo>> {
+    Ok(state.store.folders(account_id.as_deref())?)
+}
+
+#[tauri::command(async)]
+pub fn messages(state: St<'_>, query: ListQuery) -> CmdResult<Vec<MessageRow>> {
+    Ok(state.store.list(&query)?)
+}
+
+/// How many letters a query would show, without reading them: the number beside a plugin's
+/// filter option (e.g. unread newsletters in the open list).
+#[tauri::command(async)]
+pub fn count_messages(state: St<'_>, query: ListQuery) -> CmdResult<u32> {
+    Ok(state.store.count(&query)?)
+}
+
+/// The mailbox a search looks in: the one `account:` names, else the one asked for, or
+/// every mailbox. `None` when `account:` names no mailbox: nothing is found.
+fn search_scope(state: &AppState, text: &str, account_id: Option<String>) -> Option<Option<String>> {
+    match SearchQuery::parse(text).account {
+        Some(name) => account::find(&state.accounts(), &name).map(|a| Some(a.id.clone())),
+        None => Some(account_id),
+    }
+}
+
+#[tauri::command(async)]
+pub fn search(
+    state: St<'_>,
+    text: String,
+    account_id: Option<String>,
+    sort: Option<Vec<SortKey>>,
+) -> CmdResult<Vec<MessageRow>> {
+    let Some(account_id) = search_scope(&state, &text, account_id) else {
+        return Ok(Vec::new());
+    };
+    Ok(state
+        .store
+        .search(&text, account_id.as_deref(), 300, &sort.unwrap_or_default())?)
+}
+
+/// How many letters the search finds in the cache and their size, the shown ones and the rest.
+#[tauri::command(async)]
+pub fn search_totals(state: St<'_>, text: String, account_id: Option<String>) -> CmdResult<SearchTotals> {
+    let Some(account_id) = search_scope(&state, &text, account_id) else {
+        return Ok(SearchTotals::default());
+    };
+    Ok(state.store.search_totals(&text, account_id.as_deref())?)
+}
+
+/// Searches on the servers: inbox, sent and archive of every account (or one account).
+/// Finds mail older than the local cache window. Errors of single folders are skipped.
+#[tauri::command]
+pub async fn server_search(state: St<'_>, text: String, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
+    let label = tr!("Search on the server: «{text}»", "Поиск на сервере: «{text}»");
+    state.task(
+        "search",
+        crate::tasks::TaskKind::Search,
+        account_id.as_deref(),
+        label,
+        0,
+        0,
+    );
+    let result = search_servers(&state, &text, account_id).await;
+    match &result {
+        Ok(_) => state.task_done("search"),
+        Err(e) => state.task_failed("search", e.clone()),
+    }
+    result
+}
+
+/// The folders a server search goes into: the one `in:` names (with `in:X/*`, its
+/// subfolders too), else the inbox, sent and archive of the mailbox. Names come from the
+/// cache, so `in:X/*` with an X the cache does not have finds nothing.
+fn search_folders(q: &SearchQuery, account_folders: &[FolderInfo]) -> Vec<String> {
+    let role = |word: &str| match word.to_lowercase().as_str() {
+        "inbox" | "входящие" => Some(FolderRole::Inbox),
+        "sent" | "отправленные" => Some(FolderRole::Sent),
+        "drafts" | "черновики" => Some(FolderRole::Drafts),
+        "archive" | "архив" => Some(FolderRole::Archive),
+        "trash" | "корзина" => Some(FolderRole::Trash),
+        "spam" | "junk" | "спам" => Some(FolderRole::Junk),
+        "snoozed" | "отложенные" => Some(FolderRole::Snoozed),
+        _ => None,
+    };
+    let by_name = |want: &str| {
+        let lower = want.to_lowercase();
+        account_folders
+            .iter()
+            .find(|f| f.folder.name.to_lowercase() == lower || f.folder.display_name.to_lowercase() == lower)
+    };
+    if let Some(want) = &q.folder {
+        let name = by_name(want)
+            .or_else(|| role(want).and_then(|r| account_folders.iter().find(|f| f.folder.role == Some(r))))
+            .map(|f| f.folder.name.clone());
+        let Some(name) = name else {
+            return Vec::new();
+        };
+        let mut out = vec![name.clone()];
+        if q.subfolders {
+            let prefix = account_folders
+                .iter()
+                .find(|f| f.folder.name == name)
+                .and_then(|f| f.folder.delimiter.as_deref())
+                .filter(|d| !d.is_empty())
+                .map(|d| format!("{name}{d}"));
+            if let Some(prefix) = prefix {
+                out.extend(
+                    account_folders
+                        .iter()
+                        .filter(|f| f.folder.name.starts_with(&prefix))
+                        .map(|f| f.folder.name.clone()),
+                );
+            }
+        }
+        return out;
+    }
+    [FolderRole::Inbox, FolderRole::Sent, FolderRole::Archive]
+        .iter()
+        .filter_map(|r| account_folders.iter().find(|f| f.folder.role == Some(*r)))
+        .map(|f| f.folder.name.clone())
+        .collect()
+}
+
+async fn search_servers(state: &AppState, text: &str, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
+    let Some(account_id) = search_scope(state, text, account_id) else {
+        return Ok(Vec::new());
+    };
+    let accounts = match account_id {
+        Some(id) => vec![state.account(&id)?],
+        None => state.accounts(),
+    };
+    let query = SearchQuery::parse(text);
+    let mut rows = Vec::new();
+    let mut last_err = None;
+    for account in accounts {
+        let worker = state.worker(&account.id)?;
+        let cache = state.store.folders(Some(&account.id))?;
+        for folder in search_folders(&query, &cache) {
+            match worker
+                .run(Work::Search {
+                    folder,
+                    text: text.to_owned(),
+                })
+                .await
+            {
+                Ok(Output::Ids(ids)) => {
+                    for id in ids {
+                        if let Some(r) = state.store.get(id)? {
+                            rows.push(r);
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => last_err = Some(e),
+            }
+        }
+    }
+    if rows.is_empty()
+        && let Some(e) = last_err
+    {
+        return Err(e.into());
+    }
+    rows.sort_by_key(|r| std::cmp::Reverse(r.date));
+    Ok(rows)
+}
+
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OpenedMessage {
+    row: MessageRow,
+    view: MessageView,
+    trusted_sender: bool,
+    /// The From address is on the trusted list, but the receiving server does not vouch
+    /// that this letter is really from it: its pictures stay hidden.
+    sender_unverified: bool,
+    /// Why `sender_unverified`; `Checking` asks the window to call `message_check_sender`.
+    why_unverified: Option<Unverified>,
+    /// The mailbox's server checks senders itself (Gmail, Yandex, Mail.ru, Exchange Online): a
+    /// line over the letter must not tell the user it does not (0.8.13, 5.1 Б).
+    server_checks_sender: bool,
+}
+
+/// Why a trusted sender is not confirmed (0.8.13).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum Unverified {
+    /// The mailbox's server checked the sender, and its answer is no.
+    Server,
+    /// The server gave no verdict; the app checks the DKIM signature now.
+    Checking,
+    /// The server gave no verdict, and the letter carries no signature.
+    Unsigned,
+    /// The server gave no verdict, and the signature does not confirm the From address.
+    Signature,
+    /// The server gave no verdict, and the key of the signature is not there, or is revoked.
+    NoKey,
+    /// The server gave no verdict, and DNS did not answer for the signature's key.
+    Unchecked,
+    /// The server gave no verdict, and the signature is of a letter of another time than the one
+    /// that came (0.8.13, ступень 4).
+    Replay,
+    /// The server gave no verdict, and the signature names no time of the letter, and covers no
+    /// `Date`.
+    NoTime,
+    /// The server gave no verdict, and the signature is of another organization than the From.
+    NotAligned,
+    /// The server gave no verdict, and the signature has expired.
+    Expired,
+    /// The server gave no verdict, and the sender's policy asks for the exact name in `d=`.
+    StrictPolicy,
+    /// The server gave no verdict, and the server and the app may read the block of headers
+    /// differently.
+    UnevenHeaders,
+    /// The server gave no verdict, and the signature covers neither the `To` nor the `Cc` the
+    /// mailbox's address stands in: the letter came to a list, an alias or in Bcc.
+    NoRecipientInH,
+    /// The letter's From is not the one trusted address alone, as both readers of its headers
+    /// see it: a second From, or a header one of them reads and the other does not.
+    AmbiguousFrom,
+    /// The mailbox's setting trusts the sender by address: the letter carries no signature, and
+    /// nothing was checked.
+    AddressOnly,
+    /// The mailbox's setting trusts the sender by address: the letter is signed, but the key did
+    /// not answer, and nothing was checked.
+    AddressOnlyUnchecked,
+    /// The mailbox's server cannot be asked about the sender, and the app's own check has no
+    /// way in.
+    NoCheck,
+}
+
+impl From<sender::Reason> for Unverified {
+    fn from(r: sender::Reason) -> Self {
+        match r {
+            sender::Reason::Server => Self::Server,
+            sender::Reason::Unsigned => Self::Unsigned,
+            sender::Reason::Signature => Self::Signature,
+            sender::Reason::NoKey => Self::NoKey,
+            sender::Reason::Replay => Self::Replay,
+            sender::Reason::NoTime => Self::NoTime,
+            sender::Reason::NotAligned => Self::NotAligned,
+            sender::Reason::Expired => Self::Expired,
+            sender::Reason::StrictPolicy => Self::StrictPolicy,
+            sender::Reason::UnevenHeaders => Self::UnevenHeaders,
+            sender::Reason::NoRecipientInH => Self::NoRecipientInH,
+            sender::Reason::Unchecked => Self::Unchecked,
+            sender::Reason::AmbiguousFrom => Self::AmbiguousFrom,
+            sender::Reason::Checking => Self::Checking,
+            sender::Reason::AddressOnly => Self::AddressOnly,
+            sender::Reason::NoCheck => Self::NoCheck,
+        }
+    }
+}
+
+/// Why the line over a letter of a trusted sender says it is not the sender (0.8.13, 6.1 Б,
+/// 7.1 Б), or `None` when the sender is confirmed. The ladder names the reason; the switch by
+/// address says which of the two it trusted.
+fn why_unverified(listed: bool, evidence: &Evidence<'_>, verdict: &sender::Verdict) -> Option<Unverified> {
+    if !listed {
+        return None;
+    }
+    if verdict.reason == sender::Reason::AddressOnly {
+        // The switch by address trusted the address where nothing could be checked: the line says
+        // why — the letter carries no signature, or the key of it did not answer. The check over
+        // the original headers of Exchange answers in the same two ways (0.8.13, ступень 4).
+        let unanswered = evidence.own_full == Some(dkim::Signature::Unchecked)
+            || evidence.own_headers == Some(dkim::Headers::Unchecked);
+        return Some(if unanswered {
+            Unverified::AddressOnlyUnchecked
+        } else {
+            Unverified::AddressOnly
+        });
+    }
+    if verdict.confirmed {
+        return None;
+    }
+    Some(Unverified::from(verdict.reason))
+}
+
+/// What the app knows about the sender of this letter: the server's answer, the app's own
+/// check if one was made, and the letter's own headers.
+struct Evidence<'a> {
+    raw: &'a [u8],
+    auth: &'a message::Authenticity,
+    sender: &'a str,
+    /// The app's own check of the whole letter, if one was made.
+    own_full: Option<dkim::Signature>,
+    /// The app's own check of the signature over the original headers of the letter.
+    own_headers: Option<dkim::Headers>,
+    /// The app's own check is still to be made.
+    own_due: bool,
+    /// The mailbox's setting: trust the sender by address where nothing could be checked.
+    by_address: bool,
+}
+
+impl<'a> Evidence<'a> {
+    /// The evidence, gathered for the ladder.
+    fn of(
+        raw: &'a [u8],
+        auth: &'a message::Authenticity,
+        sender: &'a str,
+        own_full: Option<dkim::Signature>,
+        own_headers: Option<dkim::Headers>,
+        own_due: bool,
+        by_address: bool,
+    ) -> Self {
+        Self {
+            raw,
+            auth,
+            sender,
+            own_full,
+            own_headers,
+            own_due,
+            by_address,
+        }
+    }
+
+    /// The evidence, in the shape the ladder takes it.
+    fn ladder(&self) -> sender::Evidence {
+        sender::Evidence {
+            server: self.auth.check.clone(),
+            own_full: self.own_full,
+            own_headers: self.own_headers,
+            own_due: self.own_due,
+            sole_from: message::sole_from(self.raw).is_some_and(|from| from == self.sender.trim().to_lowercase()),
+            internal: self.auth.internal,
+            uneven_headers: self.auth.uneven,
+            by_address: self.by_address,
+        }
+    }
+}
+
+/// Whether a trusted sender is confirmed, and why not: the ladder of evidence (0.8.13). The
+/// letter must have one From, the trusted `sender`, as both readers of its headers see it: the
+/// server vouches for the From it read, the reader shows and trusts the one it read (#167).
+fn sender_verdict(evidence: &Evidence<'_>) -> sender::Verdict {
+    sender::decide(&evidence.ladder())
+}
+
+/// The app's own check may ask DNS about this letter: its sender is trusted (`listed`), and
+/// nothing short of the check decides. Asking for a key tells its owner the letter is read.
+fn own_check_due(listed: bool, evidence: &Evidence<'_>) -> bool {
+    listed && sender_verdict(evidence).reason == sender::Reason::Checking
+}
+
+/// The original headers of a letter of Exchange (0.8.13, ступень 4), as the check reads them: the
+/// block `PR_TRANSPORT_MESSAGE_HEADERS` without the line the server may have put above it. `None`
+/// when the server kept none aside, or kept an empty block.
+fn original_headers(state: &AppState, row: &MessageRow) -> CmdResult<Option<Vec<u8>>> {
+    Ok(match state.store.ews_headers(row.id)? {
+        Some(headers) if !headers.trim().is_empty() => Some(dkim::without_preamble(headers.as_bytes()).to_vec()),
+        _ => None,
+    })
+}
+
+/// What the app knows about the sender of this letter: the server's answer, the app's own
+/// check if one was made, and the original headers of a letter of Exchange.
+fn evidence_of<'a>(
+    state: &AppState,
+    row: &MessageRow,
+    raw: &'a [u8],
+    auth: &'a message::Authenticity,
+    sender: &'a str,
+    listed: bool,
+) -> CmdResult<(Evidence<'a>, Option<Vec<u8>>)> {
+    let known = state.signatures.known(row.id, raw, sender);
+    let original = original_headers(state, row)?;
+    let own_headers = original
+        .as_ref()
+        .and_then(|headers| state.signatures.known_headers(row.id, headers, sender));
+    let headers_checked = original.is_some();
+    // What the app's own check of the letter says without asking anyone: a letter with no
+    // signature, or with one that is not about the From, is known at once. A letter whose
+    // original headers are at hand has its body assembled again by Exchange: the check over that
+    // body says nothing about the sender and would close the ladder before the headers
+    // (0.8.13, ступень 4).
+    let offline = dkim::offline_verdict(raw, sender);
+    let own_full = sender::body_check(known, offline, headers_checked);
+    // The app's own check of the whole letter is due when the server stayed silent and the
+    // letter carries a signature of the sender's organization. With the original headers of
+    // Exchange at hand, the check over them is the one to make. An uneven block of headers is
+    // read differently by the server and by the app: its word is not taken either, and the app
+    // checks the signature itself (0.8.13, 7.1 Б).
+    let server_silent = auth.uneven || (!auth.verified() && auth.check.as_ref().is_none_or(|c| c.no_verdict()));
+    let own_due = listed && server_silent && known.is_none() && (headers_checked || offline.is_none());
+    let by_address = state.account(&row.account_id)?.trust_by_address;
+    let evidence = Evidence::of(raw, auth, sender, own_full, own_headers, own_due, by_address);
+    Ok((evidence, original))
+}
+
+/// What the log names of the letter it is about (0.8.13, 7.1 Б): ids, domains, the kind of
+/// mailbox and result words, never an address of a person.
+struct LoggedLetter<'a> {
+    id: i64,
+    folder: &'a str,
+    kind: &'a str,
+    from_domain: &'a str,
+    listed: bool,
+    /// The original headers of a letter of Exchange, when the server kept one aside.
+    original: Option<&'a [u8]>,
+    /// The addresses the mailbox itself has, which the step 4 check looked for: the operator's
+    /// own, never those of the sender or of anyone else.
+    mailbox: &'a [String],
+}
+
+/// One line in the log about the sender of a letter (0.8.13): what the ladder decided, what
+/// the server said and what the app's own check found.
+fn log_sender_check(letter: &LoggedLetter<'_>, evidence: &Evidence<'_>, verdict: &sender::Verdict) {
+    let LoggedLetter {
+        id,
+        folder,
+        kind,
+        from_domain,
+        listed,
+        original,
+        mailbox,
+    } = *letter;
+    let server = match &evidence.auth.check {
+        Some(check) => check.to_string(),
+        None => "none".to_owned(),
+    };
+    // Which addresses of the mailbox the check of the step 4 looked for: without them the reason
+    // `no_recipient_in_h` says nothing about why the signature named no address of this mailbox
+    // (0.8.13, ступень 4). The addresses are named by their tags, since the line must not carry an
+    // address, and the tag is computable for a candidate.
+    let mailbox = if mailbox.is_empty() {
+        "-".to_owned()
+    } else {
+        mailbox
+            .iter()
+            .map(|address| mailbox_tag(address))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let own = match (evidence.own_full, evidence.own_headers) {
+        (Some(s), _) => format!("full:{}", signature_outcome(s)),
+        (None, Some(h)) => format!("headers:{}", headers_outcome(h)),
+        (None, None) if evidence.own_due => "due".to_owned(),
+        _ => "none".to_owned(),
+    };
+    let outcome = match (evidence.own_full, evidence.own_headers) {
+        (Some(s), _) => signature_outcome(s),
+        (None, Some(h)) => headers_outcome(h),
+        _ => "none",
+    };
+    // What the signature says about itself: the domain and the selector of the key, the
+    // algorithm, whether it has expired, the length of the body it covers, and whether it
+    // covers the `From`. Domains and selectors only, no address of a person. A letter of
+    // Exchange is checked over its original headers, so its signature is the one they carry.
+    let sig = dkim::signature_about(original.unwrap_or(evidence.raw), from_domain).unwrap_or_else(|| "-".to_owned());
+    // The block the check of the step reads is the one the log tells about: the original headers
+    // of a letter of Exchange, when the server kept them aside (0.8.13, ступень 4).
+    let uneven = original.map_or(evidence.auth.uneven, dkim::uneven_headers);
+    tracing::debug!(
+        id,
+        kind,
+        folder = %folder,
+        %from_domain,
+        listed,
+        uneven,
+        step = verdict.step.code(),
+        verdict = if verdict.confirmed { "confirmed" } else { "unconfirmed" },
+        %server,
+        %own,
+        outcome,
+        %sig,
+        %mailbox,
+        "sender check"
+    );
+}
+
+/// The outcome of the app's own check of the whole letter, as the log names it.
+fn signature_outcome(signature: dkim::Signature) -> &'static str {
+    match signature {
+        dkim::Signature::Aligned => "pass",
+        dkim::Signature::Unsigned => "unsigned",
+        dkim::Signature::NotAligned => "from_mismatch",
+        dkim::Signature::Invalid => "bad_signature",
+        // No answer from the name servers: not the same as a key that is not there.
+        dkim::Signature::Unchecked => "no_answer",
+        dkim::Signature::Failed(reason) => reason.code(),
+    }
+}
+
+/// The outcome of the app's own check of the signature over the original headers, as the log
+/// names it.
+fn headers_outcome(headers: dkim::Headers) -> &'static str {
+    match headers {
+        dkim::Headers::Valid => "pass",
+        dkim::Headers::Unsigned => "unsigned",
+        dkim::Headers::Rejected(reason) => reason.code(),
+        dkim::Headers::Unchecked => "no_answer",
+    }
+}
+
+async fn raw_of(state: &AppState, row: &MessageRow, gate: Option<(String, u64)>) -> CmdResult<Vec<u8>> {
+    // Already downloaded mail opens without the network.
+    if let Some(raw) = state.store.body(row.id)? {
+        return Ok(raw);
+    }
+    let work = Work::LoadBody { id: row.id, gate };
+    match state.worker(&row.account_id)?.run(work).await? {
+        Output::Body(raw) => Ok(raw),
+        // A newer open superseded this one: no body was fetched, and the window ignores it.
+        Output::None => Err(CmdError::new(
+            depesha_core::ErrorKind::Cancelled,
+            tr!("the message is no longer open", "письмо уже не открыто"),
+        )),
+        _ => Err(CmdError::new(
+            depesha_core::ErrorKind::Other,
+            tr!("the server did not return the message", "сервер не вернул письмо"),
+        )),
+    }
+}
+
+fn row(state: &AppState, id: i64) -> CmdResult<MessageRow> {
+    state.store.get(id)?.ok_or_else(gone)
+}
+
+pub(crate) fn gone() -> CmdError {
+    CmdError::new(
+        depesha_core::ErrorKind::NotFound,
+        tr!("the message was deleted or moved", "письмо уже удалено или перемещено"),
+    )
+}
+
+/// What kind of mailbox, for the log: no address, no host.
+fn box_kind(account: &Account) -> String {
+    match (account.is_ews(), account.auth.oauth_provider()) {
+        (true, _) => "ews".to_owned(),
+        (false, Some(p)) => format!("oauth {}", p.as_str()),
+        (false, None) => "imap".to_owned(),
+    }
+}
+
+#[tauri::command]
+pub async fn message_open(
+    state: St<'_>,
+    window: tauri::Window,
+    id: i64,
+    allow_remote: bool,
+    seq: Option<u64>,
+) -> CmdResult<OpenedMessage> {
+    let row = row(&state, id)?;
+    // A newer open of this window makes this one stale: its body load is dropped before
+    // the server is asked (#71).
+    let gate = seq.map(|seq| {
+        let label = window.label().to_owned();
+        crate::state::note_open(&state.open_seq, &label, seq);
+        (label, seq)
+    });
+    let raw = raw_of(&state, &row, gate).await?;
+    let sender = row.from.as_ref().map(|a| a.email.clone()).unwrap_or_default();
+    let listed = !sender.is_empty() && state.store.is_trusted_sender(&sender)?;
+    // Anyone can write a trusted address into From: the trust holds only for a sender
+    // the receiving server vouches for.
+    let account = state.account(&row.account_id)?;
+    let auth = message::authenticity(&raw, &Receiver::of(&account));
+    let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
+    let (evidence, original) = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
+    let verdict = sender_verdict(&evidence);
+    // The reason the sender was not confirmed, or «the address alone was trusted» (0.8.13,
+    // 6.1 Б): the pictures are shown, and the line says the address is not checked.
+    let why_unverified = why_unverified(listed, &evidence, &verdict);
+    let trusted_sender = listed && verdict.confirmed;
+    // Why a sender is or is not believed (0.8.13): ids, domains and result words, no address.
+    let kind = box_kind(&account);
+    let mailboxes = account.own_addresses();
+    let logged = LoggedLetter {
+        id: row.id,
+        folder: &row.folder,
+        kind: &kind,
+        from_domain: &from_domain,
+        listed,
+        original: original.as_deref(),
+        mailbox: &mailboxes,
+    };
+    log_sender_check(&logged, &evidence, &verdict);
+    let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
+    let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
+    let mark = draft_mark(&raw, in_drafts);
+    view.acts_on = mark.acts_on;
+    view.send_at = mark.send_at.or(view.send_at);
+    if view.acts_on.is_none() {
+        view.acts_on = rebound_acts_on(
+            &state.store,
+            &row,
+            view.summary.in_reply_to.as_deref(),
+            message::draft_act(&raw),
+        )?;
+    }
+    view.authenticated = verdict.logo;
+    // An invitation's version says what it changes: the card compares it with the same meeting
+    // of an earlier letter of the conversation, when that letter is in the cache.
+    if let Some(notice) = view.calendar.as_mut()
+        && notice.sequence > 0
+        && notice.method == Method::Request
+    {
+        notice.previous = previous_meeting(&state.store, &row, notice).map(Box::new);
+    }
+    // The list shows a brand logo by this verdict (#108): a letter cached before it was kept
+    // learns it here, and its row in any list follows at once instead of at the next reload.
+    match state.store.note_verdict(row.id, verdict.logo) {
+        Ok(true) => state.emit(
+            "letter-verdict",
+            serde_json::json!({
+                "account_id": row.account_id,
+                "folder": row.folder,
+                "id": row.id,
+                "logo": verdict.logo,
+            }),
+        ),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("the verdict of a letter was not kept: {e}"),
+    }
+    // The same for the importance (#72): the headers of a cached letter are not fetched again.
+    if let Err(e) = state.store.note_importance(row.id, view.summary.importance) {
+        tracing::warn!("the importance of a letter was not kept: {e}");
+    }
+    // Back from waiting with the reply: read now, the list no longer says so.
+    if let Some(mid) = &row.message_id
+        && state.store.followup_noticed(&row.account_id, mid)?
+    {
+        state.emit(
+            "mail-changed",
+            serde_json::json!({ "account_id": row.account_id, "folder": row.folder }),
+        );
+    }
+    Ok(OpenedMessage {
+        row,
+        view,
+        trusted_sender,
+        sender_unverified: listed && !trusted_sender,
+        why_unverified,
+        server_checks_sender: Receiver::of(&account).vouches,
+    })
+}
+
+/// The same meeting in an earlier letter of the conversation, with a smaller `SEQUENCE`: what
+/// the meeting card shows as «was → is». Only letters already downloaded are read, and the
+/// newest of them wins: an update may follow several others.
+fn previous_meeting(store: &depesha_core::store::Store, row: &MessageRow, notice: &Notice) -> Option<Meeting> {
+    let uid = notice.events.first()?.uid.as_deref()?;
+    let sequence = notice.sequence;
+    let mut found: Option<(i64, Meeting)> = None;
+    // A conversation may be long: reading all of it to compare one meeting is not worth it.
+    let mut read = 0;
+    for earlier in store.thread(&row.account_id, &row.thread).ok()? {
+        if earlier.id == row.id || earlier.date >= row.date || read >= PREVIOUS_LETTERS {
+            continue;
+        }
+        let Some(raw) = store.body(earlier.id).ok().flatten() else {
+            continue;
+        };
+        read += 1;
+        let Some(previous) = depesha_core::calendar::from_message(&raw) else {
+            continue;
+        };
+        for meeting in previous.events {
+            let same = meeting.uid.as_deref() == Some(uid) && meeting.sequence < sequence;
+            if same && found.as_ref().is_none_or(|(date, _)| earlier.date > *date) {
+                found = Some((earlier.date, meeting));
+            }
+        }
+    }
+    found.map(|(_, meeting)| meeting)
+}
+
+/// How many earlier letters of a conversation the card reads looking for the version it
+/// updates.
+const PREVIOUS_LETTERS: u32 = 20;
+
+/// When Exchange received a letter, as the check over its original headers takes it (0.8.13,
+/// ступень 4). The letter's own `Date` is no answer: the sender wrote it, and a letter of another
+/// time carries its own. A letter with no receipt time of its own cannot be shown to be the one
+/// that came, so it is a replay. Exchange writes zero where it knows no time, and a zero is one
+/// more absence, not a time an hour before 1970: the check would then ask DNS for a signature
+/// that proves nothing.
+fn received_at(received: Option<i64>) -> Result<i64, dkim::Headers> {
+    match received {
+        Some(received) if received > 0 => Ok(received),
+        _ => Err(dkim::Headers::Rejected(dkim::Reason::Replay)),
+    }
+}
+
+/// The app's own DKIM check of a letter from a trusted sender whose mailbox server gave no
+/// verdict (#167); `true` when the sender is confirmed. The window opens the letter again to
+/// show the answer. Asking DNS for the key tells the signer the letter was read, so only a
+/// trusted sender's own organization is asked ([`own_check_due`]): its pictures would tell
+/// the same.
+#[tauri::command]
+pub async fn message_check_sender(state: St<'_>, id: i64) -> CmdResult<bool> {
+    let row = row(&state, id)?;
+    let sender = row.from.as_ref().map(|a| a.email.clone()).unwrap_or_default();
+    let listed = !sender.is_empty() && state.store.is_trusted_sender(&sender)?;
+    if !listed {
+        return Ok(false);
+    }
+    let raw = raw_of(&state, &row, None).await?;
+    let account = state.account(&row.account_id)?;
+    let auth = message::authenticity(&raw, &Receiver::of(&account));
+    let (evidence, original) = evidence_of(&state, &row, &raw, &auth, &sender, listed)?;
+    if !own_check_due(listed, &evidence) {
+        return Ok(sender_verdict(&evidence).confirmed);
+    }
+    // The original headers of Exchange (0.8.13, ступень 4): the signature over them proves who
+    // wrote the letter, though not what its body says. The body of the letter is the one
+    // Exchange assembled again.
+    if let Some(bytes) = original {
+        // The letter must be of this time: the signature of a letter that came long ago proves
+        // nothing about a letter that came now (0.8.13, ступень 4). A letter with no time of
+        // receipt cannot be shown to be this one, and the answer is remembered as it is: a check
+        // asked again and again would say «checking» forever.
+        let verdict = match received_at(state.store.ews_received(&row.account_id, &row.folder, row.uid)?) {
+            Ok(received) => {
+                state
+                    .signatures
+                    .check_headers_remembered(row.id, &bytes, &sender, &account.own_addresses(), received)
+                    .await
+            }
+            Err(verdict) => {
+                state.signatures.remember_headers(row.id, &bytes, &sender, verdict);
+                verdict
+            }
+        };
+        tracing::debug!(
+            id = row.id,
+            outcome = headers_outcome(verdict),
+            "sender check: own check of the original headers done"
+        );
+        return Ok(verdict.passed());
+    }
+    // The whole letter, when its bytes are the ones the sender signed.
+    let verdict = state.signatures.check_letter(row.id, &raw, &sender).await;
+    tracing::debug!(
+        id = row.id,
+        outcome = signature_outcome(verdict),
+        "sender check: own DKIM check done"
+    );
+    Ok(verdict.passed())
+}
+
+/// Message rows by (account, folder, UIDVALIDITY) for server operations: the worker
+/// refuses UIDs of a folder renumbered since they were read.
+fn group_rows(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, String, u32), Vec<MessageRow>>> {
+    let mut groups: BTreeMap<(String, String, u32), Vec<MessageRow>> = BTreeMap::new();
+    for (r, validity) in state.store.get_many_at(ids)? {
+        groups
+            .entry((r.account_id.clone(), r.folder.clone(), validity))
+            .or_default()
+            .push(r);
+    }
+    Ok(groups)
+}
+
+/// What a move did, so it can be undone. Messages are found again by Message-ID.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Moved {
+    account_id: String,
+    from: String,
+    to: String,
+    message_ids: Vec<String>,
+    /// The waits the move touched: their Message-IDs, so an undo parks them again.
+    #[serde(default)]
+    waits: Vec<String>,
+    /// The letters that were unread when the action marked them read: an undo makes them
+    /// unread again.
+    #[serde(default)]
+    unseen: Vec<String>,
+    /// The snoozes the move dropped (a snoozed letter brought back or moved by hand): an
+    /// undo sets them again, for the same time.
+    #[serde(default)]
+    snoozed: Vec<Snooze>,
+}
+
+/// The letters an action is about, among the rows it moves (the rest of their
+/// conversations moves along but is not marked read). `None`: the action reads nothing.
+type Acted<'a> = Option<&'a HashSet<i64>>;
+
+/// Of the rows `(id, uid, read, Message-ID)` a move takes, what the action reads: the UIDs
+/// it marks `\Seen`, and the Message-IDs of those that were unread (an undo restores them).
+fn split_acted<'a>(
+    rows: impl Iterator<Item = (i64, u32, bool, Option<&'a str>)>,
+    acted: Acted<'_>,
+) -> (Vec<u32>, Vec<String>) {
+    let mut seen = Vec::new();
+    let mut unseen = Vec::new();
+    for (id, uid, read, message_id) in rows {
+        if !acted.is_some_and(|a| a.contains(&id)) {
+            continue;
+        }
+        seen.push(uid);
+        if let (false, Some(mid)) = (read, message_id) {
+            unseen.push(mid.to_owned());
+        }
+    }
+    (seen, unseen)
+}
+
+/// What an undo moves back, in two runs: the letters the action marked read go back
+/// unread, the others as they are.
+fn undo_runs(m: &Moved) -> [(Vec<String>, bool); 2] {
+    let (unread, read) = m.message_ids.iter().cloned().partition(|id| m.unseen.contains(id));
+    [(read, false), (unread, true)]
+}
+
+async fn move_group(
+    state: &AppState,
+    (account_id, from, validity): &(String, String, u32),
+    rows: &[MessageRow],
+    to: &str,
+    acted: Acted<'_>,
+) -> CmdResult<Moved> {
+    let (seen, unseen) = split_acted(
+        rows.iter()
+            .map(|r| (r.id, r.uid, r.flags.seen, r.message_id.as_deref())),
+        acted,
+    );
+    state
+        .worker(account_id)?
+        .run(Work::Move {
+            from: from.to_owned(),
+            validity: *validity,
+            uids: rows.iter().map(|r| r.uid).collect(),
+            to: to.to_owned(),
+            seen,
+        })
+        .await?;
+    let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
+    // "Done" or a move out of "Waiting for reply": the wait is over, or its rest comes
+    // back; the waits touched are kept so an undo can park them again.
+    let waits = state
+        .store
+        .followups_left(account_id, from, &message_ids, chrono::Utc::now().timestamp())?;
+    // A snoozed letter moved by hand stays where it was put: its time is gone.
+    let snoozed = state.store.snooze_drop_in_folder(account_id, from, &message_ids)?;
+    if !waits.is_empty() || !snoozed.is_empty() {
+        state.emit("counters-changed", serde_json::json!({}));
+    }
+    Ok(Moved {
+        account_id: account_id.to_owned(),
+        from: from.to_owned(),
+        to: to.to_owned(),
+        message_ids,
+        waits,
+        unseen,
+        snoozed,
+    })
+}
+
+/// Creates a folder on the server, inside `parent` (a folder name as the cache keeps it)
+/// or at the top.
+#[tauri::command]
+pub async fn folder_create(state: St<'_>, account_id: String, parent: Option<String>, name: String) -> CmdResult<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Other,
+            tr!("the folder needs a name", "у папки должно быть имя"),
+        ));
+    }
+    state
+        .worker(&account_id)?
+        .run(Work::CreateFolder {
+            parent,
+            name: name.to_owned(),
+        })
+        .await?;
+    Ok(())
+}
+
+/// The folder with this role, created under `name` when the server has none.
+async fn role_folder(state: &AppState, account_id: &str, role: FolderRole, name: &str) -> CmdResult<String> {
+    if let Some(f) = state.store.folder_by_role(account_id, role)? {
+        return Ok(f);
+    }
+    state
+        .worker(account_id)?
+        .run(Work::CreateFolder {
+            parent: None,
+            name: name.to_owned(),
+        })
+        .await?;
+    state.store.folder_by_role(account_id, role)?.ok_or_else(|| {
+        CmdError::new(
+            depesha_core::ErrorKind::NotFound,
+            tr!(
+                "could not create the folder “{name}” on the server",
+                "не удалось создать папку «{name}» на сервере"
+            ),
+        )
+    })
+}
+
+#[tauri::command]
+pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdResult<()> {
+    for ((account_id, folder, validity), rows) in group_rows(&state, &ids)? {
+        let worker = state.worker(&account_id)?;
+        let uids: Vec<u32> = rows.iter().map(|r| r.uid).collect();
+        // A read mark in a folder with no right to keep it, or one where the server
+        // refused, is kept only here: no request, no refusal (#42, frame 7, note 2).
+        if let FlagChange::Seen(value) = change
+            && local_seen_folder(&state, &account_id, &folder)
+        {
+            let at = chrono::Utc::now().timestamp();
+            if value {
+                state.store.set_local_seen(&account_id, &folder, &uids, at)?;
+            } else {
+                state.store.clear_local_seen(&account_id, &folder, &uids)?;
+            }
+            // The list reacts at once; no request goes to the server, so no refusal comes back.
+            state
+                .store
+                .change_flags(&account_id, &folder, &uids, FlagChange::Seen(value))?;
+            state.store.settle_flags(&account_id, &folder, &uids);
+            state.emit(
+                "mail-changed",
+                serde_json::json!({ "account_id": account_id, "folder": folder }),
+            );
+            continue;
+        }
+        let mut done = flag_group(&state, &worker, &account_id, &folder, validity, &uids, change).await;
+        if matches!(done, Err(Error::FolderChanged)) {
+            done = reflag(&state, &worker, &account_id, &folder, &rows, change).await;
+        }
+        if done.is_err() {
+            // Refused or not sent: the list shows the server's state again.
+            worker.kick(Work::SyncFolder(folder.clone()));
+        }
+        if let Err(e) = &done
+            && e.no_rights()
+        {
+            // No rights in this folder: remembered, so the button turns off here alone (#42).
+            state
+                .store
+                .refuse_folder(&account_id, &folder, "no-rights", chrono::Utc::now().timestamp())?;
+            crate::server::changed(&state, &account_id);
+        }
+        if done.is_ok() {
+            best_effort("forget the refusal", state.store.clear_refusal(&account_id, &folder));
+        }
+        done?;
+    }
+    Ok(())
+}
+
+/// Whether a read mark must be kept only here: the folder's rights say so — it can be
+/// read but not marked read for the user (`r` without `s`, #42, frame 7, note 2). A
+/// remembered refusal is not enough: a flag or a label refused in a folder that does have
+/// `s` must not turn every letter's read mark local for good.
+fn local_seen_folder(state: &AppState, account_id: &str, folder: &str) -> bool {
+    let Ok(Some(props)) = state.store.folder_prop(account_id, folder) else {
+        return false;
+    };
+    local_seen_by_rights(Some(&props))
+}
+
+/// The decision itself, apart from the store: the folder's rights forbid the `s` mark.
+fn local_seen_by_rights(props: Option<&depesha_core::acl::FolderProps>) -> bool {
+    props.is_some_and(|p| p.rights.is_some_and(|r| r.read && !r.seen))
+}
+
+/// Checks own labels on a test message in `folder` (#42, frame 9). The test letter is
+/// always deleted, also on a failure; the outcome is remembered for the folder.
+#[tauri::command]
+pub async fn label_check(
+    state: St<'_>,
+    account_id: String,
+    folder: String,
+) -> CmdResult<depesha_core::acl::LabelCheck> {
+    let keyword = depesha_core::acl::keyword_of("depesha-test");
+    // A fresh Message-ID every run, so a leftover from an interrupted check is not reused.
+    let stamp = chrono::Utc::now().timestamp_millis();
+    let message_id = format!("depesha-test-{stamp}@depesha.local");
+    let subject = pick("Aster Mail: label check", "Aster Mail: проверка меток").to_owned();
+    let worker = state.worker(&account_id)?;
+    let out = worker
+        .run(Work::CheckLabels {
+            folder: folder.clone(),
+            keyword,
+            message_id,
+            subject,
+        })
+        .await?;
+    let Output::LabelCheck(check) = out else {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Other,
+            pick("the label check gave no answer", "проверка меток не дала ответа"),
+        ));
+    };
+    state
+        .store
+        .set_label_check(&account_id, &folder, Some(check), chrono::Utc::now().timestamp())?;
+    // A check that ended well also tells whether labels are kept: the props follow.
+    crate::server::changed(&state, &account_id);
+    Ok(check)
+}
+
+/// The account's labels, with the keyword each stores on the server.
+#[tauri::command(async)]
+pub fn labels(state: St<'_>, account_id: String) -> CmdResult<Vec<depesha_core::acl::Label>> {
+    Ok(state.store.labels(&account_id)?)
+}
+
+/// A label's cached letter count (#42, frame 2), by its keyword: the list shows «≈N».
+#[derive(serde::Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LabelCount {
+    pub keyword: String,
+    pub count: u32,
+}
+
+/// How many letters carry each label of the mailbox, counted in the cache.
+#[tauri::command]
+pub fn label_counts(state: St<'_>, account_id: String) -> CmdResult<Vec<LabelCount>> {
+    Ok(state
+        .store
+        .label_counts(&account_id)?
+        .into_iter()
+        .map(|(keyword, count)| LabelCount { keyword, count })
+        .collect())
+}
+
+/// A new label; its keyword is made from the name. Renaming keeps the old keyword, so
+/// letters already tagged stay tagged.
+#[tauri::command(async)]
+pub fn label_save(
+    state: St<'_>,
+    account_id: String,
+    name: String,
+    color: String,
+) -> CmdResult<depesha_core::acl::Label> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Input,
+            tr!("a label needs a name", "у метки должно быть название"),
+        ));
+    }
+    let is_ews = state.account(&account_id)?.ews.is_some();
+    let label = depesha_core::acl::Label {
+        name: name.to_owned(),
+        // An IMAP label stores a keyword made from the name; an Exchange category is the
+        // name itself. Renaming keeps the old keyword, so letters already tagged stay tagged.
+        keyword: match state.store.label_keyword(&account_id, name)? {
+            Some(old) => old,
+            None if is_ews => name.to_owned(),
+            None => {
+                let candidate = depesha_core::acl::keyword_of(name);
+                // A keyword another label already stores (an old cache, or a name that slugs
+                // the same) would merge the two: take a hashed, unique one instead.
+                if state.store.keyword_owner(&account_id, &candidate, name)?.is_some() {
+                    depesha_core::acl::keyword_of_unique(name)
+                } else {
+                    candidate
+                }
+            }
+        },
+        color,
+        stripping: false,
+    };
+    state.store.save_label(&account_id, &label)?;
+    Ok(label)
+}
+
+#[tauri::command(async)]
+pub fn label_remove(state: St<'_>, account_id: String, name: String) -> CmdResult<()> {
+    state.store.remove_label(&account_id, &name)?;
+    Ok(())
+}
+
+/// Deletes a label for good (#42, frame 4Б): the label stays in the list, marked as being
+/// removed, while its keyword is taken off every letter of the mailbox on the server, one
+/// folder per work in that mailbox's quiet queue — shown in the tasks window. When every
+/// folder is done the label leaves the list; a restart or a pause resumes the work.
+#[tauri::command]
+pub async fn label_strip(state: St<'_>, account_id: String, name: String) -> CmdResult<()> {
+    let Some(keyword) = state.store.label_keyword(&account_id, &name)? else {
+        return Ok(());
+    };
+    state.store.set_label_stripping(&account_id, &name, true)?;
+    state.emit("labels-changed", serde_json::json!({ "account_id": account_id }));
+    crate::label_strip::start(state.inner(), &account_id, &name, &keyword);
+    Ok(())
+}
+
+/// Renames a label (#42, frame 3). On IMAP it is quiet: only the name shown in Depesha
+/// changes, the keyword on the server stays, so letters keep the label. On Exchange the
+/// name is the category, so the server category is rewritten on every letter, in the
+/// background — that is what a rename means there (frame 7).
+#[tauri::command]
+pub async fn label_rename(
+    state: St<'_>,
+    account_id: String,
+    from: String,
+    to: String,
+) -> CmdResult<depesha_core::acl::Label> {
+    let to = to.trim();
+    if to.is_empty() {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Input,
+            tr!("a label needs a name", "у метки должно быть название"),
+        ));
+    }
+    let Some(old) = state.store.labels(&account_id)?.into_iter().find(|l| l.name == from) else {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Input,
+            tr!("no such label", "такой метки нет"),
+        ));
+    };
+    if state.account(&account_id)?.ews.is_some() {
+        // A rename onto a name another category already carries would silently merge the
+        // two on the server: refuse before anything is touched, in words the user knows.
+        if state
+            .store
+            .labels(&account_id)?
+            .iter()
+            .any(|l| l.name != from && l.name.to_lowercase() == to.to_lowercase())
+        {
+            return Err(CmdError::new(
+                depesha_core::ErrorKind::Input,
+                tr!(
+                    "a label with this name already exists; Exchange would merge the two categories",
+                    "метка с таким названием уже есть; Exchange объединит две категории"
+                ),
+            ));
+        }
+        state.store.remove_label(&account_id, &from)?;
+        let label = depesha_core::acl::Label {
+            name: to.to_owned(),
+            keyword: to.to_owned(),
+            color: old.color.clone(),
+            stripping: false,
+        };
+        state.store.save_label(&account_id, &label)?;
+        state.store.rename_keyword(&account_id, &from, to)?;
+        let worker = state.worker(&account_id)?;
+        let (f, t) = (from.clone(), to.to_owned());
+        // The server rewrite runs in the background; if it fails the local name goes back
+        // and the failure shows in the tasks window, so a failed rename does not stick.
+        let state = state.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = worker
+                .run_background(Work::RenameCategory {
+                    from: f.clone(),
+                    to: t.clone(),
+                })
+                .await
+            {
+                tracing::warn!(
+                    account = %mailbox_tag(&account_id),
+                    kind = e.kind().as_str(),
+                    tag = e.tag(),
+                    "renaming a category failed"
+                );
+                if state.store.rename_label(&account_id, &t, &f).is_ok() {
+                    if let Err(e) = state.store.rename_keyword(&account_id, &t, &f) {
+                        tracing::warn!(account = %mailbox_tag(&account_id), "the keyword of the renamed category stayed under its old name in the cache: {e}");
+                    }
+                    state.emit("labels-changed", serde_json::json!({ "account_id": account_id }));
+                }
+            }
+        });
+        Ok(label)
+    } else {
+        state.store.rename_label(&account_id, &from, to)?;
+        Ok(depesha_core::acl::Label {
+            name: to.to_owned(),
+            keyword: old.keyword,
+            color: old.color,
+            stripping: false,
+        })
+    }
+}
+
+/// Puts a label on rows or takes it off: an IMAP keyword, an Exchange category.
+#[tauri::command]
+pub async fn set_label(state: St<'_>, ids: Vec<i64>, name: String, value: bool) -> CmdResult<()> {
+    for ((account_id, folder, validity), rows) in group_rows(&state, &ids)? {
+        if state.store.label_is_stripping(&account_id, &name)? {
+            return Err(depesha_core::Error::LabelStripping.into());
+        }
+        let Some(keyword) = state.store.label_keyword(&account_id, &name)? else {
+            continue;
+        };
+        let label = depesha_core::acl::Label {
+            name: name.clone(),
+            keyword,
+            color: String::new(),
+            stripping: false,
+        };
+        let (add, remove) = if value {
+            (vec![label], Vec::new())
+        } else {
+            (Vec::new(), vec![label])
+        };
+        let worker = state.worker(&account_id)?;
+        let uids: Vec<u32> = rows.iter().map(|r| r.uid).collect();
+        let done = worker
+            .run(Work::SetLabels {
+                folder: folder.clone(),
+                validity,
+                uids,
+                add,
+                remove,
+            })
+            .await;
+        if done.is_err() {
+            worker.kick(Work::SyncFolder(folder.clone()));
+        }
+        if let Err(e) = &done
+            && e.no_rights()
+        {
+            // No rights in this folder: remembered, so the button turns off here alone (#42).
+            state
+                .store
+                .refuse_folder(&account_id, &folder, "no-rights", chrono::Utc::now().timestamp())?;
+            crate::server::changed(&state, &account_id);
+        }
+        if done.is_ok() {
+            best_effort("forget the refusal", state.store.clear_refusal(&account_id, &folder));
+        }
+        done?;
+    }
+    Ok(())
+}
+#[tauri::command]
+pub async fn folder_props(
+    state: St<'_>,
+    account_id: String,
+    folder: String,
+) -> CmdResult<depesha_core::acl::FolderProps> {
+    let worker = state.worker(&account_id)?;
+    let out = worker.run(Work::FolderProps(folder.clone())).await?;
+    let Output::Props(props) = out else {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Other,
+            tr!(
+                "folder properties could not be read",
+                "не удалось прочитать свойства папки"
+            ),
+        ));
+    };
+    // The old refusal stays until an action succeeds; a check alone does not clear it.
+    let props = depesha_core::acl::FolderProps {
+        refused: state.store.folder_prop(&account_id, &folder)?.and_then(|p| p.refused),
+        ..props
+    };
+    state.store.save_folder_props(&account_id, &props)?;
+    crate::server::changed(&state, &account_id);
+    Ok(props)
+}
+
+async fn flag_group(
+    state: &AppState,
+    worker: &worker::Worker,
+    account_id: &str,
+    folder: &str,
+    validity: u32,
+    uids: &[u32],
+    change: FlagChange,
+) -> depesha_core::Result<()> {
+    // Local first so the list reacts at once; syncs keep it until the server answers.
+    state.store.change_flags(account_id, folder, uids, change)?;
+    state.emit(
+        "mail-changed",
+        serde_json::json!({ "account_id": account_id, "folder": folder }),
+    );
+    let done = worker
+        .run(Work::SetFlag {
+            folder: folder.to_owned(),
+            validity,
+            uids: uids.to_vec(),
+            change,
+        })
+        .await;
+    state.store.settle_flags(account_id, folder, uids);
+    if done.is_ok() {
+        // The action went through: whatever refusal was remembered here is over (#42).
+        best_effort("forget the refusal", state.store.clear_refusal(account_id, folder));
+    }
+    done.map(|_| ())
+}
+
+/// The server renumbered the folder before the flag was set: the same letters are
+/// found by Message-ID in the folder synced anew and flagged there. A flag set twice
+/// does no harm; moves and deletes are not repeated by such a guess.
+async fn reflag(
+    state: &AppState,
+    worker: &worker::Worker,
+    account_id: &str,
+    folder: &str,
+    rows: &[MessageRow],
+    change: FlagChange,
+) -> depesha_core::Result<()> {
+    worker.run(Work::SyncFolder(folder.to_owned())).await?;
+    let mut found: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    let mut missing = false;
+    for r in rows {
+        let again = match &r.message_id {
+            Some(mid) => match state.store.find_by_message_id(account_id, folder, mid)? {
+                Some(again) => state.store.get_at(again.id)?,
+                None => None,
+            },
+            None => None,
+        };
+        match again {
+            Some((again, validity)) => found.entry(validity).or_default().push(again.uid),
+            None => missing = true,
+        }
+    }
+    for (validity, uids) in found {
+        flag_group(state, worker, account_id, folder, validity, &uids, change).await?;
+    }
+    // Letters without a Message-ID, or gone: the user sees that not all were changed.
+    if missing {
+        return Err(Error::FolderChanged);
+    }
+    Ok(())
+}
+
+/// The letters an archive, delete or spam is about: `own` when the caller names them (the
+/// rest of the ids is their conversations), otherwise all of `ids`.
+fn acted_ids(ids: &[i64], own: Option<Vec<i64>>) -> HashSet<i64> {
+    own.unwrap_or_else(|| ids.to_vec()).into_iter().collect()
+}
+
+#[tauri::command]
+pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
+        if key.1 != to {
+            done.push(move_group(&state, &key, &rows, &to, None).await?);
+        }
+    }
+    Ok(done)
+}
+
+/// "Done": out of the inbox into the archive, which is created if missing.
+#[tauri::command]
+pub async fn archive(state: St<'_>, ids: Vec<i64>, own: Option<Vec<i64>>) -> CmdResult<Vec<Moved>> {
+    let acted = acted_ids(&ids, own);
+    let mut done = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
+        let archive = role_folder(&state, &key.0, FolderRole::Archive, pick("Archive", "Архив")).await?;
+        if key.1 != archive {
+            done.push(move_group(&state, &key, &rows, &archive, Some(&acted)).await?);
+        }
+    }
+    Ok(done)
+}
+
+/// Spam: into the junk folder; the server's filters learn from it on most systems.
+#[tauri::command]
+pub async fn mark_spam(state: St<'_>, ids: Vec<i64>, own: Option<Vec<i64>>) -> CmdResult<Vec<Moved>> {
+    let acted = acted_ids(&ids, own);
+    let mut done = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
+        let junk = role_folder(&state, &key.0, FolderRole::Junk, pick("Junk", "Спам")).await?;
+        if key.1 != junk {
+            done.push(move_group(&state, &key, &rows, &junk, Some(&acted)).await?);
+        }
+    }
+    Ok(done)
+}
+
+/// To the trash; from the trash (or without one) for good, which cannot be undone.
+#[tauri::command]
+pub async fn delete_messages(state: St<'_>, ids: Vec<i64>, own: Option<Vec<i64>>) -> CmdResult<Vec<Moved>> {
+    let acted = acted_ids(&ids, own);
+    let mut done = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
+        let (account_id, folder, validity) = &key;
+        match state.store.folder_by_role(account_id, FolderRole::Trash)? {
+            Some(trash) if trash != *folder => done.push(move_group(&state, &key, &rows, &trash, Some(&acted)).await?),
+            _ => {
+                let uids = rows.iter().map(|r| r.uid).collect();
+                state
+                    .worker(account_id)?
+                    .run(Work::Delete {
+                        folder: folder.clone(),
+                        validity: *validity,
+                        uids,
+                    })
+                    .await?;
+            }
+        }
+    }
+    Ok(done)
+}
+
+/// Snoozes mail until `until`: it waits in the server's Snoozed folder (visible in
+/// other clients too) and comes back unread. Messages without Message-ID cannot be tracked.
+#[tauri::command]
+pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
+        let (account_id, folder, _) = &key;
+        let Some(snooze::Trackable { rows, batch }) = snooze::trackable(rows) else {
+            return Err(CmdError::new(
+                depesha_core::ErrorKind::Other,
+                tr!(
+                    "the message has no Message-ID and cannot be snoozed",
+                    "у письма нет Message-ID, отложить его нельзя"
+                ),
+            ));
+        };
+        let snoozed = role_folder(&state, account_id, FolderRole::Snoozed, pick("Snoozed", "Отложенные")).await?;
+        // Snoozing a series is one commit, not one per letter.
+        state
+            .store
+            .snooze_add_batch(account_id, &snoozed, folder, until, &batch)?;
+        if *folder != snoozed {
+            done.push(move_group(&state, &key, &rows, &snoozed, None).await?);
+        }
+    }
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(done)
+}
+
+/// Brings snoozed mail back before its time: into the folder it was snoozed from, unread
+/// as when the time comes, and the time is dropped. The undo snoozes it again for the same time.
+/// When some letters stayed, "unsnooze-partial" says so.
+#[tauri::command]
+pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+    let mut groups = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
+        let (account_id, folder, _) = &key;
+        let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
+        groups.extend(snooze::releases(&state.store, account_id, folder, &message_ids)?);
+    }
+    let (done, partial) = snooze::release_groups(groups, |group| {
+        let state = state.inner().clone();
+        async move {
+            let bring = group.bring();
+            let moved = Moved {
+                account_id: group.account_id.clone(),
+                from: group.folder.clone(),
+                to: group.to.clone(),
+                message_ids: bring.message_ids.clone(),
+                waits: Vec::new(),
+                unseen: Vec::new(),
+                snoozed: group.snoozed.clone(),
+            };
+            // A mailbox that is not running is not a failure of the move: nothing was tried.
+            let mut queue = Queue::urgent(&state, &group.account_id)?;
+            match queue.move_by_message_id(bring).await {
+                // Moved, whole or in part: the cache tells which letters left.
+                Ok(n) if n > 0 => {}
+                Ok(_) => return Ok(None),
+                Err(e) => {
+                    // Logged before the words of the interface take its place: only the kind
+                    // and the variant may reach the log.
+                    tracing::warn!(
+                        kind = e.kind().as_str(),
+                        tag = e.tag(),
+                        "unsnooze: a group of letters stayed"
+                    );
+                    let e = CmdError::from(e);
+                    return Err(e);
+                }
+            }
+            // The letters are back: a failure to forget their times is logged, not allowed to
+            // take the undo of this and the earlier groups away.
+            if let Err(e) = snooze::drop_left(
+                &state.store,
+                &group.account_id,
+                &group.folder,
+                &group.to,
+                &moved.message_ids,
+            ) {
+                tracing::warn!("unsnooze: the times of the letters were not dropped: {e}");
+            }
+            Ok(Some(moved))
+        }
+    })
+    .await?;
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    if partial {
+        state.emit("unsnooze-partial", serde_json::json!({}));
+    }
+    if done.is_empty() {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::NotFound,
+            tr!("the message is not snoozed", "письмо не отложено"),
+        ));
+    }
+    Ok(done)
+}
+
+/// Puts moved messages back where they were and forgets their snooze times.
+#[tauri::command]
+pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
+    let mut back = 0;
+    for m in moved {
+        for mid in &m.message_ids {
+            state.store.snooze_remove(&m.account_id, mid)?;
+        }
+        // The letters the action marked read come back unread, the rest as they are.
+        let mut n = 0;
+        for (message_ids, unseen) in undo_runs(&m) {
+            if message_ids.is_empty() {
+                continue;
+            }
+            let out = state
+                .worker(&m.account_id)?
+                .run(Work::MoveByMessageId {
+                    from: m.to.clone(),
+                    message_ids,
+                    to: m.from.clone(),
+                    unseen,
+                })
+                .await?;
+            if let Output::Count(c) = out {
+                n += c;
+            }
+        }
+        back += n;
+        // Letters back where a wait parks them: the wait is parked again; snoozed ones wait
+        // for their time again.
+        if n > 0 {
+            // Back out of the archive: a wait no longer takes the conversation from there.
+            // The mark is a hint for a later wait: failing to clear it must not stop the undo.
+            if let Err(e) = state.store.archived_unmark(&m.account_id, &m.message_ids) {
+                tracing::warn!(error = %e, "the archival mark was not cleared while undoing");
+            }
+            for s in &m.snoozed {
+                state.store.snooze_add(s)?;
+            }
+            state.scheduler_notify.notify_one();
+            // A damaged wait is logged and left: the others are parked again all the same.
+            state
+                .store
+                .followups_reparked(&m.account_id, &m.waits, &m.from, &m.message_ids);
+        }
+    }
+    state.emit("counters-changed", serde_json::json!({}));
+    // Nothing found where the action put it: say so instead of "undone".
+    if back == 0 {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::NotFound,
+            tr!(
+                "the messages were not found where they were moved; they may have been moved again",
+                "письма не нашлись там, куда их перенесли: возможно, их уже переместили снова"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// The whole conversation of a message, oldest first.
+#[tauri::command(async)]
+pub fn thread(state: St<'_>, id: i64) -> CmdResult<Vec<MessageRow>> {
+    let r = row(&state, id)?;
+    Ok(state.store.thread(&r.account_id, &r.thread)?)
+}
+
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Counters {
+    snoozed: u32,
+    /// Letters waiting for an answer: the badge.
+    followups: u32,
+    /// Waits kept after they ended: the view stays in the sidebar for them.
+    followups_closed: u32,
+}
+
+#[tauri::command(async)]
+pub fn counters(state: St<'_>) -> CmdResult<Counters> {
+    let followups = state.store.followups_count()?;
+    Ok(Counters {
+        snoozed: state.store.snoozed_count(state.settings().threads)?,
+        followups: followups.active,
+        followups_closed: followups.closed,
+    })
+}
+
+/// No answer yet and not now: the reminder comes again `secs` from now. With `deadline`
+/// ("Set a new date", "Wait for a reply again") the answer is expected by then too, and a
+/// wait that ended is waiting again for an answer from now on.
+#[tauri::command(async)]
+pub fn followup_postpone(state: St<'_>, id: i64, secs: i64, deadline: Option<bool>) -> CmdResult<i64> {
+    let r = row(&state, id)?;
+    let due = waiting::postpone(
+        &state.store,
+        &r.account_id,
+        r.message_id.as_deref(),
+        chrono::Utc::now().timestamp(),
+        secs,
+        deadline.unwrap_or(false),
+    )?;
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(due)
+}
+
+/// Stops waiting for an answer: the wait is closed by hand and kept in the history. Answers
+/// the moment it was closed at, which `followup_resume` takes to undo exactly this stop; none
+/// when no wait was waiting (it ended meanwhile): there is nothing to tell or to take back.
+#[tauri::command(async)]
+pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<Option<i64>> {
+    let r = row(&state, id)?;
+    let stopped = waiting::stop(
+        &state.store,
+        &r.account_id,
+        state.account(&r.account_id).is_ok_and(|a| a.waiting.stop_to_archive),
+        r.message_id.as_deref(),
+        chrono::Utc::now().timestamp(),
+    )?;
+    // Letters waiting in the folder go back, after the undo toast.
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(stopped)
+}
+
+/// "Undo" of the toast after "Stop waiting": the wait closed at `ended` waits again as it was.
+/// False when it cannot be taken back any more.
+#[tauri::command(async)]
+pub fn followup_resume(state: St<'_>, id: i64, ended: i64) -> CmdResult<bool> {
+    let r = row(&state, id)?;
+    let resumed = match &r.message_id {
+        Some(mid) => state
+            .store
+            .followup_resume(&r.account_id, mid, ended, chrono::Utc::now().timestamp())?,
+        None => false,
+    };
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(resumed)
+}
+
+/// "Keep in the inbox" of the toast after an answer, and "z": the letters come back, and
+/// the wait goes unless it has a reminder.
+#[tauri::command(async)]
+pub fn followup_unpark(state: St<'_>, account_id: String, message_id: String) -> CmdResult<()> {
+    state
+        .store
+        .followup_unpark(&account_id, &message_id, chrono::Utc::now().timestamp())?;
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(())
+}
+
+/// "Back to the inbox" over a letter waiting in the folder: the wait is closed and its
+/// letters come back.
+#[tauri::command(async)]
+pub fn followup_return(state: St<'_>, id: i64) -> CmdResult<()> {
+    let r = row(&state, id)?;
+    if let Some(mid) = &r.message_id {
+        state
+            .store
+            .followup_stop(&r.account_id, mid, chrono::Utc::now().timestamp(), None)?;
+    }
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(())
+}
+
+/// How Depesha would leave a list, for the user to confirm before anything goes out.
+#[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct UnsubscribePlan {
+    way: Way,
+    /// The mailbox a request by mail leaves from.
+    from: String,
+    /// A request by mail goes to another organization than the letter's sender.
+    foreign: bool,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum Unsubscribed {
+    /// The sender's server confirmed the one-click request.
+    Done,
+    /// The confirmed request went out by mail through the outbox.
+    MailSent { to: String },
+    /// One click did not work; a request by mail is possible but needs its own confirmation.
+    Confirm { plan: UnsubscribePlan, reason: String },
+}
+
+fn no_unsubscribe() -> CmdError {
+    CmdError::new(
+        depesha_core::ErrorKind::NotFound,
+        tr!(
+            "the sender gave no way to unsubscribe",
+            "отправитель не указал, как отписаться"
+        ),
+    )
+}
+
+/// The way to unsubscribe is stored damaged: the user hears that, not the store's wording.
+fn unsubscribe_unreadable(e: depesha_core::Error) -> CmdError {
+    match e {
+        depesha_core::Error::Unreadable => CmdError::new(
+            depesha_core::ErrorKind::Other,
+            tr!(
+                "Could not read the unsubscribe data",
+                "Не удалось прочитать данные отписки"
+            ),
+        ),
+        e => e.into(),
+    }
+}
+
+fn unsubscribe_ways(state: &AppState, id: i64) -> CmdResult<(MessageRow, Unsubscribe, Vec<Way>)> {
+    let r = row(state, id)?;
+    let u = state
+        .store
+        .unsubscribe_of(id)
+        .map_err(unsubscribe_unreadable)?
+        .ok_or_else(no_unsubscribe)?;
+    let ways = depesha_core::unsubscribe::ways(&u);
+    if ways.is_empty() {
+        return Err(depesha_core::unsubscribe::no_way(&u).into());
+    }
+    Ok((r, u, ways))
+}
+
+fn plan_of(state: &AppState, r: &MessageRow, way: Way) -> CmdResult<UnsubscribePlan> {
+    let from = state.account(&r.account_id)?.email;
+    let foreign = match (&way, &r.from) {
+        (Way::Mail { to, .. }, Some(sender)) => depesha_core::unsubscribe::foreign(to, &sender.email),
+        (Way::Mail { .. }, None) => true,
+        _ => false,
+    };
+    Ok(UnsubscribePlan { way, from, foreign })
+}
+
+/// The way a list would be left: one click (RFC 8058) first, then a request by mail,
+/// then the web page. Nothing is sent: the user sees this and confirms it.
+#[tauri::command(async)]
+pub fn unsubscribe_plan(state: St<'_>, id: i64) -> CmdResult<UnsubscribePlan> {
+    let (r, _, mut ways) = unsubscribe_ways(&state, id)?;
+    plan_of(&state, &r, ways.remove(0))
+}
+
+/// Leaves a mailing list the way the user confirmed (`one-click` or `mail`). When one
+/// click fails and a letter is possible, the letter is offered for confirmation, not sent.
+#[tauri::command]
+pub async fn unsubscribe(state: St<'_>, id: i64, way: String) -> CmdResult<Unsubscribed> {
+    let (r, u, ways) = unsubscribe_ways(&state, id)?;
+    match way.as_str() {
+        "one-click" => {
+            let Some(url) = u
+                .one_click
+                .filter(|_| ways.iter().any(|w| matches!(w, Way::OneClick { .. })))
+            else {
+                return Err(no_unsubscribe());
+            };
+            match depesha_core::unsubscribe::one_click(&url).await {
+                Ok(_) => Ok(Unsubscribed::Done),
+                Err(e) => match depesha_core::unsubscribe::after_one_click(&ways) {
+                    Some(mail) => {
+                        tracing::info!(
+                            kind = e.kind().as_str(),
+                            tag = e.tag(),
+                            "one-click unsubscribe failed, offering mail"
+                        );
+                        Ok(Unsubscribed::Confirm {
+                            plan: plan_of(&state, &r, mail.clone())?,
+                            reason: crate::localize::error_now(&e),
+                        })
+                    }
+                    None => Err(e.into()),
+                },
+            }
+        }
+        "mail" => {
+            let Some(Way::Mail { to, subject, text }) = ways.into_iter().find(|w| matches!(w, Way::Mail { .. })) else {
+                return Err(no_unsubscribe());
+            };
+            let account = state.account(&r.account_id)?;
+            let draft = Draft {
+                from: Some(Addr {
+                    name: Some(account.display_name.clone()).filter(|n| !n.is_empty()),
+                    email: account.email.clone(),
+                }),
+                to: vec![Addr {
+                    name: None,
+                    email: to.clone(),
+                }],
+                subject,
+                text,
+                ..Default::default()
+            };
+            smtp::build(&draft)?;
+            let now = chrono::Utc::now().timestamp();
+            state
+                .store
+                .outbox_add(&account.id, &draft, now, now, 0, &FollowupPlan::default())?;
+            state.outbox_notify.notify_one();
+            state.emit("outbox-changed", serde_json::json!({}));
+            Ok(Unsubscribed::MailSent { to })
+        }
+        _ => Err(CmdError::new(
+            depesha_core::ErrorKind::BadRequest,
+            format!("unknown unsubscribe way: {way}"),
+        )),
+    }
+}
+
+/// The language the interface is shown in, resolved from the settings and the locale.
+#[tauri::command]
+pub fn language(state: St<'_>) -> crate::lang::Lang {
+    state.settings().lang()
+}
+
+#[tauri::command]
+pub fn settings_get(state: St<'_>) -> Settings {
+    state.settings()
+}
+
+/// A whole settings object in one call; only the e2e harness names one, so the command is
+/// registered and allowed only with the `e2e` feature (see `lib.rs`, `build.rs`).
+#[cfg(feature = "e2e")]
+#[tauri::command(async)]
+pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
+    let before = state.settings();
+    check_save_folder(state.inner(), &before.attachments_dir, &settings.attachments_dir)?;
+    let after = state.update_settings(|s| {
+        *s = settings;
+        Ok(())
+    })?;
+    apply_side_effects(state.inner(), before, after);
+    Ok(())
+}
+
+/// A patch over the current settings: only the keys it names change, so a save from one
+/// window's memory does not roll back what another window or the tray wrote meanwhile. The
+/// merge and the write happen under the config lock, so two patches cannot lose each other.
+#[tauri::command]
+pub fn settings_patch(state: St<'_>, patch: serde_json::Value) -> CmdResult<()> {
+    let before = state.settings();
+    let after = state.update_settings(|settings| {
+        let mut value = serde_json::to_value(&*settings)
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::Other, e.to_string()))?;
+        crate::config::merge(&mut value, patch);
+        let merged: Settings = serde_json::from_value(value)
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::BadRequest, e.to_string()))?;
+        check_save_folder(state.inner(), &settings.attachments_dir, &merged.attachments_dir)?;
+        *settings = merged;
+        Ok(())
+    })?;
+    apply_side_effects(state.inner(), before, after);
+    Ok(())
+}
+
+/// Does what follows a change of the settings: the language, the autostart, the event and the
+/// offline window. The settings themselves are already saved (under the lock).
+fn apply_side_effects(state: &AppState, before: Settings, settings: Settings) {
+    let offline_changed =
+        before.offline != settings.offline || before.offline_attachments != settings.offline_attachments;
+    state.apply_language();
+    crate::background::sync_autostart(&state.app, Some(&before), &settings);
+    state.emit("settings-changed", serde_json::json!({}));
+    // A wider offline window starts downloading at once.
+    if offline_changed {
+        for account in state.accounts() {
+            if let Ok(w) = state.worker(&account.id) {
+                w.kick(Work::Prefetch);
+            }
+        }
+    }
+}
+
+/// A folder attachments go to without asking is one the user picked, not one typed in
+/// by whatever runs in the page: an unchanged or emptied setting needs no picking.
+fn check_save_folder(state: &AppState, before: &str, after: &str) -> CmdResult<()> {
+    let after = after.trim();
+    if after.is_empty() || after == before.trim() {
+        return Ok(());
+    }
+    state.paths.check(Use::SaveFolder, after).map(|_| ())
+}
+
+/// The settings of one built-in plugin; the rest of the settings stay as they are.
+#[tauri::command(async)]
+pub fn plugin_settings_set(state: St<'_>, plugin: String, values: serde_json::Value) -> CmdResult<()> {
+    state.update_settings(|settings| {
+        settings.plugin_settings.insert(plugin, values);
+        Ok(())
+    })?;
+    state.emit("settings-changed", serde_json::json!({}));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn load_older(state: St<'_>, account_id: String, folder: String) -> CmdResult<usize> {
+    let key = format!("older:{account_id}:{folder}");
+    let name = state
+        .store
+        .folders(Some(&account_id))?
+        .into_iter()
+        .find(|f| f.folder.name == folder)
+        .map(|f| f.folder.display_name)
+        .unwrap_or_else(|| folder.clone());
+    let label = tr!("Loading older mail: {name}", "Загрузка старых писем: {name}");
+    state.task(&key, crate::tasks::TaskKind::Older, Some(&account_id), label, 0, 0);
+    match state.worker(&account_id)?.run(Work::LoadOlder { folder }).await {
+        Ok(out) => {
+            state.task_done(&key);
+            Ok(match out {
+                Output::Count(n) => n,
+                _ => 0,
+            })
+        }
+        Err(e) => {
+            let e = CmdError::from(e);
+            state.task_failed(&key, e.clone());
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn tasks_list(state: St<'_>) -> Vec<crate::tasks::Task> {
+    state.tasks_list()
+}
+
+#[tauri::command]
+pub fn task_dismiss(state: St<'_>, key: String) {
+    state.task_dismiss(&key);
+}
+
+/// The «Stop» of a task that works in batches (the clearing of a folder, #74).
+#[tauri::command]
+pub fn task_stop(state: St<'_>, key: String) {
+    state.task_stop(&key);
+}
+
+/// How many messages Trash, Spam or Drafts hold on the server: the number «Clear» asks
+/// about, which the cache's window does not tell, with the bound the run is then limited to.
+#[tauri::command]
+pub async fn folder_total(state: St<'_>, account_id: String, folder: String) -> CmdResult<crate::empty::FolderCount> {
+    crate::empty::role_of(&state, &account_id, &folder)?;
+    crate::empty::require_online(&state, &account_id)?;
+    match state
+        .worker(&account_id)?
+        .run(Work::FolderCount(folder.clone()))
+        .await?
+    {
+        Output::Counted(total, bound) => Ok(crate::empty::FolderCount {
+            total,
+            bound: state.bounds.hold(&account_id, &folder, bound),
+        }),
+        _ => Err(CmdError::new(depesha_core::ErrorKind::Other, "no count")),
+    }
+}
+
+/// «Clear» (#74): Trash and Spam are wiped, Drafts go to Trash but for the ones open in a
+/// window (`keep_ids`, and those the backend knows of). Only what the count of `bound` named
+/// is touched. Asked after the confirmation and the delay; the work shows in the
+/// tasks window.
+#[tauri::command]
+pub async fn folder_empty(
+    state: St<'_>,
+    account_id: String,
+    folder: String,
+    keep_ids: Vec<i64>,
+    bound: u64,
+) -> CmdResult<depesha_core::clear::Emptied> {
+    let role = crate::empty::role_of(&state, &account_id, &folder)?;
+    let trash = if role == FolderRole::Drafts {
+        Some(role_folder(&state, &account_id, FolderRole::Trash, pick("Trash", "Корзина")).await?)
+    } else {
+        None
+    };
+    crate::empty::run(&state, &account_id, &folder, role, trash, keep_ids, bound).await
+}
+
+/// The copies of sent letters the server refuses for good and that wait for the user.
+#[tauri::command]
+pub fn stuck_copies(state: St<'_>) -> CmdResult<Vec<depesha_core::store::StuckCopy>> {
+    Ok(state.store.sent_copies_stuck()?)
+}
+
+/// «Try again»: the hold and the count of refusals are dropped and the copy is tried now.
+/// Fails with the server's answer when it is refused again. Answers `false` without trying
+/// when the background round already has the copy in hand: the user is told so, not that it
+/// was saved.
+#[tauri::command]
+pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<bool> {
+    let state = state.inner().clone();
+    if !state.store.sent_copy_resume(id)? {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::NotFound,
+            tr!("the copy is no longer kept", "копии больше нет"),
+        ));
+    }
+    state.task_done(&crate::outbox::stuck_key(id));
+    let Some(copy) = state.store.sent_copy(id)? else {
+        return Ok(true);
+    };
+    if !state.copy_claim(id) {
+        return Ok(false);
+    }
+    let done = crate::outbox::deliver_copy(&state, &copy).await;
+    state.copy_release(id);
+    done?;
+    match state.store.sent_copy(id)? {
+        Some(left) => Err(CmdError::new(
+            depesha_core::ErrorKind::Other,
+            left.last_error.unwrap_or_default(),
+        )),
+        None => Ok(true),
+    }
+}
+
+/// «Save .eml»: the copy goes to the file the user picked in the save dialog. The copy is
+/// kept until the user says «Don't keep».
+#[tauri::command]
+pub async fn sent_copy_save(state: St<'_>, id: i64, path: String) -> CmdResult<()> {
+    let path = state.paths.check(Use::SaveFile, &path)?;
+    let copy = state.store.sent_copy(id)?.ok_or_else(|| {
+        CmdError::new(
+            depesha_core::ErrorKind::NotFound,
+            tr!("the copy is no longer kept", "копии больше нет"),
+        )
+    })?;
+    tokio::fs::write(&path, &copy.raw).await?;
+    Ok(())
+}
+
+/// «Don't keep the copy»: the record and its bytes are deleted; a wait for a reply held for
+/// the copy starts first, without it.
+#[tauri::command]
+pub async fn sent_copy_drop(state: St<'_>, id: i64) -> CmdResult<()> {
+    let state = state.inner().clone();
+    crate::outbox::drop_copy(&state, id).await
+}
+
+/// Per account: the last full sync and how much of the offline window is downloaded.
+#[tauri::command(async)]
+pub fn sync_overview(state: St<'_>) -> CmdResult<Vec<crate::tasks::AccountSync>> {
+    let settings = state.settings();
+    let since = settings.offline_since();
+    state
+        .accounts()
+        .into_iter()
+        .map(|a| {
+            let (offline_done, offline_total) = match since {
+                Some(since) => state
+                    .store
+                    .offline_progress(&a.id, since, settings.offline_attachments)?,
+                None => (0, 0),
+            };
+            Ok(crate::tasks::AccountSync {
+                last_sync: state.last_sync(&a.id),
+                paused: state.prefetch_paused(&a.id),
+                account_id: a.id,
+                offline_done,
+                offline_total,
+            })
+        })
+        .collect()
+}
+
+/// Pauses or resumes the offline download of an account.
+#[tauri::command]
+pub fn offline_pause(state: St<'_>, account_id: String, paused: bool) -> CmdResult<()> {
+    state.set_prefetch_paused(&account_id, paused);
+    if paused {
+        state.task_done(&format!("prefetch:{account_id}"));
+    } else {
+        state.worker(&account_id)?.kick(Work::Prefetch);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_now(state: St<'_>, account_id: Option<String>, folder: Option<String>) -> CmdResult<()> {
+    let ids = match account_id {
+        Some(id) => vec![id],
+        None => state.accounts().into_iter().map(|a| a.id).collect(),
+    };
+    for id in ids {
+        let work = match &folder {
+            Some(f) => Work::SyncFolder(f.clone()),
+            None => Work::SyncAll,
+        };
+        state.worker(&id)?.run(work).await?;
+    }
+    Ok(())
+}
+
+/// The "Server" and "Storage" sections of a mailbox's page, as the cache knows them.
+#[tauri::command(async)]
+pub fn server_info(state: St<'_>, account_id: String) -> CmdResult<crate::server::ServerView> {
+    crate::server::view(&state, &account_id)
+}
+
+/// "Check again": a fresh login reads the server's capabilities and quota.
+#[tauri::command]
+pub async fn server_check(state: St<'_>, account_id: String) -> CmdResult<crate::server::ServerView> {
+    let account = state.account(&account_id)?;
+    crate::server::check(&state, &account).await?;
+    crate::server::view(&state, &account_id)
+}
+
+/// Reads the quota again on the mailbox's connection, unless the mailbox is paused.
+#[tauri::command]
+pub async fn quota_refresh(state: St<'_>, account_id: String) -> CmdResult<()> {
+    state.worker(&account_id)?.run_background(Work::Quota).await?;
+    Ok(())
+}
+
+/// Every IMAP mailbox's room, for the sidebar.
+#[tauri::command(async)]
+pub fn quotas(state: St<'_>) -> CmdResult<Vec<crate::server::QuotaView>> {
+    crate::server::quotas(&state)
+}
+
+/// Counts the size of every folder in the background (the tasks window shows it).
+#[tauri::command]
+pub async fn folder_sizes_count(state: St<'_>, account_id: String) -> CmdResult<()> {
+    let account = state.account(&account_id)?;
+    crate::server::count_sizes(state.inner().clone(), account)
+}
+
+#[tauri::command]
+pub fn folder_sizes_stop(state: St<'_>, account_id: String) {
+    crate::server::stop_count(&state, &account_id);
+}
+
+/// A full mailbox: a desktop notification when the window is out of sight.
+#[tauri::command]
+pub fn notify_full(state: St<'_>, title: String, body: String) {
+    crate::server::notify_full(&state, &title, &body);
+}
+
+/// Pictures are looked for again after a week, missing ones after a day.
+const AVATAR_TTL: i64 = 7 * 86_400;
+const AVATAR_MISS_TTL: i64 = 86_400;
+/// The pictures being fetched now by key (`photo:…`, `bimi:…`): one fetch for all who ask.
+static AVATAR_FLIGHTS: std::sync::LazyLock<crate::flights::Flights<CmdResult<Option<String>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// The picture of a sender as a `data:` URI: the colleague's photo from the
+/// account's Exchange, otherwise, for mail that passed DMARC, the brand's BIMI logo.
+/// `message_id`: the cached letter the logo is for; the backend reads its verdict and its
+/// folder itself, so no logo is asked about for Spam, Trash, an unvouched letter, or without a
+/// letter (the address book keeps to initials and Exchange photos).
+#[tauri::command]
+pub async fn avatar(
+    state: St<'_>,
+    account_id: String,
+    email: String,
+    message_id: Option<i64>,
+) -> CmdResult<Option<String>> {
+    let email = email.trim().to_ascii_lowercase();
+    if !email.contains('@') {
+        return Ok(None);
+    }
+    let now = chrono::Utc::now().timestamp();
+    let fresh = |c: &(Option<String>, i64)| now - c.1 < if c.0.is_some() { AVATAR_TTL } else { AVATAR_MISS_TTL };
+
+    if state.account(&account_id)?.is_ews() {
+        let key = format!("photo:{account_id}:{email}");
+        let uri = match state.store.avatar(&key)?.filter(fresh) {
+            Some((uri, _)) => uri,
+            // Many rows of one sender ask at once: the server is asked once.
+            None => {
+                AVATAR_FLIGHTS
+                    .run(&key, || async {
+                        match state
+                            .worker(&account_id)?
+                            .run_background(Work::UserPhoto(email.clone()))
+                            .await
+                        {
+                            Ok(Output::Body(bytes)) => {
+                                let uri = avatar::data_uri(&bytes);
+                                state.store.set_avatar(&key, Some(&uri), now)?;
+                                Ok(Some(uri))
+                            }
+                            Ok(_) => {
+                                state.store.set_avatar(&key, None, now)?;
+                                Ok(None)
+                            }
+                            // Offline or a busy server: initials now, another try next time.
+                            Err(_) => Ok(None),
+                        }
+                    })
+                    .await?
+            }
+        };
+        if uri.is_some() {
+            return Ok(uri);
+        }
+    }
+
+    let Some(message_id) = message_id else {
+        return Ok(None);
+    };
+    if !state.settings().sender_logos || !state.store.logo_allowed(message_id, &email)? {
+        return Ok(None);
+    }
+    // By the organizational domain only (#108): a subdomain is free to mint, and asking
+    // about it would tell its owner that the letter was read. The cache is kept the same way.
+    let Some(domain) = avatar::logo_domain(&email) else {
+        return Ok(None);
+    };
+    let key = format!("bimi:{domain}");
+    if let Some((uri, _)) = state.store.avatar(&key)?.filter(fresh) {
+        return Ok(uri);
+    }
+    AVATAR_FLIGHTS
+        .run(&key, || async {
+            let uri = avatar::bimi_logo(&domain).await;
+            state.store.set_avatar(&key, uri.as_deref(), now)?;
+            Ok(uri)
+        })
+        .await
+}
+
+#[tauri::command(async)]
+pub fn trust_sender(state: St<'_>, email: String) -> CmdResult<()> {
+    Ok(state.store.trust_sender(&email)?)
+}
+
+/// Address completion (#104): people, each with the primary address to insert and the others
+/// to choose; a hidden person is not offered by any address.
+#[tauri::command(async)]
+pub fn addresses(state: St<'_>, prefix: String) -> CmdResult<Vec<Suggestion>> {
+    Ok(state.store.suggest_addresses(&prefix, 8)?)
+}
+
+/// The address book (#66): every address of the correspondence with what was decided about
+/// it, and every address added by hand. `query` keeps the ones matching name, address or note.
+#[tauri::command(async)]
+pub fn people(state: St<'_>, query: String) -> CmdResult<Vec<Person>> {
+    Ok(state.store.people(&query)?)
+}
+
+/// Saves a person's record: their name, the format to write in, the form to show, a note
+/// and whether completion hides them (#66, #44). Returns the record as it is kept.
+#[tauri::command(async)]
+pub fn person_save(state: St<'_>, person: Person) -> CmdResult<Person> {
+    Ok(state.store.save_person(&person)?)
+}
+
+/// Adds an address to the person who has `to` among theirs; one that is another person's is
+/// not moved, that person is named for a merge (#104).
+#[tauri::command(async)]
+pub fn person_add_address(state: St<'_>, to: String, email: String) -> CmdResult<Added> {
+    Ok(state.store.person_add_address(&to, &email)?)
+}
+
+/// Makes an address the primary one of its person (#104).
+#[tauri::command(async)]
+pub fn person_set_primary(state: St<'_>, email: String) -> CmdResult<Option<Person>> {
+    Ok(state.store.person_set_primary(&email)?)
+}
+
+/// Joins people into one; the snapshot restores them (#104).
+#[tauri::command(async)]
+pub fn person_merge(state: St<'_>, merge: Merge) -> CmdResult<Option<Merged>> {
+    Ok(state.store.person_merge(&merge)?)
+}
+
+/// Lets an address leave its person and become one of its own (#104).
+#[tauri::command(async)]
+pub fn person_split(state: St<'_>, email: String) -> CmdResult<Option<Split>> {
+    Ok(state.store.person_split(&email)?)
+}
+
+/// Puts back what a merge or a split changed (#104).
+#[tauri::command(async)]
+pub fn person_restore(state: St<'_>, undo: Snapshot) -> CmdResult<()> {
+    Ok(state.store.person_restore(&undo)?)
+}
+
+/// Removes a person added by hand; one with an address in the correspondence only loses the
+/// mark, and keeps their rules (#66, #104). The snapshot restores it.
+#[tauri::command(async)]
+pub fn person_forget(state: St<'_>, email: String) -> CmdResult<Forgotten> {
+    Ok(state.store.forget_person(&email)?)
+}
+
+/// The decisions about the suggestions (#69).
+#[tauri::command(async)]
+pub fn hints(state: St<'_>) -> CmdResult<Vec<HintState>> {
+    Ok(state.store.hints()?)
+}
+
+/// Writes one decision about a suggestion (#69).
+#[tauri::command(async)]
+pub fn hint_save(state: St<'_>, hint: HintState) -> CmdResult<()> {
+    Ok(state.store.save_hint(&hint)?)
+}
+
+/// Forgets every decision about the suggestions (#69): the «ask them again» of the page.
+#[tauri::command(async)]
+pub fn hints_clear(state: St<'_>) -> CmdResult<()> {
+    state.store.clear_hints()?;
+    state.store.clear_all_hint_counts()?;
+    Ok(())
+}
+
+/// The counters of the detectors of #69 (#69): what they have seen so far.
+#[tauri::command(async)]
+pub fn hint_counts(state: St<'_>) -> CmdResult<Vec<HintCount>> {
+    Ok(state.store.hint_counts()?)
+}
+
+/// Counts one more happening for a detector (#69) and returns the new count.
+#[tauri::command(async)]
+pub fn count_hint(state: St<'_>, id: String, subject: String, now: i64) -> CmdResult<i64> {
+    Ok(state.store.count_hint(&id, &subject, now)?)
+}
+
+/// Forgets a detector's count (#69): a rule was set or the hint was answered.
+#[tauri::command(async)]
+pub fn clear_hint_count(state: St<'_>, id: String, subject: String) -> CmdResult<()> {
+    Ok(state.store.clear_hint_count(&id, &subject)?)
+}
+
+/// Saves an attachment where the user said in the save dialog (`pick_save_file`).
+#[tauri::command]
+pub async fn attachment_save(state: St<'_>, id: i64, index: u32, path: String) -> CmdResult<()> {
+    let path = state.paths.check(Use::SaveFile, &path)?;
+    let row = row(&state, id)?;
+    let raw = raw_of(&state, &row, None).await?;
+    let (_, bytes) = message::attachment(&raw, index)?;
+    tokio::fs::write(&path, bytes).await?;
+    mark_from_internet(&path).await;
+    Ok(())
+}
+
+/// The folder attachments of this letter go to without asking: its mailbox's own, else
+/// the one from the settings. Both were picked by the user (`check_save_folder`).
+fn settings_folder(state: &AppState, row: &MessageRow) -> CmdResult<String> {
+    let own = state.account(&row.account_id)?.attachments_dir;
+    let dir = if own.trim().is_empty() {
+        state.settings().attachments_dir
+    } else {
+        own
+    };
+    let dir = dir.trim().to_owned();
+    if dir.is_empty() {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::SaveFolder,
+            tr!(
+                "no folder for attachments is chosen in Settings → Mail",
+                "папка для вложений не выбрана в Настройках → «Почта»"
+            ),
+        ));
+    }
+    Ok(dir)
+}
+
+/// Saves an attachment into the folder from the settings, without asking where:
+/// renamed on a name clash, the folder made again if it went away. Returns the path.
+#[tauri::command]
+pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32) -> CmdResult<String> {
+    let row = row(&state, id)?;
+    let dir = settings_folder(&state, &row)?;
+    let raw = raw_of(&state, &row, None).await?;
+    let (info, bytes) = message::attachment(&raw, index)?;
+    let folder = save_folder(&dir).await?;
+    let path = free_path(&folder, &safe_name(&info.name));
+    tokio::fs::write(&path, bytes).await.map_err(|e| save_error(&dir, e))?;
+    mark_from_internet(&path).await;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// What «Save all» wrote: the folder the files went to, so the toast can open it (#111).
+#[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SavedAll {
+    pub dir: String,
+    pub saved: usize,
+}
+
+/// Saves every attachment into a folder, renaming on name clashes.
+/// The folder is one just picked (`pick_folder`), or without one the folder from the settings.
+#[tauri::command]
+pub async fn attachments_save_all(state: St<'_>, id: i64, dir: Option<String>) -> CmdResult<SavedAll> {
+    let row = row(&state, id)?;
+    let dir = match dir {
+        Some(dir) => {
+            state.paths.check(Use::SaveFolder, &dir)?;
+            dir
+        }
+        None => settings_folder(&state, &row)?,
+    };
+    let raw = raw_of(&state, &row, None).await?;
+    let view = message::parse_view(&raw, false)?;
+    let folder = save_folder(&dir).await?;
+    let mut saved = 0;
+    for info in view
+        .attachments
+        .iter()
+        .filter(|a| !(a.inline && a.content_id.is_some()))
+    {
+        let (_, bytes) = message::attachment(&raw, info.index)?;
+        let path = free_path(&folder, &safe_name(&info.name));
+        tokio::fs::write(&path, bytes).await.map_err(|e| save_error(&dir, e))?;
+        mark_from_internet(&path).await;
+        saved += 1;
+    }
+    Ok(SavedAll {
+        dir: folder.to_string_lossy().into_owned(),
+        saved,
+    })
+}
+
+/// Opens a folder in the system file manager (#111). Only a folder that is still there: a path
+/// that names a file is refused, because opening one starts it.
+#[tauri::command]
+pub async fn folder_open(app: tauri::AppHandle, path: String) -> CmdResult<()> {
+    let dir = folder_path(&path).await?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| {
+            CmdError::new(
+                depesha_core::ErrorKind::Io,
+                tr!("could not open the folder: {e}", "не удалось открыть папку: {e}"),
+            )
+        })
+}
+
+async fn folder_path(path: &str) -> CmdResult<PathBuf> {
+    let dir = PathBuf::from(path);
+    let meta = tokio::fs::metadata(&dir).await.map_err(|e| {
+        CmdError::new(
+            depesha_core::ErrorKind::Io,
+            tr!(
+                "the folder “{path}” is gone or cannot be reached: {e}",
+                "папка «{path}» удалена или недоступна: {e}"
+            ),
+        )
+    })?;
+    if !meta.is_dir() {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Io,
+            tr!("“{path}” is not a folder", "«{path}» — не папка"),
+        ));
+    }
+    Ok(dir)
+}
+
+async fn save_folder(dir: &str) -> CmdResult<PathBuf> {
+    let folder = PathBuf::from(dir);
+    tokio::fs::create_dir_all(&folder)
+        .await
+        .map_err(|e| save_error(dir, e))?;
+    Ok(folder)
+}
+
+/// A folder that cannot be written to: what to do about it, not just the system's words.
+fn save_error(dir: &str, e: std::io::Error) -> CmdError {
+    CmdError::new(
+        depesha_core::ErrorKind::SaveFolder,
+        tr!(
+            "could not save into “{dir}”: {e}. Choose another folder in Settings → Mail or use “Save as…”",
+            "не удалось сохранить в «{dir}»: {e}. Выберите другую папку в Настройках → «Почта» или «Сохранить как…»"
+        ),
+    )
+}
+
+/// Opens a letter in a window of its own (double click in the list); a letter already
+/// open in one brings that window forward instead of opening a second.
+#[tauri::command]
+pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> CmdResult<()> {
+    let label = format!("message-{id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        best_effort("unminimize the window", w.unminimize());
+        best_effort("focus the window", w.set_focus());
+        return Ok(());
+    }
+    let title = if title.trim().is_empty() {
+        "Aster Mail".to_owned()
+    } else {
+        title
+    };
+    let builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        label,
+        tauri::WebviewUrl::App(format!("index.html?message={id}").into()),
+    )
+    .title(title)
+    .inner_size(960.0, 760.0)
+    .min_inner_size(560.0, 420.0)
+    .decorations(false);
+    // Aster Office fork: message windows share only this profile's browser data.
+    #[cfg(any(windows, target_os = "linux"))]
+    let builder = match crate::aster_profile::directory("webview") {
+        Some(path) => builder.data_directory(path),
+        None => builder,
+    };
+    // The same arguments as the main window's, or WebView2 does not take the window (see `lib.rs`).
+    #[cfg(all(feature = "e2e", windows))]
+    let builder = match crate::e2e_browser_args() {
+        Some(args) => builder.additional_browser_args(&args),
+        None => builder,
+    };
+    let window = builder
+        .build()
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Window, e.to_string()))?;
+    // A letter's window is a window of the app: the engine's own keys stay off here too.
+    crate::engine::quiet(&window);
+    Ok(())
+}
+
+/// An attachment's content for the viewer, sent as binary: no base64 on the way.
+#[tauri::command]
+pub async fn attachment_bytes(state: St<'_>, id: i64, index: u32) -> CmdResult<tauri::ipc::Response> {
+    let row = row(&state, id)?;
+    let raw = raw_of(&state, &row, None).await?;
+    let (_, bytes) = message::attachment(&raw, index)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// A letter attached to a letter (.eml), to read without saving it; its bytes come as the raw request body.
+#[tauri::command(async)]
+pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::BadRequest,
+            "expected the letter's bytes",
+        ));
+    };
+    let mut view = message::parse_view(bytes, false)?;
+    // An attached letter is no draft of ours in Drafts: its sealed mark names nothing.
+    view.acts_on = draft_mark(bytes, false).acts_on;
+    Ok(view)
+}
+
+/// An attached HTML or Markdown file, cleaned like a letter for the viewer. A big file
+/// takes a while to render and clean: off the main thread, which draws the window.
+#[tauri::command(async)]
+pub fn document_html(text: String, markdown: bool) -> String {
+    message::document_html(&text, markdown)
+}
+
+/// A letter in Markdown as the HTML it would go out as: the composer switching to the
+/// visual editor takes it from here, so both agree. Off the main thread, as above.
+#[tauri::command(async)]
+pub fn markdown_html(text: String) -> String {
+    message::markdown_html(&text)
+}
+
+/// Programs and what runs them: saved only, never opened from a letter.
+const DANGEROUS: &[&str] = &[
+    // Windows
+    "exe",
+    "msi",
+    "msp",
+    "mst",
+    "bat",
+    "cmd",
+    "com",
+    "scr",
+    "pif",
+    "vb",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "ws",
+    "wsf",
+    "wsh",
+    "wsc",
+    "sct",
+    "ps1",
+    "psm1",
+    "psd1",
+    "jar",
+    "lnk",
+    "url",
+    "website",
+    "scf",
+    "inf",
+    "reg",
+    "hta",
+    "cpl",
+    "msc",
+    "chm",
+    "gadget",
+    "application",
+    "appref-ms",
+    "msix",
+    "msixbundle",
+    "appx",
+    "appxbundle",
+    "appinstaller",
+    "library-ms",
+    "settingcontent-ms",
+    "search-ms",
+    "xll",
+    "xlam",
+    "iso",
+    "img",
+    "vhd",
+    "vhdx",
+    // Linux
+    "desktop",
+    "sh",
+    "run",
+    "appimage",
+    "deb",
+    "rpm",
+    "flatpakref",
+    // macOS
+    "app",
+    "command",
+    "terminal",
+    "pkg",
+    "dmg",
+    "workflow",
+    "scpt",
+];
+
+/// Windows: a file from mail carries the "came from the internet" mark (Mark of the
+/// Web), so Office opens it in Protected View and SmartScreen checks programs.
+#[cfg_attr(not(windows), allow(unused_variables, reason = "only Windows marks files"))]
+async fn mark_from_internet(path: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        let stream = format!("{}:Zone.Identifier", path.display());
+        best_effort(
+            "mark the file as from the internet",
+            tokio::fs::write(stream, b"[ZoneTransfer]\r\nZoneId=3\r\n").await,
+        );
+    }
+}
+
+/// Opens an attachment with the system application. Executables are only saved, never opened.
+#[tauri::command]
+pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, index: u32) -> CmdResult<()> {
+    let row = row(&state, id)?;
+    let raw = raw_of(&state, &row, None).await?;
+    let (info, bytes) = message::attachment(&raw, index)?;
+    let name = safe_name(&info.name);
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if DANGEROUS.contains(&ext.as_str()) {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Dangerous,
+            tr!(
+                "“{name}” is a program. Opening it from mail is dangerous; save it if you are sure",
+                "«{name}» — исполняемый файл. Открывать его из письма опасно; сохраните его, если уверены"
+            ),
+        ));
+    }
+    let dir = crate::aster_paths::cache(&app)?
+        .join("attachments")
+        .join(id.to_string());
+    tokio::fs::create_dir_all(&dir).await?;
+    let path = dir.join(&name);
+    tokio::fs::write(&path, bytes).await?;
+    mark_from_internet(&path).await;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| {
+            CmdError::new(
+                depesha_core::ErrorKind::Io,
+                tr!("could not open the file: {e}", "не удалось открыть файл: {e}"),
+            )
+        })
+}
+
+/// A file name the sender chose, made safe on every system: no path, no control or
+/// text-direction characters ("gpj.exe" shown as "exe.jpg"), no dots or spaces at
+/// the end (Windows drops them, and "a.exe." would pass for a file without an
+/// extension), no reserved Windows names, not too long.
+fn safe_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let mut cleaned = cleaned
+        .trim_start_matches(|c: char| c == '.' || c.is_whitespace())
+        .trim_end_matches(|c: char| c == '.' || c.is_whitespace())
+        .to_owned();
+    if cleaned.is_empty() {
+        return "attachment".into();
+    }
+    let stem = cleaned
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        cleaned.insert(0, '_');
+    }
+    // 255 bytes is the limit of most file systems; the extension is kept.
+    while cleaned.len() > 200 {
+        let cut = match cleaned.rfind('.') {
+            Some(dot) if cleaned.len() - dot <= 20 && dot > 0 => dot,
+            _ => cleaned.len(),
+        };
+        let mut at = cut - 1;
+        while !cleaned.is_char_boundary(at) {
+            at -= 1;
+        }
+        cleaned.remove(at);
+    }
+    cleaned
+}
+
+fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) => (s.to_owned(), format!(".{e}")),
+        None => (name.to_owned(), String::new()),
+    };
+    // A free name is found: the numbers do not run out before the names do.
+    let mut i = 1;
+    loop {
+        let numbered = dir.join(format!("{stem} ({i}){ext}"));
+        if !numbered.exists() {
+            return numbered;
+        }
+        i += 1;
+    }
+}
+
+/// Links from mail open in the system browser; only web and mail links.
+#[tauri::command]
+pub fn open_link(app: tauri::AppHandle, url: String) -> CmdResult<()> {
+    let lower = url.trim().to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("mailto:")) {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Dangerous,
+            tr!("links of this kind are not opened", "такие ссылки не открываются"),
+        ));
+    }
+    app.opener()
+        .open_url(url.trim(), None::<&str>)
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum AttachmentSource {
+    File {
+        path: String,
+        /// The name and size the window shows: Rust takes the letter from the source, not from them.
+        #[serde(default)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
+        name: String,
+        #[serde(default)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
+        size: u64,
+    },
+    Message {
+        id: i64,
+        index: u32,
+        #[serde(default)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
+        name: String,
+        #[serde(default)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
+        size: u64,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ComposeDraft {
+    from: Option<Addr>,
+    #[serde(default)]
+    to: Vec<Addr>,
+    #[serde(default)]
+    cc: Vec<Addr>,
+    #[serde(default)]
+    bcc: Vec<Addr>,
+    #[serde(default)]
+    subject: String,
+    #[serde(default)]
+    text: String,
+    /// The letter from the visual editor; only an HTML letter has it.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    html: Option<String>,
+    /// The HTML of the signature a Markdown letter carries (#67).
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    signature: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<BodyFormat>", optional))]
+    format: BodyFormat,
+    in_reply_to: Option<String>,
+    #[serde(default)]
+    references: Vec<String>,
+    #[serde(default)]
+    attachments: Vec<AttachmentSource>,
+    /// Scheduled sending time: kept with a saved draft, the send takes `at` instead.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    send_at: Option<i64>,
+    /// The letter this one answers or forwards.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
+    acts_on: Option<ActsOn>,
+    /// Asked to be read first (#72).
+    #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<depesha_core::domain::Importance>", optional))]
+    importance: depesha_core::domain::Importance,
+}
+
+/// `label`: the window the letter is written in, whose dropped files it may attach (#115).
+async fn resolve(state: &AppState, label: &str, d: ComposeDraft) -> CmdResult<Draft> {
+    let mut attachments = Vec::new();
+    let mut total = 0u64;
+    for a in d.attachments {
+        let att = match a {
+            AttachmentSource::File { path, .. } => {
+                let checked = state.paths.check_in(Some(label), Use::Attach, &path)?;
+                ensure_file(&checked).await?;
+                let data = tokio::fs::read(&path)
+                    .await
+                    .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, format!("{path}: {e}")))?;
+                let name = PathBuf::from(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                OutgoingAttachment {
+                    mime: mime_for(&name).into(),
+                    name,
+                    data,
+                }
+            }
+            AttachmentSource::Message { id, index, .. } => {
+                let r = row(state, id)?;
+                let raw = raw_of(state, &r, None).await?;
+                let (info, data) = message::attachment(&raw, index)?;
+                OutgoingAttachment {
+                    name: info.name,
+                    mime: info.mime,
+                    data,
+                }
+            }
+        };
+        total += att.data.len() as u64;
+        attachments.push(att);
+    }
+    // Pictures in the text travel inside the letter too: they count with the files.
+    if d.format == BodyFormat::Html {
+        total += d.html.as_ref().map_or(0, |h| h.len() as u64 * 3 / 4);
+    }
+    // A Markdown letter's signature travels inside it too, pictures and all.
+    if d.format == BodyFormat::Markdown {
+        total += d.signature.as_ref().map_or(0, |s| s.len() as u64 * 3 / 4);
+    }
+    if total > MAX_ATTACHMENTS {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::TooLarge,
+            tr!(
+                "attachments over 50 MB: mail servers will not accept them",
+                "вложения больше 50 МБ — почтовые серверы такое не примут"
+            ),
+        ));
+    }
+    Ok(Draft {
+        from: d.from,
+        to: d.to,
+        cc: d.cc,
+        bcc: d.bcc,
+        subject: d.subject,
+        text: d.text,
+        // A letter switched to plain text or Markdown does not take its old HTML along.
+        html: d.html.filter(|_| d.format == BodyFormat::Html),
+        // Only a Markdown letter carries its signature's HTML apart: an HTML one has it
+        // inside `html`, a plain one only its text.
+        signature: d.signature.filter(|_| d.format == BodyFormat::Markdown),
+        format: d.format,
+        in_reply_to: d.in_reply_to,
+        references: d.references,
+        attachments,
+        acts_on: d.acts_on,
+        importance: d.importance,
+        // The word a picture stands for in the plain part of the letter that goes out.
+        picture_word: picture_word(),
+    })
+}
+
+/// The word a picture of the letter stands for in its plain part, in the language of the
+/// interface: the core knows no language, so the edge brings the word.
+fn picture_word() -> String {
+    tr!("Picture", "Изображение")
+}
+
+fn mime_for(name: &str) -> &'static str {
+    match name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
+        Some("pdf") => "application/pdf",
+        Some("txt" | "log") => "text/plain",
+        Some("csv") => "text/csv",
+        Some("htm" | "html") => "text/html",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("zip") => "application/zip",
+        Some("7z") => "application/x-7z-compressed",
+        Some("rar") => "application/vnd.rar",
+        Some("doc") => "application/msword",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("odt") => "application/vnd.oasis.opendocument.text",
+        Some("ods") => "application/vnd.oasis.opendocument.spreadsheet",
+        Some("eml") => "message/rfc822",
+        Some("ics") => "text/calendar",
+        Some("xml") => "application/xml",
+        Some("json") => "application/json",
+        _ => "application/octet-stream",
+    }
+}
+
+#[derive(Serialize)]
+pub struct Queued {
+    id: i64,
+    /// When the message leaves: after the undo delay or at the scheduled time.
+    at: i64,
+}
+
+/// Queues the message; the outbox task sends it at `at` (scheduled send) or after
+/// the undo delay from the settings. `followup_secs` (or the older `followup_days`)
+/// asks for a reminder when no answer comes that long after sending; `followup` says the
+/// rest of that wait: a deadline, repeats, the awaited recipient, the choice's name.
+/// `discard_draft` removes the server draft it came from.
+#[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command: the page passes these arguments by name, and a struct would change the wire format and every call site in the page"
+)]
+pub async fn send(
+    window: tauri::Window,
+    state: St<'_>,
+    account_id: String,
+    draft: ComposeDraft,
+    discard_draft: Option<i64>,
+    discard_message_id: Option<String>,
+    at: Option<i64>,
+    followup_days: Option<u32>,
+    followup_secs: Option<i64>,
+    followup: Option<FollowupPlan>,
+) -> CmdResult<Queued> {
+    let account = state.account(&account_id)?;
+    let draft = resolve(&state, window.label(), draft).await?;
+    smtp::build(&draft)?; // validate addresses now, not in the background
+    let now = chrono::Utc::now().timestamp();
+    let at = at.unwrap_or(now + i64::from(state.settings().undo_send_secs));
+    let followup_secs = followup_secs
+        .unwrap_or(i64::from(followup_days.unwrap_or(0)) * 86_400)
+        .max(0);
+    let mut followup = followup.unwrap_or_default();
+    // Decided now, as the letter answered lies now: the outbox keeps the decision.
+    let (park, archive) = depesha_core::waiting::decide(&state.store, &account, &draft, followup_secs, &followup)?;
+    followup.park = Some(park);
+    followup.archive = Some(archive);
+    let id = state
+        .store
+        .outbox_add(&account.id, &draft, now, at, followup_secs, &followup)?;
+    state.outbox_notify.notify_one();
+    state.emit("outbox-changed", serde_json::json!({}));
+    if let Some(d) = discard_draft {
+        discard_or_tell(&state, &account.id, d, discard_message_id.as_deref(), true).await;
+    }
+    Ok(Queued { id, at: at.max(now) })
+}
+
+/// Whether `folder` is the mailbox's Drafts (by its role, not its name).
+fn in_drafts_folder(store: &depesha_core::store::Store, account_id: &str, folder: &str) -> CmdResult<bool> {
+    Ok(store.folder_by_role(account_id, FolderRole::Drafts)?.as_deref() == Some(folder))
+}
+
+/// Whether the cached letter is a draft Depesha wrote in this mailbox: a number kept from an
+/// earlier run may name any letter by now, because `messages.id` is handed out again. With
+/// `expected` (the Message-ID of the version the caller saved) only that exact version
+/// counts: a number reissued to another Depesha draft of the folder is left alone (#92).
+fn is_own_draft(
+    store: &depesha_core::store::Store,
+    account_id: &str,
+    r: &MessageRow,
+    expected: Option<&str>,
+) -> CmdResult<bool> {
+    let in_drafts = in_drafts_folder(store, account_id, &r.folder)?;
+    let own_id = r.message_id.as_deref().is_some_and(|mid| {
+        let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
+        bare.rsplit_once('@')
+            .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(message::DRAFT_DOMAIN))
+    });
+    let bare = |mid: &str| mid.trim().trim_start_matches('<').trim_end_matches('>').to_owned();
+    let exact = expected.is_none_or(|want| r.message_id.as_deref().map(bare) == Some(bare(want)));
+    Ok(r.account_id == account_id && in_drafts && own_id && exact)
+}
+
+/// The letter an answer draft is written to when its mark no longer opens (the
+/// install secret is gone after a reinstall, #78): a draft of this mailbox that Depesha wrote
+/// is bound again by its `In-Reply-To`, if that letter is in the cache. A forward is not:
+/// it carries the same header, and `act` (the kind in the draft's own `Acts-On` mark) tells it from an
+/// answer. A draft saved before that mark is told by its subject prefix, as a last resort.
+/// Only our own drafts count, so a letter from anywhere else cannot name what it answers.
+fn rebound_acts_on(
+    store: &depesha_core::store::Store,
+    r: &MessageRow,
+    in_reply_to: Option<&str>,
+    act: Option<Act>,
+) -> CmdResult<Option<ActsOn>> {
+    let Some(parent) = in_reply_to
+        .map(|p| p.trim().trim_matches(['<', '>']))
+        .filter(|p| !p.is_empty())
+    else {
+        return Ok(None);
+    };
+    if !is_own_draft(store, &r.account_id, r, None)? {
+        return Ok(None);
+    }
+    let act = match act {
+        Some(Act::Forward) => return Ok(None),
+        Some(act) => act,
+        None => {
+            let subject = r.subject.trim_start().to_lowercase();
+            let forwards = ["fwd", "fw", "пересл", "tr", "wg"];
+            if forwards.iter().any(|p| {
+                subject
+                    .strip_prefix(p)
+                    .is_some_and(|rest| rest.trim_start().starts_with(':'))
+            }) {
+                return Ok(None);
+            }
+            Act::Reply
+        }
+    };
+    Ok(store
+        .find_by_message_id_any(&r.account_id, parent, None)?
+        .map(|(_, folder)| ActsOn {
+            account_id: r.account_id.clone(),
+            message_id: parent.to_owned(),
+            folder,
+            act,
+            waiting: false,
+        }))
+}
+
+/// Deletes the draft `id` for good, and nothing else: a number that no longer names one of
+/// Depesha's drafts in this mailbox is left alone.
+async fn discard(state: &AppState, account_id: &str, id: i64, message_id: Option<&str>) -> CmdResult<()> {
+    let (r, validity) = state.store.get_at(id)?.ok_or_else(gone)?;
+    if !is_own_draft(&state.store, account_id, &r, message_id)? {
+        return Ok(());
+    }
+    state
+        .worker(&r.account_id)?
+        .run(Work::Delete {
+            folder: r.folder,
+            validity,
+            uids: vec![r.uid],
+        })
+        .await?;
+    Ok(())
+}
+
+/// What the user is told when the draft that a send or a save was to take off the server stayed:
+/// the letter or the new draft is fine, and a second copy stands in «Drafts».
+fn discard_failed_text(queued: bool, why: &str) -> String {
+    if queued {
+        tr!(
+            "The letter is on its way, but its draft stayed in Drafts: {why}",
+            "Письмо уходит, но его черновик остался в «Черновиках»: {why}"
+        )
+    } else {
+        tr!(
+            "The new draft is saved, but the old copy stayed in Drafts: {why}",
+            "Новый черновик сохранён, но прежняя копия осталась в «Черновиках»: {why}"
+        )
+    }
+}
+
+/// `discard` after a send (`queued`) or a save that replaces a draft: the work is done either
+/// way, but a draft left behind is a duplicate the user must know of.
+async fn discard_or_tell(state: &AppState, account_id: &str, id: i64, message_id: Option<&str>, queued: bool) {
+    if let Err(e) = discard(state, account_id, id, message_id).await {
+        // The notice below carries the words to the user; the log keeps the kind and the variant.
+        tracing::warn!(
+            account = %mailbox_tag(account_id),
+            kind = e.kind.as_str(),
+            tag = e.tag,
+            "the draft stayed in Drafts"
+        );
+        state.emit(
+            "app-error",
+            serde_json::json!({ "message": discard_failed_text(queued, &e.message) }),
+        );
+    }
+}
+
+/// Deletes a saved draft for good: the user threw the composition away.
+#[tauri::command]
+pub async fn draft_discard(state: St<'_>, account_id: String, id: i64, message_id: Option<String>) -> CmdResult<()> {
+    discard(&state, &account_id, id, message_id.as_deref()).await
+}
+
+/// The Message-ID a Depesha draft carries: the local part the builder gave it, under
+/// Depesha's own domain, so opening the draft shows which client wrote it (#71). None for
+/// an id that is all domain (nothing to keep).
+fn own_message_id(mid: &str) -> Option<String> {
+    let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
+    let local = bare.split('@').next().unwrap_or(bare);
+    (!local.is_empty()).then(|| format!("{local}@{}", message::DRAFT_DOMAIN))
+}
+
+/// The first occurrence of `from` in `raw` becomes `to`: enough for the Message-ID, which
+/// the builder made unique.
+fn replace_once(raw: Vec<u8>, from: &[u8], to: &[u8]) -> Vec<u8> {
+    let Some(at) = raw.windows(from.len()).position(|w| w == from) else {
+        return raw;
+    };
+    let mut out = Vec::with_capacity(raw.len() + to.len() - from.len());
+    out.extend_from_slice(&raw[..at]);
+    out.extend_from_slice(to);
+    out.extend_from_slice(&raw[at + from.len()..]);
+    out
+}
+
+/// The lines Depesha puts on top of a saved draft so that it opens the same way. Another
+/// client may send the draft as it is (Outlook, OWA, a shared mailbox), so nothing personal
+/// goes in the clear (#157): what the draft answers (account, Message-ID, folder) and when it
+/// is to go are sealed in one opaque `DRAFT_HEADER` (`seal` is the install secret's); the kind
+/// of action and the way it was written name nobody and stay readable, which is what brings
+/// an answer back after a reinstall (#100). A mark that cannot be sealed or does not fit a
+/// line is not written: the draft is then bound again by its `In-Reply-To`.
+fn with_service_headers(
+    mut raw: Vec<u8>,
+    draft: &Draft,
+    send_at: Option<i64>,
+    seal: impl Fn(&[u8]) -> Option<String>,
+) -> Vec<u8> {
+    // The draft's Message-ID says Depesha wrote it. Another client's draft keeps its own.
+    if let Some(mid) = message::parse_summary(&raw).message_id
+        && let Some(own) = own_message_id(&mid)
+        && own != mid
+    {
+        raw = replace_once(raw, mid.as_bytes(), own.as_bytes());
+    }
+    // The whole mark; failing that, the time alone: a long folder name must not cost it.
+    let marks = [
+        message::DraftMark {
+            acts_on: draft.acts_on.clone(),
+            send_at,
+        },
+        message::DraftMark { acts_on: None, send_at },
+    ];
+    // Not bound to the Message-ID: a server may give the saved draft one of its own.
+    let sealed = marks.iter().filter(|m| !m.is_empty()).find_map(|mark| {
+        mark.encode()
+            .and_then(|plain| seal(&plain))
+            .filter(|v| v.len() <= message::DRAFT_HEADER_MAX)
+    });
+    if let Some(sealed) = sealed {
+        // A header line on top is as good as any other place for it.
+        raw.splice(0..0, format!("{}: {sealed}\r\n", message::DRAFT_HEADER).into_bytes());
+    }
+    if draft.format != BodyFormat::Plain {
+        // Markdown looks like plain text in the letter: the draft says how it was written.
+        let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
+        raw.splice(0..0, header.into_bytes());
+    }
+    if let Some(acts_on) = &draft.acts_on {
+        let header = format!("{}: {}\r\n", message::ACT_HEADER, acts_on.act.as_str());
+        raw.splice(0..0, header.into_bytes());
+    }
+    raw
+}
+
+/// What a saved draft says about itself: the sealed mark of this version, or the signed
+/// `Acts-On` of 0.8.0 (its time and format are read by `parse_view`). Nothing for a mark this
+/// installation did not seal, which names no letter. The sealed mark is read only of a letter
+/// in Drafts (`in_drafts`): the seal is not bound to the letter, so a mark put into a letter of
+/// another folder must not name anything.
+fn draft_mark(raw: &[u8], in_drafts: bool) -> message::DraftMark {
+    let sealed = in_drafts.then(|| message::sealed_draft_mark(raw)).flatten();
+    sealed
+        .and_then(|value| {
+            crate::install_secret::open(&value).or_else(|| {
+                // Sealed with the Message-ID of its letter, before the release: opens with it.
+                message::draft_binding(raw).and_then(|bound| crate::install_secret::open_bound(&value, &bound))
+            })
+        })
+        .and_then(|plain| message::DraftMark::decode(&plain))
+        .unwrap_or_else(|| message::DraftMark {
+            acts_on: message::trusted_acts_on(raw, crate::install_secret::verify),
+            send_at: None,
+        })
+}
+
+/// The server copy a save made: its number in the cache and its Message-ID, which the next
+/// save, the send or the discard must find on that number to delete it (#92).
+#[derive(Serialize)]
+pub struct SavedDraft {
+    id: i64,
+    message_id: Option<String>,
+}
+
+/// Saves the draft into the server's Drafts folder, replacing the previous version.
+/// Returns the saved copy, for the next save to replace it.
+#[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command: the page passes these arguments by name, and a struct would change the wire format and every call site in the page"
+)]
+pub async fn draft_save(
+    window: tauri::Window,
+    state: St<'_>,
+    local_id: Option<String>,
+    account_id: String,
+    draft: ComposeDraft,
+    replace: Option<i64>,
+    replace_message_id: Option<String>,
+    generation: Option<u64>,
+) -> CmdResult<Option<SavedDraft>> {
+    let account = state.account(&account_id)?;
+    // A mailbox without Drafts gets one, as it gets an Archive for "Done".
+    let folder = role_folder(&state, &account.id, FolderRole::Drafts, pick("Drafts", "Черновики")).await?;
+    let send_at = draft.send_at;
+    let mut draft = resolve(&state, window.label(), draft).await?;
+    if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
+        // A draft may have no recipients yet; the builder insists on one.
+        draft.to.push(draft.from.clone().unwrap_or(Addr {
+            name: None,
+            email: account.email.clone(),
+        }));
+    }
+    let raw = smtp::build(&draft)?.formatted();
+    let raw = with_service_headers(raw, &draft, send_at, crate::install_secret::seal);
+    let message_id = message::parse_summary(&raw).message_id;
+    let worker = state.worker(&account.id)?;
+    worker
+        .run(Work::Append {
+            folder: folder.clone(),
+            raw,
+            flags: "(\\Draft \\Seen)".into(),
+            message_id: None,
+        })
+        .await?;
+    // The append synced the folder: the copy is in the cache unless the server hides it.
+    let saved = match message_id {
+        Some(mid) => state
+            .store
+            .find_by_message_id(&account.id, &folder, &mid)?
+            .map(|r| SavedDraft {
+                id: r.id,
+                message_id: r.message_id,
+            }),
+        None => None,
+    };
+    // The window's composition now is this copy: «Clear» in Drafts spares it (#74). Said before
+    // the old copy goes, so that no moment holds the composition without a draft to spare.
+    // A save of a page that was reloaded since says nothing: its compositions are gone.
+    if let Some(local_id) = local_id.filter(|_| state.clearing.current(window.label(), generation)) {
+        match &saved {
+            Some(s) => state
+                .clearing
+                .draft_set(window.label(), &local_id, Some(s.id), s.message_id.clone()),
+            // The server hides the copy: there is nothing to spare, but the composition is still open.
+            None => state.clearing.draft_forget(window.label(), &local_id),
+        }
+    }
+    if let Some(old) = replace {
+        discard_or_tell(&state, &account.id, old, replace_message_id.as_deref(), false).await;
+    }
+    Ok(saved)
+}
+
+/// A window says which server draft its composition is (`None` for none, or once it closed),
+/// so that «Clear» in Drafts, run from any window, leaves it in place (#74).
+#[tauri::command]
+pub fn draft_open(
+    window: tauri::Window,
+    state: St<'_>,
+    local_id: String,
+    draft_id: Option<i64>,
+    message_id: Option<String>,
+) {
+    state
+        .clearing
+        .draft_set(window.label(), &local_id, draft_id, message_id);
+}
+
+/// A window's page was loaded anew: the drafts it reported belong to a page that is gone.
+#[tauri::command]
+pub fn draft_open_reset(window: tauri::Window, state: St<'_>) -> u64 {
+    state.clearing.draft_reset(window.label())
+}
+
+/// How many drafts of the mailbox windows have open: the number «Clear» says will stay.
+#[tauri::command]
+pub fn open_drafts(state: St<'_>, account_id: String) -> usize {
+    crate::empty::open_drafts(&state, &account_id)
+}
+
+#[tauri::command(async)]
+pub fn outbox(state: St<'_>) -> CmdResult<Vec<OutboxItem>> {
+    let mut items = depesha_core::outbox::listed(&state.store, &crate::localize::Phrases)?;
+    for item in &mut items {
+        // The GUI only needs names and sizes, not the bytes.
+        for a in &mut item.draft.attachments {
+            a.data = Vec::new();
+        }
+    }
+    Ok(items)
+}
+
+#[tauri::command(async)]
+pub fn outbox_retry(state: St<'_>, id: i64) -> CmdResult<()> {
+    {
+        // The memory is taken before the store is asked and held until the answer is read: the
+        // attempt in flight can settle at any moment in between, and a request remembered after
+        // that settle would wait for one that never comes (#173).
+        let mut requested = crate::state::lock(&state.resend_requested);
+        crate::outbox::remember_send_now(&mut requested, id, || {
+            state.store.outbox_requeue(id, chrono::Utc::now().timestamp())
+        })?;
+    }
+    state.outbox_notify.notify_one();
+    state.emit("outbox-changed", serde_json::json!({}));
+    Ok(())
+}
+
+/// Throws away a damaged letter of the outbox (a `failed` row whose draft does not parse), and
+/// only when the user asks. A letter that can be read is not deleted by this.
+#[tauri::command(async)]
+pub fn outbox_discard(state: St<'_>, id: i64) -> CmdResult<()> {
+    if state.store.outbox_discard(id)? {
+        crate::outbox::forget_letter(&state, id);
+    }
+    state.emit("outbox-changed", serde_json::json!({}));
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct ReturnedDraft {
+    account_id: String,
+    draft: Draft,
+    /// Attachments as data URLs are not useful here; the GUI gets names and base64.
+    attachments: Vec<(String, String, String)>,
+}
+
+/// Takes the message out of the outbox back into editing.
+#[tauri::command(async)]
+pub fn outbox_cancel(state: St<'_>, id: i64) -> CmdResult<Option<ReturnedDraft>> {
+    let account_id = state
+        .store
+        .outbox()?
+        .into_iter()
+        .find(|i| i.id == id)
+        .map(|i| i.account_id);
+    // A letter whose send has started may have left: it is not taken back.
+    let draft = match state.store.outbox_withdraw(id)? {
+        depesha_core::store::Withdrawn::Draft(draft) => {
+            crate::outbox::forget_letter(&state, id);
+            Some(*draft)
+        }
+        depesha_core::store::Withdrawn::Gone => None,
+        depesha_core::store::Withdrawn::Sending => {
+            return Err(CmdError::new(
+                depesha_core::ErrorKind::Other,
+                tr!(
+                    "the letter is being sent just now and cannot be taken back: look in “Sent”",
+                    "письмо отправляется прямо сейчас, вернуть его нельзя: проверьте «Отправленные»"
+                ),
+            ));
+        }
+    };
+    state.emit("outbox-changed", serde_json::json!({}));
+    Ok(match (account_id, draft) {
+        (Some(account_id), Some(mut draft)) => {
+            let attachments = draft
+                .attachments
+                .drain(..)
+                .map(|a| (a.name, a.mime, BASE64.encode(a.data)))
+                .collect();
+            Some(ReturnedDraft {
+                account_id,
+                draft,
+                attachments,
+            })
+        }
+        _ => None,
+    })
+}
+
+/// Saves attachments handed back by `outbox_cancel` to temp files so the composer can reuse them.
+#[tauri::command]
+pub async fn temp_attachment(app: tauri::AppHandle, state: St<'_>, name: String, data: String) -> CmdResult<String> {
+    let bytes = BASE64
+        .decode(data)
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?;
+    let dir = crate::aster_paths::cache(&app)?
+        .join("compose")
+        .join(chrono::Utc::now().timestamp_millis().to_string());
+    tokio::fs::create_dir_all(&dir).await?;
+    let path = dir.join(safe_name(&name));
+    tokio::fs::write(&path, bytes).await?;
+    state.paths.allow(Use::Attach, path.clone());
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[derive(Serialize)]
+pub struct FileInfo {
+    path: String,
+    name: String,
+    size: u64,
+}
+
+/// A path allowed to attach is read only if it is a file now: it may have become a folder
+/// or vanished since it was chosen.
+async fn ensure_file(path: &Path) -> CmdResult<()> {
+    match tokio::fs::metadata(path).await {
+        Ok(meta) if meta.is_file() => Ok(()),
+        Ok(_) => Err(CmdError::new(
+            depesha_core::ErrorKind::NotAFile,
+            tr!("“{path}” is not a file", "«{path}» — не файл", path = path.display()),
+        )),
+        Err(e) => Err(CmdError::new(
+            depesha_core::ErrorKind::Io,
+            format!("{}: {e}", path.display()),
+        )),
+    }
+}
+
+async fn info_of(path: PathBuf) -> CmdResult<FileInfo> {
+    let meta = tokio::fs::metadata(&path).await?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(FileInfo {
+        path: path.to_string_lossy().into_owned(),
+        name,
+        size: meta.len(),
+    })
+}
+
+/// Pictures that go into the text of a letter: what every mail program shows.
+const PICTURES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+
+/// A picture file read for the text of a letter is at most this big; the composer
+/// makes a large photo smaller before it goes in.
+const MAX_PICTURE_FILE: u64 = 25 * 1024 * 1024;
+
+/// A picture chosen to attach (picked or dropped on the window), as a `data:` URL for
+/// the text of a letter. Other files and files nobody chose are refused.
+#[tauri::command]
+pub async fn inline_image(window: tauri::Window, state: St<'_>, path: String) -> CmdResult<String> {
+    let path = state.paths.check_in(Some(window.label()), Use::Attach, &path)?;
+    ensure_file(&path).await?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !PICTURES.contains(&ext.as_str()) {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::NotAPicture,
+            tr!("“{name}” is not a picture", "«{name}» — не картинка"),
+        ));
+    }
+    if tokio::fs::metadata(&path).await?.len() > MAX_PICTURE_FILE {
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::TooLarge,
+            tr!(
+                "“{name}” is too large to go into the text",
+                "«{name}» слишком большая, чтобы вставить её в текст"
+            ),
+        ));
+    }
+    let data = tokio::fs::read(&path).await?;
+    Ok(format!("data:{};base64,{}", mime_for(&name), BASE64.encode(data)))
+}
+
+/// Name and size of a file chosen to attach (dropped on the window); nothing about others.
+#[tauri::command]
+pub async fn file_info(window: tauri::Window, state: St<'_>, path: String) -> CmdResult<FileInfo> {
+    info_of(state.paths.check_in(Some(window.label()), Use::Attach, &path)?).await
+}
+
+/// The system's file dialog, opened by the backend so that it knows what the user chose.
+fn dialog(window: &tauri::Window, title: String) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    use tauri_plugin_dialog::DialogExt;
+    let builder = window.dialog().file().set_title(title);
+    // As the dialog plugin does: a parent window on Linux breaks GTK's dialog.
+    #[cfg(any(windows, target_os = "macos"))]
+    let builder = builder.set_parent(window);
+    builder
+}
+
+/// Waits for a dialog opened with a callback (the plugin's non-blocking calls): a tokio thread
+/// is not held while the user chooses. A dialog dropped without an answer counts as closed.
+async fn dialog_answer<T: Send + 'static>(open: impl FnOnce(Box<dyn FnOnce(Option<T>) + Send>)) -> Option<T> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    open(Box::new(move |answer| {
+        unheard(tx.send(answer));
+    }));
+    match rx.await {
+        Ok(answer) => answer,
+        Err(_) => {
+            tracing::debug!("a dialog ended without an answer");
+            None
+        }
+    }
+}
+
+/// Files to attach, picked in the open dialog. Empty when the dialog was closed.
+#[tauri::command]
+pub async fn pick_files(
+    window: tauri::Window,
+    state: St<'_>,
+    title: String,
+    images: Option<bool>,
+) -> CmdResult<Vec<FileInfo>> {
+    let mut builder = dialog(&window, title);
+    if images.unwrap_or(false) {
+        builder = builder.add_filter(pick("Pictures", "Картинки"), &PICTURES);
+    }
+    let picked = dialog_answer(|done| builder.pick_files(done)).await.unwrap_or_default();
+    let mut files = Vec::new();
+    for path in picked.into_iter().filter_map(|p| p.into_path().ok()) {
+        state.paths.allow(Use::Attach, path.clone());
+        files.push(info_of(path).await?);
+    }
+    Ok(files)
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FolderUse {
+    /// Attachments are saved into it.
+    Save,
+    /// A plugin is installed from it.
+    Plugin,
+}
+
+/// A folder picked in the system dialog, starting at `current`; nothing when it was closed.
+#[tauri::command]
+pub async fn pick_folder(
+    window: tauri::Window,
+    state: St<'_>,
+    to: FolderUse,
+    title: String,
+    current: Option<String>,
+) -> CmdResult<Option<String>> {
+    let mut builder = dialog(&window, title);
+    if let Some(dir) = current.filter(|d| !d.trim().is_empty()) {
+        builder = builder.set_directory(dir);
+    }
+    let Some(path) = dialog_answer(|done| builder.pick_folder(done))
+        .await
+        .and_then(|p| p.into_path().ok())
+    else {
+        return Ok(None);
+    };
+    let to = match to {
+        FolderUse::Save => Use::SaveFolder,
+        FolderUse::Plugin => Use::Plugin,
+    };
+    state.paths.allow(to, path.clone());
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Where to save one attachment, asked in the save dialog; nothing when it was closed.
+#[tauri::command]
+pub async fn pick_save_file(
+    window: tauri::Window,
+    state: St<'_>,
+    title: String,
+    name: String,
+) -> CmdResult<Option<String>> {
+    let builder = dialog(&window, title).set_file_name(safe_name(&name));
+    let picked = dialog_answer(|done| builder.save_file(done))
+        .await
+        .and_then(|p| p.into_path().ok());
+    Ok(picked.map(|path| {
+        state.paths.allow(Use::SaveFile, path.clone());
+        path.to_string_lossy().into_owned()
+    }))
+}
+
+#[tauri::command]
+pub fn update_status(state: St<'_>) -> crate::updater::UpdateStatus {
+    state.updates.status()
+}
+
+#[tauri::command]
+pub async fn update_check(state: St<'_>) -> CmdResult<crate::updater::UpdateStatus> {
+    Ok(crate::updater::check(&state, true).await)
+}
+
+#[tauri::command]
+pub async fn update_install(state: St<'_>) -> CmdResult<crate::updater::UpdateStatus> {
+    crate::updater::install(&state)
+        .await
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Update, e))
+}
+
+#[tauri::command]
+pub fn update_restart(state: St<'_>) {
+    crate::updater::restart(&state)
+}
+
+#[tauri::command(async)]
+pub fn extensions(app: tauri::AppHandle, state: St<'_>) -> CmdResult<Vec<crate::extensions::Installed>> {
+    crate::extensions::list(&app, &state.settings().disabled_extensions)
+}
+
+/// An extension folder as it would be installed, for the user to agree to; copies nothing.
+#[tauri::command(async)]
+pub fn extension_inspect(app: tauri::AppHandle, state: St<'_>, path: String) -> CmdResult<crate::extensions::Preview> {
+    crate::extensions::inspect(&app, &state.paths.check(Use::Plugin, &path)?)
+}
+
+/// Installs an extension whose permissions and hooks are exactly the agreed ones.
+#[tauri::command(async)]
+pub fn extension_install(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    path: String,
+    permissions: Vec<String>,
+    hooks: Vec<String>,
+) -> CmdResult<crate::extensions::Manifest> {
+    let from = state.paths.check(Use::Plugin, &path)?;
+    let grant = crate::extensions::Grant { permissions, hooks };
+    let m = crate::extensions::install(&app, &from, grant)?;
+    state.emit("extensions-changed", serde_json::json!({ "id": m.id }));
+    Ok(m)
+}
+
+/// Approves the permissions of an installed extension that waits for it.
+#[tauri::command(async)]
+pub fn extension_approve(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    id: String,
+    permissions: Vec<String>,
+    hooks: Vec<String>,
+) -> CmdResult<()> {
+    crate::extensions::approve(&app, &id, crate::extensions::Grant { permissions, hooks })?;
+    state.emit("extensions-changed", serde_json::json!({ "id": id }));
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn extension_remove(app: tauri::AppHandle, state: St<'_>, id: String) -> CmdResult<()> {
+    crate::extensions::remove(&app, &id)?;
+    state.update_settings(|settings| {
+        settings.disabled_extensions.retain(|d| d != &id);
+        Ok(())
+    })?;
+    state.emit("extensions-changed", serde_json::json!({ "id": id }));
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn extension_storage_get(app: tauri::AppHandle, id: String, key: String) -> CmdResult<serde_json::Value> {
+    crate::extensions::storage_get(&app, &id, &key)
+}
+
+#[tauri::command(async)]
+pub fn extension_storage_set(
+    app: tauri::AppHandle,
+    id: String,
+    key: String,
+    value: serde_json::Value,
+) -> CmdResult<()> {
+    crate::extensions::storage_set(&app, &id, &key, value)
+}
+
+/// Cached rows by id, for extensions that look at new mail.
+#[tauri::command(async)]
+pub fn messages_by_id(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<MessageRow>> {
+    let mut out = Vec::new();
+    for id in ids {
+        if let Some(r) = state.store.get(id)? {
+            out.push(r);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether the system shows tray icons: the background settings warn when it does not.
+#[tauri::command]
+pub fn background_status(state: St<'_>) -> serde_json::Value {
+    let tray = match state.tray.presence() {
+        crate::background::Tray::Checking => "checking",
+        crate::background::Tray::Present => "present",
+        crate::background::Tray::Absent => "absent",
+    };
+    serde_json::json!({ "tray": tray })
+}
+
+/// A `aster-mail://` URL the app was started with (a toast click while it was closed): the
+/// main window asks for it once it listens, and turns to what it names.
+#[tauri::command]
+pub fn deep_link_take(state: St<'_>) -> Option<crate::desktop_notify::Open> {
+    let url = state.take_pending_deep_link()?;
+    crate::desktop_notify::open_from_url(&state, &url)
+}
+
+/// Hides the main window; the app works on in the background.
+#[tauri::command]
+pub fn window_hide(app: tauri::AppHandle) {
+    crate::background::hide_main(&app);
+}
+
+/// Quits for real; letters due soon make the window ask first, unless `force`.
+#[tauri::command]
+pub fn app_quit(app: tauri::AppHandle, force: bool) {
+    crate::background::quit(&app, force);
+}
+
+/// Letters held back since the last call because they missed their time. With the window
+/// hidden nothing is taken: a toast would not be seen, so the letters wait for the window.
+#[tauri::command]
+pub fn outbox_missed(state: St<'_>) -> Vec<i64> {
+    if crate::background::main_hidden(&state.app) {
+        return Vec::new();
+    }
+    crate::background::take_missed(&state)
+}
+
+/// A window says whether it holds letters being written: a quit asks it first. With the
+/// main window too, so a quit saves the drafts of every window, not only a letter's own.
+/// A window that reports none (its last draft saved or gone) lets a waiting quit go on.
+#[tauri::command]
+pub fn compose_unsaved(window: tauri::Window, unsaved: bool) {
+    let label = window.label();
+    if label != "main" && !label.starts_with("message-") {
+        return;
+    }
+    if unsaved {
+        crate::background::unsaved_changed(window.app_handle(), label, true);
+    } else {
+        crate::background::window_gone(window.app_handle(), label);
+    }
+}
+
+/// The page heard `files-dropped`: said in the log, with the count only (#79).
+#[tauri::command]
+pub fn drop_seen(window: tauri::WebviewWindow, count: usize) {
+    tracing::debug!(label = window.label(), count, "the page heard of a drop");
+}
+
+/// What became of a drop (#79).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropOutcome {
+    Attached,
+    NoCompose,
+    MissedZone,
+}
+
+/// The zone the pointer was over at a drop.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropZoneChosen {
+    Inline,
+    Attach,
+    None,
+}
+
+/// What the page did with a drop (#79): the outcome, the files attached and the pictures put
+/// into the text, the zone, and the pointer and the window in logical pixels. Numbers only,
+/// never file names.
+#[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command: the page passes these arguments by name, and a struct would change the wire format and every call site in the page"
+)]
+pub fn drop_outcome(
+    window: tauri::WebviewWindow,
+    outcome: DropOutcome,
+    attached: usize,
+    inline: usize,
+    zone: DropZoneChosen,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) {
+    tracing::debug!(
+        label = window.label(),
+        ?outcome,
+        attached,
+        inline,
+        ?zone,
+        x,
+        y,
+        width,
+        height,
+        "the page dealt with a drop"
+    );
+}
+
+/// Test builds only (`e2e`): WebDriver cannot drag a file from the desktop, so this makes the
+/// window report a drag the way the system does. `phase`: `enter` (the page offers its drop
+/// zones), `leave` (it takes them back), or `drop`, which goes through `drops::window_event`
+/// as a real drop does. `x`, `y`: physical pixels of the window.
+#[cfg(feature = "e2e")]
+#[tauri::command]
+pub fn e2e_drop(window: tauri::Window, paths: Vec<String>, x: f64, y: f64, phase: String) -> CmdResult<()> {
+    use tauri::Emitter;
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
+    let position = tauri::PhysicalPosition::new(x, y);
+    let told = |event: &str, payload: serde_json::Value| {
+        window
+            .emit_to(tauri::EventTarget::webview(window.label()), event, payload)
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::Other, e.to_string()))
+    };
+    match phase.as_str() {
+        "enter" => told(
+            "tauri://drag-enter",
+            serde_json::json!({ "paths": paths, "position": position }),
+        )?,
+        "leave" => told("tauri://drag-leave", serde_json::Value::Null)?,
+        "drop" => {
+            let event = tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position });
+            crate::drops::window_event(&window, &event, crate::drops::allow_in_state(&window, window.label()));
+        }
+        other => {
+            return Err(CmdError::new(
+                depesha_core::ErrorKind::BadRequest,
+                format!("e2e_drop: unknown phase {other}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Test builds only (`e2e`): a letter in the cache of the mailbox, body and all, so that a window
+/// of its own can open it with no mail server (a Windows run has none). With `html` it is an HTML
+/// letter with a link, for the frame's relay (#124); without, plain text for the drop steps.
+/// Returns its id.
+#[cfg(feature = "e2e")]
+#[tauri::command(async)]
+pub fn e2e_seed_message(state: St<'_>, account_id: String, html: Option<bool>) -> CmdResult<i64> {
+    let html = html.unwrap_or(false);
+    let (raw, text) = if html {
+        (
+            b"From: Seed <seed@example.org>\r\nTo: carol@local.test\r\nSubject: Seed HTML letter\r\nMessage-ID: <seed-html@example.org>\r\nDate: Fri, 02 Oct 2026 11:00:00 +0000\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>A letter with <a href=\"https://example.com/frame\">a link</a>.</p>\r\n"
+                .as_slice(),
+            "A letter with a link.",
+        )
+    } else {
+        (
+            b"From: Seed <seed@example.org>\r\nTo: carol@local.test\r\nSubject: Seed letter\r\nMessage-ID: <seed@example.org>\r\nDate: Fri, 02 Oct 2026 11:00:00 +0000\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nA letter for the drop run.\r\n"
+                .as_slice(),
+            "A letter for the drop run.",
+        )
+    };
+    let summary = message::parse_summary(raw);
+    let msg = depesha_core::store::NewMessage {
+        // The two seeded letters lie in one folder, and a uid is what a folder knows them by.
+        uid: if html { 2 } else { 1 },
+        summary: &summary,
+        fallback_date: 1_790_000_000,
+        size: raw.len() as u32,
+        flags: Default::default(),
+        keywords: Vec::new(),
+    };
+    // The mailbox has no folders yet when there is no server to list them.
+    state.store.replace_folders(
+        &account_id,
+        &[depesha_core::domain::Folder {
+            name: "INBOX".into(),
+            display_name: "INBOX".into(),
+            delimiter: Some("/".into()),
+            role: Some(depesha_core::domain::FolderRole::Inbox),
+            selectable: true,
+            hidden: false,
+        }],
+    )?;
+    let id = state.store.insert_message(&account_id, "INBOX", &msg)?;
+    state.store.save_body(id, raw, text)?;
+    Ok(id)
+}
+
+/// Test builds only (`e2e`): publishes the public key of a signed letter, as if the name
+/// servers of the internet had given it. The stand has no name server of its own, and a letter
+/// whose key nobody can look up is a letter nobody can confirm: the stand's letters would have
+/// no brand logo and the pictures of a trusted sender would stay hidden.
+///
+/// The key is the one the script signed the letter with; the record is the DKIM key record of
+/// that key (`v=DKIM1; k=…; p=…`). The name is the one the lookup asks about
+/// (`<selector>._domainkey.<domain>`).
+#[cfg(feature = "e2e")]
+#[tauri::command(async)]
+pub fn e2e_publish_dkim_key(state: St<'_>, name: String, record: String) -> CmdResult<bool> {
+    Ok(state.signatures.add_answer(&name, &record))
+}
+
+/// Test builds only (`e2e`): what a script that reached the app's IPC leaves behind. Called with a
+/// marker it records it, without one it lists what was recorded. A frame's own promise may never
+/// settle — the answer is delivered into the top document — so the run asks the app here, from the
+/// page's own context, whether the letter's frame got through (#124).
+#[cfg(feature = "e2e")]
+static FRAME_PROBES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "e2e")]
+#[tauri::command]
+pub fn e2e_frame_probe(marker: Option<String>) -> CmdResult<Vec<String>> {
+    let mut seen = FRAME_PROBES
+        .lock()
+        .map_err(|_| CmdError::new(depesha_core::ErrorKind::Other, "e2e_frame_probe: poisoned"))?;
+    if let Some(marker) = marker {
+        seen.push(marker);
+    }
+    Ok(seen.clone())
+}
+
+/// The user keeps a letter being written: a quit waiting for the window stops.
+#[tauri::command]
+pub fn quit_cancel(app: tauri::AppHandle) {
+    crate::background::quit_cancelled(&app);
+}
+
+/// The sheet of a letter, printed through the system's panel (#70). Only macOS asks for it:
+/// there a frame in the page cannot print itself.
+#[tauri::command]
+pub async fn print_sheet(window: tauri::WebviewWindow, html: String) -> CmdResult<()> {
+    crate::print_sheet::print(&window, html).await
+}
+
+#[cfg(test)]
+mod tests {
+    use depesha_core::removed;
+
+    /// A letter of the conversation that holds `invite` as its `.ics` file, put into the cache
+    /// with its body, as a sync would leave it.
+    fn invited_letter(store: &depesha_core::store::Store, uid: u32, date: i64, invite: &str) {
+        use depesha_core::domain::{Flags, Folder, FolderRole};
+        use depesha_core::message::Summary;
+        use depesha_core::store::NewMessage;
+        store
+            .upsert_folders(
+                "a",
+                &[Folder {
+                    name: "INBOX".to_owned(),
+                    display_name: "Inbox".to_owned(),
+                    delimiter: Some("/".to_owned()),
+                    role: Some(FolderRole::Inbox),
+                    selectable: true,
+                    hidden: false,
+                }],
+            )
+            .unwrap();
+        let raw = format!(
+            "From: a@example.org\r\nTo: b@example.org\r\nSubject: invitation\r\n\
+             Message-ID: <m{uid}@example.org>\r\nMIME-Version: 1.0\r\n\
+             Content-Type: multipart/mixed; boundary=\"m\"\r\n\r\n--m\r\n\
+             Content-Type: text/plain\r\n\r\nSee the invitation.\r\n--m\r\n\
+             Content-Type: text/calendar; name=\"invite.ics\"\r\n\
+             Content-Disposition: attachment; filename=\"invite.ics\"\r\n\r\n{invite}\r\n--m--\r\n"
+        );
+        let summary = Summary {
+            message_id: Some(format!("<m{uid}@example.org>")),
+            // One conversation: every letter names the same root (the thread is the root's key).
+            references: vec!["root@example.org".to_owned()],
+            subject: "invitation".to_owned(),
+            date: Some(date),
+            ..Summary::default()
+        };
+        let id = store
+            .insert_message(
+                "a",
+                "INBOX",
+                &NewMessage {
+                    uid,
+                    summary: &summary,
+                    fallback_date: date,
+                    size: raw.len() as u32,
+                    flags: Flags::default(),
+                    keywords: Vec::new(),
+                },
+            )
+            .unwrap();
+        store.save_body(id, raw.as_bytes(), "See the invitation.").unwrap();
+    }
+
+    fn invitation(sequence: u32, hour: u32, location: &str) -> String {
+        format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+             UID:meeting@example.org\r\nSEQUENCE:{sequence}\r\nSUMMARY:Встреча\r\n\
+             DTSTART;TZID=Europe/Moscow:20261106T{hour:02}0000\r\nDTEND;TZID=Europe/Moscow:20261106T{hour:02}3000\r\n\
+             LOCATION:{location}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+        )
+    }
+
+    /// An update is compared with the version the reader was sent before (7.1 А): the newest
+    /// earlier letter of the conversation that holds the same meeting.
+    #[test]
+    fn an_update_finds_the_meeting_of_an_earlier_letter() {
+        let store = depesha_core::store::Store::open_in_memory().unwrap();
+        invited_letter(&store, 1, 1_000, &invitation(0, 15, "Переговорная 2"));
+        invited_letter(&store, 2, 2_000, &invitation(1, 15, "Переговорная 4"));
+        invited_letter(&store, 3, 3_000, &invitation(2, 16, "Переговорная 4"));
+        let rows = store.thread("a", "root@example.org").unwrap();
+        let now = rows.last().unwrap().clone();
+        let notice = depesha_core::calendar::from_message(&store.body(now.id).unwrap().unwrap()).unwrap();
+        let previous = previous_meeting(&store, &now, &notice).expect("the version before");
+        // The newest of the earlier letters, not the first one sent.
+        assert_eq!(previous.sequence, 1);
+        assert_eq!(previous.start.hour, 15);
+        assert_eq!(previous.location.as_deref(), Some("Переговорная 4"));
+
+        // A meeting of another `UID` is another meeting: nothing to compare with.
+        invited_letter(
+            &store,
+            4,
+            4_000,
+            &invitation(0, 9, "Зал").replace("meeting@example.org", "other@example.org"),
+        );
+        let rows = store.thread("a", "root@example.org").unwrap();
+        let now = rows.last().unwrap().clone();
+        let notice = depesha_core::calendar::from_message(&store.body(now.id).unwrap().unwrap()).unwrap();
+        assert!(previous_meeting(&store, &now, &notice).is_none());
+    }
+    /// The word a picture stands for in the plain part of the letter that goes out is the
+    /// one of the language of the interface.
+    #[test]
+    fn the_word_of_a_picture_is_the_one_of_the_interface_language() {
+        use crate::lang::{Lang, pin};
+        for (lang, word) in [(Lang::En, "Picture"), (Lang::Ru, "Изображение")] {
+            pin(lang);
+            assert_eq!(super::picture_word(), word);
+        }
+    }
+
+    #[test]
+    fn a_draft_left_on_the_server_is_told_in_both_languages() {
+        use crate::lang::{Lang, pin};
+        for (lang, queued, head) in [
+            (
+                Lang::En,
+                true,
+                "The letter is on its way, but its draft stayed in Drafts",
+            ),
+            (
+                Lang::En,
+                false,
+                "The new draft is saved, but the old copy stayed in Drafts",
+            ),
+            (Lang::Ru, true, "Письмо уходит, но его черновик остался в «Черновиках»"),
+            (
+                Lang::Ru,
+                false,
+                "Новый черновик сохранён, но прежняя копия осталась в «Черновиках»",
+            ),
+        ] {
+            pin(lang);
+            assert_eq!(
+                super::discard_failed_text(queued, "no rights"),
+                format!("{head}: no rights")
+            );
+        }
+    }
+
+    fn answer_draft(act: Act, folder: &str) -> Draft {
+        Draft {
+            from: Some(Addr {
+                name: None,
+                email: "me@x.ru".into(),
+            }),
+            to: vec![Addr {
+                name: None,
+                email: "a@x.ru".into(),
+            }],
+            subject: "Тема".into(),
+            text: "текст".into(),
+            acts_on: Some(ActsOn {
+                account_id: "acc".into(),
+                message_id: "<orig@x.ru>".into(),
+                folder: folder.into(),
+                act,
+                waiting: false,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn saved_with(draft: &Draft, send_at: Option<i64>) -> String {
+        crate::install_secret::init_with([1u8; 32]);
+        let raw = smtp::build(draft).unwrap().formatted();
+        let raw = with_service_headers(raw, draft, send_at, crate::install_secret::seal);
+        String::from_utf8(raw).unwrap()
+    }
+
+    #[test]
+    fn a_draft_whose_mark_is_too_long_still_tells_its_kind_and_keeps_its_time() {
+        let long = answer_draft(Act::Forward, &"п".repeat(900));
+        let raw = saved_with(&long, Some(1_790_123_456));
+        // The letter it answers does not fit a line; the time of sending still does.
+        let mark = draft_mark(raw.as_bytes(), true);
+        assert_eq!(mark.acts_on, None);
+        assert_eq!(mark.send_at, Some(1_790_123_456));
+        assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
+        let none = saved_with(&long, None);
+        assert!(!none.contains(message::DRAFT_HEADER), "nothing to seal");
+        assert_eq!(message::draft_act(none.as_bytes()), Some(Act::Forward));
+    }
+
+    /// #157: what the mark holds does not show in the length of its line.
+    #[test]
+    fn the_sealed_line_is_as_long_whatever_the_mark_holds() {
+        let line = |waiting: bool, send_at: Option<i64>| {
+            let mut draft = answer_draft(Act::Reply, "INBOX");
+            draft.acts_on.as_mut().unwrap().waiting = waiting;
+            let raw = saved_with(&draft, send_at);
+            message::sealed_draft_mark(raw.as_bytes()).unwrap().len()
+        };
+        let base = line(false, None);
+        for (waiting, send_at) in [(true, None), (false, Some(1_790_123_456)), (true, Some(1_790_123_456))] {
+            assert_eq!(line(waiting, send_at), base, "waiting {waiting}, send_at {send_at:?}");
+        }
+    }
+
+    /// #157: nothing that names the mailbox, the folder or the plans is in a saved draft,
+    /// in the clear or in base64, for a client that sends the draft as it is.
+    #[test]
+    fn a_saved_draft_gives_nothing_personal_to_whoever_it_is_sent_to() {
+        let mut draft = answer_draft(Act::Reply, "Секретная/папка");
+        let acts_on = draft.acts_on.as_mut().unwrap();
+        acts_on.account_id = "acc-7f3a91".into();
+        acts_on.waiting = true;
+        let json = serde_json::to_string(draft.acts_on.as_ref().unwrap()).unwrap();
+        let raw = saved_with(&draft, Some(1_790_123_456));
+        let headers = raw.split("\r\n\r\n").next().unwrap();
+        for name in [message::ACTS_ON_HEADER, message::SEND_AT_HEADER] {
+            assert!(!headers.contains(&format!("{name}:")), "{name} is not written");
+        }
+        let b64 = |engine: &dyn Fn(&[u8]) -> String| engine(json.as_bytes());
+        let std = b64(&|b| base64::engine::general_purpose::STANDARD.encode(b));
+        let url = b64(&|b| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b));
+        // The sealed value opens to the JSON; its base64 is the bytes, not the text.
+        let sealed = headers
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{}: ", message::DRAFT_HEADER)))
+            .unwrap();
+        let inner = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(sealed.trim().strip_prefix("1.").unwrap())
+            .unwrap();
+        for needle in [
+            "Секретная".as_bytes(),
+            "acc-7f3a91".as_bytes(),
+            b"waiting",
+            b"1790123456",
+            std.as_bytes(),
+            url.as_bytes(),
+        ] {
+            let found = |hay: &[u8]| hay.windows(needle.len()).any(|w| w == needle);
+            assert!(
+                !found(headers.as_bytes()),
+                "{:?} in the headers",
+                String::from_utf8_lossy(needle)
+            );
+            assert!(
+                !found(&inner),
+                "{:?} in the sealed bytes",
+                String::from_utf8_lossy(needle)
+            );
+        }
+    }
+
+    /// A mark sealed under another secret (a reinstall, the other machine) names nothing and
+    /// gives no time: `parse_view` takes the time from the old line only.
+    #[test]
+    fn a_mark_of_another_secret_names_nothing_and_gives_no_time() {
+        crate::install_secret::init_with([1u8; 32]);
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let raw = smtp::build(&draft).unwrap().formatted();
+        let raw = with_service_headers(raw, &draft, Some(1_790_123_456), |plain| {
+            crate::install_secret::seal_with(&[200u8; 32], plain)
+        });
+        assert!(message::sealed_draft_mark(&raw).is_some());
+        assert_eq!(draft_mark(&raw, true), message::DraftMark::default());
+        assert_eq!(message::parse_view(&raw, false).unwrap().send_at, None);
+    }
+
+    /// The seal is not bound to the Message-ID: a server that gives the saved draft one of its
+    /// own (Exchange, OWA) leaves what it answers and its time in place (#157).
+    #[test]
+    fn a_draft_whose_message_id_the_server_changed_keeps_its_mark() {
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let mine = saved_with(&draft, Some(1_790_123_456));
+        let own = message::parse_summary(mine.as_bytes()).message_id.unwrap();
+        let rewritten = mine.replacen(&own, "AAMkAGRkZjQ5@corp.example", 1);
+        assert_ne!(rewritten, mine);
+        let mark = draft_mark(rewritten.as_bytes(), true);
+        assert_eq!(mark.acts_on, draft.acts_on);
+        assert_eq!(mark.send_at, Some(1_790_123_456));
+    }
+
+    /// The mark is read of a letter in Drafts only: its line put into a letter of another
+    /// folder (the Inbox, an attached .eml) names nothing.
+    #[test]
+    fn a_mark_put_into_a_letter_outside_drafts_names_nothing() {
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let mine = saved_with(&draft, Some(1_790_123_456));
+        assert_ne!(draft_mark(mine.as_bytes(), true), message::DraftMark::default());
+        let sealed = message::sealed_draft_mark(mine.as_bytes()).unwrap();
+        let other = format!(
+            "{}: {sealed}\r\nMessage-ID: <other@elsewhere.example>\r\nFrom: me@x.ru\r\nTo: a@x.ru\r\nSubject: S\r\n\r\nt\r\n",
+            message::DRAFT_HEADER
+        );
+        assert_eq!(draft_mark(other.as_bytes(), false), message::DraftMark::default());
+        // The same line in a letter of Drafts is read: the seal is not what stops it.
+        assert_ne!(draft_mark(other.as_bytes(), true), message::DraftMark::default());
+    }
+
+    /// A draft saved while main bound the seal to the Message-ID still opens.
+    #[test]
+    fn a_draft_sealed_with_its_message_id_still_opens() {
+        crate::install_secret::init_with([1u8; 32]);
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let raw = smtp::build(&draft).unwrap().formatted();
+        let plain = message::DraftMark {
+            acts_on: draft.acts_on.clone(),
+            send_at: Some(1_790_000_000),
+        }
+        .encode()
+        .unwrap();
+        let bound = message::draft_binding(&raw).unwrap();
+        let sealed = crate::install_secret::seal_bound_for_test(&plain, &bound).unwrap();
+        let mut full = format!("{}: {sealed}\r\n", message::DRAFT_HEADER).into_bytes();
+        full.extend_from_slice(&raw);
+        assert_eq!(draft_mark(&full, true).acts_on, draft.acts_on);
+    }
+
+    /// What the draft answers and when it goes come back when it is opened again.
+    #[test]
+    fn a_reopened_draft_remembers_what_it_answers_and_its_kind() {
+        let draft = answer_draft(Act::Forward, "INBOX");
+        let raw = saved_with(&draft, Some(1_790_123_456));
+        let mark = draft_mark(raw.as_bytes(), true);
+        assert_eq!(mark.acts_on, draft.acts_on);
+        assert_eq!(mark.send_at, Some(1_790_123_456));
+        assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
+        // A mark sealed by another installation names nothing, the kind still reads.
+        let foreign = raw.replacen(
+            message::sealed_draft_mark(raw.as_bytes()).unwrap().as_str(),
+            "1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            1,
+        );
+        assert_eq!(draft_mark(foreign.as_bytes(), true), message::DraftMark::default());
+        assert_eq!(message::draft_act(foreign.as_bytes()), Some(Act::Forward));
+    }
+
+    /// A draft saved by 0.8.0 keeps its signed mark and its time in the old lines.
+    #[test]
+    fn a_draft_of_080_is_still_read() {
+        crate::install_secret::init_with([1u8; 32]);
+        let acts_on = answer_draft(Act::Reply, "INBOX").acts_on.unwrap();
+        let value = message::encode_acts_on(&acts_on).unwrap();
+        let signed = message::signed_acts_on(&value, &crate::install_secret::sign(value.as_bytes())).unwrap();
+        let raw = format!(
+            "{}: {signed}\r\n{}: 1790000000\r\nMessage-ID: <d@depesha.local>\r\nFrom: me@x.ru\r\n\
+             To: a@x.ru\r\nSubject: S\r\n\r\nтекст\r\n",
+            message::ACTS_ON_HEADER,
+            message::SEND_AT_HEADER
+        );
+        assert_eq!(draft_mark(raw.as_bytes(), true).acts_on, Some(acts_on));
+        assert_eq!(
+            message::parse_view(raw.as_bytes(), false).unwrap().send_at,
+            Some(1_790_000_000)
+        );
+        assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Reply));
+    }
+
+    use super::*;
+
+    /// The interface sends a draft without the keys the generated type marks optional, and the
+    /// ones its loose types leave out (`format`, `importance`): Rust fills them in (#143).
+    #[test]
+    fn a_compose_draft_is_read_without_the_keys_the_interface_may_leave_out() {
+        let d: ComposeDraft = serde_json::from_str(
+            r#"{"from":null,"to":[],"cc":[],"bcc":[],"subject":"s","text":"t","in_reply_to":null,"references":[],"attachments":[]}"#,
+        )
+        .unwrap();
+        assert!(d.html.is_none() && d.signature.is_none() && d.send_at.is_none() && d.acts_on.is_none());
+        assert_eq!(d.format, BodyFormat::default());
+        let bare: ComposeDraft = serde_json::from_str("{}").unwrap();
+        assert!(bare.to.is_empty() && bare.subject.is_empty());
+        // The attachments it names carry the name and size the window shows.
+        let with: ComposeDraft = serde_json::from_str(
+            r#"{"attachments":[{"kind":"file","path":"/a.pdf","name":"a.pdf","size":5},{"kind":"message","id":1,"index":0}]}"#,
+        )
+        .unwrap();
+        assert_eq!(with.attachments.len(), 2);
+    }
+
+    #[test]
+    fn a_followup_plan_is_read_without_the_keys_the_interface_may_leave_out() {
+        let p: depesha_core::store::FollowupPlan =
+            serde_json::from_str(r#"{"deadline_secs":7200,"repeat_secs":0,"expect":"","kind":""}"#).unwrap();
+        assert_eq!((p.due_at, p.deadline_at, p.park, p.archive), (0, 0, None, None));
+        let q: depesha_core::store::ListQuery = serde_json::from_str("{}").unwrap();
+        assert_eq!((q.limit, q.offset, q.threads), (0, 0, false));
+    }
+
+    #[test]
+    fn an_unreadable_unsubscribe_is_told_in_the_users_words() {
+        let e = unsubscribe_unreadable(depesha_core::Error::Unreadable);
+        assert_eq!(e.kind, depesha_core::ErrorKind::Other);
+        assert!(
+            e.message.contains("отписки") || e.message.contains("unsubscribe"),
+            "{}",
+            e.message
+        );
+        assert_eq!(
+            unsubscribe_unreadable(depesha_core::Error::NotFound).kind,
+            CmdError::from(depesha_core::Error::NotFound).kind
+        );
+    }
+
+    #[tokio::test]
+    async fn dialog_answer_waits_for_the_callback_from_another_thread() {
+        let got = dialog_answer(|done| {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                done(Some(5));
+            });
+        })
+        .await;
+        assert_eq!(got, Some(5));
+    }
+
+    #[tokio::test]
+    async fn dialog_answer_treats_a_closed_dialog_and_a_dropped_callback_as_nothing() {
+        assert_eq!(dialog_answer::<u8>(|done| done(None)).await, None);
+        assert_eq!(dialog_answer::<u8>(drop).await, None);
+    }
+
+    fn mailbox() -> Account {
+        serde_json::from_str(
+            r##"{"id":"a","display_name":"Jane","email":"j@x.test","username":"j","imap":{"host":"i","port":993,"security":"tls"},"smtp":{"host":"s","port":465,"security":"tls"},"save_sent_copy":true}"##,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_own_patch_changes_only_the_fields_it_names() {
+        let mut a = mailbox();
+        let before = a.clone();
+        let patch: OwnPatch =
+            serde_json::from_str(r#"{"label":" Work ","compose_format":"markdown","quota_limit_mb":0}"#).unwrap();
+        apply_own(&mut a, patch);
+        assert_eq!(a.label, "Work");
+        assert_eq!(a.compose_format, Some(BodyFormat::Markdown));
+        assert_eq!(
+            (&a.imap, &a.smtp, &a.username, &a.auth),
+            (&before.imap, &before.smtp, &before.username, &before.auth)
+        );
+        assert_eq!(a.display_name, before.display_name);
+    }
+
+    #[test]
+    fn an_empty_format_view_or_signature_means_none() {
+        let mut a = mailbox();
+        a.compose_format = Some(BodyFormat::Html);
+        a.letter_view = Some("text".into());
+        apply_own(
+            &mut a,
+            serde_json::from_str(r#"{"compose_format":"","letter_view":"","default_signature":"gone"}"#).unwrap(),
+        );
+        assert_eq!(
+            (a.compose_format, a.letter_view, a.default_signature),
+            (None, None, None)
+        );
+    }
+
+    /// The command is the config's alone: it neither restarts the mailbox's connection nor saves the whole mailbox.
+    #[test]
+    fn an_own_patch_keeps_the_mailboxs_connection_alone() {
+        let src = include_str!("commands.rs");
+        let body = &src[src.find("pub fn account_patch_own").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(!body.contains("worker") && !body.contains("save_account"), "{body}");
+    }
+
+    /// What the connection holds is not the patch's to name: the command refuses the key instead
+    /// of dropping it, so a client that sends it hears that it was not saved.
+    #[test]
+    fn an_own_patch_refuses_what_reaches_the_server() {
+        for key in [
+            r#""imap":{"host":"h","port":1,"security":"tls"}"#,
+            r#""username":"u""#,
+            r#""auth":{"kind":"password"}"#,
+        ] {
+            let patch = serde_json::from_str::<OwnPatch>(&format!("{{{key}}}"));
+            assert!(patch.is_err(), "{key} was taken");
+        }
+        assert!(serde_json::from_str::<OwnPatch>(r#"{"label":"x"}"#).is_ok());
+    }
+
+    /// The command changes the config and nothing else: the patch goes through
+    /// `patch_account_locked`, which holds no worker, and lands on the file.
+    #[test]
+    fn an_own_patch_is_written_to_the_config_alone() {
+        let dir = std::env::temp_dir().join(format!("depesha-own-patch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("accounts.json");
+        let config = std::sync::Mutex::new(crate::config::Config {
+            accounts: vec![mailbox()],
+            ..Default::default()
+        });
+        let patch: OwnPatch = serde_json::from_str(r#"{"label":"Work"}"#).unwrap();
+        let saved = crate::state::patch_account_locked(&config, &path, "a", |a| apply_own(a, patch)).unwrap();
+        assert_eq!(saved.label, "Work");
+        assert_eq!(crate::config::load(&path).accounts[0].label, "Work");
+        removed("remove the test folder", std::fs::remove_dir_all(&dir));
+    }
+
+    /// The look is changed under the config lock like the other patches: a read of the mailbox and
+    /// a save of the whole copy would roll back a patch written in between.
+    #[test]
+    fn the_look_is_a_patch_under_the_lock() {
+        let src = include_str!("commands.rs");
+        let body = &src[src.find("pub fn account_look").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(
+            body.contains("patch_account") && !body.contains("save_account"),
+            "{body}"
+        );
+        let mut a = mailbox();
+        apply_look(&mut a, " Home ", "#ABCDEF");
+        assert_eq!((a.label.as_str(), a.color.as_str()), ("Home", "#abcdef"));
+        apply_look(&mut a, "", "red");
+        assert_eq!(a.color, "");
+    }
+
+    #[test]
+    fn a_drop_outcome_is_one_of_three_words() {
+        use super::DropOutcome;
+        assert!(matches!(
+            serde_json::from_str::<DropOutcome>("\"missed_zone\""),
+            Ok(DropOutcome::MissedZone)
+        ));
+        assert!(serde_json::from_str::<DropOutcome>("\"x\"").is_err());
+    }
+
+    #[test]
+    fn a_chosen_path_is_read_only_while_it_is_a_file() {
+        let dir = std::env::temp_dir();
+        let file = dir.join(format!("depesha-ensure-{}", std::process::id()));
+        std::fs::write(&file, b"x").unwrap();
+        let ensure = |p: &Path| tauri::async_runtime::block_on(super::ensure_file(p));
+        assert!(ensure(&file).is_ok());
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(ensure(&file).unwrap_err().kind, depesha_core::ErrorKind::Io);
+        assert_eq!(ensure(&dir).unwrap_err().kind, depesha_core::ErrorKind::NotAFile);
+    }
+
+    #[test]
+    fn only_a_depesha_draft_of_the_mailbox_may_be_discarded() {
+        use depesha_core::message::Summary;
+        use depesha_core::store::{NewMessage, Store};
+        let store = Store::open_in_memory().unwrap();
+        let plain = |name: &str, role| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role,
+            selectable: true,
+            hidden: false,
+        };
+        let inbox_f = plain("INBOX", Some(FolderRole::Inbox));
+        let drafts_f = plain("Drafts", Some(FolderRole::Drafts));
+        store.replace_folders("a", &[inbox_f, drafts_f.clone()]).unwrap();
+        store.replace_folders("b", &[drafts_f]).unwrap();
+        let add = |account: &str, name: &str, uid: u32, mid: &str| {
+            let s = Summary {
+                message_id: Some(mid.into()),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            let id = store.insert_message(account, name, &msg).unwrap();
+            store.get_at(id).unwrap().unwrap().0
+        };
+        let own = add("a", "Drafts", 1, "<x@depesha.local>");
+        let inbox = add("a", "INBOX", 2, "<y@depesha.local>");
+        let foreign = add("a", "Drafts", 3, "<z@example.org>");
+        let other = add("b", "Drafts", 4, "<w@depesha.local>");
+        assert!(super::is_own_draft(&store, "a", &own, None).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &inbox, None).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &foreign, None).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &other, None).unwrap());
+    }
+
+    #[test]
+    fn a_reissued_number_does_not_delete_the_draft_that_took_it() {
+        use depesha_core::message::Summary;
+        use depesha_core::store::{NewMessage, Store};
+        let store = Store::open_in_memory().unwrap();
+        let drafts_f = Folder {
+            name: "Drafts".into(),
+            display_name: "Drafts".into(),
+            delimiter: Some("/".into()),
+            role: Some(FolderRole::Drafts),
+            selectable: true,
+            hidden: false,
+        };
+        store.replace_folders("a", &[drafts_f]).unwrap();
+        let add = |uid: u32, mid: &str| {
+            let s = Summary {
+                message_id: Some(mid.into()),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            let id = store.insert_message("a", "Drafts", &msg).unwrap();
+            store.get_at(id).unwrap().unwrap().0
+        };
+        let first = add(1, "<one@depesha.local>");
+        let second = add(2, "<two@depesha.local>");
+        // A restored window remembers the first draft, but the number it kept is the second's now.
+        assert!(!super::is_own_draft(&store, "a", &second, Some("one@depesha.local")).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &second, Some("<one@depesha.local>")).unwrap());
+        // The exact version goes, with or without the brackets.
+        assert!(super::is_own_draft(&store, "a", &first, Some("<one@depesha.local>")).unwrap());
+        assert!(super::is_own_draft(&store, "a", &second, Some("two@depesha.local")).unwrap());
+        // A copy of the old format has no Message-ID: the plain check stays.
+        assert!(super::is_own_draft(&store, "a", &second, None).unwrap());
+    }
+
+    /// `message_open` asks the shared `in_drafts_folder`, not a copy of the check: the unit test
+    /// of that function then guards the path (#157).
+    #[test]
+    fn message_open_asks_the_shared_check_for_drafts() {
+        let source = include_str!("commands.rs");
+        let open = source
+            .split("pub async fn message_open(")
+            .nth(1)
+            .unwrap()
+            .split("\n}\n")
+            .next()
+            .unwrap();
+        assert!(
+            open.contains("in_drafts_folder(&state.store"),
+            "message_open must call in_drafts_folder"
+        );
+        assert!(
+            !open.contains("FolderRole::Drafts"),
+            "message_open must not repeat the check"
+        );
+    }
+
+    /// The sealed mark is read of a letter in Drafts only, and opening a letter of any other
+    /// folder must still work (#157).
+    #[test]
+    fn drafts_are_told_by_their_role() {
+        use depesha_core::store::Store;
+        let store = Store::open_in_memory().unwrap();
+        let plain = |name: &str, role| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role,
+            selectable: true,
+            hidden: false,
+        };
+        store
+            .replace_folders(
+                "a",
+                &[
+                    plain("INBOX", Some(FolderRole::Inbox)),
+                    plain("Черновики", Some(FolderRole::Drafts)),
+                    plain("Notes", None),
+                ],
+            )
+            .unwrap();
+        assert!(super::in_drafts_folder(&store, "a", "Черновики").unwrap());
+        assert!(!super::in_drafts_folder(&store, "a", "INBOX").unwrap());
+        assert!(!super::in_drafts_folder(&store, "a", "Notes").unwrap());
+        assert!(!super::in_drafts_folder(&store, "other", "Черновики").unwrap());
+    }
+
+    #[test]
+    fn an_answer_draft_is_bound_again_by_in_reply_to_when_its_signature_is_lost() {
+        use depesha_core::message::Summary;
+        use depesha_core::store::{NewMessage, Store};
+        let store = Store::open_in_memory().unwrap();
+        let plain = |name: &str, role| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role,
+            selectable: true,
+            hidden: false,
+        };
+        store
+            .replace_folders(
+                "a",
+                &[
+                    plain("INBOX", Some(FolderRole::Inbox)),
+                    plain("Drafts", Some(FolderRole::Drafts)),
+                ],
+            )
+            .unwrap();
+        let add = |folder: &str, uid: u32, mid: &str, subject: &str| {
+            let s = Summary {
+                message_id: Some(mid.into()),
+                subject: subject.into(),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            let id = store.insert_message("a", folder, &msg).unwrap();
+            store.get_at(id).unwrap().unwrap().0
+        };
+        add("INBOX", 1, "src@example.org", "Вопрос");
+        let answer = add("Drafts", 1, "<d1@depesha.local>", "Re: Вопрос");
+        let forward = add("Drafts", 2, "<d2@depesha.local>", "Fwd: Вопрос");
+        let foreign = add("Drafts", 3, "<d3@example.org>", "Re: Вопрос");
+        // The user wiped the prefix of a forward, and typed "Fwd:" into an answer (#100).
+        let bare_forward = add("Drafts", 4, "<d4@depesha.local>", "Вопрос");
+        let typed_answer = add("Drafts", 5, "<d5@depesha.local>", "Fwd: Вопрос");
+        let bound = super::rebound_acts_on(
+            &store,
+            &answer,
+            Some("<src@example.org>"),
+            Some(depesha_core::domain::Act::Reply),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            (bound.message_id.as_str(), bound.folder.as_str(), bound.act),
+            ("src@example.org", "INBOX", depesha_core::domain::Act::Reply)
+        );
+        use depesha_core::domain::Act;
+        assert!(
+            super::rebound_acts_on(&store, &bare_forward, Some("src@example.org"), Some(Act::Forward))
+                .unwrap()
+                .is_none(),
+            "a forward is told by its header, not by the subject"
+        );
+        let typed = super::rebound_acts_on(&store, &typed_answer, Some("src@example.org"), Some(Act::ReplyAll))
+            .unwrap()
+            .unwrap();
+        assert_eq!(typed.act, Act::ReplyAll);
+        // A forward, a draft of another client, a letter missing from the cache: nothing to bind.
+        assert!(
+            super::rebound_acts_on(&store, &forward, Some("src@example.org"), None)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            super::rebound_acts_on(
+                &store,
+                &foreign,
+                Some("src@example.org"),
+                Some(depesha_core::domain::Act::Reply)
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            super::rebound_acts_on(
+                &store,
+                &answer,
+                Some("gone@example.org"),
+                Some(depesha_core::domain::Act::Reply)
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(super::rebound_acts_on(&store, &answer, None, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_move_reads_only_the_letters_of_the_action() {
+        use std::collections::HashSet;
+        // The conversation of letter 1: its unread answer (2) moves along but stays unread.
+        let rows = [
+            (1, 10, false, Some("a")),
+            (2, 11, false, Some("reply")),
+            (3, 12, true, Some("old")),
+        ];
+        let acted: HashSet<i64> = [1].into();
+        let (seen, unseen) = super::split_acted(rows.into_iter(), Some(&acted));
+        assert_eq!(seen, [10]);
+        assert_eq!(unseen, ["a"]);
+        // Dragging, «Not spam», a return from the trash: nothing is read.
+        let (seen, unseen) = super::split_acted(rows.into_iter(), None);
+        assert!(seen.is_empty() && unseen.is_empty());
+    }
+
+    #[test]
+    fn an_undo_makes_the_letter_the_action_read_unread_again() {
+        let moved = super::Moved {
+            account_id: "a".into(),
+            from: "INBOX".into(),
+            to: "Archive".into(),
+            message_ids: vec!["a".into(), "old".into()],
+            waits: Vec::new(),
+            unseen: vec!["a".into()],
+            snoozed: Vec::new(),
+        };
+        assert_eq!(
+            super::undo_runs(&moved),
+            [(vec!["old".to_owned()], false), (vec!["a".to_owned()], true)]
+        );
+    }
+
+    #[test]
+    fn an_undo_keeps_the_snooze_time_of_a_letter_brought_back() {
+        let snooze = depesha_core::store::Snooze {
+            account_id: "a".into(),
+            message_id: "s@x".into(),
+            folder: "Snoozed".into(),
+            return_to: "INBOX".into(),
+            until: 1000,
+            subject: "Позже".into(),
+        };
+        let moved = super::Moved {
+            account_id: "a".into(),
+            from: "Snoozed".into(),
+            to: "INBOX".into(),
+            message_ids: vec!["s@x".into()],
+            waits: Vec::new(),
+            unseen: Vec::new(),
+            snoozed: vec![snooze.clone()],
+        };
+        // The frontend hands the move back as it got it.
+        let back: super::Moved = serde_json::from_value(serde_json::to_value(&moved).unwrap()).unwrap();
+        assert_eq!(back.snoozed, vec![snooze]);
+        // A move from an older build has no times.
+        let old = serde_json::json!({"account_id": "a", "from": "INBOX", "to": "Archive", "message_ids": []});
+        assert!(serde_json::from_value::<super::Moved>(old).unwrap().snoozed.is_empty());
+    }
+
+    /// A box at Yandex: its MX writes `dkim=`/`spf=` and no `dmarc=`.
+    fn yandex() -> Receiver {
+        Receiver {
+            domains: vec!["yandex.ru".into(), "yandex.net".into()],
+            vouches: true,
+            ..Receiver::default()
+        }
+    }
+
+    const SIGNATURE: &str = "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=bank.ru; s=s1; h=from:to:subject; bh=AAAA; b=AAAA\r\n";
+
+    fn letter(results: &str, from: &str) -> Vec<u8> {
+        format!(
+            "{results}{SIGNATURE}{from}To: me@yandex.ru\r\nSubject: Hi\r\n\r\n<img src=\"https://bank.ru/p.png\">\r\n"
+        )
+        .into_bytes()
+    }
+
+    /// The evidence of a letter of a trusted sender, as the ladder needs it.
+    fn evidence<'a>(
+        raw: &'a [u8],
+        auth: &'a message::Authenticity,
+        sender: &'a str,
+        own_full: Option<dkim::Signature>,
+    ) -> Evidence<'a> {
+        Evidence::of(raw, auth, sender, own_full, None, false, false)
+    }
+
+    /// What the log says while `run` does its thing: the line the operator reads.
+    fn logged(run: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Sink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
+            type Writer = Sink;
+            fn make_writer(&'a self) -> Sink {
+                self.clone()
+            }
+        }
+        let sink = Sink::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+        tracing::subscriber::with_default(subscriber, run);
+        String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
+    }
+
+    #[test]
+    fn the_log_names_the_step_and_the_outcome_of_the_own_check() {
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let evidence = Evidence::of(&raw, &auth, sender, Some(dkim::Signature::Unsigned), None, false, false);
+        let verdict = sender_verdict(&evidence);
+        // The addresses of the mailbox itself, which the check of the step 4 looks for.
+        let mailbox = ["me@example.org".to_owned(), "me+news@example.org".to_owned()];
+        let line = logged(|| {
+            let letter = LoggedLetter {
+                id: 7,
+                folder: "INBOX",
+                kind: "imap",
+                from_domain: "bank.ru",
+                listed: true,
+                original: None,
+                mailbox: &mailbox,
+            };
+            log_sender_check(&letter, &evidence, &verdict);
+        });
+        // The step of the ladder, the outcome of the own check and what the signature says about
+        // itself (0.8.13, 7.1 Б).
+        assert!(line.contains("step=\"-\""), "{line}");
+        assert!(line.contains("verdict=\"unconfirmed\""), "{line}");
+        assert!(line.contains("own=full:unsigned"), "{line}");
+        assert!(line.contains("outcome=\"unsigned\""), "{line}");
+        // The block of headers the server and the app may read differently (0.8.13, 7.1 Б).
+        assert!(line.contains("uneven=false"), "{line}");
+        // Which addresses of the mailbox the check looked for (0.8.13, ступень 4): the operator's
+        // own, each named by its tag, so the line carries no address and two addresses still read
+        // as two.
+        assert!(line.contains("mailbox=855c94f3,bdaa33df"), "{line}");
+        assert!(
+            !line.contains("example.org") && !line.contains("security@bank.ru"),
+            "{line}"
+        );
+        // The tag belongs to the address, not to the run: the same address, given twice, gives one.
+        assert_eq!(mailbox_tag(&mailbox[0]), mailbox_tag("me@example.org"));
+    }
+
+    #[test]
+    fn the_log_of_a_letter_of_exchange_names_its_own_signature() {
+        // The letter Exchange assembled again carries no signature; the original headers it kept
+        // aside do, and that is the signature the log describes (0.8.13, ступень 4, 7.1 Б). Anyone
+        // may put a signature above the real one, and the log names the one of the sender, not that.
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let original = "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=evil.example; s=s9; h=from:to:subject; bh=AAAA; b=AAAA\r\nDKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=bank.ru; s=s7; h=from:to:subject; bh=AAAA; b=AAAA\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\r\n";
+        let evidence = Evidence::of(
+            &raw,
+            &auth,
+            sender,
+            None,
+            Some(dkim::Headers::Rejected(dkim::Reason::NoRecipientInH)),
+            false,
+            false,
+        );
+        let verdict = sender_verdict(&evidence);
+        let line = logged(|| {
+            let letter = LoggedLetter {
+                id: 7,
+                folder: "INBOX",
+                kind: "ews",
+                from_domain: "bank.ru",
+                listed: true,
+                original: Some(original.as_bytes()),
+                mailbox: &[],
+            };
+            log_sender_check(&letter, &evidence, &verdict);
+        });
+        assert!(line.contains("d=bank.ru,s=s7"), "{line}");
+        assert!(line.contains("own=headers:no_recipient_in_h"), "{line}");
+        assert!(line.contains("outcome=\"no_recipient_in_h\""), "{line}");
+        assert!(line.contains("uneven=false"), "{line}");
+    }
+
+    #[test]
+    fn the_log_of_a_letter_of_exchange_tells_about_the_block_the_check_reads() {
+        // 0.8.13, 7.1 Б: the block the step reads is the original one, and its reading is what the
+        // log tells about — not the headers of the letter Exchange assembled again.
+        let raw = String::from_utf8(letter("", "From: Bank <security@bank.ru>\r\n"))
+            .unwrap()
+            .replace("Subject: Hi\r\n", "Subject: Hi\n");
+        let auth = message::authenticity(raw.as_bytes(), &yandex());
+        assert!(auth.uneven, "the letter itself reads differently");
+        let sender = "security@bank.ru";
+        let even = "DKIM-Signature: v=1; d=bank.ru; s=s7; h=from:to; b=AAAA\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\n\r\n";
+        let mixed = even.replace("To: me@yandex.ru\r\n", "To: me@yandex.ru\n");
+        let evidence = Evidence::of(
+            raw.as_bytes(),
+            &auth,
+            sender,
+            None,
+            Some(dkim::Headers::Rejected(dkim::Reason::NotAligned)),
+            false,
+            false,
+        );
+        let verdict = sender_verdict(&evidence);
+        for (original, uneven) in [(even, false), (mixed.as_str(), true)] {
+            let line = logged(|| {
+                let letter = LoggedLetter {
+                    id: 7,
+                    folder: "INBOX",
+                    kind: "ews",
+                    from_domain: "bank.ru",
+                    listed: true,
+                    original: Some(original.as_bytes()),
+                    mailbox: &[],
+                };
+                log_sender_check(&letter, &evidence, &verdict);
+            });
+            assert_eq!(line.contains("uneven=true"), uneven, "original={original:?}: {line}");
+        }
+    }
+
+    #[test]
+    fn a_letter_of_exchange_with_no_time_of_receipt_is_no_letter_of_now() {
+        // 0.8.13, ступень 4: the time the check is measured against is the server's own. A letter
+        // with none of its own is not measured against its `Date` — the sender wrote that one.
+        assert_eq!(super::received_at(Some(1_800_000_000)), Ok(1_800_000_000));
+        assert_eq!(
+            super::received_at(None),
+            Err(dkim::Headers::Rejected(dkim::Reason::Replay))
+        );
+        // Exchange writes zero where it knows no time: that is one more absence, and the check asks
+        // DNS about nothing.
+        assert_eq!(
+            super::received_at(Some(0)),
+            Err(dkim::Headers::Rejected(dkim::Reason::Replay))
+        );
+        assert_eq!(
+            super::received_at(Some(-1)),
+            Err(dkim::Headers::Rejected(dkim::Reason::Replay))
+        );
+    }
+
+    #[test]
+    fn the_line_says_why_a_checked_sender_is_not_confirmed() {
+        // The reason the line over the letter names, for the check of the whole letter (ступень 3)
+        // and for the check over the original headers of Exchange (ступень 4, 0.8.13, 7.1 Б).
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        for (found, want) in [
+            (dkim::Signature::Failed(dkim::Reason::NoKey), Unverified::NoKey),
+            (dkim::Signature::Unchecked, Unverified::Unchecked),
+            (dkim::Signature::Failed(dkim::Reason::NoTime), Unverified::NoTime),
+            (dkim::Signature::Failed(dkim::Reason::BodyHash), Unverified::Signature),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, Some(found), None, false, false);
+            assert_eq!(
+                super::why_unverified(true, &ev, &sender_verdict(&ev)),
+                Some(want),
+                "{found:?}"
+            );
+        }
+        for (found, want) in [
+            (dkim::Headers::Rejected(dkim::Reason::NoKey), Unverified::NoKey),
+            (dkim::Headers::Rejected(dkim::Reason::Replay), Unverified::Replay),
+            (
+                dkim::Headers::Rejected(dkim::Reason::NoRecipientInH),
+                Unverified::NoRecipientInH,
+            ),
+            (dkim::Headers::Rejected(dkim::Reason::NoTime), Unverified::NoTime),
+            (dkim::Headers::Unchecked, Unverified::Unchecked),
+            (
+                dkim::Headers::Rejected(dkim::Reason::BadSignature),
+                Unverified::Signature,
+            ),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, None, Some(found), false, false);
+            assert_eq!(
+                super::why_unverified(true, &ev, &sender_verdict(&ev)),
+                Some(want),
+                "{found:?}"
+            );
+        }
+        // A sender nobody trusts has no line at all.
+        let ev = Evidence::of(
+            &raw,
+            &auth,
+            sender,
+            Some(dkim::Signature::Unchecked),
+            None,
+            false,
+            false,
+        );
+        assert_eq!(super::why_unverified(false, &ev, &sender_verdict(&ev)), None);
+    }
+
+    #[test]
+    fn the_switch_by_address_says_why_it_could_not_check() {
+        // 0.8.13, 6.1 Б: the line under a letter trusted by address says whether the letter is
+        // unsigned or the key of its signature gave no answer — over the whole letter and over the
+        // original headers of Exchange alike.
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        for (full, headers) in [
+            (Some(dkim::Signature::Unsigned), None),
+            (None, Some(dkim::Headers::Unsigned)),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, full, headers, false, true);
+            let verdict = sender_verdict(&ev);
+            assert_eq!(verdict.reason, sender::Reason::AddressOnly, "{full:?} {headers:?}");
+            assert_eq!(
+                super::why_unverified(true, &ev, &verdict),
+                Some(Unverified::AddressOnly)
+            );
+        }
+        for (full, headers) in [
+            (Some(dkim::Signature::Unchecked), None),
+            (None, Some(dkim::Headers::Unchecked)),
+        ] {
+            let ev = Evidence::of(&raw, &auth, sender, full, headers, false, true);
+            let verdict = sender_verdict(&ev);
+            assert_eq!(verdict.reason, sender::Reason::AddressOnly, "{full:?} {headers:?}");
+            assert_eq!(
+                super::why_unverified(true, &ev, &verdict),
+                Some(Unverified::AddressOnlyUnchecked),
+                "a key that gave no answer is no unsigned letter"
+            );
+        }
+    }
+
+    #[test]
+    fn the_line_of_a_letter_of_exchange_says_why_the_signature_is_no_proof() {
+        // The reasons of the check over the original headers are its own, not «the signature does
+        // not match» (0.8.13, 7.1 Б).
+        for (headers, want) in [
+            (
+                dkim::Headers::Rejected(dkim::Reason::NoRecipientInH),
+                "no_recipient_in_h",
+            ),
+            (dkim::Headers::Rejected(dkim::Reason::NotAligned), "not_aligned"),
+            (dkim::Headers::Rejected(dkim::Reason::Replay), "replay"),
+            (dkim::Headers::Rejected(dkim::Reason::UnevenHeaders), "uneven_headers"),
+        ] {
+            assert_eq!(super::headers_outcome(headers), want);
+        }
+    }
+
+    #[test]
+    fn the_servers_no_stays_a_no_whatever_the_own_check_found() {
+        let raw = letter(
+            "Authentication-Results: mx.yandex.net; dkim=fail header.d=bank.ru\r\n",
+            "From: Bank <security@bank.ru>\r\n",
+        );
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let known = Some(dkim::Signature::Aligned);
+        let verdict = sender_verdict(&evidence(&raw, &auth, sender, known));
+        assert!(!verdict.confirmed);
+        assert_eq!(verdict.reason, sender::Reason::Server);
+        assert!(!own_check_due(true, &evidence(&raw, &auth, sender, known)));
+    }
+
+    #[test]
+    fn only_a_trusted_sender_without_a_verdict_is_checked() {
+        // No header of the server: the signature may be checked, for a trusted sender only.
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let mut ev = evidence(&raw, &auth, sender, None);
+        ev.own_due = true;
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Checking);
+        assert!(own_check_due(true, &ev));
+        assert!(!own_check_due(false, &ev));
+        // A signature of another organization: the answer is known without asking anyone, and the
+        // line over the letter says exactly that.
+        let tracker = String::from_utf8(raw.clone())
+            .unwrap()
+            .replace("d=bank.ru", "d=t.tracker.example");
+        let auth = message::authenticity(tracker.as_bytes(), &yandex());
+        let ev = evidence(tracker.as_bytes(), &auth, sender, Some(dkim::Signature::NotAligned));
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::NotAligned);
+        assert!(!own_check_due(true, &ev));
+    }
+
+    #[test]
+    fn a_second_from_is_no_confirmation_even_from_the_server() {
+        // The server vouches for the From it read; the reader shows another one.
+        let results = "Authentication-Results: mx.yandex.net; dkim=pass header.d=gmail.com\r\n";
+        for from in [
+            "From: attacker@gmail.com\r\nFr om: Friend <friend@gmail.com>\r\n",
+            "From: Friend <friend@gmail.com>\r\nFrom: attacker@gmail.com\r\n",
+            "From: attacker@gmail.com\r\nFrom: Friend <friend@gmail.com>\r\n",
+        ] {
+            let raw = letter(results, from);
+            let shown = message::parse_summary(&raw).from.map(|a| a.email).unwrap_or_default();
+            let auth = message::authenticity(&raw, &yandex());
+            for sender in [shown.as_str(), "attacker@gmail.com", "friend@gmail.com"] {
+                let verdict = sender_verdict(&evidence(&raw, &auth, sender, None));
+                assert_eq!(verdict.reason, sender::Reason::AmbiguousFrom, "{from} as {sender}");
+                assert!(!own_check_due(true, &evidence(&raw, &auth, sender, None)));
+            }
+        }
+        // One From: the server's word holds.
+        let dmarc = "Authentication-Results: mx.yandex.net; dmarc=pass header.from=gmail.com\r\n";
+        let raw = letter(dmarc, "From: Friend <friend@gmail.com>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        assert!(sender_verdict(&evidence(&raw, &auth, "friend@gmail.com", None)).confirmed);
+        assert!(sender_verdict(&evidence(&raw, &auth, "Friend@Gmail.com", None)).confirmed);
+        assert_eq!(
+            sender_verdict(&evidence(&raw, &auth, "other@gmail.com", None)).reason,
+            sender::Reason::AmbiguousFrom
+        );
+    }
+
+    #[test]
+    fn a_passed_signature_of_the_server_confirms_the_sender() {
+        // 0.8.13, 2.1 Б: the server of the mailbox checked the signature on the original bytes
+        // when it took the letter, and its word is enough.
+        let raw = letter(
+            "Authentication-Results: mx.yandex.net; dkim=pass header.d=bank.ru\r\n",
+            "From: Bank <security@bank.ru>\r\n",
+        );
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let verdict = sender_verdict(&evidence(&raw, &auth, sender, None));
+        assert!(verdict.confirmed, "{verdict:?}");
+        assert_eq!(verdict.step, sender::Step::ServerSignature);
+        assert!(verdict.logo);
+        // The own check of the letter is not made: the server's word stands.
+        assert!(!own_check_due(true, &evidence(&raw, &auth, sender, None)));
+        // A signature of another organization is not about the From: no confirmation.
+        let tracker = String::from_utf8(raw.clone())
+            .unwrap()
+            .replace("d=bank.ru", "d=t.tracker.example");
+        let auth = message::authenticity(tracker.as_bytes(), &yandex());
+        let verdict = sender_verdict(&evidence(tracker.as_bytes(), &auth, sender, None));
+        assert!(!verdict.confirmed, "{verdict:?}");
+    }
+
+    #[test]
+    fn the_own_check_of_the_letter_confirms_the_sender() {
+        // The server stayed silent: the app's own check of the letter decides.
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        let mut ev = evidence(&raw, &auth, sender, Some(dkim::Signature::Aligned));
+        ev.own_due = false;
+        let verdict = sender_verdict(&ev);
+        assert!(verdict.confirmed, "{verdict:?}");
+        assert_eq!(verdict.step, sender::Step::OwnFull);
+        assert!(verdict.logo);
+    }
+
+    #[test]
+    fn a_passed_signature_of_the_server_needs_the_own_check_of_an_uneven_block() {
+        // Yandex vouches for a signature of `bank.ru`, and its `Authentication-Results` stands
+        // above a bare LF line: the server and the app may part on where the headers end, so its
+        // word about the sender is not taken and the app checks the signature itself (0.8.13,
+        // 7.1 Б).
+        let raw = "Authentication-Results: mx.yandex.net; dkim=pass header.d=bank.ru\r\nFrom: Bank <security@bank.ru>\r\nTo: me@yandex.ru\r\nSubject: Hi\r\n\n"
+            .to_owned()
+            + SIGNATURE
+            + "From: Bank <noreply@bank.ru>\r\n\r\n<img src=\"https://bank.ru/p.png\">\r\n";
+        let raw = raw.as_bytes();
+        let sender = "security@bank.ru";
+        assert_eq!(message::sole_from(raw).as_deref(), Some(sender));
+        let auth = message::authenticity(raw, &yandex());
+        assert!(auth.uneven);
+        // The server confirmed the sender, and its word is not taken: nothing confirmed it.
+        assert!(auth.check.as_ref().is_some_and(|c| c.passed()));
+        assert_ne!(
+            sender_verdict(&evidence(raw, &auth, sender, None)).step,
+            sender::Step::ServerSignature
+        );
+        let mut ev = evidence(raw, &auth, sender, None);
+        ev.own_due = true;
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Checking);
+        assert!(own_check_due(true, &ev));
+        // The own check decides, whatever it found.
+        let mut ev = evidence(raw, &auth, sender, Some(dkim::Signature::Invalid));
+        ev.own_due = false;
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Signature);
+        assert!(!own_check_due(true, &ev));
+    }
+
+    #[test]
+    fn the_original_headers_of_exchange_decide_before_the_body_assembled_again() {
+        // Exchange assembled the letter again, and the assembled one carries no signature: the
+        // check over its body would close the ladder at «unsigned» before the check over the
+        // original headers, which are signed (0.8.13, ступень 4).
+        let raw = letter("", "From: Bank <security@bank.ru>\r\n");
+        let auth = message::authenticity(&raw, &yandex());
+        let sender = "security@bank.ru";
+        // What `evidence_of` finds for a letter whose original headers are at hand: no verdict
+        // about the body, and the check over the headers is due.
+        let own_full = super::sender::body_check(None, Some(dkim::Signature::Unsigned), true);
+        assert_eq!(own_full, None);
+        let mut ev = Evidence::of(&raw, &auth, sender, own_full, None, true, false);
+        assert_eq!(sender_verdict(&ev).reason, sender::Reason::Checking);
+        assert!(own_check_due(true, &ev));
+        // The signature over the original headers stands: step 4, pictures and no logo.
+        ev.own_headers = Some(dkim::Headers::Valid);
+        let verdict = sender_verdict(&ev);
+        assert_eq!(verdict.step, sender::Step::OwnHeaders);
+        assert!(verdict.confirmed);
+        assert!(!verdict.logo, "the headers alone prove nothing about the body");
+    }
+
+    #[test]
+    fn thousands_of_signatures_are_refused_quickly() {
+        // A whitespace-only line does not end the headers: the signatures below it count.
+        let dmarc = "Authentication-Results: mx.yandex.net; dmarc=pass header.from=bank.ru\r\nX-Pad: a\r\n \r\n";
+        let raw = letter(
+            &format!("{dmarc}{}", SIGNATURE.repeat(20_000)),
+            "From: Bank <security@bank.ru>\r\n",
+        );
+        let auth = message::authenticity(&raw, &yandex());
+        let start = std::time::Instant::now();
+        let verdict = sender_verdict(&evidence(&raw, &auth, "security@bank.ru", None));
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "{:?}",
+            start.elapsed()
+        );
+        assert_eq!(verdict.reason, sender::Reason::AmbiguousFrom);
+    }
+
+    use super::{DANGEROUS, folder_path, free_path, local_seen_by_rights, safe_name, search_folders};
+    use depesha_core::acl::{FolderProps, Owner, Rights};
+    use depesha_core::domain::{Folder, FolderRole};
+    use depesha_core::query::SearchQuery;
+    use depesha_core::store::FolderInfo;
+
+    fn folder(account: &str, name: &str, role: Option<FolderRole>, delimiter: Option<&str>) -> FolderInfo {
+        FolderInfo {
+            account_id: account.to_owned(),
+            folder: Folder {
+                name: name.to_owned(),
+                display_name: name.to_owned(),
+                delimiter: delimiter.map(str::to_owned),
+                role,
+                selectable: true,
+                hidden: false,
+            },
+            total: 0,
+            unread: 0,
+        }
+    }
+
+    #[test]
+    fn a_read_mark_is_kept_local_by_rights_not_by_a_refusal() {
+        let props = |letters: &str, refused: Option<&str>| FolderProps {
+            folder: "shared/Отдел".into(),
+            display_name: String::new(),
+            owner: Owner::Mine,
+            rights: Some(Rights::from_letters(letters)),
+            labels_on_server: None,
+            permanent: Vec::new(),
+            label_check: None,
+            refused: refused.map(str::to_owned),
+            checked: 0,
+        };
+        // `r` without `s`: the server cannot keep the mark, it lives here alone.
+        assert!(local_seen_by_rights(Some(&props("lr", None))));
+        // A refusal in a folder that does keep `\Seen` must not make it local for good.
+        assert!(!local_seen_by_rights(Some(&props("lrs", Some("no-rights")))));
+        // Nothing known, or no rights read: the server's value holds.
+        assert!(!local_seen_by_rights(None));
+        assert!(!local_seen_by_rights(Some(&FolderProps {
+            rights: None,
+            ..props("lrs", None)
+        })));
+    }
+
+    #[test]
+    fn a_server_search_goes_into_the_named_folder_or_the_three_roles() {
+        let cache = vec![
+            folder("a", "INBOX", Some(FolderRole::Inbox), Some("/")),
+            folder("a", "Отправленные", Some(FolderRole::Sent), Some("/")),
+            folder("a", "Архив", Some(FolderRole::Archive), Some("/")),
+            folder("a", "Работа", None, Some("/")),
+            folder("a", "Работа/2026", None, Some("/")),
+            folder("a", "Личное", None, Some("/")),
+        ];
+        // No folder named: the inbox, sent and archive, in that order.
+        assert_eq!(
+            search_folders(&SearchQuery::parse("больше:25М"), &cache),
+            ["INBOX", "Отправленные", "Архив"]
+        );
+        // A folder by its name, without its subfolders.
+        assert_eq!(search_folders(&SearchQuery::parse("in:Работа"), &cache), ["Работа"]);
+        // `in:Работа/*` takes the folders inside it too: by name, not by display name.
+        assert_eq!(
+            search_folders(&SearchQuery::parse("в:Работа/*"), &cache),
+            ["Работа", "Работа/2026"]
+        );
+        // A role word finds the role's folder.
+        assert_eq!(search_folders(&SearchQuery::parse("in:архив"), &cache), ["Архив"]);
+        // A folder the cache does not have: nothing to search.
+        assert!(search_folders(&SearchQuery::parse("in:Нет такой"), &cache).is_empty());
+    }
+
+    #[test]
+    fn attachment_names_cannot_hide_a_program() {
+        let ext = |n: &str| {
+            safe_name(n)
+                .rsplit_once('.')
+                .map(|(_, e)| e.to_ascii_lowercase())
+                .unwrap_or_default()
+        };
+        for name in [
+            "invoice.exe.",
+            "invoice.exe. .",
+            "invoice.exe  ",
+            "..\\invoice.exe",
+            "invoice.\u{202e}gpj.exe",
+        ] {
+            assert!(
+                DANGEROUS.contains(&ext(name).as_str()),
+                "{name:?} → {:?}",
+                safe_name(name)
+            );
+        }
+        assert_eq!(safe_name("../../.bashrc"), "_.._.bashrc");
+        assert_eq!(safe_name("CON.txt"), "_CON.txt");
+        assert_eq!(safe_name("com1"), "_com1");
+        assert_eq!(safe_name("console.txt"), "console.txt");
+        assert_eq!(safe_name("отчёт\u{0007}.pdf"), "отчёт.pdf");
+        assert_eq!(safe_name(". . ."), "attachment");
+        let long = format!("{}.pdf", "я".repeat(300));
+        let short = safe_name(&long);
+        assert!(short.len() <= 200 && short.ends_with(".pdf"), "{short}");
+    }
+
+    #[test]
+    fn a_saved_file_never_replaces_another() {
+        let dir = std::env::temp_dir().join(format!("depesha-free-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(free_path(&dir, "счёт.pdf"), dir.join("счёт.pdf"));
+        std::fs::write(dir.join("счёт.pdf"), b"1").unwrap();
+        assert_eq!(free_path(&dir, "счёт.pdf"), dir.join("счёт (1).pdf"));
+        std::fs::write(dir.join("счёт (1).pdf"), b"2").unwrap();
+        assert_eq!(free_path(&dir, "счёт.pdf"), dir.join("счёт (2).pdf"));
+        std::fs::write(dir.join("README"), b"3").unwrap();
+        assert_eq!(free_path(&dir, "README"), dir.join("README (1)"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_folder_to_open_is_one_that_is_still_a_folder() {
+        crate::lang::pin(crate::lang::Lang::En);
+        let dir = std::env::temp_dir().join(format!("depesha-folder-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("счёт.pdf");
+        std::fs::write(&file, b"1").unwrap();
+        assert_eq!(folder_path(dir.to_str().unwrap()).await.unwrap(), dir);
+        // A file is refused: opening it would start it.
+        let err = folder_path(file.to_str().unwrap()).await.unwrap_err();
+        assert_eq!(err.kind, depesha_core::ErrorKind::Io);
+        assert!(err.message.contains("is not a folder"), "{}", err.message);
+        let gone = dir.join("нет такой папки");
+        let err = folder_path(gone.to_str().unwrap()).await.unwrap_err();
+        assert_eq!(err.kind, depesha_core::ErrorKind::Io);
+        assert!(err.message.contains("is gone or cannot be reached"), "{}", err.message);
+        assert!(err.message.contains("нет такой папки"), "{}", err.message);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

@@ -1,0 +1,187 @@
+// Screenshots for a release's description (docs/releases/<version>.md): the real app (debug
+// build) on a virtual display, driven over WebDriver, over the tidy demo mail seeded by
+// imap_helper.py demo-seed. SHOTS_SET=0.8.0 shoots the set of 0.8, SHOTS_SET=0.8.2 the set of
+// 0.8.2 and SHOTS_SET=0.8.3 the set of 0.8.3 (the scenes are in scenes-080.mjs and
+// scenes-083.mjs, over the demo mail seeded with the same SHOTS_SET); without it, the set of
+// 0.7 below. For another release adapt the shots and the seeded ids.
+//
+//   scripts/release-shots.sh                 the whole thing (servers, demo mail, build, shoot)
+//   DEPESHA_APP=… scripts/release-shots.sh   an already built binary, no build
+//   SHOTS_SET=0.8.0 scripts/release-shots.sh the set of 0.8.0
+//   SHOTS_SET=0.8.2 scripts/release-shots.sh the set of 0.8.2
+//   SHOTS_SET=0.8.3 scripts/release-shots.sh the set of 0.8.3
+//   SHOTS_SET=audit scripts/release-shots.sh  every main screen, light and dark, with MANIFEST.md
+//
+// Writes ${SHOTS_OUT}/NN-*.png (default /tmp/depesha-release-shots). Demo data is tidy
+// (example.com), the labels and reply marks are seeded before the shooting session so the
+// pictures carry test names only. The driver, profile and helpers are in shot-kit.mjs.
+
+import { createKit } from "./shot-kit.mjs";
+import { ensureStandLock } from "./stand-lock.mjs";
+import { clearConfirm, composeWithFiles, importanceReader, listAvatars, peopleBook, readerAttachments, seed080, settingsPage, settingsSearch } from "./scenes-080.mjs";
+import { listPanel, viewFilterCount } from "./scenes-083.mjs";
+import { auditShots, seedAudit } from "./scenes-audit.mjs";
+import { seedSenderTrust, senderTrustShots } from "./scenes-sender.mjs";
+
+ensureStandLock();
+const set = process.env.SHOTS_SET ?? "0.7.0";
+const audit = set === "audit";
+const trust = set === "trust";
+const v8 = set === "0.8.0" || set === "0.8.2" || set === "0.8.3" || audit || trust;
+const v82 = set === "0.8.2";
+const v83 = set === "0.8.3";
+const out = process.env.SHOTS_OUT ?? "/tmp/depesha-release-shots";
+const kit = createKit({ out, tag: "depesha-rel-", v8 });
+const { d, sleep, db, shot, textOf, setInput, press, invoke, openFolder, openBySubject, menuItem, closeSettings, discardCompose } = kit;
+
+try {
+  await kit.boot({
+    prepare: async (account, now) => {
+      if (audit) return seedAudit(kit, account, now);
+      if (trust) return seedSenderTrust(kit, account, now);
+      if (v8) return seed080(kit, account, now);
+      // The labels themselves are read by the labels store at the next start; the keywords
+      // (the chips in the rows) are put in later, in the shooting session, so the two list
+      // pictures differ.
+      await invoke("label_save", { accountId: account, name: "Срочно", color: "#d0658f" });
+      await invoke("label_save", { accountId: account, name: "Клиенты", color: "#4a90d9" });
+      db(`INSERT OR REPLACE INTO marks (account_id, message_id, reply, reply_all, forward, answer) VALUES
+      ('${account}', 'report-9@example.org', ${now - 3600}, NULL, NULL, NULL),
+      ('${account}', 'invoice-15@example.org', NULL, NULL, ${now - 7200}, NULL),
+      ('${account}', 'weekly-44@example.org', NULL, ${now - 10800}, NULL, NULL);`);
+    },
+  });
+  const account = (await invoke("accounts"))[0].id;
+
+  if (trust) {
+    // The line over a letter whose sender is not confirmed, and the mailbox's switch.
+    await senderTrustShots(kit, out);
+  } else if (audit) {
+    // Every main screen of the app, for a review of the interface (scenes-audit.mjs).
+    await auditShots(kit, out);
+  } else if (v83) {
+    // The view of 0.8.3: the one panel of actions over the list and the reader with the
+    // previews in the rows (#176, #177), and the count of unread newsletters (#182).
+    await listPanel(kit, "01-list-panel");
+    await viewFilterCount(kit, "02-newsletters");
+  } else if (v82) {
+    // The view of 0.8.2: the current letter is marked by its background, the plugin settings
+    // are back on the «Plugins» page.
+    await listAvatars(kit, "01-list-cursor");
+    await settingsPage(kit, "02-plugins", "plugins");
+  } else if (v8) {
+    await listAvatars(kit, "03-list-avatars");
+    await importanceReader(kit, "04-importance-reader");
+    await readerAttachments(kit, "07-reader-attachments");
+    await clearConfirm(kit, "05-clear-confirm");
+    await composeWithFiles(kit, "06-compose");
+    await peopleBook(kit, { merge: "02-people-merge", book: "01-people-book" });
+    await settingsSearch(kit, "08-settings");
+  } else {
+    // 01. Settings: "Фон и запуск".
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await d.click(await d.find(".prefs .tab[data-page='notify']"));
+    await d.until("background page", async () => (await d.findAll(".prefs [data-settings='close_action']")).length === 1);
+    await sleep(300);
+    await shot("01-background");
+
+    // 05. Settings: "Клавиши".
+    await d.click(await d.find(".prefs .tab[data-page='keys']"));
+    await d.until("keys page", async () => (await d.findAll(".prefs .kr[data-command='core.archive']")).length === 1);
+    await sleep(300);
+    await shot("05-keys");
+
+    // 06. Settings: the search over the pages.
+    await d.type(await d.find(".prefs .psearch .q"), "формат");
+    await d.until("search results", async () => (await d.findAll(".prefs .content.results .rw")).length > 0);
+    await sleep(300);
+    await shot("06-settings-search");
+    await closeSettings();
+
+    // 02. Compose in Markdown, with a table edited in its cells. Full screen, so the table fits.
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await setInput(".compose .subject", "График работ на складе");
+    await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
+    await d.click(await menuItem("Markdown"));
+    await d.click(await d.find(".compose [aria-label='Во весь экран']"));
+    await d.until("markdown editor", async () => (await d.findAll(".compose .md-editor .cm-content")).length === 1, 15000);
+    const body = await d.find(".compose .md-editor .cm-content");
+    await d.click(body);
+    // Newlines through real Enter presses: a "\n" in the typed text is dropped by the editor.
+    for (const line of ["# График работ", "", "Пётр, добрый день!", "Предлагаю такой график на складе.", ""]) {
+      if (line) await d.type(body, line);
+      await d.pressKey("\uE007");
+    }
+    await sleep(300);
+    // "Таблица" from the "⋯" of the formatting row.
+    await d.click(await d.find(".compose [aria-label='Ещё оформление']"));
+    await d.click(await menuItem("Таблица"));
+    await d.until("table drawn", async () => (await d.findAll(".compose .md-table")).length === 1);
+    // Move the caret out of the table's own lines so the widget is drawn, not its source.
+    await d.click(await d.find(".compose .md-editor .cm-content .cm-line"));
+    await d.until("table widget", async () => (await d.findAll(".compose .md-table-view")).length === 1);
+    const cell = (spec) => d.find(`.compose .md-table-cell-text[data-cell='${spec}']`);
+    const fill = async (spec, text, tab = true) => {
+      await d.click(await cell(spec));
+      await d.type(await cell(spec), text);
+      if (tab) await d.pressKey("\uE004");
+    };
+    // Three characters at most per cell: a narrow column wraps a longer cell. Tab at the
+    // last cell grows a row, as the editor does.
+    await fill("-1:0", "Дни");
+    await fill("-1:1", "Кто");
+    await fill("-1:2", "Час");
+    await fill("0:0", "пн");
+    await fill("0:1", "Аня");
+    await fill("0:2", "10");
+    await sleep(500);
+    await fill("1:0", "вт");
+    await fill("1:1", "Ира");
+    await fill("1:2", "14", false);
+    // Escape on the focused cell writes the table back into the letter and rebuilds it, so
+    // the columns take their real width; a click elsewhere leaves the cells uncommitted.
+    await d.pressKey("\uE001");
+    await sleep(500);
+    // Blur so the focused cell writes the table back into the letter before the shot; the
+    // cells hold their column by the word now, so nothing has to be forced on them.
+    await d.exec("document.activeElement?.blur?.()");
+    await sleep(300);
+    await shot("02-markdown-editor");
+    await discardCompose();
+
+    // 03. The list: the reply marks before the date.
+    await d.button("Входящие");
+    await d.until("inbox", async () => (await textOf(".list h2")).trim() === "Входящие");
+    await sleep(600);
+    await shot("03-reply-marks");
+
+    // 07. The list: the label chips after the subject. The keywords go into the cache now and
+    // the list is re-read, so this picture differs from the one above.
+    const kw = (name) => db(`SELECT keyword FROM labels WHERE account_id='${account}' AND name='${name}'`);
+    db(`UPDATE messages SET keywords=json_array('${kw("Срочно")}') WHERE account_id='${account}' AND message_id='invoice-15@example.org';`);
+    db(`UPDATE messages SET keywords=json_array('${kw("Клиенты")}') WHERE account_id='${account}' AND message_id='report-9@example.org';`);
+    await openFolder("Работа");
+    await sleep(500);
+    await openFolder("Входящие");
+    await d.until("inbox again", async () => (await textOf(".list h2")).trim() === "Входящие");
+    await sleep(600);
+    await shot("07-labels");
+
+    // 04. The person card of the sender.
+    await openBySubject("Смета на монтаж");
+    await d.click(await d.find(".reader .sender"));
+    await d.until("person card", async () => (await d.findAll(".pcard")).length === 1);
+    await sleep(300);
+    await shot("04-person-card");
+    await press("Escape");
+  }
+
+  console.log("Готово.");
+} catch (e) {
+  console.error("Прогон прерван:", e);
+  process.exitCode = 1;
+} finally {
+  await kit.finish();
+}

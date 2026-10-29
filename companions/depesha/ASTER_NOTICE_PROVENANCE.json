@@ -1,0 +1,56 @@
+{
+  "generatedUtc": "2026-10-29T13:32:24.197Z",
+  "upstreamCommit": "d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4",
+  "upstreamVersion": "0.8.17",
+  "completeTextCollection": true,
+  "counts": {
+    "cargo": 433,
+    "npm": 263,
+    "noticeFiles": 1098,
+    "standardTextSupplemented": 7,
+    "missing": 0
+  },
+  "standardTextSupplemented": [
+    {
+      "ecosystem": "Cargo",
+      "name": "selectors",
+      "version": "0.38.0"
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "stop-token",
+      "version": "0.7.0"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@humanfs/types",
+      "version": "0.15.0"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "is-reference",
+      "version": "3.0.3"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "keyv",
+      "version": "4.5.4"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "locate-character",
+      "version": "3.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "name": "natural-compare",
+      "version": "1.4.0"
+    }
+  ],
+  "locks": {
+    "Cargo.lock": "ebed039c8c972ac850cf37ad32ecfe69d443b5beb2919b45efe1d3ad3c071328",
+    "package-lock.json": "b2c7e774a0cb980bcdd04ffef96b73d6a44d6e8b01715047a3c150f4d68dcb45"
+  },
+  "noticesSha256": "ae53dcf56eaf21cc1835dbdfca1a4d2c54644dbd6ffa153c6bb46d58ea48928c",
+  "generatorSha256": "1c5b5d56a91b9c9277a186cd42ac850d0697d2a23a02b8598cfd59f07b41766b"
+}

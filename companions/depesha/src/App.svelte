@@ -1,0 +1,414 @@
+<script lang="ts">
+  import { onMount, tick, untrack } from "svelte";
+  import { app } from "./lib/store.svelte";
+  import { bus } from "./lib/bus";
+  import { watchDrops } from "./lib/drops";
+  import { currentRow } from "./lib/anchor";
+  import { api } from "./lib/api";
+  import { t } from "./lib/i18n.svelte";
+  import { shortcuts } from "./lib/shortcuts.svelte";
+  import { pressName } from "./lib/keymap";
+  import { printKey } from "./lib/print";
+  import { selectZone, textZone } from "./lib/engine";
+  import { quitApp } from "./lib/background.svelte";
+  import { layout } from "./lib/layout.svelte";
+  import Sidebar from "./components/Sidebar.svelte";
+  import MessageList from "./components/MessageList.svelte";
+  import Reader from "./components/Reader.svelte";
+  import Dock from "./components/Dock.svelte";
+  import Wizard from "./components/Wizard.svelte";
+  import Outbox from "./components/Outbox.svelte";
+  import PeopleView from "./components/people/PeopleView.svelte";
+  import MergeDialog from "./components/people/MergeDialog.svelte";
+  import PickPerson from "./components/people/PickPerson.svelte";
+  import { peopleOps } from "./lib/peopleOps.svelte";
+  import Preferences from "./components/Preferences.svelte";
+  import Tasks from "./components/Tasks.svelte";
+  import WindowControls from "./components/WindowControls.svelte";
+  import Confirm from "./components/Confirm.svelte";
+  import Popover from "./components/Popover.svelte";
+  import { keyAnchor } from "./lib/anchor";
+  import LabelPicker from "./components/LabelPicker.svelte";
+  import { allCommands, host, keybindingRun } from "./plugin-host/host.svelte";
+  import FolderPropsCard from "./components/prefs/FolderProps.svelte";
+  import { registry } from "./plugin-host/registry.svelte";
+  import { labels } from "./lib/labels.svelte";
+  import { windowOpen } from "./lib/overlay";
+  import SearchBox from "./components/SearchBox.svelte";
+  import UnifiedBar from "./components/UnifiedBar.svelte";
+
+  let searchInput = $state<HTMLInputElement | null>(null);
+  /** The list's own search box, shown in a narrow window (the panel's stands in `searchInput`). */
+  let listSearchInput = $state<HTMLInputElement | null>(null);
+
+  // The width decides the layout from the first paint.
+  layout.resize(window.innerWidth);
+
+  /** Dragging a hairline: column widths, remembered between launches; the sidebar's snaps into the strip. */
+  function drag(which: "side" | "list", e: PointerEvent) {
+    const startX = e.clientX;
+    const start = which === "side" ? layout.sideWidth : layout.listWidth;
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const w = start + ev.clientX - startX;
+      if (which === "side") layout.dragSide(w);
+      else layout.dragList(w);
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      layout.save();
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+  }
+
+  /** The outbox and the address book take the place of the list and the letter. */
+  const wideView = $derived(app.list.view.kind === "outbox" || app.list.view.kind === "people");
+
+  /** A letter (or its error, or one being opened) to show; several selected rows are not one. */
+  const hasLetter = $derived(app.selection.selected.size <= 1 && !!(app.reader.opened || app.reader.opening || app.reader.openError));
+  const column = $derived(layout.single ? layout.column(hasLetter) : null);
+
+  // The unified action panel (decision 1.1 В, settled by the operator in step 2) is always
+  // there in the wide and medium window: over the list and the letter, with the search at its
+  // left (question 1.2 «Б»). A narrow window has no panel — its toolbar stays as it was
+  // (question 1.5 «А»).
+  const showBar = $derived(!wideView && !layout.single);
+
+  // Another list starts on the list in a narrow window.
+  $effect(() => {
+    void app.list.view;
+    untrack(() => layout.showList());
+  });
+  $effect(() => {
+    const has = hasLetter;
+    untrack(() => layout.follow(has));
+  });
+
+  let listPane = $state<HTMLElement>();
+  let readerPane = $state<HTMLElement>();
+  let shownColumn: typeof column = null;
+  // Back on the list in a narrow window: the focus left with the hidden letter, so it goes
+  // to the selected row. Focus put elsewhere on purpose (the sidebar) stays there.
+  $effect(() => {
+    const was = shownColumn;
+    shownColumn = column;
+    if (was === "message" && column === "list") tick().then(refocusList);
+  });
+
+  function refocusList() {
+    const at = document.activeElement;
+    if (at && at !== document.body && !readerPane?.contains(at)) return;
+    const row = (listPane ? currentRow(listPane) : null) ?? listPane?.querySelector<HTMLElement>("[role=listbox]");
+    row?.focus({ preventScroll: true });
+  }
+
+  onMount(() => {
+    app.init().catch((e) => app.ui.fail(e, t("startup")));
+    // Files dropped on the window go to the open composition: attached, or, in an HTML
+    // letter, pictures into the text when dropped on that zone.
+    return watchDrops(app);
+  });
+
+  /** What the commands of the main window do; their keys are in keyCommands.ts and Settings → Keys. */
+  const actions: Record<string, () => void> = {
+    "core.settings": () => app.ui.openSettings(),
+    "core.quit": () => quitApp(),
+    "core.compose": () => app.compose.newMessage(),
+    "core.search": () => (app.focusSearch()),
+    "core.people": () => void app.openPeople(),
+    "core.sender-card": () => app.openSenderCard(),
+    "core.undo": () => app.actions.undo(),
+    "core.sync": () => api.syncNow().catch((e) => app.ui.fail(e)),
+    "core.next": () => app.selection.move(1),
+    "core.prev": () => app.selection.move(-1),
+    "core.select-all": () => app.selection.selectAll(),
+    "core.reply": () => app.compose.replyTo(false),
+    "core.reply-all": () => app.compose.replyTo(true),
+    "core.forward": () => app.compose.forwardOpened(),
+    "core.archive": () => app.actions.archive(),
+    "core.delete": () => app.actions.remove(),
+    "core.empty-folder": () => {
+      const here = app.clearing.here();
+      if (here) void app.clearing.begin(here.account_id, here.folder.name);
+    },
+    "core.spam": () => app.actions.spam(),
+    "core.unread": () => app.selection.toggleSeen(),
+    "core.flag": () => app.selection.toggleFlagged(),
+    "core.labels": () => labels.openPick(labelTarget()),
+    "core.row-menu": () => bus.emit("list.row-menu"),
+  };
+
+  /** The rows the labels command acts on: the selection, or the open letter (#42, frame 10). */
+  function labelTarget(): number[] {
+    const ids = app.selection.selectedIds();
+    return ids.length ? ids : app.reader.opened ? [app.reader.opened.row.id] : [];
+  }
+
+  /** What a command does now: the core's, a plugin's key, or any command of the palette given a key. */
+  function action(id: string | undefined): (() => void) | undefined {
+    if (!id) return;
+    return actions[id] ?? keybindingRun(id) ?? allCommands().find((c) => c.id === id)?.run;
+  }
+
+  /** Text fields keep their own editing keys even when a command has them. */
+  const EDITING = ["Mod+a", "Mod+z", "Mod+y", "Mod+Shift+z"];
+
+  function onKey(e: KeyboardEvent) {
+    // Quit is the one key that works everywhere — over the wizard, the settings, a text
+    // field: the backend asks about letters waiting before it really quits.
+    if ((e.ctrlKey || e.metaKey) && shortcuts.find(e, "main") === "core.quit") {
+      e.preventDefault();
+      quitApp();
+      return;
+    }
+    // The print key is ours before anything else: the browser would print the whole interface.
+    if (printKey(e, !!app.ui.wizard || app.ui.settingsOpen || app.ui.tasksOpen || !!(e.target as HTMLElement | null)?.closest?.(".compose"))) return;
+    if (app.ui.wizard) return;
+    // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
+    // Only Ctrl+K reaches the app from there: the palette opens from anywhere.
+    const inCompose = !!(e.target as HTMLElement | null)?.closest?.(".compose");
+    const id = shortcuts.find(e, inCompose ? "compose" : "main");
+    if (inCompose && shortcuts.command(id)?.scope !== "all") return;
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box), those
+    // of the list and the letter aside; Ctrl+A in a field selects its text, in the list every row.
+    if (e.ctrlKey || e.metaKey) {
+      const cmd = shortcuts.command(id);
+      if (!cmd || (app.ui.settingsOpen && cmd.owner === "core")) return;
+      if (typing && (cmd.group !== "everywhere" || EDITING.includes(pressName(e) ?? ""))) return;
+      if (cmd.id === "core.select-all") {
+        // A key pressed in a letter's frame is replayed on the iframe (MailFrame.svelte): there
+        // Ctrl+A is the frame's own and takes the text of the letter inside it.
+        if (t?.tagName === "IFRAME") return;
+        // The text of the letter, as Ctrl+A takes the text of a field: a click on it moves no
+        // focus, so the zone comes from where the press landed (engine.ts).
+        const zone = textZone(t);
+        if (zone) {
+          e.preventDefault();
+          selectZone(zone);
+          return;
+        }
+        // A window of a letter of its own has no list of rows to choose.
+        if (app.windowOf !== null) return;
+      }
+      const run = action(id);
+      if (run) {
+        e.preventDefault();
+        run();
+      }
+      return;
+    }
+    if (windowOpen()) return;
+    if (typing) {
+      if (e.key === "Escape") t!.blur();
+      return;
+    }
+    const run = action(id);
+    if (e.altKey) {
+      if (run) {
+        e.preventDefault();
+        run();
+      }
+      return;
+    }
+    // A narrow window shows the list or the letter: Enter opens the selected one, Esc goes back.
+    // Keys a viewer or a menu took already, and Enter on a focused button, are not theirs.
+    const onButton = !!t?.closest?.("button, a");
+    if (!e.defaultPrevented && ((e.key === "Enter" && !onButton && layout.enter(app.selection.selected.size)) || (e.key === "Escape" && layout.back(hasLetter)))) {
+      e.preventDefault();
+      return;
+    }
+    if (run) {
+      e.preventDefault();
+      run();
+    }
+  }
+
+  // Built-in plugins follow the settings: switched on and off at once.
+  $effect(() => {
+    void app.settingsCtl.settings.disabled_plugins;
+    void app.settingsCtl.settings.enabled_plugins;
+    host.sync();
+  });
+
+  // A quit asks this window to keep its drafts: it says whether it holds any (#71).
+  $effect(() => {
+    // Only tells the backend whether a quit must ask; the next change tells again.
+    api.composeUnsaved(app.compose.windows.length > 0 || app.ui.settingsTyping).catch(() => {});
+  });
+
+  // The main window has two search boxes: the panel's (wide and medium) and the list's own
+  // (narrow). «/» puts the focus into the one that is on screen — a resized window must not
+  // leave it in the one that just left.
+  $effect(() => bus.on("mail.search", () => (searchInput?.isConnected ? searchInput : listSearchInput)?.focus()));
+</script>
+
+<svelte:window onkeydown={onKey} onresize={() => layout.resize(window.innerWidth)} />
+
+<div
+  class="layout"
+  class:single={layout.single}
+  class:withbar={showBar}
+  style:grid-template-columns={wideView
+    ? `${layout.sideWidth}px 1fr`
+    : layout.single
+      ? `${layout.sideWidth}px 1px 1fr`
+      : `${layout.sideWidth}px 1px ${layout.listWidth}px 1px 1fr`}
+>
+  <Sidebar onCompose={() => app.compose.newMessage()} />
+  {#if showBar}
+    <!-- The search stands over the list column, before the list, so the keyboard goes search →
+         list → the panel's buttons; the buttons themselves are rendered after the list. -->
+    <div class="unibar-search" data-tauri-drag-region>
+      <SearchBox bind:input={searchInput} />
+    </div>
+  {/if}
+  {#if app.list.view.kind === "outbox"}
+    <section class="wide"><Outbox /></section>
+  {:else if app.list.view.kind === "people"}
+    <section class="wide"><PeopleView /></section>
+  {:else}
+    <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("side", e)}></div>
+    <!-- Both stay in place in a narrow window, one of them hidden: the list keeps its scroll and selection. -->
+    <div class="pane" class:away={column === "message"} inert={column === "message"} bind:this={listPane}>
+      <MessageList bind:searchInput={listSearchInput} edge={layout.single} />
+    </div>
+    {#if !layout.single}
+      <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>
+    {/if}
+    {#if showBar}
+      <UnifiedBar />
+    {/if}
+    <div class="pane" class:away={column === "list"} inert={column === "list"} bind:this={readerPane}>
+      <Reader onReply={(all) => app.compose.replyTo(all)} onForward={() => app.compose.forwardOpened()} />
+    </div>
+  {/if}
+</div>
+
+<Dock />
+{#if app.ui.wizard}
+  <Wizard />
+{/if}
+{#if app.ui.settingsOpen}
+  <Preferences />
+{/if}
+{#if app.ui.tasksOpen}
+  <Tasks />
+{/if}
+{#each registry.lists.overlays as o (o)}
+  <o.item.component {...o.item.props ?? {}} />
+{/each}
+
+{#if peopleOps.dialog}<MergeDialog />{/if}
+{#if peopleOps.picking}<PickPerson />{/if}
+
+{#if app.ui.confirmation}
+  {#key app.ui.confirmation}<Confirm q={app.ui.confirmation} />
+{/key}
+{/if}
+
+{#if labels.card}
+  {@const acc = app.mailboxes.account(labels.card.accountId)}
+  {@const fol = app.mailboxes.folder(labels.card.accountId, labels.card.folder)}
+  {#if acc && fol}
+    <FolderPropsCard at={{ x: Math.round(window.innerWidth / 2 - 160), y: 120 }} account={acc} folder={fol} onclose={() => labels.closeCard()} />
+  {/if}
+{/if}
+
+{#if labels.pick}
+  <Popover
+    bind:open={() => labels.pick !== null, (v) => !v && labels.closePick()}
+    at={labels.pick.at ?? keyAnchor()}
+  >
+    <LabelPicker rows={labels.pickRows()} />
+  </Popover>
+{/if}
+
+<WindowControls />
+
+
+<style>
+  .layout {
+    display: grid;
+    height: 100vh;
+  }
+
+  /* The action panel takes a row of its own above the columns; without it the grid is the one
+     the app has today (one row). */
+  .layout.withbar {
+    grid-template-rows: auto 1fr;
+  }
+
+  /* The sidebar runs the whole height; the action panel (row 1) sits to the right of it. */
+  .layout.withbar > :global(nav.side) {
+    grid-row: 1 / -1;
+  }
+
+  .layout.withbar .gutter,
+  .layout.withbar .pane {
+    grid-row: 2;
+  }
+
+  /* The search of the action panel: over the list column, 12 px from each edge as the list's own
+     header (the title on the left, «По дате» on the right), one hairline right of the sidebar. */
+  .unibar-search {
+    grid-row: 1;
+    grid-column: 2 / 4;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+    padding: 6px 12px 6px 13px;
+  }
+
+  .unibar-search :global(.search) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* A hairline to look at, a wider strip to grab. */
+  .gutter {
+    position: relative;
+    z-index: 5;
+    cursor: col-resize;
+    background: var(--line);
+    touch-action: none;
+  }
+
+  .gutter::after {
+    content: "";
+    position: absolute;
+    inset: 0 -3px;
+  }
+
+  .gutter:hover,
+  .gutter:active {
+    background: var(--accent-text);
+    box-shadow: 0 0 0 1px var(--accent-text);
+  }
+
+  .wide {
+    overflow: auto;
+  }
+
+  .pane {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /* One column for both in a narrow window; the one away keeps its layout, unseen. */
+  .single .pane {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .pane.away {
+    visibility: hidden;
+  }
+</style>

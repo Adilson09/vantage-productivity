@@ -1,0 +1,192 @@
+// Commands of the core: what any command UI (the palette plugin, menus) can offer.
+// Plugins add their own through `ui.command`; the host merges both lists. Keys are not
+// here: the palette shows each command's key from keyCommands.ts and Settings → Keys.
+
+import type { Command } from "../plugin-api";
+import { registry } from "../plugin-host/registry.svelte";
+import { api } from "./api";
+import { bus } from "./bus";
+import { extensions, fromRow } from "./extensions.svelte";
+import { accountLabel, roleLabel } from "./format";
+import { t } from "./i18n.svelte";
+import { readyQueries } from "./largeMail";
+import { isCancelled } from "./meeting";
+import { addMeeting, copyMeetingLink, meetingFile, saveMeeting } from "./meetingActions";
+import { recentSearches } from "./recentSearches.svelte";
+import { printOpened } from "./print";
+import { PRESETS, RELEVANCE, reversed } from "./sort";
+import { app, type View } from "./store.svelte";
+import { labels } from "./labels.svelte";
+import type { OpenedMessage } from "./types";
+
+const go = (v: View) => () => app.selection.setView(v);
+
+/** "Largest letters" in the middle of a phrase; "MB" stays as it is. */
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** What needs the main window's list, folders or settings: a letter's own window has none of them. */
+export const MAIN_ONLY = /^core\.(search|row-menu$|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
+
+const MOVE_SKIPS = new Set(["snoozed", "drafts", "sent"]);
+
+/** The open folder as the search takes it: by its readable name, not the server's (modified UTF-7). */
+function readableFolder(): string | null {
+  const v = app.list.view;
+  if (v.kind !== "folder") return null;
+  return app.mailboxes.folders.find((f) => f.account_id === v.account_id && f.name === v.folder)?.display_name ?? v.folder;
+}
+
+/** The actions of the meeting whose card the open letter holds (0.8.13, 1.1 А): the card's own,
+ *  under the same rules and with no key of their own. */
+function meetingCommands(msg: OpenedMessage): Command[] {
+  const cal = msg.view.calendar;
+  if (!cal) return [];
+  const list: Command[] = [];
+  const ics = meetingFile(msg.view);
+  const off = isCancelled(cal);
+  if (ics) {
+    if (!off && cal.method !== "reply" && !cal.problem) {
+      list.push({ id: "core.meeting-add", title: () => t("cal.addToCalendar"), run: () => void addMeeting(msg.row.id, ics) });
+    }
+    const dir = app.mailboxes.account(msg.row.account_id)?.attachments_dir?.trim() || app.settingsCtl.settings.attachments_dir?.trim() || "";
+    list.push({ id: "core.meeting-save", title: () => t("cal.saveIcs"), run: () => void saveMeeting(msg.row.id, ics, dir) });
+  }
+  const link = off ? null : cal.events[0]?.link;
+  if (link) list.push({ id: "core.meeting-link", title: () => t("cal.copyLink"), run: () => void copyMeetingLink(link) });
+  return list;
+}
+
+export function coreCommands(): Command[] {
+  const msg = app.reader.opened;
+  const target = app.selection.selectedIds();
+  const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), run: () => app.compose.newMessage() }];
+  if (msg) {
+    list.push(
+      { id: "core.reply", title: () => t("act.reply"), run: () => app.compose.replyTo(false) },
+      { id: "core.reply-all", title: () => t("cmd.replyAll"), run: () => app.compose.replyTo(true) },
+      { id: "core.forward", title: () => t("act.forward"), run: () => app.compose.forwardOpened() },
+      { id: "core.print", title: () => t("act.print"), run: printOpened },
+      ...meetingCommands(msg),
+    );
+  }
+  if (target.length) {
+    list.push(
+      { id: "core.archive", title: () => t("cmd.done"), run: () => app.actions.archive() },
+      { id: "core.delete", title: () => t("act.delete"), run: () => app.actions.remove() },
+      { id: "core.spam", title: () => t("act.spam"), run: () => app.actions.spam() },
+      { id: "core.flag", title: () => t("cmd.flag"), run: () => msg && app.selection.flag("flagged", !msg.row.flags.flagged) },
+      { id: "core.unread", title: () => t("act.markUnread"), run: () => app.selection.flag("seen", false) },
+    );
+    const first = msg?.row ?? app.list.messages.find((m) => m.id === target[0]);
+    // Snoozed by hand never comes back; drafts and sent mail are not moved into.
+    const moves = app.mailboxes.folders.filter(
+      (f) => f.account_id === first?.account_id && f.selectable && !f.hidden && f.name !== first?.folder && !MOVE_SKIPS.has(f.role ?? ""),
+    );
+    for (const f of moves) {
+      const folder = f.role ? roleLabel(f.role) : f.display_name;
+      list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.actions.moveTo(f.name) });
+    }
+  }
+  // «Clear» (#74): one command, only in Trash, Spam and Drafts.
+  const clear = app.clearing.here();
+  if (clear) {
+    list.push({
+      id: "core.empty-folder",
+      title: () => app.clearing.title(clear.role),
+      run: () => void app.clearing.begin(clear.account_id, clear.folder.name),
+    });
+  }
+  // Labels (#42, frame 10): on the selected rows, or on the open letter.
+  if (target.length || msg) {
+    const ids = target.length ? target : [msg!.row.id];
+    list.push({ id: "core.labels", title: () => t("act.labels"), run: () => labels.openPick(ids) });
+    list.push({ id: "core.row-menu", title: () => t("cmd.rowMenu"), run: () => bus.emit("list.row-menu") });
+  }
+  for (const c of extensions.commands()) {
+    if (c.message && !msg) continue;
+    const message = c.message && msg ? fromRow(msg.row, app.mailboxes.account(msg.row.account_id)?.email ?? "", msg.view.text) : null;
+    list.push({ id: `ext.${c.ext.id}.${c.id}`, title: () => c.title, run: () => extensions.command(c.ext, c.id, message) });
+  }
+  const undo = app.actions.lastUndo;
+  if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), run: () => app.actions.undo() });
+
+  if (app.selection.listKey()) {
+    // Search results keep an order of their own: the rank means nothing elsewhere.
+    const search = app.list.view.kind === "search";
+    for (const p of search ? [RELEVANCE, ...PRESETS] : PRESETS) {
+      const how = t(`sort.preset.${p.id}`).toLowerCase();
+      list.push({ id: `core.sort.${p.id}`, title: () => t("sort.cmd", { how }), run: () => app.selection.setSort(p.sort, search || app.selection.ownSort()) });
+    }
+    list.push({ id: "core.sort.reverse", title: () => t("sort.cmdReverse"), run: () => app.selection.setSort(reversed(app.selection.sort()), search || app.selection.ownSort()) });
+  }
+  const lf = app.selection.listFilter();
+  if (lf) {
+    for (const o of lf.filter.options()) {
+      list.push({ id: `core.show.${o.id}`, title: () => t("sort.show", { what: o.title.toLowerCase() }), run: () => lf.filter.select(lf.list, o.id) });
+    }
+  }
+
+  const where = (s: string) => () => t("cmd.go", { where: s.toLowerCase() });
+  list.push(
+    { id: "core.search", title: () => t("cmd.search"), run: () => app.focusSearch() },
+  );
+  // Ready queries, as the search box suggests them: each opens as a search, its text in
+  // the search box; the hint shows that text. In a folder, also its large mail with subfolders.
+  for (const q of readyQueries(app.settingsCtl.settings.large_mb, new Date(), readableFolder())) {
+    list.push({
+      id: `core.ready.${q.id}`,
+      title: () => t("cmd.find", { what: lowerFirst(q.title) }),
+      hint: () => q.text,
+      run: () => {
+        recentSearches.remember(q.text);
+        app.selection.setView({ kind: "search", text: q.text });
+      },
+    });
+  }
+  list.push(
+    app.mailboxes.accounts.length > 1
+      ? { id: "core.go.inboxes", title: where(t("nav.allInboxes")), run: go({ kind: "unified", role: "inbox" }) }
+      : { id: "core.go.inboxes", title: where(roleLabel("inbox")), run: () => app.selection.setView(app.mailboxes.home()) },
+    { id: "core.go.unread", title: where(t("nav.unread")), run: go({ kind: "unified", role: "inbox", unread: true }) },
+    { id: "core.go.flagged", title: where(t("nav.flagged")), run: go({ kind: "unified", role: "inbox", flagged: true }) },
+  );
+  if (app.mailboxes.accounts.length > 1) {
+    list.push({ id: "core.go.drafts", title: where(t("nav.allDrafts")), run: go({ kind: "unified", role: "drafts" }) });
+  }
+  for (const v of registry.items("views")) {
+    list.push({ id: `core.go.${v.id}`, title: where(v.title()), run: go({ kind: "plugin", id: v.id }) });
+  }
+  list.push({ id: "core.go.outbox", title: where(t("nav.outbox")), run: go({ kind: "outbox" }) });
+  // The address book (#104): the folder, this command and, when the user gives it, a key.
+  list.push({ id: "core.people", title: where(t("nav.people")), synonyms: () => t("cmd.peopleAlso"), run: () => void app.openPeople() });
+  if (msg?.view.summary.from?.email) {
+    list.push({ id: "core.sender-card", title: () => t("cmd.senderCard"), run: () => app.openSenderCard() });
+  }
+
+  const many = app.mailboxes.accounts.length > 1;
+  for (const f of app.mailboxes.folders.filter((f) => f.selectable && !f.hidden)) {
+    const acc = app.mailboxes.account(f.account_id);
+    const name = f.role ? roleLabel(f.role) : f.display_name;
+    const suffix = many && acc ? ` · ${accountLabel(acc)}` : "";
+    list.push({
+      id: `core.open.${f.account_id}.${f.name}`,
+      title: () => t("cmd.openFolder", { folder: name }) + suffix,
+      run: go({ kind: "folder", account_id: f.account_id, folder: f.name }),
+    });
+  }
+  const dnd = app.settingsCtl.settings.dnd_until > Date.now() / 1000;
+  list.push(
+    dnd
+      ? { id: "core.dnd", title: () => t("cmd.dndOff"), run: () => void app.settingsCtl.patchSettings({ dnd_until: 0 }) }
+      : {
+          id: "core.dnd",
+          title: () => t("cmd.dndHour"),
+          run: () => void app.settingsCtl.patchSettings({ dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
+        },
+    { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.ui.fail(e)) },
+    { id: "core.settings", title: () => t("settings.title"), run: () => app.ui.openSettings() },
+    { id: "core.plugins", title: () => t("cmd.plugins"), run: () => app.ui.openSettings("plugins") },
+    { id: "core.add-account", title: () => t("cmd.addAccount"), run: () => app.accountSettings(null) },
+  );
+  return app.windowOf === null ? list : list.filter((c) => !MAIN_ONLY.test(c.id));
+}

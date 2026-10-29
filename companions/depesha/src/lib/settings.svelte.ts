@@ -1,0 +1,170 @@
+// The settings of the app, the built-in plugins' own settings and the update check:
+// reading them, saving them, and following the language and the theme they ask for.
+// The app store keeps `settings` and `update` as fields of its own, so components
+// read and write them exactly as before.
+
+import type { UiController } from "./ui.svelte";
+import type { SelectionController } from "./selection.svelte";
+import { api } from "./api";
+import { applyTheme } from "./theme";
+import { i18n, t } from "./i18n.svelte";
+import { shortcuts } from "./shortcuts.svelte";
+import type { KeySettings, Settings, UpdateStatus } from "./types";
+
+/** What the settings need from the app store. */
+export interface SettingsHost {
+  readonly ui: Pick<UiController, "fail" | "toast">;
+  readonly selection: Pick<SelectionController, "reload">;
+}
+
+export class SettingsController {
+  /**
+   * Set at the very start of a window and cleared by `loadFirst`: until then the settings are the defaults,
+   * and what they switch on or off is not known (#158).
+   */
+  pending = $state(false);
+  settings = $state<Settings>({
+    undo_send_secs: 10,
+    notify: "people",
+    dnd_until: 0,
+    threads: true,
+    list_avatars: true,
+    bulk_ask_above: 20,
+    templates: [],
+    updates: "auto",
+    language: "auto",
+    theme: "system",
+    look: "ink",
+    disabled_plugins: [],
+    enabled_plugins: [],
+    plugin_settings: {},
+    keybindings: { custom: {}, dismissed: [] },
+    disabled_extensions: [],
+    oauth_clients: {},
+    offline: "30",
+    offline_attachments: false,
+    sender_logos: true,
+    letter_view: "sender",
+    default_account_id: null,
+    attachments_dir: "",
+    list_sort: [],
+    view_sorts: {},
+    large_mb: 25,
+    image_max_px: 1600,
+    compose_format: "html",
+    quota_warn: true,
+    quota_levels: [90, 95],
+    quota_repeat: "threshold",
+    close_action: "ask",
+    background_without_tray: false,
+    autostart: "off",
+    tray_count: true,
+    tray_always: true,
+    hints: true,
+    markdown_parts_note: true,
+    day_start: "9:00",
+    evening_start: "18:00",
+    work_days: [1, 2, 3, 4, 5],
+  });
+  update = $state<UpdateStatus | null>(null);
+
+  constructor(private host: SettingsHost) {
+    shortcuts.use(() => this.settings.keybindings);
+  }
+
+  /** The language resolved by the backend: the setting, or the system locale. */
+  async loadLanguage() {
+    try {
+      i18n.lang = await api.language();
+      document.documentElement.lang = i18n.lang;
+    } catch {
+      // Stays English.
+    }
+  }
+
+  /** Bumped by every local change of `settings`: an answer asked before it is stale (#91). */
+  private generation = 0;
+
+  /** The read the start waits for: the plugins are brought in line with the settings only after it. */
+  async loadFirst() {
+    try {
+      await this.loadSettings();
+    } finally {
+      this.pending = false;
+    }
+  }
+
+  async loadSettings() {
+    const generation = this.generation;
+    try {
+      const fresh = await api.settings();
+      // A save made here while the answer was on its way: the answer is older than the memory.
+      if (generation !== this.generation) return;
+      this.settings = fresh;
+      applyTheme(this.settings.theme, this.settings.look);
+    } catch (e) {
+      this.host.ui.fail(e);
+    }
+  }
+
+  /**
+   * The user's keys alone, saved at once (#46): a change on the «Keys» page takes effect
+   * without the window's «Save», and the unsaved edits of other pages are left alone.
+   */
+  saveKeybindings(next: KeySettings) {
+    return this.patchSettings({ keybindings: next });
+  }
+
+  /**
+   * Saves only the keys the patch names, over what is on disk: a save from this window's
+   * memory does not roll back what another window or the tray wrote meanwhile.
+   */
+  async patchSettings(patch: Record<string, unknown>) {
+    const next = { ...$state.snapshot(this.settings), ...patch } as Settings;
+    const threadsChanged = next.threads !== this.settings.threads;
+    this.generation++;
+    this.settings = next;
+    applyTheme(next.theme, next.look);
+    try {
+      await api.settingsPatch($state.snapshot(patch) as Record<string, unknown>);
+    } catch (e) {
+      this.host.ui.fail(e, t("err.settings"));
+      // Refused (a folder not picked in the dialog): the window shows what is saved.
+      await this.loadSettings();
+    }
+    await this.loadLanguage();
+    if (threadsChanged) this.host.selection.reload();
+  }
+
+  /** A built-in plugin's own settings; a letter's window may save them, not the rest. */
+  async savePluginSettings(plugin: string, values: Record<string, unknown>) {
+    this.generation++;
+    this.settings = { ...this.settings, plugin_settings: { ...(this.settings.plugin_settings ?? {}), [plugin]: values } };
+    try {
+      await api.pluginSettingsSet(plugin, $state.snapshot(values));
+    } catch (e) {
+      this.host.ui.fail(e, t("err.settings"));
+    }
+  }
+
+  async checkUpdates() {
+    try {
+      this.update = await api.updateCheck();
+      if (this.update.state === "idle") this.host.ui.toast(t("update.latest", { version: this.update.current }));
+    } catch (e) {
+      this.host.ui.fail(e);
+    }
+  }
+
+  async installUpdate() {
+    try {
+      this.update = await api.updateInstall();
+    } catch (e) {
+      this.host.ui.fail(e, t("update.title"));
+    }
+  }
+
+  restartForUpdate() {
+    api.updateRestart().catch((e) => this.host.ui.fail(e));
+  }
+}

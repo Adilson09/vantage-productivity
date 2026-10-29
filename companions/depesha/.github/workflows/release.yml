@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # A release is built only from a commit whose CI was green: this is the gate the fast merge into
+  # main skipped. The version commit touches code, so main has a ci.yml run for it (a text-only
+  # commit starts none, and tagging one is refused here).
+  ci-green:
+    name: The tagged commit passed CI
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: ci.yml is green for this SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          runs=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&status=success&per_page=100" \
+            | jq -r '.workflow_runs[] | select(.name == "CI") | .id')
+          for id in $runs; do
+            jobs=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100")
+            # A skipped job is not a failure (main's `reuse` skips everything when the same commit
+            # is already green on a branch).
+            bad=$(jq '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")] | length' <<<"$jobs")
+            if [[ $bad -eq 0 ]]; then
+              echo "commit ${SHA:0:9} has a green CI run $id: releasing"
+              exit 0
+            fi
+          done
+          echo "no green ci.yml run for ${SHA:0:9}: wait for CI on main (or fix it) before tagging" >&2
+          exit 1
+
+  release:
+    needs: ci-green
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            args: ""
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest
+            args: "--target x86_64-apple-darwin"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          # libayatana-appindicator3-dev: the packaging step of tauri-cli looks for an
+          # appindicator library through pkg-config and aborts without one (the app's
+          # tray is ksni, so the library is bundled into the AppImage but unused).
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the update artifacts; the app accepts nothing else (plugins.updater.pubkey).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # OAuth clients built into the app (option_env! in depesha-core/src/oauth.rs); an unset secret leaves the provider to Settings.
+          DEPESHA_GOOGLE_CLIENT_ID: ${{ secrets.DEPESHA_GOOGLE_CLIENT_ID }}
+          DEPESHA_GOOGLE_CLIENT_SECRET: ${{ secrets.DEPESHA_GOOGLE_CLIENT_SECRET }}
+          DEPESHA_YANDEX_CLIENT_ID: ${{ secrets.DEPESHA_YANDEX_CLIENT_ID }}
+          DEPESHA_YANDEX_CLIENT_SECRET: ${{ secrets.DEPESHA_YANDEX_CLIENT_SECRET }}
+          DEPESHA_MICROSOFT_CLIENT_ID: ${{ secrets.DEPESHA_MICROSOFT_CLIENT_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Депеша ${{ github.ref_name }}"
+          releaseBody: "Описание соберётся из коммитов, когда пройдут все сборки. Сборки не подписаны: Windows SmartScreen и macOS Gatekeeper предупредят при первом запуске."
+          releaseDraft: true
+          # latest.json: what installed copies check (releases/latest/download/latest.json).
+          uploadUpdaterJson: true
+          args: ${{ matrix.args }}
+
+  # The draft above collects the files of all four builds; installed copies see the
+  # release (latest.json) only once it is published, so it is published only when every
+  # build succeeded. A failed build leaves the draft for a look by hand.
+  publish:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The previous tag and the commits since it.
+          fetch-depth: 0
+      - name: Release notes from the commits
+        run: scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --notes-file notes.md --draft=false --latest

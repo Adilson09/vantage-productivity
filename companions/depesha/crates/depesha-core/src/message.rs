@@ -1,0 +1,1847 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
+use mail_parser::{Address, Message, MessageParser, MessagePart, MimeHeaders};
+use serde::{Deserialize, Serialize};
+
+use crate::avatar::Receiver;
+use crate::calendar::Notice;
+use crate::domain::{Act, ActsOn, Addr, BodyFormat, Importance};
+
+use crate::{Error, Result};
+
+/// Inline images above this size are not embedded into the rendered HTML.
+pub const MAX_INLINE_IMAGE: usize = 5 * 1024 * 1024;
+
+/// Header fields kept in the local cache for message lists.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Summary {
+    pub message_id: Option<String>,
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
+    pub subject: String,
+    pub from: Option<Addr>,
+    pub to: Vec<Addr>,
+    pub cc: Vec<Addr>,
+    pub reply_to: Vec<Addr>,
+    pub date: Option<i64>,
+    pub has_attachments: bool,
+    /// Written by a program, not a person: a mailing list, newsletter or notification.
+    #[serde(default)]
+    pub bulk: bool,
+    #[serde(default)]
+    pub unsubscribe: Option<Unsubscribe>,
+    /// Exchange's `Thread-Index`: links a conversation when `References` is missing.
+    #[serde(default)]
+    pub thread_index: Option<String>,
+    /// The receiving server checked DMARC and it passed for the From domain (#108): a
+    /// brand logo may stand next to the sender in the list. Only `parse_summary_for`
+    /// knows the receiver; a summary read without one never says yes.
+    #[serde(default)]
+    pub dmarc: bool,
+    /// `Importance`, `X-Priority`, `X-MSMail-Priority` or `Priority` of the letter (#72).
+    #[serde(default)]
+    pub importance: Importance,
+}
+
+/// Ways to leave a mailing list, from `List-Unsubscribe` (RFC 2369, RFC 8058).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Unsubscribe {
+    /// HTTPS address that unsubscribes on a POST without visiting a page (RFC 8058).
+    pub one_click: Option<String>,
+    pub http: Option<String>,
+    pub mailto: Option<String>,
+}
+
+impl Summary {
+    /// Key for a conversation none of whose messages is cached yet: the first
+    /// message's Message-ID when the references know it, Exchange's thread index
+    /// when they do not. The cache links known messages first (`Store::insert_message`).
+    pub fn thread_key(&self) -> Option<String> {
+        if let Some(root) = self.references.first().filter(|r| !r.is_empty()) {
+            return Some(root.clone());
+        }
+        if let Some(index) = &self.thread_index {
+            // The first 22 bytes identify the conversation; 28 base64 characters cover 21 of them.
+            // Outlook keeps them in every answer, even when it drops References.
+            let index = index.trim();
+            if index.len() >= 28 {
+                return Some(format!("ti:{}", &index[..28]));
+            }
+        }
+        if let Some(parent) = self.in_reply_to.as_ref().filter(|r| !r.is_empty()) {
+            return Some(parent.clone());
+        }
+        self.message_id.clone().filter(|m| !m.is_empty())
+    }
+
+    /// Answers and forwards: their subject has a prefix or they name the parent.
+    pub fn is_reply(&self) -> bool {
+        self.in_reply_to.as_deref().is_some_and(|r| !r.is_empty()) || strip_prefixes(&self.subject).1
+    }
+}
+
+/// Subject without "Re:", "Fwd:", "Отв:" and the like, folded: answers match the original.
+pub fn topic(subject: &str) -> String {
+    let rest = strip_prefixes(subject).0;
+    rest.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// A name or a subject as the list sorts it: folded, "ё" as "е", without the quotes
+/// and dashes around it, so «"ООО Ромашка"» stands among the «О».
+pub fn sort_key(text: &str) -> String {
+    let text = text.trim_matches(|c: char| !c.is_alphanumeric());
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+        .replace('ё', "е")
+}
+
+/// The subject's sort key: answers stand next to the letter they answer.
+pub fn subject_sort_key(subject: &str) -> String {
+    sort_key(strip_prefixes(subject).0)
+}
+
+/// The sender's sort key: the name, or the address without one.
+pub fn sender_sort_key(from: Option<&Addr>) -> String {
+    from.map(|a| match a.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => sort_key(name),
+        None => sort_key(&a.email),
+    })
+    .unwrap_or_default()
+}
+
+/// The subject without its reply and forward prefixes, and whether there were any.
+fn strip_prefixes(subject: &str) -> (&str, bool) {
+    const PREFIXES: [&str; 13] = [
+        "re",
+        "fwd",
+        "fw",
+        "aw",
+        "wg",
+        "sv",
+        "vs",
+        "tr",
+        "ответ",
+        "отв",
+        "пересл",
+        "пер",
+        "rif",
+    ];
+    let mut s = subject.trim_start();
+    let mut found = false;
+    loop {
+        let lower = s.to_lowercase();
+        let Some(word) = PREFIXES.iter().find(|p| lower.starts_with(*p)) else {
+            break;
+        };
+        // Lower-casing keeps the length of these prefixes: the byte index fits `s`.
+        let mut rest = s[word.len()..].trim_start();
+        // "Re[2]:", "RE(3):"
+        if let Some(inner) = rest.strip_prefix(['[', '(']) {
+            let digits = inner.trim_start_matches(|c: char| c.is_ascii_digit());
+            match digits.strip_prefix([']', ')']) {
+                Some(after) if digits.len() < inner.len() => rest = after.trim_start(),
+                _ => break,
+            }
+        }
+        let Some(after) = rest.strip_prefix([':', '：']) else {
+            break;
+        };
+        s = after.trim_start();
+        found = true;
+    }
+    (s, found)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AttachmentInfo {
+    pub index: u32,
+    pub name: String,
+    pub mime: String,
+    pub size: usize,
+    pub content_id: Option<String>,
+    pub inline: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MessageView {
+    pub summary: Summary,
+    pub text: Option<String>,
+    /// Sanitized HTML, safe to put into a sandboxed iframe.
+    pub html: Option<String>,
+    /// The message references remote images or styles (tracking pixels included).
+    pub has_remote_content: bool,
+    /// The receiving server says the message passed DMARC for its From domain:
+    /// a brand logo may stand next to it. `parse_view` leaves it false; the caller
+    /// that knows the mailbox fills it in from [`authenticity`].
+    pub authenticated: bool,
+    pub attachments: Vec<AttachmentInfo>,
+    /// A draft's scheduled sending time (`SEND_AT_HEADER`), unix seconds.
+    #[serde(default)]
+    pub send_at: Option<i64>,
+    /// How a draft was being written (`FORMAT_HEADER`); absent for other letters.
+    #[serde(default)]
+    pub format: Option<BodyFormat>,
+    /// The letter a saved draft answers or forwards (`ACTS_ON_HEADER`); absent otherwise.
+    #[serde(default)]
+    pub acts_on: Option<ActsOn>,
+    /// The letter's Markdown (`text/markdown`, RFC 7763) drawn as HTML and cleaned like `html`.
+    #[serde(default)]
+    pub markdown: Option<String>,
+    /// The forms the letter came in, in the order it offers them: the sender's favourite last.
+    #[serde(default)]
+    pub views: Vec<BodyView>,
+    /// The meeting invitation the letter holds (`text/calendar` or a `.ics` file), as the reading
+    /// pane's card shows it; none when the letter holds no calendar.
+    #[serde(default)]
+    pub calendar: Option<Notice>,
+}
+
+/// A form of the letter's text: one part of its `multipart/alternative`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum BodyView {
+    Text,
+    Html,
+    Markdown,
+}
+
+/// Where Depesha keeps a draft's scheduled time; only drafts carry it, sent mail never does.
+pub const SEND_AT_HEADER: &str = "X-Depesha-Send-At";
+
+/// How a draft was being written (`BodyFormat`), for it to open the same way; drafts only.
+pub const FORMAT_HEADER: &str = "X-Depesha-Format";
+
+/// The letter a saved draft answers or forwards (`ActsOn`), for it to be marked
+/// and to go to «Waiting for reply» the same way; drafts only. The value is the encoded
+/// mark and the signature of this installation; a mark without a signature is not followed.
+pub const ACTS_ON_HEADER: &str = "X-Depesha-Acts-On";
+
+/// What a saved draft does with the letter it is written from: `reply`, `reply_all` or
+/// `forward` (`Act`). It names no letter and nothing personal, so it stays readable: after a
+/// reinstall, when the sealed mark no longer opens, it tells an answer from a forward without
+/// guessing by the subject, which the user may have rewritten (#100).
+pub const ACT_HEADER: &str = "X-Depesha-Act";
+
+/// What a saved draft keeps about itself that is not for anybody else (#157): the letter it
+/// answers or forwards (account, Message-ID, folder, `waiting`) and the scheduled sending time.
+/// A draft may be sent by another client, so the header carries this only sealed with the
+/// install secret (`install_secret::seal`): the value is opaque, and what opens it also proves
+/// it is ours. Drafts of 0.8.0 kept the same in `ACTS_ON_HEADER` and `SEND_AT_HEADER`, which
+/// are still read and no longer written.
+pub const DRAFT_HEADER: &str = "X-Depesha-Draft";
+
+/// The longest `X-Depesha-Draft` value: a header line any server takes. With the `1.` and the
+/// base64url of nonce (12), ciphertext and tag (16) it takes a mark of 640 bytes, the longest
+/// multiple of `DRAFT_PAD` that fits (704 would make 978 characters).
+pub const DRAFT_HEADER_MAX: usize = 900;
+
+const DRAFT_PAD: usize = 64;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftMark {
+    #[serde(default)]
+    pub acts_on: Option<ActsOn>,
+    /// The scheduled sending time, unix seconds.
+    #[serde(default)]
+    pub send_at: Option<i64>,
+}
+
+impl DraftMark {
+    pub fn is_empty(&self) -> bool {
+        self.acts_on.is_none() && self.send_at.is_none()
+    }
+
+    /// The bytes that are sealed into `DRAFT_HEADER`: the JSON padded with spaces to a
+    /// multiple of `DRAFT_PAD`, so the length of the line does not tell `waiting` or a time
+    /// from their absence. At most `DRAFT_PLAIN_MAX` bytes fit a line of `DRAFT_HEADER_MAX`.
+    pub fn encode(&self) -> Option<Vec<u8>> {
+        let mut json = serde_json::to_vec(self).ok()?;
+        json.resize(json.len().div_ceil(DRAFT_PAD) * DRAFT_PAD, b' ');
+        Some(json)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice(bytes).ok()
+    }
+}
+
+/// What a sealed mark is bound to: the draft's own Message-ID, bare and trimmed, as the
+/// caller read it after the last change of the letter. None for a letter without one.
+pub fn draft_binding(raw: &[u8]) -> Option<String> {
+    let mid = parse_summary(raw).message_id?;
+    let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
+    (!bare.is_empty()).then(|| bare.to_owned())
+}
+
+/// The sealed value of `DRAFT_HEADER`, for the caller that holds the secret to open.
+pub fn sealed_draft_mark(raw: &[u8]) -> Option<String> {
+    let msg = MessageParser::default().parse_headers(raw)?;
+    raw_header(&msg, DRAFT_HEADER)
+}
+
+/// The domain of a Message-ID Depesha puts on its own drafts, so a saved draft shows which
+/// client wrote it. It is not what makes the mark trusted: that is the signature (#71).
+pub const DRAFT_DOMAIN: &str = "depesha.local";
+
+/// The longest `X-Depesha-Acts-On` value, signature included: a header line any server takes.
+#[cfg(any(test, feature = "test-support"))]
+const ACTS_ON_MAX: usize = 900;
+
+/// Room for `.{signature}` after the encoded mark: a dot and the base64url of an HMAC-SHA256
+/// tag, which is 43 characters without padding.
+#[cfg(any(test, feature = "test-support"))]
+const ACTS_ON_SIG: usize = 1 + 43;
+
+/// A draft's mark as its header value, before the signature: base64url of the JSON, so a
+/// folder name in another script and a long mark cannot break or overrun the line. None when
+/// the signed line would be too long for a server: the draft is then saved without a mark
+/// rather than unreachable.
+#[cfg(any(test, feature = "test-support"))]
+pub fn encode_acts_on(acts_on: &ActsOn) -> Option<String> {
+    let json = serde_json::to_vec(acts_on).ok()?;
+    let value = format!("1.{}", B64URL.encode(json));
+    (value.len() + ACTS_ON_SIG <= ACTS_ON_MAX).then_some(value)
+}
+
+/// The header value as it is written: the encoded mark and the signature of those bytes.
+/// None when the signature is missing or the line would be too long.
+#[cfg(any(test, feature = "test-support"))]
+pub fn signed_acts_on(value: &str, sig: &str) -> Option<String> {
+    if value.is_empty() || sig.is_empty() {
+        return None;
+    }
+    let signed = format!("{value}.{sig}");
+    (signed.len() <= ACTS_ON_MAX).then_some(signed)
+}
+
+/// The mark of a header written by `encode_acts_on`; None when it is not Depesha's form.
+fn decode_acts_on(value: &str) -> Option<ActsOn> {
+    let b64 = value.trim().strip_prefix("1.")?;
+    if b64.contains('.') {
+        return None;
+    }
+    serde_json::from_slice(&B64URL.decode(b64).ok()?).ok()
+}
+
+/// The encoded mark and the signature after it. An old mark (`1.{json}` with no signature)
+/// does not split: it is not trusted.
+fn split_signed(value: &str) -> Option<(&str, &str)> {
+    let value = value.trim();
+    let (payload, sig) = value.rsplit_once('.')?;
+    if !payload.starts_with("1.") || payload.len() <= 2 || sig.is_empty() {
+        return None;
+    }
+    Some((payload, sig))
+}
+
+/// The letter a draft says it answers, once `verify` accepts the signature of the encoded
+/// mark. A mark without a signature, or one this installation did not sign, is not followed:
+/// an old draft and a letter from anywhere else name nothing.
+pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Option<ActsOn> {
+    let msg = MessageParser::default().parse_headers(raw)?;
+    let value = raw_header(&msg, ACTS_ON_HEADER)?;
+    let (payload, sig) = split_signed(&value)?;
+    if !verify(payload.as_bytes(), sig) {
+        return None;
+    }
+    decode_acts_on(payload)
+}
+
+/// What the draft says it does (`ACT_HEADER`); a draft of 0.8.0 had it in its `Acts-On` mark,
+/// read here without the signature. None for a draft with neither and for any other letter.
+pub fn draft_act(raw: &[u8]) -> Option<Act> {
+    let msg = MessageParser::default().parse_headers(raw)?;
+    if let Some(act) = raw_header(&msg, ACT_HEADER).and_then(|v| Act::parse(v.trim())) {
+        return Some(act);
+    }
+    let value = raw_header(&msg, ACTS_ON_HEADER)?;
+    let (payload, _) = split_signed(&value)?;
+    decode_acts_on(payload).map(|acts_on| acts_on.act)
+}
+
+/// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to
+/// replace it, and the quote, to fold it. Cleaning keeps these classes and no others.
+pub const COMPOSE_CLASSES: [&str; 2] = ["depesha-signature", "depesha-quote"];
+
+pub fn parse_summary(raw: &[u8]) -> Summary {
+    match MessageParser::default().parse_headers(raw) {
+        Some(msg) => summary_of(&msg),
+        None => Summary::default(),
+    }
+}
+
+/// The summary of the headers received by `receiver`, with its verdict about the sender (#108).
+///
+/// The flag says the letter may carry a brand logo, and it is the ladder's own answer for the
+/// steps where a logo is due (0.8.13, 4.1 Б): the server's word about the sender, and only when
+/// the letter has one `From` that both readers see.
+pub fn parse_summary_for(raw: &[u8], receiver: &Receiver) -> Summary {
+    let mut summary = parse_summary(raw);
+    summary.dmarc = brand_logo_due(raw, receiver);
+    summary
+}
+
+/// Whether the letter may carry a brand logo by the server's word alone: the ladder's steps 1
+/// and 2, and only when the letter has one `From` that both readers of its headers see (#167).
+pub fn brand_logo_due(raw: &[u8], receiver: &Receiver) -> bool {
+    let auth = authenticity(raw, receiver);
+    if !auth.dmarc || auth.uneven {
+        return false;
+    }
+    let Some(from) = parse_summary(raw).from else {
+        return false;
+    };
+    sole_from(raw).is_some_and(|sole| sole == from.email.trim().to_lowercase())
+}
+
+pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
+    let msg = MessageParser::default().parse(raw).ok_or(Error::Parse)?;
+    let markdown_ids = markdown_parts(&msg);
+    let attachments = attachments_of(&msg, &markdown_ids);
+
+    let mut inline = HashMap::new();
+    for info in &attachments {
+        if let Some(cid) = &info.content_id
+            && info.mime.starts_with("image/")
+            && info.size <= MAX_INLINE_IMAGE
+            && let Some(part) = msg.attachment(info.index)
+        {
+            let uri = format!("data:{};base64,{}", info.mime, BASE64.encode(part.contents()));
+            inline.insert(cid.clone(), uri);
+        }
+    }
+
+    let (html, has_remote_content) = match msg.body_html(0) {
+        Some(html) if msg.html_body_count() > 0 && is_real_html(&msg) => {
+            let (clean, remote) = sanitize_html(&html, &inline, allow_remote);
+            (Some(clean), remote)
+        }
+        _ => (None, false),
+    };
+    let (markdown, markdown_remote) = match markdown_ids
+        .first()
+        .and_then(|&id| msg.parts.get(id as usize))
+        .and_then(|p| p.text_contents())
+    {
+        Some(source) => {
+            let (clean, remote) = markdown_letter(source, &inline, allow_remote);
+            (Some(clean), remote)
+        }
+        None => (None, false),
+    };
+    let views = views_of(&msg, markdown_ids.first().copied());
+    let text = msg.body_text(0).map(Cow::into_owned);
+    let calendar = crate::calendar::of_message(&msg);
+
+    let summary = summary_of(&msg);
+    let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
+    let format = raw_header(&msg, FORMAT_HEADER).and_then(|v| BodyFormat::from_name(&v));
+    // The mark is not taken here: only a signature of this installation makes it the letter
+    // the draft answers, and the core does not hold that secret. The caller that can verify
+    // fills `acts_on` (`trusted_acts_on`).
+    let acts_on = None;
+    Ok(MessageView {
+        summary,
+        text,
+        html,
+        has_remote_content: has_remote_content || markdown_remote,
+        authenticated: false,
+        attachments,
+        send_at,
+        format,
+        acts_on,
+        markdown,
+        views,
+        calendar,
+    })
+}
+
+/// The letter's Markdown (RFC 7763): a `text/markdown` part among its alternatives, or
+/// the whole letter. mail-parser takes such a part for an attachment; a Markdown file
+/// attached to the letter stays one.
+fn markdown_parts(msg: &Message<'_>) -> Vec<u32> {
+    let is_markdown = |id: u32| {
+        msg.parts.get(id as usize).is_some_and(|p| {
+            p.is_content_type("text", "markdown") && !p.content_disposition().is_some_and(|d| d.is_attachment())
+        })
+    };
+    let mut ids: Vec<u32> = is_markdown(0).then_some(0).into_iter().collect();
+    for part in &msg.parts {
+        if let mail_parser::PartType::Multipart(children) = &part.body
+            && part.is_content_type("multipart", "alternative")
+        {
+            ids.extend(children.iter().copied().filter(|&id| is_markdown(id)));
+        }
+    }
+    ids
+}
+
+/// The forms the letter came in, in the order of their parts: `multipart/alternative`
+/// puts the sender's favourite last (RFC 2046). Plain text made from HTML is not one.
+fn views_of(msg: &Message<'_>, markdown: Option<u32>) -> Vec<BodyView> {
+    use mail_parser::PartType;
+    let first = |ids: &[u32], html: bool| {
+        ids.iter().copied().find(|&id| {
+            Some(id) != markdown
+                && msg.parts.get(id as usize).is_some_and(|p| match &p.body {
+                    PartType::Html(_) => html,
+                    PartType::Text(_) => !html,
+                    _ => false,
+                })
+        })
+    };
+    let mut found: Vec<(u32, BodyView)> = [
+        first(&msg.text_body, false).map(|id| (id, BodyView::Text)),
+        first(&msg.html_body, true).map(|id| (id, BodyView::Html)),
+        markdown.map(|id| (id, BodyView::Markdown)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    found.sort_by_key(|(id, _)| *id);
+    found.into_iter().map(|(_, view)| view).collect()
+}
+
+/// What the receiving server vouches for about a letter's sender. Only the server of
+/// the mailbox the letter came to is believed: the same headers in a letter that
+/// came some other way, or attached to one, prove nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Authenticity {
+    /// DMARC passed for the From domain: a brand logo may stand next to it.
+    pub dmarc: bool,
+    /// Why `dmarc` is what it is; `None` for a letter whose headers or From did not parse.
+    pub check: Option<crate::avatar::SenderCheck>,
+    /// Exchange says the sender signed in to the organization (a colleague).
+    pub internal: bool,
+    /// The block of headers is uneven: the server and the app may read it differently, and the
+    /// server's word about the sender is not taken (0.8.13, 7.1 Б).
+    pub uneven: bool,
+}
+
+impl Authenticity {
+    fn none() -> Self {
+        Self {
+            dmarc: false,
+            check: None,
+            internal: false,
+            uneven: false,
+        }
+    }
+
+    /// The From address is the sender's own.
+    pub fn verified(&self) -> bool {
+        self.dmarc || self.internal
+    }
+}
+
+pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
+    let Some(msg) = MessageParser::default().parse_headers(raw) else {
+        return Authenticity::none();
+    };
+    let from = summary_of(&msg).from;
+    let check = from.as_ref().and_then(|a| a.email.rsplit_once('@')).map(|(_, d)| {
+        let delivery = crate::avatar::delivery_hops(&headers_all(&msg, "Received"));
+        crate::avatar::check_sender(
+            &headers_all(&msg, "Authentication-Results"),
+            d,
+            &receiver.with_delivery(delivery),
+        )
+    });
+    let internal = receiver.exchange
+        && headers_all(&msg, "X-MS-Exchange-Organization-AuthAs")
+            .first()
+            .is_some_and(|v| v.eq_ignore_ascii_case("Internal"));
+    Authenticity {
+        dmarc: check.as_ref().is_some_and(crate::avatar::SenderCheck::confirmed),
+        check,
+        internal,
+        uneven: crate::dkim::uneven_headers(raw),
+    }
+}
+
+/// The letter's only From address, lowercase, when the two readers of its headers agree on it
+/// (#167). `mail-parser` gives the address the reader shows and the trust list matches;
+/// `mail-auth` gives the From a DKIM signature covers. They part on odd headers: `mail-parser`
+/// takes the last From, reads `Fr om:` as From and skips a line without a colon, where
+/// `mail-auth` ends the headers. A letter they read differently confirms nobody. Only the
+/// header block is read: `mail-auth` hashes the body for every signature it finds, and a letter
+/// with more signatures than [`crate::dkim`] checks confirms nobody either.
+pub fn sole_from(raw: &[u8]) -> Option<String> {
+    let headers = &raw[..crate::dkim::header_end(raw)];
+    if crate::dkim::signature_headers(headers) > crate::dkim::MAX_HEADERS {
+        return None;
+    }
+    sole_from_in(raw, &mail_auth::AuthenticatedMessage::parse(headers)?)
+}
+
+/// [`sole_from`] with the letter `mail-auth` already read.
+pub(crate) fn sole_from_in(raw: &[u8], signed: &mail_auth::AuthenticatedMessage<'_>) -> Option<String> {
+    let name_is_from = |name: &[u8]| {
+        let mut letters = name.iter().filter(|c| !c.is_ascii_whitespace());
+        b"from"
+            .iter()
+            .all(|f| letters.next().is_some_and(|c| c.eq_ignore_ascii_case(f)))
+            && letters.next().is_none()
+    };
+    let [address] = signed.from.as_slice() else {
+        return None;
+    };
+    if signed.headers.iter().filter(|(name, _)| name_is_from(name)).count() != 1 {
+        return None;
+    }
+    let msg = MessageParser::default().parse_headers(raw)?;
+    let mut froms = msg
+        .root_part()
+        .headers()
+        .iter()
+        .filter(|h| h.name == mail_parser::HeaderName::From);
+    let (Some(header), None) = (froms.next(), froms.next()) else {
+        return None;
+    };
+    let mail_parser::HeaderValue::Address(Address::List(list)) = &header.value else {
+        return None;
+    };
+    let [one] = list.as_slice() else {
+        return None;
+    };
+    let shown = one.address.as_deref()?.trim().to_lowercase();
+    (!shown.is_empty() && shown == *address).then_some(shown)
+}
+
+/// mail-parser converts text/plain to HTML when there is no HTML part;
+/// only show HTML that the sender actually wrote.
+fn is_real_html(msg: &Message<'_>) -> bool {
+    msg.html_bodies().any(|p| p.is_content_type("text", "html"))
+}
+
+/// Returns the attachment's metadata and decoded content.
+pub fn attachment(raw: &[u8], index: u32) -> Result<(AttachmentInfo, Vec<u8>)> {
+    let msg = MessageParser::default().parse(raw).ok_or(Error::Parse)?;
+    let part = msg.attachment(index).ok_or(Error::NotFound)?;
+    let info = attachment_info(&msg, index, part);
+    Ok((info, part_bytes(&msg, part).into_owned()))
+}
+
+/// Plain text used for the full-text search index.
+pub fn index_text(raw: &[u8]) -> String {
+    let Some(msg) = MessageParser::default().parse(raw) else {
+        return String::new();
+    };
+    if let Some(text) = msg
+        .text_bodies()
+        .find(|p| p.is_content_type("text", "plain"))
+        .and_then(|p| p.text_contents())
+    {
+        return text.to_owned();
+    }
+    msg.body_html(0).map(|h| strip_tags(&h)).unwrap_or_default()
+}
+
+/// Elements whose text is not part of the message: dropped with their content, not
+/// unwrapped. A newsletter's `<title>` would otherwise stand above it as a line of text.
+const HIDDEN_TAGS: [&str; 4] = ["script", "style", "title", "template"];
+
+pub(crate) fn strip_tags(html: &str) -> String {
+    ammonia::Builder::empty()
+        .clean_content_tags(HIDDEN_TAGS.into())
+        .clean(html)
+        .to_string()
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+}
+
+/// A value as a browser's URL parser will read it: ASCII whitespace and control characters
+/// are thrown away and `\` is taken for `/`. Used before looking for a scheme, so a tracker
+/// cannot hide behind what the parser silently drops.
+fn unconfuse(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace() && !c.is_ascii_control())
+        .map(|c| if c == '\\' { '/' } else { c })
+        .collect()
+}
+
+pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote: bool) -> (String, bool) {
+    let remote = Arc::new(AtomicBool::new(false));
+    let inline = Arc::new(inline.clone());
+
+    let mut builder = ammonia::Builder::default();
+    builder
+        .add_tags(["font", "center"])
+        .add_tag_attributes("font", ["color", "face", "size"])
+        .add_generic_attributes([
+            "style",
+            "align",
+            "valign",
+            "width",
+            "height",
+            "bgcolor",
+            "color",
+            "border",
+            "cellpadding",
+            "cellspacing",
+            "dir",
+        ])
+        .add_url_schemes(["cid", "data"])
+        .add_allowed_classes("div", COMPOSE_CLASSES)
+        // The language of a code block stays on its `<code>`: the reader colours it by that
+        // name (decision on #45). Only `language-…` and only there; anything else is dropped.
+        .add_tag_attributes("code", ["class"])
+        .clean_content_tags(HIDDEN_TAGS.into())
+        .link_rel(Some("noopener noreferrer"));
+
+    let flag = remote.clone();
+    builder.attribute_filter(move |element, attribute, value| {
+        // The `<code>` of a code block keeps only its language: the reader colours by it.
+        if element == "code" && attribute == "class" {
+            let lang: Vec<&str> = value
+                .split_whitespace()
+                .filter(|c| c.starts_with("language-") || c.starts_with("lang-"))
+                .collect();
+            return (!lang.is_empty()).then(|| Cow::Owned(lang.join(" ")));
+        }
+        let lower = value.trim_start().to_ascii_lowercase();
+        if let Some(cid) = lower.strip_prefix("cid:") {
+            let cid = cid.trim_matches(['<', '>']);
+            return inline
+                .iter()
+                .find(|(k, _)| k.trim_matches(['<', '>']).eq_ignore_ascii_case(cid))
+                .map(|(_, uri)| Cow::Owned(uri.clone()));
+        }
+        if lower.starts_with("data:") {
+            let ok = element == "img" && attribute == "src" && lower.starts_with("data:image/");
+            return ok.then_some(Cow::Borrowed(value));
+        }
+        // The browser drops tabs and line breaks from a URL and reads `\` as `/`: look for a
+        // scheme only after the value is read the same way, or a tracker hides behind that.
+        let plain = unconfuse(value).to_ascii_lowercase();
+        let remote = plain.contains("http:") || plain.contains("https:") || plain.contains("//");
+        // A style that reaches out for a resource in any spelling is dropped whole: `url(`,
+        // `image-set(`, `image(`, `src(` and CSS escaping (`\`) all load something.
+        if attribute == "style"
+            && !allow_remote
+            && (plain.contains("url")
+                || plain.contains("image-set")
+                || plain.contains("image(")
+                || plain.contains("src(")
+                || value.contains('\\'))
+        {
+            if remote {
+                flag.store(true, Ordering::Relaxed);
+            }
+            return None;
+        }
+        let loads_resource =
+            (element == "img" && attribute == "src") || attribute == "background" || attribute == "style";
+        if loads_resource && remote {
+            flag.store(true, Ordering::Relaxed);
+            if !allow_remote {
+                return None;
+            }
+        }
+        Some(Cow::Borrowed(value))
+    });
+
+    let clean = builder.clean(html).to_string();
+    (clean, remote.load(Ordering::Relaxed))
+}
+
+/// An attached HTML or Markdown file made as safe to show as a letter: no scripts, no remote images.
+pub fn document_html(text: &str, markdown: bool) -> String {
+    let html = if markdown {
+        use pulldown_cmark::{Options, Parser, html};
+        let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_FOOTNOTES;
+        let mut out = String::with_capacity(text.len() * 3 / 2);
+        html::push_html(&mut out, Parser::new_ext(text, options));
+        out
+    } else {
+        text.to_owned()
+    };
+    sanitize_html(&html, &HashMap::new(), false).0
+}
+
+/// A letter written in Markdown as the HTML it goes out as. No scripts, no remote images.
+/// A task's box is a character: mail programs drop form fields.
+pub fn markdown_html(text: &str) -> String {
+    markdown_html_keeping(text, &[])
+}
+
+/// The HTML a Markdown letter goes out as when its own pictures left the Markdown for
+/// `multipart/related` parts (decision on #45): the `cid:` links its Markdown now carries
+/// stay in the HTML, instead of being dropped as foreign. Any other `cid:` link still goes.
+pub fn markdown_html_keeping(text: &str, cids: &[String]) -> String {
+    let html = render_markdown(text, |done| if done { "☑ " } else { "☐ " });
+    let inline: HashMap<String, String> = cids.iter().map(|c| (c.clone(), format!("cid:{c}"))).collect();
+    sanitize_html(&markdown_grid(&html), &inline, false).0
+}
+
+/// The grid a Markdown table carries in its own tags: a foreign client never sees the
+/// reader's styles, so the frame, the padding and the head's tint go inline. pulldown-cmark
+/// writes these tables, so their tags are its own — `<table>`, and `<th>`/`<td>` with an
+/// optional `style="text-align: …"` its alignment adds. Alignment is kept to the right.
+fn markdown_grid(html: &str) -> String {
+    /// The frame and padding of a cell; the greys read on the white a letter goes out on.
+    const TD: &str = "<td style=\"border:1px solid #d9dde3;padding:4px 10px";
+    const TH: &str = "<th style=\"border:1px solid #d9dde3;padding:4px 10px;font-weight:600;background:#f0f1f3";
+    html.replace("<table>", "<table style=\"border-collapse:collapse\">")
+        .replace("<td>", &format!("{TD}\">"))
+        .replace("<td style=\"text-align:", &format!("{TD};text-align:"))
+        .replace("<th>", &format!("{TH}\">"))
+        .replace("<th style=\"text-align:", &format!("{TH};text-align:"))
+}
+
+/// Where a task's box stands until the HTML is clean: characters for private use that
+/// no letter carries, as they are taken out of its text first.
+const TASK_DONE: char = '\u{E0D1}';
+const TASK_OPEN: char = '\u{E0D0}';
+
+/// The Markdown part of a received letter as the reader shows it: cleaned like its HTML,
+/// with the same rule for remote pictures, and its tasks as boxes that cannot be ticked.
+/// Says whether it asked for remote content.
+pub fn markdown_letter(text: &str, inline: &HashMap<String, String>, allow_remote: bool) -> (String, bool) {
+    let text = text.replace([TASK_DONE, TASK_OPEN], "");
+    let html = render_markdown(&text, |done| if done { "\u{E0D1}" } else { "\u{E0D0}" });
+    let (clean, remote) = sanitize_html(&html, inline, allow_remote);
+    (replace_task_markers(&clean), remote)
+}
+
+/// Turns the task markers into boxes, but only where they are text. A marker that came from
+/// an entity inside an attribute value (`title="x&#xE0D1;y"`) is no box: putting an element
+/// there would break the attribute — and the element — apart.
+fn replace_task_markers(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut quote: Option<char> = None;
+    for c in html.chars() {
+        if in_tag {
+            match quote {
+                Some(q) if c == q => quote = None,
+                None => match c {
+                    '"' | '\'' => quote = Some(c),
+                    '>' => in_tag = false,
+                    _ => {}
+                },
+                _ => {}
+            }
+            out.push(c);
+            continue;
+        }
+        match c {
+            '<' => {
+                in_tag = true;
+                out.push(c);
+            }
+            TASK_DONE => out.push_str("<input type=\"checkbox\" checked disabled> "),
+            TASK_OPEN => out.push_str("<input type=\"checkbox\" disabled> "),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// A letter's Markdown as HTML, not yet cleaned. A line break stays a line break, as
+/// people expect of a letter (and GitHub comments): the signature under "-- " and the
+/// quoted lines keep their lines. `task` gives the text standing for a task's box.
+fn render_markdown(text: &str, task: fn(bool) -> &'static str) -> String {
+    use pulldown_cmark::{CowStr, Event, Options, Parser, html};
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let events = Parser::new_ext(text, options).map(|e| match e {
+        Event::SoftBreak => Event::HardBreak,
+        Event::TaskListMarker(done) => Event::Text(CowStr::Borrowed(task(done))),
+        e => e,
+    });
+    let mut out = String::with_capacity(text.len() * 3 / 2);
+    html::push_html(&mut out, events);
+    out
+}
+
+/// The HTML of the visual editor cleaned once more before it leaves: the editor
+/// cleans what is pasted, this is the last word. Pictures of a quoted letter stay,
+/// the user saw them; `cid:` links lead nowhere in a new letter and go.
+pub fn compose_html(html: &str) -> String {
+    sanitize_html(html, &HashMap::new(), true).0
+}
+
+/// Every occurrence of a header, unfolded, topmost (the one the last server added)
+/// first. `header_raw` gives the last one, which for trace headers is the sender's own.
+fn headers_all(msg: &Message<'_>, name: &str) -> Vec<String> {
+    msg.headers()
+        .iter()
+        .filter(|h| h.name.as_str().eq_ignore_ascii_case(name))
+        .filter_map(|h| msg.raw_message().get(h.offset_start as usize..h.offset_end as usize))
+        .map(|raw| {
+            String::from_utf8_lossy(raw)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
+/// A header as one line: unfolded and trimmed.
+fn raw_header(msg: &Message<'_>, name: &str) -> Option<String> {
+    let v = msg.header_raw(name)?;
+    let v = v.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!v.is_empty()).then_some(v)
+}
+
+/// Parses `List-Unsubscribe: <mailto:...>, <https://...>` and `List-Unsubscribe-Post`.
+pub fn parse_unsubscribe(header: &str, post: Option<&str>) -> Option<Unsubscribe> {
+    let mut out = Unsubscribe::default();
+    for item in header.split(',') {
+        let item = item.trim().trim_start_matches('<').trim_end_matches('>').trim();
+        let lower = item.to_ascii_lowercase();
+        if lower.starts_with("mailto:") {
+            out.mailto.get_or_insert_with(|| item.to_owned());
+        } else if lower.starts_with("https://") || lower.starts_with("http://") {
+            out.http.get_or_insert_with(|| item.to_owned());
+        }
+    }
+    let one_click = post.is_some_and(|p| p.replace(' ', "").eq_ignore_ascii_case("List-Unsubscribe=One-Click"));
+    if one_click
+        && out
+            .http
+            .as_deref()
+            .is_some_and(|u| u.to_ascii_lowercase().starts_with("https://"))
+    {
+        out.one_click = out.http.clone();
+    }
+    (out.http.is_some() || out.mailto.is_some()).then_some(out)
+}
+
+fn is_bulk(msg: &Message<'_>) -> bool {
+    if raw_header(msg, "List-Id").is_some() || raw_header(msg, "List-Unsubscribe").is_some() {
+        return true;
+    }
+    let precedence = raw_header(msg, "Precedence").unwrap_or_default().to_ascii_lowercase();
+    if matches!(precedence.as_str(), "bulk" | "list" | "junk" | "auto_reply") {
+        return true;
+    }
+    // Out-of-office replies of servers that do not set Auto-Submitted.
+    if raw_header(msg, "X-Autoreply").is_some() || raw_header(msg, "X-Autorespond").is_some() {
+        return true;
+    }
+    // RFC 3834: anything but "no" is a machine (notifications, out-of-office replies).
+    raw_header(msg, "Auto-Submitted").is_some_and(|v| !v.eq_ignore_ascii_case("no"))
+}
+
+fn summary_of(msg: &Message<'_>) -> Summary {
+    let markdown = markdown_parts(msg);
+    let has_attachments = msg.attachments.iter().any(|id| !markdown.contains(id))
+        || msg.root_part().content_type().is_some_and(|ct| {
+            ct.ctype().eq_ignore_ascii_case("multipart")
+                && ct.subtype().is_some_and(|s| s.eq_ignore_ascii_case("mixed"))
+        });
+    Summary {
+        message_id: msg.message_id().map(str::to_owned),
+        in_reply_to: msg.in_reply_to().as_text().map(str::to_owned),
+        references: match msg.references().as_text_list() {
+            Some(list) => list.iter().map(|s| s.to_string()).collect(),
+            None => msg
+                .references()
+                .as_text()
+                .map(|s| vec![s.to_owned()])
+                .unwrap_or_default(),
+        },
+        subject: msg.subject().unwrap_or_default().to_owned(),
+        from: msg.from().and_then(|a| addrs(a).into_iter().next()),
+        to: msg.to().map(addrs).unwrap_or_default(),
+        cc: msg.cc().map(addrs).unwrap_or_default(),
+        reply_to: msg.reply_to().map(addrs).unwrap_or_default(),
+        date: msg.date().map(|d| d.to_timestamp()),
+        has_attachments,
+        bulk: is_bulk(msg),
+        unsubscribe: raw_header(msg, "List-Unsubscribe")
+            .and_then(|h| parse_unsubscribe(&h, raw_header(msg, "List-Unsubscribe-Post").as_deref())),
+        thread_index: raw_header(msg, "Thread-Index"),
+        dmarc: false,
+        importance: importance_of(msg),
+    }
+}
+
+/// What the headers say about importance (#72): the first of `Importance`, `X-Priority`
+/// (1–2 high, 4–5 low), `X-MSMail-Priority` and `Priority` (`urgent`, `non-urgent`) that
+/// says high or low decides; one that says normal does not stand in the way of the next.
+fn importance_of(msg: &Message<'_>) -> Importance {
+    let says = |name: &str| raw_header(msg, name);
+    let priority = |v: String| match v.trim_start().chars().next() {
+        Some('1' | '2') => Importance::High,
+        Some('4' | '5') => Importance::Low,
+        _ => Importance::Normal,
+    };
+    [
+        says("Importance").map(|v| Importance::from_word(&v)),
+        says("X-Priority").map(priority),
+        says("X-MSMail-Priority").map(|v| Importance::from_word(&v)),
+        says("Priority").map(|v| Importance::from_word(&v)),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|i| *i != Importance::Normal)
+    .unwrap_or_default()
+}
+
+/// A display name as it should be shown: the paired quotes some mail programs wrap the whole
+/// name in taken off (`"…"`, `'…'`, `«…»`, again while they come off), the backslash escapes
+/// `\"`/`\'` inside undone, and the ends trimmed. A pair around the whole of it goes only
+/// when the same quote does not stand inside too, so `"A" "B"` keeps its quotes while
+/// `"Иван"` loses them.
+pub fn clean_name(name: &str) -> String {
+    let mut s = name.replace("\\\"", "\"").replace("\\'", "'");
+    loop {
+        let trimmed = s.trim();
+        let inner = [('"', '"'), ('\'', '\''), ('«', '»')].iter().find_map(|(open, close)| {
+            let inner = trimmed.strip_prefix(*open)?.strip_suffix(*close)?;
+            // A quote of the same kind inside means the outer ones do not wrap the whole
+            // name (`"A" "B"`): only a genuine pair comes off.
+            (!inner.contains(*open) && !inner.contains(*close)).then_some(inner)
+        });
+        match inner {
+            Some(inner) => s = inner.to_string(),
+            None => break,
+        }
+    }
+    s.trim().to_string()
+}
+
+fn addrs(address: &Address<'_>) -> Vec<Addr> {
+    address
+        .iter()
+        .filter_map(|a| {
+            Some(Addr {
+                name: a.name().map(clean_name).filter(|n| !n.is_empty()),
+                email: a.address()?.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// The letter's attachments with their indexes for [`attachment`], but for its Markdown text.
+fn attachments_of(msg: &Message<'_>, markdown: &[u32]) -> Vec<AttachmentInfo> {
+    msg.attachments
+        .iter()
+        .enumerate()
+        .filter(|(_, id)| !markdown.contains(id))
+        .filter(|&(_, &id)| {
+            // A calendar that is one of the letter's alternative forms is no file of it: the
+            // meeting card speaks for it, and there is nothing to save.
+            msg.parts
+                .get(id as usize)
+                .is_none_or(|part| crate::calendar::calendar_part(part) != Some(false))
+        })
+        .filter_map(|(i, &id)| Some(attachment_info(msg, i as u32, msg.parts.get(id as usize)?)))
+        .collect()
+}
+
+fn attachment_info(msg: &Message<'_>, index: u32, part: &MessagePart<'_>) -> AttachmentInfo {
+    let mime = part
+        .content_type()
+        .map(|ct| match ct.subtype() {
+            Some(sub) => format!("{}/{}", ct.ctype(), sub),
+            None => ct.ctype().to_owned(),
+        })
+        .unwrap_or_else(|| "application/octet-stream".into())
+        .to_ascii_lowercase();
+    let inline = part
+        .content_disposition()
+        .is_some_and(|d| d.ctype().eq_ignore_ascii_case("inline"));
+    let name = part
+        .attachment_name()
+        .map(str::to_owned)
+        .or_else(|| part.message().and_then(|m| m.subject()).map(|s| format!("{s}.eml")))
+        .unwrap_or_else(|| format!("attachment-{}", index + 1));
+    AttachmentInfo {
+        index,
+        name,
+        size: part_bytes(msg, part).len(),
+        mime,
+        content_id: part.content_id().map(str::to_owned),
+        inline,
+    }
+}
+
+/// The file's content. A text file with a declared charset comes re-encoded to UTF-8, so
+/// any editor opens it; without one mail-parser would take it for UTF-8 and garble a file
+/// in another encoding (a CSV from 1C in Windows-1251, say), so it is kept as it was sent.
+fn part_bytes<'a>(msg: &'a Message<'_>, part: &'a MessagePart<'_>) -> Cow<'a, [u8]> {
+    use mail_parser::decoders::{base64::base64_decode, quoted_printable::quoted_printable_decode};
+    use mail_parser::{Encoding, PartType};
+    if let Some(inner) = part.message() {
+        return Cow::Borrowed(inner.raw_message());
+    }
+    if matches!(part.body, PartType::Text(_) | PartType::Html(_))
+        && part.content_type().and_then(|ct| ct.attribute("charset")).is_none()
+        && let Some(body) = msg.raw_message.get(part.offset_body as usize..part.offset_end as usize)
+    {
+        let decoded = match part.encoding {
+            Encoding::Base64 => base64_decode(body),
+            Encoding::QuotedPrintable => quoted_printable_decode(body),
+            Encoding::None => Some(body.to_vec()),
+        };
+        if let Some(bytes) = decoded {
+            return Cow::Owned(bytes);
+        }
+    }
+    Cow::Borrowed(part.contents())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_attachments_keep_their_bytes() {
+        let cp1251 = [0xc8u8, 0xec, 0xff, b';', b'1', b'\r', b'\n'];
+        let mut raw = b"From: a@example.org\r\nSubject: s\r\nMIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nhi\r\n\
+--b\r\nContent-Type: text/csv; name=\"a.csv\"\r\nContent-Disposition: attachment; filename=\"a.csv\"\r\n\
+Content-Transfer-Encoding: base64\r\n\r\n"
+            .to_vec();
+        raw.extend(BASE64.encode(cp1251).as_bytes());
+        raw.extend(b"\r\n--b\r\nContent-Type: text/plain; name=\"b.txt\"\r\nContent-Disposition: attachment; filename=\"b.txt\"\r\n\
+Content-Transfer-Encoding: quoted-printable\r\n\r\n=C8=EC=FF;1\r\n--b\r\nContent-Type: text/plain; name=\"c.txt\"\r\n\
+Content-Disposition: attachment; filename=\"c.txt\"\r\n\r\nplain\r\n--b--\r\n");
+        let (info, bytes) = attachment(&raw, 0).unwrap();
+        assert_eq!(info.name, "a.csv");
+        assert_eq!(bytes, cp1251);
+        assert_eq!(info.size, cp1251.len());
+        assert_eq!(attachment(&raw, 1).unwrap().1, &cp1251[..5]);
+        assert_eq!(attachment(&raw, 2).unwrap().1, b"plain");
+    }
+
+    /// An invitation is read into the view as a meeting, and its file stays among the files to
+    /// save. A `text/calendar` that is one of the letter's own forms is no file of it (0.8.13).
+    #[test]
+    fn an_invitation_comes_as_a_meeting_and_its_file() {
+        let head = "From: a@example.org\r\nTo: b@example.org\r\nSubject: s\r\nMIME-Version: 1.0\r\n";
+        let calendar = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+SUMMARY:Встреча\r\nDTSTART:20261106T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let attached = format!(
+            "{head}Content-Type: multipart/mixed; boundary=\"m\"\r\n\r\n--m\r\nContent-Type: text/plain\r\n\r\nHi\r\n\
+--m\r\nContent-Type: text/calendar; name=\"invite.ics\"\r\n\
+Content-Disposition: attachment; filename=\"invite.ics\"\r\n\r\n{calendar}--m--\r\n"
+        );
+        let view = parse_view(attached.as_bytes(), false).unwrap();
+        let notice = view.calendar.clone().expect("a meeting");
+        assert_eq!(notice.file, Some(0));
+        assert_eq!(notice.events[0].title, "Встреча");
+        let names: Vec<&str> = view.attachments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["invite.ics"]);
+
+        let alternative = format!(
+            "{head}Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n--b\r\n\
+Content-Type: text/plain\r\n\r\nHi\r\n--b\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\n\
+{calendar}--b--\r\n"
+        );
+        let view = parse_view(alternative.as_bytes(), false).unwrap();
+        assert_eq!(view.calendar.as_ref().and_then(|c| c.file), None);
+        // The letter's other form is no attachment with an invented name: the card speaks for it.
+        assert!(view.attachments.is_empty(), "{:?}", view.attachments);
+    }
+
+    #[test]
+    fn markdown_files_render_without_scripts_or_remote_images() {
+        let html = document_html(
+            "# План\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n<script>alert(1)</script>\n\n![x](https://t.example/p.png)",
+            true,
+        );
+        assert!(html.contains("<h1>План</h1>"), "{html}");
+        assert!(html.contains("<table>"), "{html}");
+        assert!(!html.contains("script"), "{html}");
+        assert!(!html.contains("t.example"), "{html}");
+    }
+
+    #[test]
+    fn html_files_lose_scripts_and_handlers() {
+        let html = document_html(
+            "<p onclick=\"x()\">Привет</p><script>x()</script><a href=\"javascript:x()\">a</a>",
+            false,
+        );
+        assert_eq!(html, "<p>Привет</p><a rel=\"noopener noreferrer\">a</a>");
+    }
+
+    const MAIL: &[u8] = b"From: =?UTF-8?B?0JjQstCw0L0=?= <ivan@example.org>\r\n\
+To: Bob <bob@example.org>, carol@example.org\r\n\
+Subject: =?UTF-8?B?0J/RgNC40LLQtdGC?=\r\n\
+Date: Fri, 2 Oct 2026 10:00:00 +0300\r\n\
+Message-ID: <m1@example.org>\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"b1\"\r\n\
+\r\n\
+--b1\r\n\
+Content-Type: multipart/related; boundary=\"b2\"\r\n\
+\r\n\
+--b2\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p onclick=\"x()\" style=\"color:red\">Hi<script>alert(1)</script></p>\
+<img src=\"cid:logo@x\"><img src=\"https://tracker.example/p.gif\">\r\n\
+--b2\r\n\
+Content-Type: image/png\r\n\
+Content-ID: <logo@x>\r\n\
+Content-Disposition: inline\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+iVBORw0KGgo=\r\n\
+--b2--\r\n\
+--b1\r\n\
+Content-Type: application/pdf; name=\"report.pdf\"\r\n\
+Content-Disposition: attachment; filename=\"report.pdf\"\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+JVBERi0xLjQK\r\n\
+--b1--\r\n";
+
+    #[test]
+    fn parses_headers() {
+        let s = parse_summary(MAIL);
+        assert_eq!(s.subject, "Привет");
+        assert_eq!(
+            s.from,
+            Some(Addr {
+                name: Some("Иван".into()),
+                email: "ivan@example.org".into()
+            })
+        );
+        assert_eq!(s.to.len(), 2);
+        assert_eq!(s.message_id.as_deref(), Some("m1@example.org"));
+        assert!(s.has_attachments);
+        assert!(s.date.is_some());
+    }
+
+    #[test]
+    fn sanitizes_html_and_blocks_remote() {
+        let view = parse_view(MAIL, false).unwrap();
+        let html = view.html.unwrap();
+        assert!(!html.contains("script"), "{html}");
+        assert!(!html.contains("onclick"), "{html}");
+        assert!(html.contains("color:red"), "{html}");
+        assert!(html.contains("data:image/png;base64,"), "{html}");
+        assert!(!html.contains("tracker.example"), "{html}");
+        assert!(view.has_remote_content);
+
+        let allowed = parse_view(MAIL, true).unwrap();
+        assert!(allowed.html.unwrap().contains("tracker.example"));
+    }
+
+    fn receiver(domain: &str) -> Receiver {
+        Receiver {
+            domains: vec![domain.into()],
+            vouches: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_logo_follows_the_ladder_of_the_sender() {
+        // 0.8.13, 4.1 Б: the flag in the list is the ladder's own answer, not the server's word
+        // alone: a letter with two `From` headers is not from anybody, logo or no.
+        let ours = receiver("example.net");
+        let pass = "Authentication-Results: mx.example.net; dmarc=pass header.from=example.org\r\n";
+        let raw = format!("{pass}From: One <a@example.org>\r\nFrom: Two <b@example.org>\r\n");
+        assert!(!parse_summary_for(raw.as_bytes(), &ours).dmarc);
+        // One From: the server's word is enough.
+        let raw = format!("{pass}From: One <a@example.org>\r\n");
+        assert!(parse_summary_for(raw.as_bytes(), &ours).dmarc);
+        // A server's word about another organization is no word about the From.
+        let raw = "Authentication-Results: mx.example.net; dmarc=pass header.from=example.com\r\nFrom: One <a@example.org>\r\n";
+        assert!(!parse_summary_for(raw.as_bytes(), &ours).dmarc);
+    }
+
+    #[test]
+    fn trusts_the_receiving_servers_dmarc_verdict_only() {
+        let mail = |results: &str| {
+            format!("{results}From: Ozon <news@ozon.ru>\r\nTo: me@example.net\r\nSubject: Hi\r\n\r\nText\r\n")
+        };
+        let ours = receiver("example.net");
+        let dmarc = |raw: String| authenticity(raw.as_bytes(), &ours).dmarc;
+        let own_pass = "Authentication-Results: mx.example.net; dmarc=pass header.from=ozon.ru\r\n";
+        let own_fail = "Authentication-Results: mx.example.net; dmarc=fail header.from=ozon.ru\r\n";
+        let foreign_pass = "Authentication-Results: mx.example.org; dmarc=pass header.from=ozon.ru\r\n";
+        let nameless_pass = "Authentication-Results: dmarc=pass header.from=ozon.ru\r\n";
+        assert!(dmarc(mail(own_pass)));
+        // The only header is another server's: the receiving one wrote none, the sender did.
+        assert!(!dmarc(mail(foreign_pass)));
+        assert!(!dmarc(mail(nameless_pass)));
+        // Another server's claim is skipped wherever it stands; our own verdict decides.
+        assert!(!dmarc(mail(&format!("{foreign_pass}{own_fail}"))));
+        assert!(dmarc(mail(&format!("{foreign_pass}{own_pass}"))));
+        assert!(!dmarc(mail(&format!("{own_fail}{own_pass}"))));
+        assert!(!dmarc(mail(String::new().as_str())));
+        // The view alone knows no receiver: an attached letter is never authenticated.
+        assert!(!parse_view(mail(own_pass).as_bytes(), false).unwrap().authenticated);
+    }
+
+    /// The shape of what Gmail stores for a letter of a sender with its own DKIM (#167): the
+    /// ARC set first, then Gmail's own verdict, then the sender's headers.
+    fn gmail_letter(from: &str, own: &str) -> String {
+        format!(
+            "Delivered-To: me@gmail.example\r\n\
+Received: by 2002:a05:6a00:1234:b0:1:2:3 with SMTP id a1csp123456xyz;\r\n        Mon, 5 Oct 2026 10:00:00 -0700 (PDT)\r\n\
+ARC-Seal: i=1; a=rsa-sha256; t=1790000000; cv=none; d=google.com; s=arc-20240605; b=AAAA\r\n\
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605; h=to:from; bh=BBBB; b=CCCC\r\n\
+ARC-Authentication-Results: i=1; mx.google.com;\r\n       dkim=pass header.i=@github.com header.s=pf2023 header.b=DDDD;\r\n       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com\r\n\
+Return-Path: <noreply@github.com>\r\n\
+Received: from out-1.smtp.github.com (out-1.smtp.github.com. [192.0.2.1])\r\n        by mx.google.com with ESMTPS id x1si1234567pgb.1.2026.10.05.10.00.00\r\n        for <me@gmail.example>\r\n        (version=TLS1_3 cipher=TLS_AES_128_GCM_SHA256 bits=128/128);\r\n        Mon, 05 Oct 2026 10:00:00 -0700 (PDT)\r\n\
+{own}\
+From: GitHub <{from}>\r\nTo: me@gmail.example\r\nSubject: Hi\r\n\r\nText\r\n"
+        )
+    }
+
+    const GMAIL_OWN_PASS: &str = "Authentication-Results: mx.google.com;\r\n       dkim=pass header.i=@github.com header.s=pf2023 header.b=DDDD;\r\n       spf=pass (google.com: domain of noreply@github.com designates 192.0.2.1 as permitted sender) smtp.mailfrom=noreply@github.com;\r\n       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com\r\n";
+
+    #[test]
+    fn gmail_vouches_for_a_letter_of_github() {
+        // Google's MX names itself in the letter's `Received`, not in the box's settings.
+        let gmail = Receiver {
+            domains: vec!["gmail.com".into()],
+            vouches: true,
+            ..Default::default()
+        };
+        let ok = |raw: String| authenticity(raw.as_bytes(), &gmail).verified();
+        assert!(ok(gmail_letter("notifications@github.com", GMAIL_OWN_PASS)));
+        // A subdomain of the same organization is aligned (relaxed, #167).
+        assert!(ok(gmail_letter("notifications@mail.github.com", GMAIL_OWN_PASS)));
+        // A failed verdict, another domain, a name nobody gave to the box: no.
+        assert!(!ok(gmail_letter(
+            "notifications@github.com",
+            &GMAIL_OWN_PASS.replace("dmarc=pass", "dmarc=fail")
+        )));
+        assert!(!ok(gmail_letter("notifications@github.example", GMAIL_OWN_PASS)));
+        assert!(!ok(gmail_letter(
+            "notifications@github.com",
+            &GMAIL_OWN_PASS.replace("mx.google.com", "mx.evil.example")
+        )));
+        // A forged pass below the server's own failure is not believed.
+        let forged = GMAIL_OWN_PASS.replace("dmarc=pass", "dmarc=fail") + GMAIL_OWN_PASS;
+        assert!(!ok(gmail_letter("notifications@github.com", &forged)));
+    }
+
+    #[test]
+    fn importance_is_read_from_the_headers_that_say_it() {
+        let of =
+            |headers: &str| parse_summary(format!("{headers}From: a@x\r\nSubject: Hi\r\n\r\n").as_bytes()).importance;
+        assert_eq!(of(""), Importance::Normal);
+        assert_eq!(of("Importance: High\r\n"), Importance::High);
+        assert_eq!(of("Importance: low\r\n"), Importance::Low);
+        assert_eq!(of("X-Priority: 1 (Highest)\r\n"), Importance::High);
+        assert_eq!(of("X-Priority: 2\r\n"), Importance::High);
+        assert_eq!(of("X-Priority: 3 (Normal)\r\n"), Importance::Normal);
+        assert_eq!(of("X-Priority: 4\r\n"), Importance::Low);
+        assert_eq!(of("X-Priority: 5 (Lowest)\r\n"), Importance::Low);
+        assert_eq!(of("X-MSMail-Priority: High\r\n"), Importance::High);
+        assert_eq!(of("Priority: urgent\r\n"), Importance::High);
+        assert_eq!(of("Priority: non-urgent\r\n"), Importance::Low);
+        // Outlook says it twice; a «normal» one does not hide the next that says more.
+        assert_eq!(of("Importance: Normal\r\nX-Priority: 1\r\n"), Importance::High);
+        assert_eq!(of("X-Priority: garbage\r\nImportance: high\r\n"), Importance::High);
+        assert_eq!(Importance::from_db(Importance::High.to_db()), Importance::High);
+        assert_eq!(Importance::from_db(Importance::Low.to_db()), Importance::Low);
+    }
+
+    #[test]
+    fn a_summary_carries_the_verdict_of_its_receiver() {
+        let raw = "Authentication-Results: mx.example.net; dmarc=pass header.from=ozon.ru\r\nFrom: Ozon <news@ozon.ru>\r\nSubject: Hi\r\n\r\n";
+        assert!(parse_summary_for(raw.as_bytes(), &receiver("example.net")).dmarc);
+        assert!(!parse_summary_for(raw.as_bytes(), &receiver("example.org")).dmarc);
+        assert!(!parse_summary(raw.as_bytes()).dmarc, "no receiver, no verdict");
+    }
+
+    #[test]
+    fn exchange_vouches_for_its_own_senders_only() {
+        let mail = |extra: &str| format!("{extra}From: boss@contoso.example\r\nSubject: Hi\r\n\r\nText\r\n");
+        let internal = mail("X-MS-Exchange-Organization-AuthAs: Internal\r\n");
+        let exchange = Receiver {
+            exchange: true,
+            ..receiver("contoso.example")
+        };
+        assert!(authenticity(internal.as_bytes(), &exchange).internal);
+        assert!(authenticity(internal.as_bytes(), &exchange).verified());
+        assert!(
+            !authenticity(
+                mail("X-MS-Exchange-Organization-AuthAs: Anonymous\r\n").as_bytes(),
+                &exchange
+            )
+            .internal
+        );
+        // Any other server leaves the header as the sender wrote it.
+        assert!(!authenticity(internal.as_bytes(), &receiver("contoso.example")).verified());
+    }
+
+    #[test]
+    fn a_draft_keeps_its_scheduled_time() {
+        let mail =
+            |extra: &str| format!("{extra}From: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n");
+        let draft = mail(&format!("{SEND_AT_HEADER}: 1790000000\r\n"));
+        assert_eq!(
+            parse_view(draft.as_bytes(), false).unwrap().send_at,
+            Some(1_790_000_000)
+        );
+        assert_eq!(parse_view(mail("").as_bytes(), false).unwrap().send_at, None);
+    }
+
+    #[test]
+    fn a_draft_keeps_its_format() {
+        let mail =
+            |extra: &str| format!("{extra}From: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n");
+        let format = |raw: String| parse_view(raw.as_bytes(), false).unwrap().format;
+        assert_eq!(
+            format(mail(&format!("{FORMAT_HEADER}: markdown\r\n"))),
+            Some(BodyFormat::Markdown)
+        );
+        assert_eq!(format(mail(&format!("{FORMAT_HEADER}: rtf\r\n"))), None);
+        assert_eq!(format(mail("")), None);
+    }
+
+    fn acts() -> ActsOn {
+        use crate::domain::{Act, ActsOn};
+        ActsOn {
+            account_id: "a".into(),
+            message_id: "m1@example.org".into(),
+            folder: "Входящие".into(),
+            act: Act::Reply,
+            waiting: true,
+        }
+    }
+
+    fn draft_with(header: &str, domain: &str) -> String {
+        format!(
+            "{header}Message-ID: <1.abcd@{domain}>\r\nFrom: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n"
+        )
+    }
+
+    #[test]
+    fn a_draft_keeps_what_it_answers_only_when_the_mark_is_signed() {
+        let acts = acts();
+        let value = encode_acts_on(&acts).unwrap();
+        let signed = signed_acts_on(&value, "sig").unwrap();
+        let raw = draft_with(&format!("{ACTS_ON_HEADER}: {signed}\r\n"), "example.com");
+        // The core does not trust the header by itself: the caller verifies the signature.
+        assert_eq!(parse_view(raw.as_bytes(), false).unwrap().acts_on, None);
+        let ok = |bytes: &[u8], sig: &str| sig == "sig" && bytes == value.as_bytes();
+        assert_eq!(trusted_acts_on(raw.as_bytes(), ok), Some(acts));
+        assert_eq!(trusted_acts_on(draft_with("", DRAFT_DOMAIN).as_bytes(), ok), None);
+    }
+
+    #[test]
+    fn a_draft_tells_the_kind_of_its_action_apart_from_the_subject() {
+        use Act;
+        let with = |v: &str| draft_with(&format!("{ACT_HEADER}: {v}\r\n"), DRAFT_DOMAIN);
+        assert_eq!(draft_act(with("forward").as_bytes()), Some(Act::Forward));
+        assert_eq!(draft_act(with("reply_all").as_bytes()), Some(Act::ReplyAll));
+        assert_eq!(draft_act(with("sing").as_bytes()), None);
+        assert_eq!(draft_act(draft_with("", DRAFT_DOMAIN).as_bytes()), None);
+    }
+
+    #[test]
+    fn the_kind_of_the_action_is_read_from_the_mark_even_when_its_signature_does_not_check() {
+        let acts = ActsOn {
+            act: Act::Forward,
+            ..acts()
+        };
+        let value = encode_acts_on(&acts).unwrap();
+        let signed = signed_acts_on(&value, "sig").unwrap();
+        let raw = draft_with(&format!("{ACTS_ON_HEADER}: {signed}\r\n"), DRAFT_DOMAIN);
+        assert_eq!(draft_act(raw.as_bytes()), Some(Act::Forward));
+        // Nothing to tell it by in a letter with no mark and no old header.
+        assert_eq!(draft_act(draft_with("", DRAFT_DOMAIN).as_bytes()), None);
+    }
+
+    #[test]
+    fn a_mark_without_a_signature_is_not_trusted() {
+        let acts = acts();
+        let value = encode_acts_on(&acts).unwrap();
+        // An old draft: the mark, our own domain, and no signature. It names nothing.
+        let old = draft_with(&format!("{ACTS_ON_HEADER}: {value}\r\n"), DRAFT_DOMAIN);
+        let accept_anything = |_: &[u8], _: &str| true;
+        assert_eq!(trusted_acts_on(old.as_bytes(), accept_anything), None);
+        // A signature this installation did not make is not followed either.
+        let forged = draft_with(&format!("{ACTS_ON_HEADER}: {value}.not-ours\r\n"), DRAFT_DOMAIN);
+        let reject = |_: &[u8], _: &str| false;
+        assert_eq!(trusted_acts_on(forged.as_bytes(), reject), None);
+        // A look-alike domain is no proof, and neither is a copied signature of other bytes.
+        let lookalike = draft_with(&format!("{ACTS_ON_HEADER}: {value}.sig\r\n"), "notdepesha.local");
+        let wrong_bytes = |bytes: &[u8], sig: &str| sig == "sig" && bytes == b"other";
+        assert_eq!(trusted_acts_on(lookalike.as_bytes(), wrong_bytes), None);
+    }
+
+    #[test]
+    fn a_mark_goes_and_comes_back_through_its_encoded_header() {
+        use crate::domain::{Act, ActsOn};
+        let acts = ActsOn {
+            account_id: "a".into(),
+            message_id: "m1@example.org".into(),
+            folder: "Входящие/Отдел продаж".into(),
+            act: Act::ReplyAll,
+            waiting: true,
+        };
+        let value = encode_acts_on(&acts).unwrap();
+        // A folder name in Cyrillic stays in one ASCII header line of a length servers take.
+        assert!(value.is_ascii(), "{value}");
+        assert!(value.len() <= ACTS_ON_MAX);
+        assert_eq!(decode_acts_on(&value), Some(acts));
+        // Another form of the header is not Depesha's.
+        assert_eq!(decode_acts_on("{\"account_id\":\"a\"}"), None);
+    }
+
+    #[test]
+    fn markdown_code_keeps_its_language_for_the_reader_to_colour() {
+        // The reader colours a code block by the language on its `<code>` (decision on #45).
+        // Cleaning keeps that name and no other class; a foreign letter's classes still go.
+        let html = markdown_html("```sql\nSELECT 1\n```\n");
+        assert!(html.contains("<code class=\"language-sql\">"), "{html}");
+        let clean = sanitize_html(
+            "<pre><code class=\"language-sql hl-evil\">x</code></pre>",
+            &HashMap::new(),
+            false,
+        )
+        .0;
+        assert!(clean.contains("class=\"language-sql\""), "{clean}");
+        assert!(!clean.contains("hl-evil"), "{clean}");
+    }
+
+    #[test]
+    fn markdown_letters_keep_their_lines_and_no_remote_images() {
+        let html = markdown_html("Привет,\nБоб\n\n![x](https://tracker.example/p.gif)<script>alert(1)</script>");
+        assert!(html.contains("Привет,<br>"), "{html}");
+        assert!(!html.contains("tracker.example") && !html.contains("script"), "{html}");
+    }
+
+    #[test]
+    fn markdown_tables_carry_a_grid_and_keep_their_alignment() {
+        let html = markdown_html("| a | b |\n|---|:--:|\n| 1 | 2 |\n");
+        // The grid is inline: a foreign client, which never sees the reader's styles, draws it.
+        assert!(html.contains("<table style=\"border-collapse:collapse\">"), "{html}");
+        assert!(
+            html.contains("<td style=\"border:1px solid #d9dde3;padding:4px 10px\">1</td>"),
+            "{html}"
+        );
+        // The head keeps its tint, the alignment pulldown-cmark put inline.
+        assert!(
+            html.contains("background:#f0f1f3;text-align: center\">b</th>"),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                "<th style=\"border:1px solid #d9dde3;padding:4px 10px;font-weight:600;background:#f0f1f3\">a</th>"
+            ),
+            "{html}"
+        );
+        // A letter without a table is untouched.
+        assert_eq!(markdown_html("**hi**"), "<p><strong>hi</strong></p>\n");
+    }
+
+    #[test]
+    fn a_remote_resource_is_seen_through_its_obfuscation() {
+        // The browser drops tabs and line breaks from a URL and reads `\` as `/`; a letter
+        // must not hide a tracker behind that (ammonia passes the raw value on).
+        let hidden = [
+            "<img src=\"ht&#9;tps:\\evil.example/p.gif\">",
+            "<img src=\"https&#58;//evil.example/p.gif\">",
+            "<img src=\"ht\ntps://evil.example/p.gif\">",
+            "<div style=\"background-image:image-set('https://evil.example/p' 1x)\">x</div>",
+            "<div style=\"background-image:u\\72l(https://evil.example/p)\">x</div>",
+            "<div style=\"background:url(https://evil.example/p)\">x</div>",
+        ];
+        for html in hidden {
+            let (clean, remote) = sanitize_html(html, &HashMap::new(), false);
+            assert!(!clean.contains("evil.example"), "remote kept: {html} -> {clean}");
+            assert!(remote, "remote not flagged: {html}");
+        }
+        // A style that loads nothing is not thrown away with them.
+        let (clean, _) = sanitize_html(
+            "<div style=\"color:red;border:1px solid #ccc\">x</div>",
+            &HashMap::new(),
+            false,
+        );
+        assert!(clean.contains("style=\"color:red"), "{clean}");
+        // Allowed for this letter, the same picture goes through.
+        let (clean, remote) = sanitize_html("<img src=\"ht&#9;tps:\\evil.example/p.gif\">", &HashMap::new(), true);
+        assert!(clean.contains("evil.example"), "{clean}");
+        assert!(remote);
+    }
+
+    #[test]
+    fn an_html_letter_keeps_its_own_tables() {
+        // A foreign sender's table is laid out by them: no grid of ours is put on it.
+        let (clean, _) = sanitize_html(
+            "<table style=\"width:600px\"><tr><td style=\"color:red\">x</td></tr></table>",
+            &HashMap::new(),
+            false,
+        );
+        assert!(clean.contains("<table style=\"width:600px\">"), "{clean}");
+        assert!(clean.contains("<td style=\"color:red\">"), "{clean}");
+        assert!(!clean.contains("border-collapse"), "{clean}");
+    }
+
+    /// A letter of another Markdown-aware client: the Markdown last, its favourite.
+    const MARKDOWN_MAIL: &[u8] = b"From: ivan@example.org\r\n\
+To: me@example.org\r\n\
+Subject: Notes\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/alternative; boundary=\"a\"\r\n\
+\r\n\
+--a\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+\r\n\
+Plain notes\r\n\
+--a\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p>HTML notes</p>\r\n\
+--a\r\n\
+Content-Type: text/markdown; charset=utf-8; variant=GFM\r\n\
+\r\n\
+# Notes\r\n\
+\r\n\
+- [x] signed\r\n\
+- [ ] scanners \xee\x83\x91\r\n\
+\r\n\
+| a | b |\r\n\
+|---|---|\r\n\
+| 1 | 2 |\r\n\
+\r\n\
+![p](https://tracker.example/p.gif) <script>alert(1)</script><img src=\"x\" onerror=\"y()\">\r\n\
+--a--\r\n";
+
+    #[test]
+    fn reads_the_markdown_part_of_a_letter() {
+        let view = parse_view(MARKDOWN_MAIL, false).unwrap();
+        assert_eq!(view.views, [BodyView::Text, BodyView::Html, BodyView::Markdown]);
+        assert_eq!(view.text.as_deref().map(str::trim), Some("Plain notes"));
+        assert!(view.html.as_deref().unwrap().contains("HTML notes"));
+        let md = view.markdown.unwrap();
+        assert!(md.contains("<h1>Notes</h1>") && md.contains("<table>"), "{md}");
+        // Tasks are boxes that cannot be ticked; a sender's own marker character is no box.
+        assert_eq!(md.matches("<input").count(), 2, "{md}");
+        assert!(md.contains("<input type=\"checkbox\" checked disabled> signed"), "{md}");
+        assert!(md.contains("<input type=\"checkbox\" disabled> scanners"), "{md}");
+        assert!(!md.contains('\u{E0D1}'), "{md}");
+        // Cleaned like HTML: no scripts or handlers, remote pictures wait for permission.
+        assert!(!md.contains("script") && !md.contains("onerror"), "{md}");
+        assert!(!md.contains("tracker.example"), "{md}");
+        assert!(view.has_remote_content);
+        assert!(view.attachments.is_empty() && !view.summary.has_attachments);
+        let allowed = parse_view(MARKDOWN_MAIL, true).unwrap();
+        assert!(allowed.markdown.unwrap().contains("tracker.example"));
+    }
+
+    #[test]
+    fn a_task_marker_entity_cannot_break_an_attribute() {
+        // The marker characters stand for task boxes; an entity that ammonia expands inside
+        // an attribute must not be turned into an element there.
+        let (clean, _) = markdown_letter("[x](https://a \"x&#xE0D1;y\")", &HashMap::new(), false);
+        assert!(clean.contains("<a href=\"https://a\""), "{clean}");
+        assert!(!clean.contains("<input"), "{clean}");
+        // A real task still becomes a box.
+        let (tasks, _) = markdown_letter("- [x] done\n- [ ] open\n", &HashMap::new(), false);
+        assert_eq!(tasks.matches("<input").count(), 2, "{tasks}");
+    }
+
+    #[test]
+    fn a_letter_all_in_markdown_is_its_markdown() {
+        let raw = b"From: a@example.org\r\nSubject: s\r\nContent-Type: text/markdown; charset=utf-8\r\n\r\n**hi**\r\n";
+        let view = parse_view(raw, false).unwrap();
+        assert_eq!(view.views, [BodyView::Markdown]);
+        assert!(view.markdown.unwrap().contains("<strong>hi</strong>"));
+        assert!(view.attachments.is_empty());
+        // Other letters come as they always did.
+        assert_eq!(parse_view(MAIL, false).unwrap().views, [BodyView::Html]);
+        assert!(parse_view(MAIL, false).unwrap().markdown.is_none());
+    }
+
+    #[test]
+    fn drops_title_and_styles_with_their_text() {
+        let html = "<html><head><title>Call Reports Email</title><style>p{color:red}</style></head><body><p>Отчёт готов</p></body></html>";
+        let (clean, _) = sanitize_html(html, &HashMap::new(), false);
+        assert!(!clean.contains("Call Reports"), "{clean}");
+        assert!(clean.contains("Отчёт готов"), "{clean}");
+        let text = strip_tags(html);
+        assert_eq!(text.trim(), "Отчёт готов");
+    }
+
+    #[test]
+    fn lists_and_extracts_attachments() {
+        let view = parse_view(MAIL, false).unwrap();
+        let pdf = view
+            .attachments
+            .iter()
+            .find(|a| a.name == "report.pdf")
+            .expect("pdf listed");
+        assert_eq!(pdf.mime, "application/pdf");
+        assert!(!pdf.inline);
+        let (_, bytes) = attachment(MAIL, pdf.index).unwrap();
+        assert!(bytes.starts_with(b"%PDF-1.4"));
+    }
+
+    /// Criterion 4.2: Windows-1251 and KOI8-R in headers, bodies and attachment names.
+    #[test]
+    fn decodes_russian_legacy_charsets() {
+        let raw = b"From: =?koi8-r?Q?=E2=D5=C8=C7=C1=CC=D4=C5=D2=C9=D1?= <buh@example.ru>\r\n\
+To: me@example.ru\r\n\
+Subject: =?windows-1251?B?0fe48iDt4CDu7+vg8vM=?=\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"x\"\r\n\
+\r\n\
+--x\r\n\
+Content-Type: text/plain; charset=windows-1251\r\n\
+Content-Transfer-Encoding: quoted-printable\r\n\
+\r\n\
+=C4=EE=E1=F0=FB=E9 =E4=E5=ED=FC! =CE=EF=EB=E0=F2=E8=F2=E5 =E4=EE =EF=FF=F2=\r\n\
+=ED=E8=F6=FB.\r\n\
+--x\r\n\
+Content-Type: text/plain; charset=koi8-r\r\n\
+Content-Disposition: attachment; filename*=koi8-r''%CF%D4%DE%A3%D4%2E%74%78%74\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+8NLJ18XUIMnaIEtPSTgtUg==\r\n\
+--x--\r\n";
+        let view = parse_view(raw, false).unwrap();
+        assert_eq!(view.summary.subject, "Счёт на оплату");
+        assert_eq!(view.summary.from.as_ref().unwrap().name.as_deref(), Some("Бухгалтерия"));
+        assert_eq!(
+            view.text.as_deref().map(str::trim),
+            Some("Добрый день! Оплатите до пятницы.")
+        );
+        assert_eq!(view.attachments[0].name, "отчёт.txt");
+        let (_, bytes) = attachment(raw, 0).unwrap();
+        // Text attachments are saved re-encoded to UTF-8, so any editor opens them.
+        assert_eq!(String::from_utf8(bytes).unwrap(), "Привет из KOI8-R");
+        assert!(index_text(raw).contains("пятницы"));
+    }
+
+    #[test]
+    fn recognises_mailing_lists_and_unsubscribe() {
+        let raw = b"From: News <news@shop.example>\r\nTo: me@example.org\r\nSubject: Sale\r\n\
+List-Unsubscribe: <mailto:unsub@shop.example?subject=stop>,\r\n <https://shop.example/u/123>\r\n\
+List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
+        let s = parse_summary(raw);
+        assert!(s.bulk);
+        let u = s.unsubscribe.unwrap();
+        assert_eq!(u.mailto.as_deref(), Some("mailto:unsub@shop.example?subject=stop"));
+        assert_eq!(u.one_click.as_deref(), Some("https://shop.example/u/123"));
+
+        // Plain http is never one-click; a person's letter is not bulk.
+        let u = parse_unsubscribe("<http://x.example/u>", Some("List-Unsubscribe=One-Click")).unwrap();
+        assert!(u.one_click.is_none());
+        assert!(!parse_summary(MAIL).bulk);
+        let auto = b"From: a@b.c\r\nAuto-Submitted: auto-generated\r\nSubject: x\r\n\r\nx";
+        assert!(parse_summary(auto).bulk);
+        let human = b"From: a@b.c\r\nAuto-Submitted: no\r\nSubject: x\r\n\r\nx";
+        assert!(!parse_summary(human).bulk);
+    }
+
+    #[test]
+    fn an_out_of_office_reply_is_written_by_a_program() {
+        // Exchange and many servers mark it so instead of Auto-Submitted.
+        for header in [
+            "X-Autoreply: yes",
+            "X-Autorespond: Out of office",
+            "Precedence: auto_reply",
+        ] {
+            let raw = format!("From: a@b.c\r\n{header}\r\nSubject: Re: x\r\n\r\nx");
+            assert!(parse_summary(raw.as_bytes()).bulk, "{header}");
+        }
+    }
+
+    #[test]
+    fn thread_key_finds_the_root() {
+        let root = b"Message-ID: <a@x>\r\nSubject: q\r\n\r\nx";
+        let reply = b"Message-ID: <b@x>\r\nIn-Reply-To: <a@x>\r\nSubject: Re: q\r\n\r\nx";
+        let deep = b"Message-ID: <c@x>\r\nIn-Reply-To: <b@x>\r\nReferences: <a@x> <b@x>\r\nSubject: Re: q\r\n\r\nx";
+        let keys: Vec<_> = [&root[..], &reply[..], &deep[..]]
+            .iter()
+            .map(|r| parse_summary(r).thread_key())
+            .collect();
+        assert_eq!(keys, vec![Some("a@x".to_owned()); 3]);
+    }
+
+    #[test]
+    fn topic_drops_reply_prefixes() {
+        for s in [
+            "Счёт",
+            "Re: Счёт",
+            "RE: re:  счёт",
+            "Отв: Счёт",
+            "Re[2]: Счёт",
+            "FW: Re: Счёт",
+            "AW:Счёт",
+        ] {
+            assert_eq!(topic(s), "счёт", "{s}");
+        }
+        assert_eq!(topic("Report: May"), "report: may");
+        assert_eq!(topic("Перенос встречи"), "перенос встречи");
+        assert!(!strip_prefixes("Перенос: среда").1);
+        assert!(strip_prefixes("Пересл: среда").1);
+    }
+
+    #[test]
+    fn sort_keys_fold_case_yo_and_prefixes() {
+        assert_eq!(subject_sort_key("RE: Fwd:  Ёлка  в офисе"), "елка в офисе");
+        assert_eq!(subject_sort_key("[Важно] Отчёт?"), "важно] отчет");
+        let named = |name: Option<&str>, email: &str| {
+            sender_sort_key(Some(&Addr {
+                name: name.map(Into::into),
+                email: email.into(),
+            }))
+        };
+        assert_eq!(named(Some("\"ООО Ромашка\""), "x@y"), "ооо ромашка");
+        assert_eq!(named(Some("  "), "Ivan@Example.org"), "ivan@example.org");
+        assert_eq!(named(None, "ivan@example.org"), "ivan@example.org");
+        assert_eq!(sender_sort_key(None), "");
+        assert!(named(Some("анна"), "a") == named(Some("Анна"), "b"));
+    }
+
+    #[test]
+    fn clean_name_takes_the_wrapping_quotes_off() {
+        // The quotes some programs wrap a whole name in go, whatever the pair.
+        assert_eq!(clean_name("\"Avalon через Booking.com\""), "Avalon через Booking.com");
+        assert_eq!(clean_name("'FADIN Alexey'"), "FADIN Alexey");
+        assert_eq!(
+            clean_name("\"Рыжков, Дмитрий Евгеньевич\""),
+            "Рыжков, Дмитрий Евгеньевич"
+        );
+        assert_eq!(clean_name("«ООО Ромашка»"), "ООО Ромашка");
+        // Again while they come off, and the ends trimmed.
+        assert_eq!(clean_name("  ' \"Иван\" '  "), "Иван");
+        assert_eq!(clean_name("  Ольга  "), "Ольга");
+        // The escapes some programs leave inside are undone.
+        assert_eq!(clean_name("\\\"Иван\\\""), "Иван");
+        // Quotes inside a name are legitimate and stay.
+        assert_eq!(clean_name("Иван \"Ваня\" Петров"), "Иван \"Ваня\" Петров");
+        // Outer quotes around only part of the name are not a pair around the whole: they stay.
+        assert_eq!(clean_name("\"A\" \"B\""), "\"A\" \"B\"");
+        // A lone sign is not a name.
+        assert_eq!(clean_name("\""), "\"");
+        assert_eq!(clean_name("''"), "");
+    }
+
+    #[test]
+    fn outlook_answers_keep_the_thread_index() {
+        let root = b"Message-ID: <a@x>\r\nThread-Index: AdlBcDEFGHIJKLMNOPQRSTUVWXYZab==\r\nSubject: q\r\n\r\nx";
+        let reply = b"Message-ID: <b@x>\r\nIn-Reply-To: <a@x>\r\nThread-Index: AdlBcDEFGHIJKLMNOPQRSTUVWXYZabCDEFGH\r\nSubject: RE: q\r\n\r\nx";
+        assert_eq!(parse_summary(root).thread_key(), parse_summary(reply).thread_key());
+    }
+
+    #[test]
+    fn indexes_html_as_text() {
+        assert!(index_text(MAIL).contains("Hi"));
+    }
+}

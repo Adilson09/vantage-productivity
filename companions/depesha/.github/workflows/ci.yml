@@ -1,0 +1,434 @@
+name: CI
+
+on:
+  # main and every branch. A merge into main needs only the fast local scripts/check.sh --changed;
+  # the full CI then runs here on main, and nobody waits for it. A branch push is optional
+  # (scripts/check.sh --ci, for a risky change).
+  push:
+    branches: ["**"]
+    # Text-only changes (docs, design, Markdown, the agent rules) start no CI run: their checks are
+    # fast locally (the hook, scripts/check.sh --changed) and a slow run on main would only queue.
+    paths-ignore:
+      - "docs/**"
+      - "design/**"
+      - "**/*.md"
+  # A branch is tried before it is merged: gh workflow run ci.yml --ref <branch> -f windows_only=true
+  workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Only the drop steps on Windows
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A new push to a branch takes over from the run of the older one; main and releases run to the end.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # line-tables-only: debug builds keep file/line in a backtrace but drop the rest of the
+  # debug info, so the target directory and the rust-cache entry are much smaller (#185).
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  # Анонимные загрузки с Docker Hub ограничены; образы стенда берём через зеркало Google
+  IMAGE_PREFIX: mirror.gcr.io/
+
+jobs:
+  # What the heavy platform jobs (Windows, macOS) are run for. main, release/** and a manual run: always.
+  # A branch: only when it touches what those jobs test (the core and the shell of the app, dependencies, the drop code, their scripts, this file).
+  changes:
+    name: Which platforms
+    runs-on: ubuntu-24.04
+    outputs:
+      platform: ${{ steps.pick.outputs.platform }}
+      build_os: ${{ steps.pick.outputs.build_os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: pick
+        env:
+          ALWAYS: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+        run: |
+          # What a platform build and the drop code need: the core and the shell of the app
+          # (src-tauri/ covers tauri.conf.json and the icons), the dependencies, the frontend
+          # build config, the drop code and the letter's frame (#124), their scripts and this file.
+          paths='^(crates/|src-tauri/|Cargo\.(toml|lock)$|package(-lock)?\.json$|vite\.config\.|src/lib/(drops|frameKeys|frameLink|frameRelay)\.ts|src/components/MailFrame\.svelte|e2e/((drops|drop-steps|frame-steps|webdriver)\.mjs|(native-drop|windows-display)\.ps1)|\.github/workflows/ci\.yml)'
+          platform=false
+          if [ "$ALWAYS" = true ]; then
+            platform=true
+          else
+            git fetch --no-tags origin main
+            if git diff --name-only "$(git merge-base HEAD origin/main)" HEAD | grep -qE "$paths"; then platform=true; fi
+          fi
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+          if [ "$platform" = true ]; then
+            echo 'build_os=["ubuntu-24.04","windows-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build_os=["ubuntu-24.04"]' >> "$GITHUB_OUTPUT"
+          fi
+          echo "platform jobs: $platform"
+
+  # A push to main of a commit already green on a branch (scripts/check.sh --ci) is not checked
+  # again: the branch run for the same head_sha already did. A branch is usually not pushed now, so
+  # main normally runs the full CI and this job finds nothing. Only a fully green run whose platform
+  # jobs (Windows, macOS) actually ran counts; if the branch skipped them (it did not touch a
+  # platform path), main runs the full CI. Tags and a manual run always run in full (this job is
+  # skipped there, and its empty output leaves every other job running).
+  reuse:
+    name: Already verified
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      skip: ${{ steps.find.outputs.skip }}
+    steps:
+      - id: find
+        # A transient API error must not turn the main run red: on any failure the output stays
+        # `skip=false` (written first) and main simply runs the full CI.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          SELF: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          runs=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&status=success&per_page=100" \
+            | jq -r --argjson self "$SELF" \
+              '.workflow_runs[] | select(.name == "CI" and .event == "push" and .head_branch != "main" and .id != $self) | .id')
+          for id in $runs; do
+            jobs=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100")
+            # The branch run carries a skipped `reuse` of its own: skipped is fine, only a real
+            # failure is not. And the platform jobs must have actually run (success, not skipped).
+            bad=$(jq '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")] | length' <<<"$jobs")
+            win=$(jq '[.jobs[] | select((.name | test("Windows")) and .conclusion == "success")] | length' <<<"$jobs")
+            mac=$(jq '[.jobs[] | select((.name | test("macOS")) and .conclusion == "success")] | length' <<<"$jobs")
+            if [[ $bad -eq 0 && $win -gt 0 && $mac -gt 0 ]]; then
+              url=$(gh api "repos/$REPO/actions/runs/$id" --jq .html_url)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "commit ${SHA:0:9} is already green in run $id ($url), platform jobs included: skipping the rest"
+              {
+                echo "### CI skipped: the same commit is already green"
+                echo ""
+                echo "Commit \`${SHA:0:9}\` was checked on a branch in run [$id]($url),"
+                echo "with the platform jobs (Windows, macOS) — so this run on \`main\` is the same commit and needs nothing."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+          echo "no green run for ${SHA:0:9} covered the platform jobs: running the full CI"
+          {
+            echo "### CI: full run"
+            echo ""
+            echo "No green run for \`${SHA:0:9}\` covered the platform jobs, so \`main\` runs everything."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  check:
+    needs: reuse
+    # always(): on a branch `reuse` is skipped, and a skipped need would otherwise skip this job too.
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
+    name: Lint and unit tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: scripts/lock-guard.sh
+      - run: scripts/lock-guard.test.sh
+      - run: cargo fmt --all --check
+      - run: npm run build
+      - name: Main chunk against its baseline
+        run: scripts/frontend-bundle.sh
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: TypeScript types against the Rust types
+        run: scripts/gen-types.sh --check
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.9.2
+      - name: No unused dependencies
+        run: cargo machete
+      - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
+      - run: npm run lint
+      - name: One line per paragraph in Markdown
+        run: node scripts/md-onelines.mjs
+      - run: scripts/frontend-metrics.sh
+      - run: scripts/frontend-invariants.sh
+      - name: Plugin API against its snapshot
+        run: node scripts/plugin-api-snapshot.mjs
+      - name: Every IPC command has a caller
+        run: node scripts/ipc-callers.mjs
+      - name: Baseline against main
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          scripts/frontend-baseline-guard.sh origin/main
+      - run: scripts/frontend-checks.test.sh
+      - run: scripts/stand-lock.test.sh
+      - run: npx vitest run
+      - run: cargo test -p depesha-core
+      - run: cargo test -p depesha --lib
+
+  integration:
+    needs: reuse
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
+    name: Integration (GreenMail, Dovecot)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: docker compose -f compose.test.yaml up -d
+      - name: Wait for servers
+        run: python3 scripts/wait-stand.py
+      - run: DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
+
+  # The scenario in three parts, each on a machine of its own with its own stand and profile
+  # (sections: e2e/shard.mjs, what a part runs: DEPESHA_E2E_SHARD).
+  e2e:
+    needs: reuse
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
+    name: End-to-end GUI (Linux, Xvfb, part ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/3", "2/3", "3/3"]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev \
+            webkit2gtk-driver xvfb gnome-keyring libsecret-tools dbus-x11
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo install tauri-driver --locked
+      - run: docker compose -f compose.test.yaml up -d
+      - name: Seed test mailbox
+        run: |
+          for i in $(seq 30); do python3 e2e/imap_helper.py seed && break; sleep 2; done
+      - run: npx tauri build --debug --no-bundle --features e2e
+      - name: Run E2E with a session bus and an unlocked keyring
+        run: |
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp &
+          # The app panics in GTK when it starts before the X server takes connections (#129).
+          for i in $(seq 100); do [ -S /tmp/.X11-unix/X99 ] && break; sleep 0.1; done
+          [ -S /tmp/.X11-unix/X99 ]
+          dbus-run-session -- bash -c '
+            echo -n "ci" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            DEPESHA_E2E_SHARD=${{ matrix.shard }} WEBKIT_DRIVER=/usr/bin/WebKitWebDriver E2E_DISPLAY=:99 node e2e/run.mjs'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-screens-${{ strategy.job-index }}
+          path: |
+            e2e/screens
+            e2e/logs
+          if-no-files-found: ignore
+
+  # Files dropped on a letter being written (#79) on a real Windows: the backend makes the
+  # window report a drop of real files (`e2e_drop`), the rest of the path is the real one.
+  # No mail server here (no Docker on the runner): the mailbox is saved and never logged in to.
+  # `scale` 2 asks WebView2 for a device pixel ratio of 2, as on a 200 % screen.
+  e2e-windows:
+    name: Drop on Windows (${{ matrix.name }})
+    # A Windows build and three runs take their time: see `changes` for the branches it is run on.
+    needs: [changes, reuse]
+    if: ${{ always() && needs.changes.outputs.platform == 'true' && needs.reuse.outputs.skip != 'true' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: scale 1, scale: 1 }
+          # The browser's own scale: the page sees a ratio of 2 on a screen that is at 100 %.
+          - { name: scale 2 of the browser, scale: 2 }
+          # The system's scale, as on a real screen: the most the runner's display driver allows (175 % at 1920x1080).
+          - { name: scale of the system, system: 250 }
+    runs-on: windows-latest
+    env:
+      DEPESHA_LOG: debug,depesha_lib=debug,depesha_core=debug
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo install tauri-driver --locked
+      # The system's own scaling (the page's `devicePixelRatio` follows it), which a runner has
+      # to be told: its screen is 1024x768 at 100 %. The step itself never fails the job; the run does
+      # (`E2E_MIN_DPR`) when the page does not report the scale the step was meant to set.
+      - name: Screen at the system scale
+        if: matrix.system
+        shell: powershell
+        continue-on-error: true
+        run: e2e\windows-display.ps1 -Percent ${{ matrix.system }}
+      - name: msedgedriver of the WebView2 version on the runner
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = (Get-ItemProperty $key).pv
+          Write-Host "WebView2 $version"
+          New-Item -ItemType Directory -Force driver | Out-Null
+          try {
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile driver\edgedriver.zip
+            Write-Host "msedgedriver $version (the exact version of WebView2)"
+          } catch {
+            # No build of this exact version: the latest release of its major one.
+            $major = $version.Split('.')[0]
+            # The file is UTF-16 with a BOM: read the bytes, not the decoded text.
+            $raw = (Invoke-WebRequest "https://msedgedriver.microsoft.com/LATEST_RELEASE_${major}_WINDOWS").RawContentStream.ToArray()
+            $latest = [Text.Encoding]::Unicode.GetString($raw).TrimStart([char]0xFEFF).Trim()
+            if ($latest -notmatch '^\d+(\.\d+)+$') { throw "LATEST_RELEASE_${major}_WINDOWS is not a version: '$latest'" }
+            Write-Host "no msedgedriver $version ($($_.Exception.Message)); taking $latest, the latest of $major"
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$latest/edgedriver_win64.zip" -OutFile driver\edgedriver.zip
+          }
+          Expand-Archive driver\edgedriver.zip -DestinationPath driver -Force
+          & driver\msedgedriver.exe --version
+      - run: npx tauri build --debug --no-bundle --features e2e
+      - name: Drop steps
+        shell: pwsh
+        env:
+          NATIVE_DRIVER: ${{ github.workspace }}\driver\msedgedriver.exe
+          E2E_EXPECT_DPR: ${{ matrix.scale }}
+          E2E_MIN_DPR: ${{ matrix.system && '1.25' || '' }}
+        run: |
+          if ('${{ matrix.scale }}' -notin '', '1') { $env:DEPESHA_E2E_WEBVIEW_ARGS = '--force-device-scale-factor=${{ matrix.scale }}' }
+          node e2e/drops.mjs
+      - name: Log of the app
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force e2e\logs | Out-Null
+          Copy-Item "$env:APPDATA\ru.depesha.mail\logs\*" e2e\logs -ErrorAction SilentlyContinue
+          Copy-Item "$env:LOCALAPPDATA\ru.depesha.mail\logs\*" e2e\logs -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-windows-${{ strategy.job-index }}
+          path: |
+            e2e/screens
+            e2e/logs
+
+  # Printing a letter's sheet on macOS (#70): the sheet is printed into a PDF through the code the
+  # app prints with, and the header's text is looked for in the file. A platform job: see `changes`.
+  mac-print:
+    name: Print a sheet (macOS)
+    needs: [changes, reuse]
+    if: ${{ always() && needs.changes.outputs.platform == 'true' && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # tauri's build script wants the built frontend.
+      - run: npm run build
+      - run: brew install poppler
+      - run: cargo test -p depesha --test mac_print -- --nocapture
+      # A crash of the test leaves nothing in the log: run it again under the debugger to get the stack.
+      - name: Where the print test crashed
+        if: failure()
+        run: |
+          bin=$(ls -t target/debug/deps/mac_print-* | grep -v '\.d$' | head -1)
+          lldb --batch -o run -o "bt all" -o quit -- "$bin" || true
+
+  build:
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
+    name: Build ${{ matrix.os }}
+    needs: [changes, reuse]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.build_os) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          # libayatana-appindicator3-dev: the packaging step of tauri-cli looks for an
+          # appindicator library through pkg-config and aborts without one (the app's
+          # tray is ksni, so the library is bundled into the AppImage but unused).
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo test -p depesha-core --lib
+      # The code behind `cfg(windows)` and `cfg(target_os = "macos")` is not compiled by the Linux job's clippy.
+      - if: runner.os != 'Linux'
+        run: cargo clippy -p depesha --lib -- -D warnings
+      # Attachment path spellings (#79): string tests plus one on a real file, which only Windows can run.
+      - if: runner.os == 'Windows'
+        run: cargo test -p depesha --lib -- "paths::"
+      # Packages only; update artifacts need the signing key, which only releases get.
+      - run: npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundles-${{ matrix.os }}
+          path: |
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.rpm
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*.exe
+            target/release/bundle/**/*.dmg
+          if-no-files-found: error

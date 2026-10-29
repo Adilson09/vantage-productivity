@@ -1,0 +1,11 @@
+# Aster Mail
+
+This companion is an Aster Office fork of [Depesha](https://github.com/fgbm/depesha), version 0.8.17, upstream commit `d3c3a2b63cc9a1e194aa3ed3842d8d3fd0f2e0b4`. Copyright (c) 2026 The Depesha Authors. The original project is offered under MIT OR Apache-2.0; its complete original license texts remain in `LICENSE-MIT` and `LICENSE-APACHE`.
+
+Aster modifications isolate the application and credential identities as `org.asteroffice.mail`, use the `aster-mail` link scheme, name the companion `Aster Mail` (`aster-mail.exe`), disable independent updates, and add an optional absolute `ASTER_MAIL_PROFILE` directory. The override contains separate `config`, `data`, `cache`, `logs`, and `webview` subdirectories, with profile-specific hashed process and credential identities. Each explicit profile retains single-instance protection without activating a different profile. An invalid override stops startup instead of falling back to a normal profile. Existing Depesha accounts, queued mail, browser data and credentials are not imported automatically.
+
+The companion's mail functions contact the servers for accounts the user explicitly adds. A new profile starts with no accounts. Verification must use a new empty profile and must not add accounts, retrieve mail, send messages, access credentials, or run the upstream mail-server E2E scenarios against real mail. No independent update endpoint is enabled in this preview; replace the Aster suite through its distributor.
+
+The vendored `imap-proto` 0.17.0 parser retains its own copyright and license texts in `vendor/imap-proto/LICENSE-MIT` and `vendor/imap-proto/LICENSE-APACHE`. Upstream's parser modification is documented in `vendor/imap-proto/PATCH.md`. Preserve these notices and all dependency license texts when redistributing a built companion. No upstream root NOTICE file is present in this pinned checkout.
+
+Aster Mail uses its own Google Desktop OAuth registration, the system browser, S256 PKCE, and an ephemeral loopback callback. Google account passwords are not collected by the client. `OAuthClient` debug output redacts client identifiers and secrets; refresh-token storage keeps the isolated Aster keyring service. See `ASTER_GOOGLE_SIGN_IN.md` for registration and Testing-mode requirements.

@@ -1,0 +1,85 @@
+# Исключения для scripts/frontend-metrics.sh: рост размера, который принят осознанно.
+# Строка: kind<TAB>имя<TAB>предел<TAB>причина. kind — component или function, имя — как
+# в docs/frontend-metrics-baseline.txt, предел — наибольшее допустимое значение (для
+# компонента — число строк всего), причина обязательна. Выросло выше предела — снова РОСТ.
+# Новый component больше максимума baseline или суммы исчезнувших компонентов — тоже рост: исключение с видом component и именем файла.
+# `scripts/frontend-metrics.sh --save` для этого не запускают. Когда строка не нужна, проверка печатает предупреждение.
+# Пока пусто. Исключение не заменяет разбор: «ради цифры» дробить нельзя, но и расти молча.
+component	src/MessageWindow.svelte	143	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/FolderMenu.svelte	156	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/LabelPicker.svelte	230	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/RowMenu.svelte	174	строка импорта labels вместо проброса app.labels (#140, шаг 2); пункт «Переслать только вложения» рядом с «Переслать» и импорт значка скрепки (#97); canForwardFiles: у открытого письма считаются файлы, которые пойдут в новое письмо, а не метка строки has_attachments (#97)
+component	src/components/account/FoldersTable.svelte	187	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/sidebar/FavouriteRow.svelte	86	строка импорта labels вместо проброса app.labels (#140, шаг 2); строка избранного принимает брошенное письмо: подсветка drop, pointerenter и pointerleave
+component	src/components/sidebar/FolderRow.svelte	116	строка импорта labels вместо проброса app.labels (#140, шаг 2); строка папки принимает брошенное письмо: data-account, подсветка drop, pointerenter и pointerleave
+component	src/components/sidebar/Labels.svelte	61	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/Outbox.svelte	97	ветка {#if item.broken} выбирает строку повреждённого письма; сама строка вынесена в OutboxBroken.svelte (#146); «Отправляется…» и недоступная «Отправить сейчас» показываются по sending_started, а не только по attempts (#173); -webkit-user-select рядом с user-select: текст ошибки копируется и в WebKitGTK
+function	plugins/followups/fixtures.ts::letter	37	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	plugins/snooze/index.test.ts::fakeContext	45	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	src/lib/compose.test.ts::msg	40	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда; поля why_unverified (#167) и server_checks_sender (0.8.13, 5.1 Б)
+function	src/lib/i18n.test.ts::msg	19	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда; поля why_unverified (#167) и server_checks_sender (0.8.13, 5.1 Б)
+function	src/lib/signatures.test.ts::msg	19	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда; поля why_unverified (#167) и server_checks_sender (0.8.13, 5.1 Б)
+function	src/lib/testing.ts::row	31	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	src/lib/testing.ts::opened	36	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда; поле why_unverified (#167); поле calendar — карточка встречи (0.8.13)
+component	src/components/Compose.svelte	1184	импорт и вставка уведомления о потерянном файле; само уведомление вынесено в LostFilesNotice.svelte (#115); кнопка «•••» с серой линией цитаты и тихие слова «Копия»/«Скрытая копия» вместо строки «Цитата» (0.8.7); метки полей полные и в общей сетке .field-grid, щелчок по пустому месту под текстом с «•••» ставит курсор в конец (caretToEnd), поле без своей min-height (0.8.9); цитата ответа без пустых строк перед ней и по высоте текста: lead, oninput и rows у поля цитаты, правило подписи над цитатой (А27); цитата без своей прокрутки, высота по тексту действием fitQuote (0.8.12); -webkit-user-select у подписи и её HTML, как и у всех мест, где текст копируют; строка импорта ATTACH_LIMIT: порог 25 МБ у одного письма теперь один, его считает и письмо с вложениями (#97)
+component	src/components/Tasks.svelte	352	ветка {#if needsLogin(task)} выбирает «Войти заново» вместо «Повторить»; сам перевход в lib/relogin.svelte.ts (#166); крестик справа вверху, Esc и закрытие по затемнённому фону вместо кнопки в подвале (#170)
+component	src/components/prefs/PluginsPanel.svelte	53	подсветка группы плагина, на которую привёл результат поиска (#168); общий список или страница одного плагина с описанием (0.8.12, 6.1 Б)
+component	src/components/Wizard.svelte	259	Esc и крестик через общий leave() с вопросом о несохранённом, Esc со второго шага — назад, возврат фокуса (#170)
+component	src/components/prefs/FolderProps.svelte	427	Esc закрывает карточку (сначала пояснение проверки), у карточки был только крестик (#170); общий крестик, возврат фокуса, цвет крестика в сайдбаре (#170)
+component	src/components/ViewMenu.svelte	266	счётчик у пункта фильтра плагина (#182): span .n рядом с названием пункта и импорт badgeCount для больших чисел
+function	src/lib/accountAutosave.svelte.ts::ownOf	19	поле trust_by_address ящика (0.8.13, 6.1 Б): переключатель «доверять по адресу»
+function	src/lib/reader.svelte.ts::unverifiedKey	36	строка над письмом называет ящик и причину (0.8.13, 5.1 Б), а не одну длинную фразу; своя строка для ключа, которого нет (0.8.13, 7.1 Б), для подписи другого времени (0.8.13, ступень 4) и для отказа, который не значит подделку: подпись другой организации, просроченная, поддомен против adkim=s, заголовки, читаемые по-разному, и подпись без этого ящика (0.8.13, 5.1 Б)
+function	src/lib/list.svelte.ts::stale	62	чтение счётчиков фильтра плагина в reload (#182) и перечитка писем раскрытой цепочки в reload (#179); метрика считает телом функции stale тело reload, в которое добавились строки
+component	src/App.svelte	414	строка импорта windowOpen: открытая карточка папки тоже забирает Esc у главного окна (#170); единая панель действий — вторая строка сетки над колонками, поиск панели перед списком и сами кнопки после него (#176); строка команды core.row-menu (#126); Ctrl+A в письме берёт текст письма, а не строки списка: ветка core.select-all в onKey и импорт textZone и selectZone
+component	src/components/Reader.svelte	403	единая панель над списком и письмом несёт тулбар письма; читалка держит свой только в узком окне и в окне отдельного письма, а при нескольких выбранных показывает голую заглушку через ReaderStates (#176); тема цепочки один раз сверху, над всеми письмами (4.5, #180): заголовок вынесен из шапки письма в читалку; импорт unverifiedKey для строки о неподтверждённом отправителе (#167); имя ящика и подсказка под строкой о неподтверждённом отправителе (0.8.13, 5.1 Б); тихая строка «Адрес не проверен», когда ящик доверяет по адресу (0.8.13, 6.1 Б); карточка встречи стоит в потоке чтения между шапкой и телом, а её файл уходит из строки вложений (0.8.13, 1.1 А); строка onForwardAttachment: вложение открывает новое письмо с собой (#97); уведомление «Сохранено N файлов» несёт кнопку «Открыть папку» и открывает папку этого сохранения (#111)
+component	src/components/MessageList.svelte	998	превью текста письма в строке списка (#177): условие {#if m.snippet} в разметке и правило .preview; цепочка в списке (#179): письмо цепочки строкой с отступом, датой и папкой, счётчик-кнопка, отметка выбора и двойной щелчок у письма цепочки, aria-expanded строки, раскладка по местам и окно видимых строк двоичным поиском; значки плагинов у письма цепочки — тихая заметка и тег, как у обычной строки (#179); выбор письма цепочки — фон без галочки, а курсор — полоса слева, а не фон выбора (#179); меню строки с клавиатуры (#126): импорты bus и keyAnchor, menuByKey и подписка на событие; flex у темы и превью — тема на своё место (А1); фон наведения у курсора вне выбора нескольких (А4); памятка операторов из searchSuggest (А10); перетаскивание письма в папку: обработчик pointerdown строки и dragPress, отдающий письма в letterDrag
+function	src/components/MessageList.svelte::rowKey	16	стрелки →/← раскрывают и сворачивают цепочку строки, когда курсор на ней (#179); ветка стрелок перед веткой Enter
+function	src/App.svelte::onKey	71	ветка core.select-all: ключ, повторённый из кадра письма, и текст письма под нажатием, а не строки списка
+component	src/components/AddressInput.svelte	288	плашка адресата в одну строку: сниппет who с именем и серым адресом, обрезка «…» и общие классы сетки полей (0.8.9); пробел между именем и адресом и строка с причиной для eslint; -webkit-user-select у плашки адресата
+component	src/components/MailFrame.svelte	226	кадр говорит посреднику, какие клавиши берёт приложение (#124): sync с ключами и темой, фильтр ссылки в onMessage, строка о Windows в шапке; протокол и список клавиш — в lib/frameRelay.ts и lib/frameKeys.ts. Кадр в цепочке берёт высоту своего письма (А7): проп fit, высота из сообщения кадра, правило .wrap.fit. Выделенный текст письма красится своим цветом, а не синим движка: правило ::selection и цвет --sel у темы
+component	src/components/viewer/DocView.svelte	109	кадр просмотрщика получает клавиши просмотрщика (#124): импорт VIEWER_TAKES, сам список в lib/frameKeys.ts
+component	src/components/viewer/LetterView.svelte	126	кадр письма в просмотрщике получает клавиши просмотрщика (#124): импорт VIEWER_TAKES, сам список в lib/frameKeys.ts
+component	src/components/SearchBox.svelte	345	титул с серверным именем у подсказки папки с ролью (А11); импорт awaitsValue (А2)
+component	src/components/account/CheckError.svelte	79	прокрутка к ошибке проверки, которая стоит ниже края длинной формы (А3)
+component	src/components/account/ConnectionFields.svelte	206	ошибка проверки в мастере под логином или под сервером, чей сертификат или шифрование не прошли: проп errors и errorAt (А3)
+function	src/components/SearchBox.svelte::onInput	11	оператор без значения не запускает поиск: ветка awaitsValue (А2)
+function	src/lib/commands.ts::coreCommands	134	перенос без своей папки, «Отложенных», «Черновиков» и «Отправленных» (А8); действия карточки встречи в палитре (0.8.13, 1.1 А) — строка meetingCommands в списке команд открытого письма
+component	src/components/reader/ThreadLetter.svelte	342	карточка встречи в письме, раскрытом в ленте цепочки (0.8.13, 1.1 А): та же карточка на месте чипа .ics, её файл уходит из строки вложений; сохранение вложения зовёт saveMeeting
+function	src/lib/searchSuggest.ts::folderCompletions	20	папка с ролью — по имени из боковой панели, серверное имя в title, без повтора одинаковых подсказок (А11)
+function	src/lib/markdown/markdownEditor.ts::decorate	30	картинка в тексте письма (data:) — одно целое для каретки и Backspace, её base64 не показывается: decorate отдаёт рядом с украшениями и неделимые отрезки, кусок «atom» не украшается, «data» — значок вместо адреса
+component	src/components/prefs/RowControl.svelte	127	плитки оформления в выбранной светлоте: lightOf и themeOf (0.8.12)
+function	src/lib/testing.ts::settings	43	новое поле настроек look (0.8.12); поле порога вопроса о массовом действии bulk_ask_above (#196)
+function	src/lib/theme.ts::applyTheme	12	оформление отдельно от светлоты и «как в системе» вслед за системой (0.8.12)
+function	src/lib/theme.ts::themeOf	6	возврат «Снега» и «Графита»: прежние темы, ставшие оформлением «Снег», переносятся в него (0.8.13)
+component	src/components/Accounts.svelte	155	общая страница «Ящики»: строка открывает страницу ящика, стрелки порядка от двух ящиков (0.8.12, 3.4 А; А18)
+component	src/components/Preferences.svelte	706	подпункты ящиков и плагинов в меню с клавишами экрана 7, поиск живыми строками с полями ящиков и командами «Клавиш» (0.8.12, 4.1 Б, 4.2 А, 6.1 Б, 6.2 А); адрес ящика рядом с его группой найденного (экран 8); пока идёт поиск, ни один пункт меню не выбран и не раскрыт (экран 8)
+component	src/components/account/ConnectionSection.svelte	157	раздел «Подключение» строками общих страниц, «Проверить и сохранить» под полями только после правки (0.8.12, 3.1 А, 3.2 А); заменил ConnectionBlock
+component	src/components/account/LettersSection.svelte	48	поля ящика строками сетки общих страниц, папка для вложений перешла сюда из «Общего» (0.8.12, 3.1 А); переключатель «доверять по адресу, если проверить нельзя» (0.8.13, 6.1 Б)
+component	src/components/account/SignaturesField.svelte	262	на странице ящика подписи названы строкой вокруг них: проп bare (0.8.12, 3.1 А); список подписей во всю колонку контрола (экран 8)
+component	src/components/prefs/SettingsPage.svelte	355	группа из одной строки без заголовка (0.8.12, 2.2 А) и строка-ссылка найденного в поиске (4.1 Б); адрес ящика рядом с заголовком группы найденного (экран 8)
+component	src/components/prefs/controls/Switch.svelte	53	включённый переключатель цвета акцента, как флажок (А12)
+function	src/components/Accounts.svelte::onRowKey	8	фокус идёт за переставленным ящиком (0.8.12, 3.4 А)
+function	src/components/Preferences.svelte::openHit	10	команда «Клавиш» из поиска открывается на своей строке (0.8.12, 4.2 А)
+function	src/components/Preferences.svelte::reveal	18	поле страницы ящика: фокус в поле, вспышка на самой строке (0.8.12, 4.2 А)
+function	src/components/Preferences.svelte::turn	9	свёрнутое рукой возвращается к правилу 6.2 А на странице другого пункта (0.8.12)
+function	src/components/Preferences.svelte::onKey	23	Ctrl+PgUp/PgDn идут и по подпунктам раскрытого пункта (0.8.12, экран 7)
+function	src/components/Preferences.svelte::undoKey	14	Ctrl+Z на найденных строках поиска отменяет их правку (0.8.12, 4.1 Б)
+function	src/components/Preferences.svelte::onNavKey	30	клавиши меню по таблице экрана 7: → раскрывает свёрнутый пункт, ← сворачивает и возвращает на пункт, Enter ведёт в страницу (0.8.12)
+function	src/components/Preferences.svelte::onSearchKey	7	↓ из пустого поиска — на первую строку страницы (0.8.12, 4.3 А)
+function	src/components/prefs/SettingsPage.svelte::enterRow	11	Enter на строке-ссылке найденного открывает её место (0.8.12, 4.1 Б)
+component	src/components/reader/Conversation.svelte	140	своя проверка отправителя у письма, раскрытого в ленте переписки (#167): вызов и функция checkSender
+function	src/components/reader/Conversation.svelte::toggle	17	письмо с «проверяем отправителя» запускает свою проверку подписи (#167)
+function	src/lib/testing.ts::opened	37	двойник OpenedMessage в тестах: по строке на поле ответа окна (calendar, why_unverified, server_checks_sender), ветвей нет (0.8.13)
+function	src/components/MailFrame.svelte::onMessage	35	ветка высоты письма из кадра (А7) рядом с ветками ссылки и клавиши
+component	src/components/reader/ReaderBody.svelte	196	карточка письма в цепочке без нижней границы 420 px: класс .body.fit и проп fit до кадра (А7)
+function	src/lib/frameRelay.ts::frameMessage	17	сообщение о высоте письма (А7): число в пределах FRAME_MAX_HEIGHT
+function	src/lib/frameRelay.test.ts::frameEnv	59	подделка кадра для проверки высоты письма (А7): тело, часы и ResizeObserver рядом с прежними ссылкой, наведением и клавишами; выбор текста письма для проверки меню правой кнопки
+function	src/lib/events.ts::listenMain	66	строка списка получает логотип отправителя сразу после открытия письма (0.8.13, 4.1 Б): подписка на letter-verdict и вызов app.list.verdict
+component	src/components/OutboxBroken.svelte	52	строка повреждённого письма в «Исходящих» (#146); -webkit-user-select рядом с user-select: WebKitGTK знает только префиксное имя, и выделение этого текста на Linux не работало
+component	src/components/account/SignatureEditor.svelte	259	текст подписи в настройках ящика; -webkit-user-select рядом с user-select: WebKitGTK знает только префиксное имя, и выделение этого текста на Linux не работало
+component	src/components/viewer/PdfView.svelte	232	текстовый слой страницы PDF, по которому идёт выделение; -webkit-user-select рядом с user-select: WebKitGTK знает только префиксное имя, и выделение этого текста на Linux не работало
+component	src/components/reader/AttachmentChip.svelte	126	кнопка «Переслать это вложение» у файла рядом с «Сохранить» (#97)
+component	src/components/Confirm.svelte	132	вопрос о массовом действии (#196): Enter подтверждает при фокусе на «Отмена»
+function	src/components/Confirm.svelte::onKey	17	вопрос о массовом действии (#196): Enter подтверждает, хотя фокус стоит на «Отмена»
+component	src/components/reader/AttachmentStrip.svelte	181	проп onForwardAttachment: он же у файла в свёрнутом списке и у чипа (#97)
+component	src/components/reader/ReaderHeader.svelte	251	проп onForwardAttachment и его проброс в строку вложений (#97)

@@ -1,0 +1,170 @@
+import { api } from "./api";
+import { bus } from "./bus";
+import { t, tn } from "./i18n.svelte";
+import { extensions } from "./extensions.svelte";
+import { listenMain, listenWindow } from "./events";
+import { takePendingOpen, tellMissed } from "./background.svelte";
+import { ListController } from "./list.svelte";
+import { ActionRunner } from "./actions.svelte";
+import { Reader } from "./reader.svelte";
+import { ComposeManager } from "./composes.svelte";
+import { rooms } from "./room.svelte";
+import { labels } from "./labels.svelte";
+import { SettingsController } from "./settings.svelte";
+import { hints } from "./hints.svelte";
+import { peopleBook } from "./peopleBook.svelte";
+import { MailboxController } from "./mailboxes.svelte";
+import { UiController } from "./ui.svelte";
+import { SelectionController } from "./selection.svelte";
+import { ClearFolder } from "./clearFolder.svelte";
+import type { AccountView, CachedDraft, StuckCopy } from "./types";
+
+export type { View } from "./list.svelte";
+export type { ComposeState, ComposeWindow } from "./composes.svelte";
+export type { Toast, Confirmation, WizardState } from "./ui.svelte";
+
+// The controllers (list, reader, actions, compositions, settings, mailboxes, overlays, the list
+// view with its selection, "Clear" for folders) live in modules of their own, and `app` hands
+// them out: components and the modules that may import the store take `app.<controller>.*`
+// directly. A controller the store builds cannot import the store (it imports them, so that
+// would be a cycle): it gets the store as its host, and the host declares a slice of each
+// controller it uses (`Pick<UiController, "fail" | "track">`), nothing more. What stays on
+// the store itself is what ties controllers together: the start-up, the open window's id,
+// and the few actions that join several of them.
+
+export class AppStore {
+  readonly settingsCtl: SettingsController = new SettingsController(this);
+  readonly mailboxes: MailboxController = new MailboxController(this);
+  readonly ui: UiController = new UiController();
+  readonly selection: SelectionController = new SelectionController(this);
+
+  readonly list: ListController = new ListController(this);
+  readonly actions: ActionRunner = new ActionRunner(this);
+  readonly compose: ComposeManager = new ComposeManager(this);
+  readonly reader: Reader = new Reader(this);
+  /** «Clear» for Trash, Spam and Drafts (#74). */
+  readonly clearing: ClearFolder = new ClearFolder(this);
+
+  /**
+   * The letter a separate message window shows (double click in the list); null in the
+   * main window. Such a window has no list: actions on its letter close it, and what
+   * concerns the list (undo, a search by sender) goes to the main window.
+   */
+  windowOf = $state<number | null>(null);
+
+  /** Asks the open letter's header to show the card of its sender. */
+  openSenderCard() { bus.emit("reader.sender-card"); }
+  /** Opens the address book in the main window, at a person and a filter; the settings window gives way. */
+  async openPeople(at: { email?: string; filter?: "all" | "ruled" | "manual" | "hidden" } | null = null) {
+    this.ui.settingsOpen = false;
+    this.ui.peopleFocus = at;
+    await this.selection.setView({ kind: "people" });
+  }
+  /** Puts the focus into the search box of what the main window shows: the mail list or the address book. */
+  focusSearch() { bus.emit(this.list.view.kind === "people" ? "people.search" : "mail.search"); }
+
+
+  /** Rows the user is on: the selection and the open letter. */
+  using(): number[] { return [...this.selection.selected, ...(this.reader.opened ? [this.reader.opened.row.id] : [])]; }
+
+  async init() {
+    // The plugins wait for the settings: a plugin the user switched off must not show its row for a moment (#158).
+    this.settingsCtl.pending = true;
+    this.mailboxes.initVersion();
+    extensions.toast = (text, error) => this.ui.toast(text, error);
+    await listenMain(this);
+    await this.settingsCtl.loadLanguage();
+    const settings = this.settingsCtl.loadFirst();
+    // Each request that fails is told and does not hold up the others.
+    const [accounts] = await Promise.all([
+      this.mailboxes.loadAccounts(settings).then(() => true, (e) => (this.ui.fail(e), false)),
+      this.mailboxes.loadFoldersAndOutbox(),
+      settings,
+      extensions.load(),
+      hints.load(),
+      peopleBook.load(),
+      api.tasks().then((tasks) => (this.ui.tasks = tasks), (e) => this.ui.fail(e)),
+      api.updateStatus().then((u) => (this.settingsCtl.update = u), (e) => this.ui.fail(e)),
+    ]);
+    this.list.view = this.mailboxes.home();
+    // Mailboxes filling up warn once the accounts and the settings are read.
+    rooms.start(this);
+    labels.start(this);
+    void Promise.all(this.mailboxes.accounts.map((a) => labels.load(a.id)));
+    await this.selection.reload();
+    void tellMissed(this);
+    // Drafts kept locally when the app last stopped: offered for restore (#71).
+    void this.offerLocalDrafts();
+    void this.tellStuckCopies();
+    // A toast click while the app was closed: the backend kept the URL for this window.
+    void takePendingOpen(this);
+    // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
+    if (accounts && this.mailboxes.accounts.length === 0) this.ui.wizard = { account: null };
+  }
+
+  /** A separate window with one letter: no list, no background work of its own. */
+  async initWindow(id: number) {
+    this.windowOf = id;
+    this.settingsCtl.pending = true;
+    extensions.toast = (text, error) => this.ui.toast(text, error);
+    await listenWindow(this);
+    await this.settingsCtl.loadLanguage();
+    await Promise.all([this.mailboxes.loadAccounts().catch((e) => this.ui.fail(e)), this.mailboxes.loadFolders(), this.settingsCtl.loadFirst(), extensions.load(), hints.load(), peopleBook.load()]);
+    this.selection.selected = new Set([id]);
+    await this.reader.open(id);
+  }
+
+
+  /** A folder was opened: read its properties from the cache, or the server when never checked. */
+  folderOpened(accountId: string, folder: string) {
+    if (labels.prop(accountId, folder)) return;
+    void labels.loadProps(accountId, folder);
+  }
+
+
+
+
+
+
+  /** A mailbox's page in the settings; the very first one is set up by the wizard alone. */
+  accountSettings(acc: AccountView | null) {
+    if (this.mailboxes.accounts.length === 0) this.ui.wizard = { account: null };
+    else this.ui.openSettings(acc ? `account:${acc.id}` : "account:new");
+  }
+
+
+
+
+  /** Drafts kept locally when the app last stopped: offered for restore (#71). */
+  async offerLocalDrafts() {
+    const drafts = (await api.draftCacheList().catch((e) => (this.ui.fail(e, t("startup.localDraftsFailed")), [] as CachedDraft[]))) ?? [];
+    if (!drafts.length) return;
+    this.ui.toast(
+      tn("compose.localDraft", drafts.length, { n: drafts.length }),
+      false,
+      { label: t("compose.localDraftRestore"), run: () => void this.compose.restoreLocal(drafts) },
+      30_000,
+    );
+  }
+
+  /** Copies of sent letters the server refuses to keep: said once per start, until decided (#88). */
+  async tellStuckCopies() {
+    const stuck = (await api.stuckCopies().catch((e) => (this.ui.fail(e, t("startup.stuckCopiesFailed")), [] as StuckCopy[]))) ?? [];
+    if (!stuck.length) return;
+    this.ui.toast(tn("stuck.toast", stuck.length, { n: stuck.length }), false, { label: t("stuck.open"), run: () => (this.ui.tasksOpen = true) }, 30_000);
+  }
+
+
+  defaultAccount() {
+    // A mailbox chosen as the default wins everywhere, the open folder included.
+    const chosen = this.settingsCtl.settings.default_account_id;
+    const fixed = chosen ? this.mailboxes.account(chosen) : undefined;
+    if (fixed) return fixed;
+    const v = this.list.view;
+    if (v.kind === "folder") return this.mailboxes.account(v.account_id);
+    if (this.reader.opened) return this.mailboxes.account(this.reader.opened.row.account_id);
+    return this.mailboxes.accounts[0];
+  }
+}
+
+export const app = new AppStore();

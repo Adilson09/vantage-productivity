@@ -1,0 +1,400 @@
+{
+  "generatedUtc": "2026-10-29T12:38:40.339Z",
+  "components": [
+    {
+      "ecosystem": "Cargo",
+      "name": "alloc-stdlib",
+      "version": "0.3.0",
+      "files": [
+        {
+          "path": "Cargo-alloc-stdlib-0.3.0/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE",
+          "revision": "0a81fd6928ea3b33c8cd484aa4575d50ffb98012",
+          "sha256": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "asn1-rs-impl",
+      "version": "0.2.0",
+      "files": [
+        {
+          "path": "Cargo-asn1-rs-impl-0.2.0/LICENSE-APACHE",
+          "sourceUrl": "https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-APACHE",
+          "revision": "a20e5f7319c896737ad0f2557037817b91ad854f",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "Cargo-asn1-rs-impl-0.2.0/LICENSE-MIT",
+          "sourceUrl": "https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-MIT",
+          "revision": "a20e5f7319c896737ad0f2557037817b91ad854f",
+          "sha256": "a5c61b93b6ee1d104af9920cf020ff3c7efe818e31fe562c72261847a728f513"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "defmt-parser",
+      "version": "1.0.0",
+      "files": [
+        {
+          "path": "Cargo-defmt-parser-1.0.0/LICENSE-APACHE",
+          "sourceUrl": "https://raw.githubusercontent.com/knurling-rs/defmt/4a8cdb44891ed57b8ff5a023b6bec7137c48708f/LICENSE-APACHE",
+          "revision": "4a8cdb44891ed57b8ff5a023b6bec7137c48708f",
+          "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90"
+        },
+        {
+          "path": "Cargo-defmt-parser-1.0.0/LICENSE-MIT",
+          "sourceUrl": "https://raw.githubusercontent.com/knurling-rs/defmt/4a8cdb44891ed57b8ff5a023b6bec7137c48708f/LICENSE-MIT",
+          "revision": "4a8cdb44891ed57b8ff5a023b6bec7137c48708f",
+          "sha256": "2710a622a896bba67356913d4d0492cab5465f61b2ecce6d880aeb483834fb50"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "tauri-plugin",
+      "version": "2.7.1",
+      "files": [
+        {
+          "path": "Cargo-tauri-plugin-2.7.1/LICENSE-APACHE-2.0",
+          "sourceUrl": "https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE-APACHE-2.0",
+          "revision": "30da1fd6e17de6107ecc850c95dfb16b5729f2dd",
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+        },
+        {
+          "path": "Cargo-tauri-plugin-2.7.1/LICENSE-MIT",
+          "sourceUrl": "https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE-MIT",
+          "revision": "30da1fd6e17de6107ecc850c95dfb16b5729f2dd",
+          "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d"
+        },
+        {
+          "path": "Cargo-tauri-plugin-2.7.1/LICENSE.spdx",
+          "sourceUrl": "https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE.spdx",
+          "revision": "30da1fd6e17de6107ecc850c95dfb16b5729f2dd",
+          "sha256": "5e834fe9788c524210deda859c46a550ffa5aa0cba9ea0572f0d81120e97c008"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "ts-rs-macros",
+      "version": "12.0.1",
+      "files": [
+        {
+          "path": "Cargo-ts-rs-macros-12.0.1/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/Aleph-Alpha/ts-rs/7182ad8289596097235406b715fa04506443b4ad/LICENSE",
+          "revision": "7182ad8289596097235406b715fa04506443b4ad",
+          "sha256": "db7f7f8e7236a2d0b41b855b2501b7b913caebbcda6ce498637a304ad1706ce1"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "ts-rs",
+      "version": "12.0.1",
+      "files": [
+        {
+          "path": "Cargo-ts-rs-12.0.1/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/Aleph-Alpha/ts-rs/7182ad8289596097235406b715fa04506443b4ad/LICENSE",
+          "revision": "7182ad8289596097235406b715fa04506443b4ad",
+          "sha256": "db7f7f8e7236a2d0b41b855b2501b7b913caebbcda6ce498637a304ad1706ce1"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "webview2-com-macros",
+      "version": "0.8.1",
+      "files": [
+        {
+          "path": "Cargo-webview2-com-macros-0.8.1/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/wravery/webview2-rs/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE",
+          "revision": "dffa41a8a46d3f5565eefbff2de57d38d399f158",
+          "sha256": "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "webview2-com-sys",
+      "version": "0.39.1",
+      "files": [
+        {
+          "path": "Cargo-webview2-com-sys-0.39.1/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/wravery/webview2-rs/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE",
+          "revision": "edc2caf886175ccaebe86078c9cfe1ae2a187328",
+          "sha256": "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73"
+        },
+        {
+          "path": "Microsoft-WebView2-LICENSE.txt",
+          "sourceUrl": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg#LICENSE.txt",
+          "revision": "Microsoft.Web.WebView2@1.0.3800.47",
+          "sha256": "0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55",
+          "kind": "original-microsoft-sdk-notice",
+          "description": "Additional terms for the Microsoft WebView2 loader SDK 1.0.3800.47 redistributed by this Rust wrapper. Both x64 DLL and static loader library match the official NuGet package byte-for-byte; its SHA-512 was checked against the NuGet catalog."
+        },
+        {
+          "path": "Microsoft-WebView2-NOTICE.txt",
+          "sourceUrl": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg#NOTICE.txt",
+          "revision": "Microsoft.Web.WebView2@1.0.3800.47",
+          "sha256": "106423785c5b7eba0a8e61d1837f2132e9c828e20ad530f565d981c1df60dd90",
+          "kind": "original-microsoft-sdk-notice",
+          "description": "Additional terms for the Microsoft WebView2 loader SDK 1.0.3800.47 redistributed by this Rust wrapper. Both x64 DLL and static loader library match the official NuGet package byte-for-byte; its SHA-512 was checked against the NuGet catalog."
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "webview2-com",
+      "version": "0.39.1",
+      "files": [
+        {
+          "path": "Cargo-webview2-com-0.39.1/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/wravery/webview2-rs/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE",
+          "revision": "edc2caf886175ccaebe86078c9cfe1ae2a187328",
+          "sha256": "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@napi-rs/canvas-win32-x64-msvc",
+      "version": "1.0.10",
+      "files": [
+        {
+          "path": "npm-_napi-rs_canvas-win32-x64-msvc-1.0.10/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/Brooooooklyn/canvas/7d19abed029287e7c26b14eaa6e67d560a37d853/LICENSE",
+          "revision": "7d19abed029287e7c26b14eaa6e67d560a37d853",
+          "sha256": "8802fecf9da4367bc23bcf20b21cc143785fc6c92b152f3fa7fbe6ce08d344d6"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@tauri-apps/cli-win32-x64-msvc",
+      "version": "2.12.1",
+      "files": [
+        {
+          "path": "npm-_tauri-apps_cli-win32-x64-msvc-2.12.1/LICENSE-APACHE-2.0",
+          "sourceUrl": "https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE-APACHE-2.0",
+          "revision": "30da1fd6e17de6107ecc850c95dfb16b5729f2dd",
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+        },
+        {
+          "path": "npm-_tauri-apps_cli-win32-x64-msvc-2.12.1/LICENSE-MIT",
+          "sourceUrl": "https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE-MIT",
+          "revision": "30da1fd6e17de6107ecc850c95dfb16b5729f2dd",
+          "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d"
+        },
+        {
+          "path": "npm-_tauri-apps_cli-win32-x64-msvc-2.12.1/LICENSE.spdx",
+          "sourceUrl": "https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE.spdx",
+          "revision": "30da1fd6e17de6107ecc850c95dfb16b5729f2dd",
+          "sha256": "5e834fe9788c524210deda859c46a550ffa5aa0cba9ea0572f0d81120e97c008"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "saxes",
+      "version": "6.0.0",
+      "files": [
+        {
+          "path": "npm-saxes-6.0.0/LICENSE",
+          "sourceUrl": "https://raw.githubusercontent.com/lddubeau/saxes/211fa0ebec9b628affc09219199639887174bfc3/LICENSE",
+          "revision": "211fa0ebec9b628affc09219199639887174bfc3",
+          "sha256": "0fac2374380621b22e6b50451057721a9c52935b02d16d106a9f04897f061d0e"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "selectors",
+      "version": "0.38.0",
+      "files": [
+        {
+          "path": "Cargo-selectors-0.38.0/DECLARED-MPL-2.0-STANDARD.txt",
+          "sourceUrl": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/MPL-2.0.txt",
+          "revision": "d46e94e2c78ceede1cfc63cfa0396472d2798d4c",
+          "kind": "canonical-spdx",
+          "description": "The published package declares this SPDX license but omits a standalone full license text at its source revision. This is the standard license text from SPDX, not a copyright notice invented for the package. Original package attribution is reproduced separately.",
+          "sha256": "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172"
+        },
+        {
+          "path": "Cargo-selectors-0.38.0/ORIGINAL-PACKAGE-ATTRIBUTION.txt",
+          "sourceUrl": "https://crates.io/api/v1/crates/selectors/0.38.0/download",
+          "revision": "selectors@0.38.0",
+          "kind": "package-attribution",
+          "description": "Exact published package metadata, readme text, and available original license headers; no new copyright statement is asserted.",
+          "sha256": "50b6062b9d3ac96f21351b80ffd99b4b4040c81e63eae00783896db094cf4ea3"
+        }
+      ]
+    },
+    {
+      "ecosystem": "Cargo",
+      "name": "stop-token",
+      "version": "0.7.0",
+      "files": [
+        {
+          "path": "Cargo-stop-token-0.7.0/DECLARED-MIT-STANDARD.txt",
+          "sourceUrl": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/MIT.txt",
+          "revision": "d46e94e2c78ceede1cfc63cfa0396472d2798d4c",
+          "kind": "canonical-spdx",
+          "description": "The published package declares this SPDX license but omits a standalone full license text at its source revision. This is the standard license text from SPDX, not a copyright notice invented for the package. Original package attribution is reproduced separately.",
+          "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+        },
+        {
+          "path": "Cargo-stop-token-0.7.0/ORIGINAL-PACKAGE-ATTRIBUTION.txt",
+          "sourceUrl": "https://crates.io/api/v1/crates/stop-token/0.7.0/download",
+          "revision": "stop-token@0.7.0",
+          "kind": "package-attribution",
+          "description": "Exact published package metadata, readme text, and available original license headers; no new copyright statement is asserted.",
+          "sha256": "5dc3c167a9594a70f343010c1e392e7d0aaed1e3b294826341bf1cca841dbca8"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@humanfs/types",
+      "version": "0.15.0",
+      "files": [
+        {
+          "path": "npm-_humanfs_types-0.15.0/DECLARED-Apache-2.0-STANDARD.txt",
+          "sourceUrl": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/Apache-2.0.txt",
+          "revision": "d46e94e2c78ceede1cfc63cfa0396472d2798d4c",
+          "kind": "canonical-spdx",
+          "description": "The published package declares this SPDX license but omits a standalone full license text at its source revision. This is the standard license text from SPDX, not a copyright notice invented for the package. Original package attribution is reproduced separately.",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        },
+        {
+          "path": "npm-_humanfs_types-0.15.0/ORIGINAL-PACKAGE-ATTRIBUTION.txt",
+          "sourceUrl": "https://registry.npmjs.org/@humanfs/types/-/types-0.15.0.tgz",
+          "revision": "@humanfs/types@0.15.0",
+          "kind": "package-attribution",
+          "description": "Exact published package metadata, readme text, and available original license headers; no new copyright statement is asserted.",
+          "sha256": "aee1dd63dff945be4bb092fa6ce25d5f161ffd9e4fc826a6de51678c2048b843"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@rolldown/binding-win32-x64-msvc",
+      "version": "1.2.12",
+      "files": [
+        {
+          "path": "npm-_rolldown_binding-win32-x64-msvc-1.2.12/LICENSE",
+          "sourceUrl": "https://registry.npmjs.org/rolldown/-/rolldown-1.2.12.tgz#package/LICENSE",
+          "revision": "rolldown@1.2.12",
+          "kind": "matching-parent-package-license",
+          "description": "The same-version parent package supplies the licenses for this separately packaged native binding.",
+          "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734"
+        },
+        {
+          "path": "npm-_rolldown_binding-win32-x64-msvc-1.2.12/THIRD-PARTY-LICENSE",
+          "sourceUrl": "https://registry.npmjs.org/rolldown/-/rolldown-1.2.12.tgz#package/THIRD-PARTY-LICENSE",
+          "revision": "rolldown@1.2.12",
+          "kind": "matching-parent-package-license",
+          "description": "The same-version parent package supplies the licenses for this separately packaged native binding.",
+          "sha256": "a877291d800ed43692f3f9ae09d8e01cc6f7293ad39d43896059c188ffbb8b7c"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "is-reference",
+      "version": "3.0.3",
+      "files": [
+        {
+          "path": "npm-is-reference-3.0.3/DECLARED-MIT-STANDARD.txt",
+          "sourceUrl": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/MIT.txt",
+          "revision": "d46e94e2c78ceede1cfc63cfa0396472d2798d4c",
+          "kind": "canonical-spdx",
+          "description": "The published package declares this SPDX license but omits a standalone full license text at its source revision. This is the standard license text from SPDX, not a copyright notice invented for the package. Original package attribution is reproduced separately.",
+          "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+        },
+        {
+          "path": "npm-is-reference-3.0.3/ORIGINAL-PACKAGE-ATTRIBUTION.txt",
+          "sourceUrl": "https://registry.npmjs.org/is-reference/-/is-reference-3.0.3.tgz",
+          "revision": "is-reference@3.0.3",
+          "kind": "package-attribution",
+          "description": "Exact published package metadata, readme text, and available original license headers; no new copyright statement is asserted.",
+          "sha256": "bdaf877cc9dab259ae56fb7e1f0ea97fa7b226af8587f04213d2a35886ce5271"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "keyv",
+      "version": "4.5.4",
+      "files": [
+        {
+          "path": "npm-keyv-4.5.4/DECLARED-MIT-STANDARD.txt",
+          "sourceUrl": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/MIT.txt",
+          "revision": "d46e94e2c78ceede1cfc63cfa0396472d2798d4c",
+          "kind": "canonical-spdx",
+          "description": "The published package declares this SPDX license but omits a standalone full license text at its source revision. This is the standard license text from SPDX, not a copyright notice invented for the package. Original package attribution is reproduced separately.",
+          "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+        },
+        {
+          "path": "npm-keyv-4.5.4/ORIGINAL-PACKAGE-ATTRIBUTION.txt",
+          "sourceUrl": "https://registry.npmjs.org/keyv/-/keyv-4.5.4.tgz",
+          "revision": "keyv@4.5.4",
+          "kind": "package-attribution",
+          "description": "Exact published package metadata, readme text, and available original license headers; no new copyright statement is asserted.",
+          "sha256": "960e98d5c9c530ca4c48829aff78b521920c4b61d98333d90c6a6af5ed118714"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "locate-character",
+      "version": "3.0.0",
+      "files": [
+        {
+          "path": "npm-locate-character-3.0.0/DECLARED-MIT-STANDARD.txt",
+          "sourceUrl": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/MIT.txt",
+          "revision": "d46e94e2c78ceede1cfc63cfa0396472d2798d4c",
+          "kind": "canonical-spdx",
+          "description": "The published package declares this SPDX license but omits a standalone full license text at its source revision. This is the standard license text from SPDX, not a copyright notice invented for the package. Original package attribution is reproduced separately.",
+          "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+        },
+        {
+          "path": "npm-locate-character-3.0.0/ORIGINAL-PACKAGE-ATTRIBUTION.txt",
+          "sourceUrl": "https://registry.npmjs.org/locate-character/-/locate-character-3.0.0.tgz",
+          "revision": "locate-character@3.0.0",
+          "kind": "package-attribution",
+          "description": "Exact published package metadata, readme text, and available original license headers; no new copyright statement is asserted.",
+          "sha256": "aa3fb0de3fbf96d5847ea0c385e36aab8d865abaca41957be4745ab87cff9785"
+        }
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "name": "natural-compare",
+      "version": "1.4.0",
+      "files": [
+        {
+          "path": "npm-natural-compare-1.4.0/DECLARED-MIT-STANDARD.txt",
+          "sourceUrl": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/MIT.txt",
+          "revision": "d46e94e2c78ceede1cfc63cfa0396472d2798d4c",
+          "kind": "canonical-spdx",
+          "description": "The published package declares this SPDX license but omits a standalone full license text at its source revision. This is the standard license text from SPDX, not a copyright notice invented for the package. Original package attribution is reproduced separately.",
+          "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+        },
+        {
+          "path": "npm-natural-compare-1.4.0/ORIGINAL-PACKAGE-ATTRIBUTION.txt",
+          "sourceUrl": "https://registry.npmjs.org/natural-compare/-/natural-compare-1.4.0.tgz",
+          "revision": "natural-compare@1.4.0",
+          "kind": "package-attribution",
+          "description": "Exact published package metadata, readme text, and available original license headers; no new copyright statement is asserted.",
+          "sha256": "97ee40bfa56c71757d070e6a7b83ccd780d9edf710dfa47325d428834d761285"
+        }
+      ]
+    }
+  ],
+  "unresolved": [],
+  "standardTextPolicy": "Explicitly marked standard SPDX texts plus exact original package attribution for packages that omit standalone license files. No copyright years or holders were invented.",
+  "updatedUtc": "2026-10-29T12:46:48.014Z"
+}

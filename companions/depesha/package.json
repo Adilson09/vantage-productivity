@@ -1,0 +1,60 @@
+{
+  "name": "depesha",
+  "private": true,
+  "version": "0.8.17",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "metrics": "scripts/frontend-metrics.sh",
+    "invariants": "scripts/frontend-invariants.sh",
+    "plugin-api": "node scripts/plugin-api-snapshot.mjs",
+    "plugin-api:update": "node scripts/plugin-api-snapshot.mjs --update",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.14",
+    "@lezer/common": "1.5.3",
+    "@lezer/highlight": "1.2.5",
+    "@lezer/markdown": "1.8.0",
+    "@lucide/svelte": "1.50.0",
+    "@tauri-apps/api": "2.12.1",
+    "@tauri-apps/plugin-dialog": "2.8.1",
+    "@tauri-apps/plugin-opener": "2.7.0",
+    "docx-preview": "0.4.1",
+    "dompurify": "3.4.16",
+    "jszip": "3.10.2",
+    "pdfjs-dist": "6.3.289",
+    "svelte": "5.57.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tauri-apps/cli": "2.12.1",
+    "@tsconfig/svelte": "5.0.8",
+    "@types/node": "^22.20.5",
+    "eslint": "9.39.5",
+    "eslint-plugin-svelte": "3.23.0",
+    "globals": "17.13.0",
+    "jsdom": "^26.1.0",
+    "svelte-check": "4.7.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  },
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fgbm/depesha.git"
+  },
+  "description": "Desktop mail client for any IMAP/SMTP server"
+}

@@ -1,0 +1,16 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"],
+    "paths": {
+      "@depesha/plugin-api": ["./src/plugin-api/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "plugins/**/*.ts", "plugins/**/*.svelte", "vite.config.ts"]
+}

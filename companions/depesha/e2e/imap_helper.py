@@ -1,0 +1,726 @@
+#!/usr/bin/env python3
+"""Seeds and inspects the GreenMail test mailbox for the E2E test.
+
+  imap_helper.py seed            create folders and test messages for carol
+  imap_helper.py demo-seed [VER] tidy demo mail for the screenshots; VER 0.8.0 adds the 0.8 letters
+  imap_helper.py count FOLDER SUBJECT
+  imap_helper.py flags FOLDER SUBJECT
+  imap_helper.py header FOLDER SUBJECT HEADER
+  imap_helper.py plain FOLDER SUBJECT         the letter's text/plain part, decoded
+  imap_helper.py flag FOLDER SUBJECT        set \\Flagged from "another client"
+  imap_helper.py big FOLDER SUBJECT KB      deliver a read letter with a KB-sized attachment
+  imap_helper.py many-files FOLDER SUBJECT N deliver a read letter with N small text attachments
+  imap_helper.py delete FOLDER SUBJECT      expunge the letters with that subject
+"""
+
+import base64
+import email
+import email.utils
+import hashlib
+import imaplib
+import json
+import socket
+import sys
+import time
+
+HOST, PORT, USER, PASSWORD = "127.0.0.1", 3143, "carol", "secret"
+ME = "carol@local.test"
+
+
+def conn():
+    c = imaplib.IMAP4(HOST, PORT)
+    # APPEND waits for "+" before the literal: with Nagle each message took 40 ms.
+    c.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    c.login(USER, PASSWORD)
+    return c
+
+
+def append(c, folder, raw, flags="", when=None):
+    date = imaplib.Time2Internaldate(when or time.time())
+    typ, data = c.append(folder, flags, date, raw)
+    assert typ == "OK", data
+
+
+def msg(subject, body, sender="Иван Петров <ivan@example.org>", when=None, extra="", mid=None, to=ME, attach=None):
+    """A text letter. `attach` is (filename, content-type, bytes) for one attachment."""
+    date = email.utils.formatdate(when or time.time(), localtime=True)
+    mid = mid or f"{abs(hash(subject + str(when)))}@example.org"
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    frm_name, frm_addr = sender.split(" <")
+    frm = "=?utf-8?B?" + base64.b64encode(frm_name.encode()).decode() + "?= <" + frm_addr
+    head = (
+        f"From: {frm}\r\nTo: {to}\r\nSubject: {subj}\r\nDate: {date}\r\n"
+        f"Message-ID: <{mid}>\r\nMIME-Version: 1.0\r\n{extra}"
+    )
+    b64 = lambda text: base64.encodebytes(text).decode().replace("\n", "\r\n")
+    if attach is None:
+        return (
+            head
+            + "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+            + b64(body.encode())
+        ).encode()
+    name, ctype, data = attach
+    return (
+        head
+        + 'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        + "--mix\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        + b64(body.encode())
+        + f'--mix\r\nContent-Type: {ctype}; name="{name}"\r\nContent-Disposition: attachment; filename="{name}"\r\n'
+        + "Content-Transfer-Encoding: base64\r\n\r\n"
+        + b64(data)
+        + "--mix--\r\n"
+    ).encode()
+
+
+CP1251 = (
+    b"From: =?koi8-r?Q?=E2=D5=C8=C7=C1=CC=D4=C5=D2=C9=D1?= <buh@example.ru>\r\n"
+    b"To: carol@local.test\r\n"
+    b"Subject: =?windows-1251?B?0fe48iDt4CDu7+vg8vM=?=\r\n"
+    b"Date: Fri, 2 Oct 2026 10:00:00 +0300\r\n"
+    b"Message-ID: <cp1251@example.ru>\r\n"
+    b"MIME-Version: 1.0\r\n"
+    b"Content-Type: text/plain; charset=windows-1251\r\n"
+    b"Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+    b"=C4=EE=E1=F0=FB=E9 =E4=E5=ED=FC! =CE=EF=EB=E0=F2=E8=F2=E5 =E4=EE =EF=FF=F2=\r\n"
+    b"=ED=E8=F6=FB.\r\n"
+)
+
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+HTML = (
+    # A verdict under the mailbox's own domain: the stand's server strips no forged copy, so the
+    # app believes none of it, and "always for the sender" keeps the trust without the pictures.
+    "Authentication-Results: mx.local.test; dmarc=pass header.from=example.org\r\n"
+    "From: =?utf-8?B?" + base64.b64encode("Рассылка".encode()).decode() + "?= <news@example.org>\r\n"
+    "To: carol@local.test\r\nSubject: =?utf-8?B?" + base64.b64encode("HTML-письмо с картинками".encode()).decode() + "?=\r\n"
+    "Date: Fri, 2 Oct 2026 11:00:00 +0300\r\nMessage-ID: <html1@example.org>\r\nMIME-Version: 1.0\r\n"
+    'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+    '--mix\r\nContent-Type: multipart/related; boundary="rel"\r\n\r\n'
+    "--rel\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+    '<h2 style="color:#0a5">Новости</h2><p onclick="steal()">Текст <b>новости</b>.</p>'
+    '<script>alert(1)</script><img id="logo" src="cid:logo@x"> <img id="pixel" src="https://tracker.example/p.gif">'
+    '<p><a href="https://example.com/news">Подробнее</a></p>\r\n'
+    "--rel\r\nContent-Type: image/png\r\nContent-ID: <logo@x>\r\nContent-Disposition: inline\r\n"
+    "Content-Transfer-Encoding: base64\r\n\r\n" + base64.b64encode(PNG).decode() + "\r\n--rel--\r\n"
+    '--mix\r\nContent-Type: application/pdf; name="report.pdf"\r\nContent-Disposition: attachment; filename="report.pdf"\r\n'
+    "Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQK\r\n--mix--\r\n"
+).encode()
+
+
+def trust_letter(to):
+    """A letter with pictures whose sender the mailbox's server says nothing about (0.8.13)."""
+    return (
+        "From: =?utf-8?B?" + base64.b64encode("Подрядчик".encode()).decode() + "?= <petr@example.com>\r\n"
+        f"To: {to}\r\n"
+        "Subject: =?utf-8?B?" + base64.b64encode("Смета на монтаж с картинками".encode()).decode() + "?=\r\n"
+        "Date: Mon, 19 Oct 2026 12:00:00 +0300\r\nMessage-ID: <trust-1@example.com>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/related; boundary="rel"\r\n\r\n'
+        "--rel\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+        '<p>Вот смета. <img id="pixel" src="https://tracker.example/p.gif"></p>\r\n'
+        "--rel\r\nContent-Type: image/png\r\nContent-ID: <logo@x>\r\nContent-Disposition: inline\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n" + base64.b64encode(PNG).decode() + "\r\n--rel--\r\n"
+    ).encode()
+
+
+FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures" / "attachments"
+DOCS_TYPES = {
+    "contract.pdf": "application/pdf",
+    "contract.docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "price.xlsx": "application/octet-stream",
+    "notes.md": "text/markdown",
+    "sums.csv": "text/csv",
+}
+# The sample documents, read once: the demo letters attach them from memory.
+DOCS_ATTACH = {name: (FIXTURES / name).read_bytes() for name in DOCS_TYPES}
+
+
+def docs(when):
+    """A letter with one attachment of every kind the viewer draws itself."""
+    parts = [
+        "From: =?utf-8?B?" + base64.b64encode("Отдел закупок".encode()).decode() + "?= <buy@example.org>\r\n"
+        "To: carol@local.test\r\nSubject: =?utf-8?B?" + base64.b64encode("Документы на проверку".encode()).decode() + "?=\r\n"
+        f"Date: {email.utils.formatdate(when, localtime=True)}\r\nMessage-ID: <docs1@example.org>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        "--mix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nДоговор, прайс и заметки во вложении.\r\n"
+    ]
+    for name, ctype in DOCS_TYPES.items():
+        data = base64.encodebytes((FIXTURES / name).read_bytes()).decode().replace("\n", "\r\n")
+        parts.append(
+            f'--mix\r\nContent-Type: {ctype}; name="{name}"\r\nContent-Disposition: attachment; filename="{name}"\r\n'
+            f"Content-Transfer-Encoding: base64\r\n\r\n{data}"
+        )
+    parts.append("--mix--\r\n")
+    return "".join(parts).encode()
+
+
+# An invitation as a mailer of Exchange writes it: a Windows zone name with its own VTIMEZONE,
+# lines folded after 75 bytes (one of them inside a word), CRLF, and no empty line at the end.
+# The people, the place and the meeting are invented.
+INVITE_UID = "040000008200E00074C5B7101A82E-EXAMPLE-0001"
+
+
+def invitation(sequence=0, hour=15, location="Переговорная 2", method="REQUEST", status="CONFIRMED", broken=False):
+    """The bytes of the `.ics` of a meeting, in the shape an Exchange invitation has."""
+    if broken:
+        return "This file is not a calendar at all: no BEGIN:VCALENDAR here.\r\n"
+    return (
+        "BEGIN:VCALENDAR\r\nMETHOD:%(method)s\r\nPRODID:-//Example Org//Example Mailer//EN\r\nVERSION:2.0\r\n"
+        "BEGIN:VTIMEZONE\r\nTZID:Russian Standard Time\r\nBEGIN:STANDARD\r\nDTSTART:16010101T000000\r\n"
+        "TZOFFSETFROM:+0300\r\nTZOFFSETTO:+0300\r\nEND:STANDARD\r\nBEGIN:DAYLIGHT\r\n"
+        "DTSTART:16010101T000000\r\nTZOFFSETFROM:+0300\r\nTZOFFSETTO:+0300\r\nEND:DAYLIGHT\r\n"
+        "END:VTIMEZONE\r\nBEGIN:VEVENT\r\nORGANIZER;CN=Анна Соколова:MAILTO:anna@example.org\r\n"
+        "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=TRUE;CN=\"Иванов, Пётр\":MAILTO:petr@example.org\r\n"
+        "ATTENDEE;ROLE=OPT-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=Олег Тимофеев:MAILTO:oleg@example.org\r\n"
+        "DESCRIPTION;LANGUAGE=ru-RU:Повестка:\\nРазбор заявок\\, сверка отчётности\\; итоги.\\n"
+        "Подключиться: https://meet.example.org/room-1\r\n"
+        "UID:%(uid)s\r\n"
+        "SUMMARY;LANGUAGE=ru-RU:%(summary)sПланёрка по выпуску: сроки, заявки\r\n"
+        "DTSTART;TZID=Russian Standard Time:20261106T%(hour)02d0000\r\n"
+        "DTEND;TZID=Russian Standard Time:20261106T%(end)02d0000\r\n"
+        "LOCATION;LANGUAGE=ru-RU:%(location)s\r\nSTATUS:%(status)s\r\nSEQUENCE:%(sequence)d\r\n"
+        "X-MICROSOFT-CDO-ALLDAYEVENT:FALSE\r\nEND:VEVENT\r\nEND:VCALENDAR"
+        % {
+            "method": method,
+            "uid": INVITE_UID,
+            "summary": "Canceled: " if method == "CANCEL" else "",
+            "hour": hour,
+            "end": (hour + 1) % 24,
+            "location": location,
+            "status": status,
+            "sequence": sequence,
+        }
+    )
+
+
+def invite_mid(subject):
+    """The Message-ID of the invitation of `subject`: the same in every run of this script, so the
+    answer to it (an update) lands in the same conversation."""
+    return "<inv-" + hashlib.sha1(subject.encode()).hexdigest()[:12] + "@example.org>"
+
+
+def invite_letter(subject, mid, calendar, references=None):
+    """A letter that carries a calendar file: `multipart/mixed` with the `.ics` attached."""
+    name = "invite.ics"
+    data = calendar.encode()
+    date = email.utils.formatdate(time.time(), localtime=True)
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    extra = f"References: {references}\r\n" if references else ""
+    return (
+        f"From: =?utf-8?B?{base64.b64encode('Анна Соколова'.encode()).decode()}?= <anna@example.org>\r\n"
+        f"To: {ME}\r\nSubject: {subj}\r\nDate: {date}\r\nMessage-ID: {mid}\r\nMIME-Version: 1.0\r\n{extra}"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        "--mix\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        + base64.encodebytes("Приглашение во вложении.".encode()).decode().replace("\n", "\r\n")
+        + f'--mix\r\nContent-Type: text/calendar; charset=utf-8; name="{name}"\r\n'
+        f'Content-Disposition: attachment; filename="{name}"\r\nContent-Transfer-Encoding: base64\r\n\r\n'
+        + base64.encodebytes(data).decode().replace("\n", "\r\n")
+        + "--mix--\r\n"
+    ).encode()
+
+
+def long_thread(subject):
+    """One conversation whose middle letter is an HTML body far taller than a window, and a short
+    reply after it: a letter unfolded in the thread takes its own height there (#А7)."""
+    b64 = lambda text: base64.encodebytes(text.encode()).decode().replace("\n", "\r\n")
+    now = time.time()
+    root = f"long-{abs(hash(subject))}@example.org"
+    html_mid, last_mid = f"long-html-{abs(hash(subject))}@example.org", f"long-last-{abs(hash(subject))}@example.org"
+    text = "Смета из шестидесяти строк.\r\n\r\n" + "\r\n".join(
+        f"Строка сметы {i}: работа, материалы и доставка на объект." for i in range(1, 61)
+    )
+    html = "<p>Смета из шестидесяти строк.</p>" + "".join(
+        f"<p>Строка сметы {i}: работа, материалы и доставка на объект.</p>" for i in range(1, 61)
+    )
+    subj = lambda line: "=?utf-8?B?" + base64.b64encode(line.encode()).decode() + "?="
+    reply = lambda line, mid, refs: (
+        f"From: =?utf-8?B?{base64.b64encode('Подрядчик'.encode()).decode()}?= <estimate@example.com>\r\n"
+        f"To: {ME}\r\nSubject: {subj(line)}\r\nDate: {email.utils.formatdate(now - 200, localtime=True)}\r\n"
+        f"Message-ID: <{mid}>\r\nIn-Reply-To: <{refs[-1]}>\r\nReferences: {' '.join(f'<{r}>' for r in refs)}\r\n"
+        'MIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary="alt"\r\n\r\n'
+        f"--alt\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(text)}"
+        f"--alt\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(html)}"
+        "--alt--\r\n"
+    ).encode()
+    return [
+        (msg(subject, "Смета готова, подробности в ответе.", when=now - 300, mid=root), now - 300),
+        (reply(f"Re: {subject}", html_mid, [root]), now - 200),
+        (msg(f"Re: {subject}", "Спасибо, посмотрю.", sender="Мария Соколова <maria@example.org>", when=now - 100,
+             mid=last_mid, extra=f"In-Reply-To: <{html_mid}>\r\nReferences: <{root}> <{html_mid}>\r\n"), now - 100),
+    ]
+
+
+def markdown(subject):
+    """A letter written in Markdown, as Depesha sends it: text, then the Markdown, then HTML."""
+    source = "# Итоги встречи\r\n\r\n- [x] договор подписан\r\n- [ ] подключить сканеры\r\n\r\n| Задача | Кто |\r\n|---|---|\r\n| Сканеры | Алексей |\r\n"
+    html = "<h1>Итоги встречи</h1><ul><li>&#9745; договор подписан</li><li>&#9744; подключить сканеры</li></ul>"
+    b64 = lambda text: base64.encodebytes(text.encode()).decode().replace("\n", "\r\n")
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    return (
+        f"From: Alexey <alexey@example.org>\r\nTo: {ME}\r\nSubject: {subj}\r\n"
+        f"Date: {email.utils.formatdate(time.time(), localtime=True)}\r\nMessage-ID: <md-{abs(hash(subject))}@example.org>\r\n"
+        'MIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary="alt"\r\n\r\n'
+        f"--alt\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(source)}"
+        "--alt\r\nContent-Type: text/markdown; charset=utf-8; variant=CommonMark\r\n"
+        f"Content-Transfer-Encoding: base64\r\n\r\n{b64(source)}"
+        f"--alt\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(html)}"
+        "--alt--\r\n"
+    ).encode()
+
+
+def overlay(subject):
+    """An HTML letter that places its text at the top of the page: on a printed sheet it must not cover the header (#70)."""
+    html = (
+        '<div style="position:absolute;top:0;left:0;right:0;background:#fee;font-size:20px">ПОДДЕЛЬНАЯ ШАПКА От: boss@example.org</div>'
+        '<div style="position:fixed;top:0;left:0;background:#fee">ЗАКРЕПЛЁННАЯ ПОДДЕЛКА</div>'
+        "<p>Обычный текст письма.</p>"
+    )
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    return (
+        f"From: Mallory <mallory@example.org>\r\nTo: {ME}\r\nSubject: {subj}\r\n"
+        f"Date: {email.utils.formatdate(time.time(), localtime=True)}\r\nMessage-ID: <ov-{abs(hash(subject))}@example.org>\r\n"
+        "MIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        + base64.encodebytes(html.encode()).decode().replace("\n", "\r\n")
+    ).encode()
+
+
+def seed():
+    c = conn()
+    # GreenMail's hierarchy delimiter is ".".
+    for f in ("Sent", "Drafts", "Trash", "Calendar", "Calendar.Birthdays", "Работа"):
+        typ, data = c.create(imaplib_utf7(f))
+        assert typ == "OK", (f, data)
+    now = time.time()
+    # 620 older messages: more than the first-sync window of 500.
+    for i in range(620):
+        when = now - 86400 * 30 - (620 - i) * 3600
+        subject = "Quarterly report archive" if i == 10 else f"Массовое письмо {i:03d}"
+        append(c, "INBOX", msg(subject, f"Тело письма номер {i}", when=when), "(\\Seen)", when)
+    # In «Работа», not in INBOX: the inbox's rows stay where other steps expect them.
+    append(c, imaplib_utf7("Работа"), docs(now - 86400), "(\\Seen)", now - 86400)
+    append(c, "INBOX", CP1251, "", now - 7200)
+    append(c, "INBOX", HTML, "", now - 3600)
+    append(c, "INBOX", msg("Счёт за октябрь", "Оплатить до пятницы, реквизиты во вложении.", when=now - 600), "", now - 600)
+    # A conversation of three letters (References), read long ago.
+    root = "budget-1@example.org"
+    append(c, "INBOX", msg("Бюджет на ноябрь", "Предлагаю обсудить.", when=now - 5400, mid=root), "(\\Seen)", now - 5400)
+    append(c, "INBOX", msg("Re: Бюджет на ноябрь", "Согласен.", sender="Мария Соколова <maria@example.org>", when=now - 5000,
+                           mid="budget-2@example.org", extra=f"In-Reply-To: <{root}>\r\nReferences: <{root}>\r\n"), "(\\Seen)", now - 5000)
+    append(c, "INBOX", msg("Re: Бюджет на ноябрь", "Тогда в пятницу.", when=now - 4800, mid="budget-3@example.org",
+                           extra=f"In-Reply-To: <budget-2@example.org>\r\nReferences: <{root}> <budget-2@example.org>\r\n"), "(\\Seen)", now - 4800)
+    # A newsletter: bulk, unsubscribes by mail (to carol herself, so the test can see the request).
+    append(c, "INBOX", msg("Скидки недели", "Только сегодня.", sender="Магазин <news@shop.example>", when=now - 4000,
+                           extra="List-Id: <weekly.shop.example>\r\n"
+                                 "List-Unsubscribe: <mailto:carol@local.test?subject=unsubscribe-weekly>\r\n"), "", now - 4000)
+    c.logout()
+
+
+def demo_files(subject, sender, when, mid, to, names):
+    """A read letter with one small text attachment per name: the reader folds them to two rows."""
+    import urllib.parse
+
+    body = "Комплект документов по поставке во вложении, прошу проверить к пятнице.\r\n"
+    parts = [
+        f"From: =?utf-8?B?{base64.b64encode(sender[0].encode()).decode()}?= <{sender[1]}>\r\n"
+        f"To: {to}\r\nSubject: =?utf-8?B?{base64.b64encode(subject.encode()).decode()}?=\r\n"
+        f"Date: {email.utils.formatdate(when, localtime=True)}\r\nMessage-ID: <{mid}>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        f"--mix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+    ]
+    for name in names:
+        data = base64.encodebytes((f"{name}\r\n" * (20 + 17 * (len(name) % 11))).encode()).decode().replace("\n", "\r\n")
+        enc = "utf-8''" + urllib.parse.quote(name)
+        parts.append(
+            f"--mix\r\nContent-Type: text/plain; charset=utf-8; name*={enc}\r\nContent-Disposition: attachment; filename*={enc}\r\n"
+            f"Content-Transfer-Encoding: base64\r\n\r\n{data}"
+        )
+    parts.append("--mix--\r\n")
+    return "".join(parts).encode()
+
+
+def signed_letter(subject, body, sender, to, when, mid):
+    """A letter with a real DKIM signature (0.8.13): the stand has no name server, and the
+    e2e run publishes the key to the app, so the letter is confirmed by the app's own check."""
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent / "fixtures"))
+    import dkim_sign
+    date = email.utils.formatdate(when, localtime=True)
+    b64 = lambda text: "=?utf-8?B?" + base64.b64encode(text.encode()).decode() + "?="
+    frm_name, frm_addr = sender.split(" <")
+    frm = b64(frm_name) + " <" + frm_addr
+    raw = dkim_sign.signed_letter(
+        b64(subject),
+        frm.encode(),
+        to.encode(),
+        body,
+        date,
+        mid,
+    )
+    head, _, rest = raw.partition(b"\r\n\r\n")
+    return head + b"\r\nMessage-ID: <" + mid.encode() + b">\r\nMIME-Version: 1.0\r\n" + (
+        b"Content-Type: text/plain; charset=utf-8\r\n\r\n" + rest
+    )
+
+
+def demo_seed(version=""):
+    """Tidy, reproducible mail for the README screenshots (e2e/shots.mjs).
+
+    Addresses are only on example.com / example.org. The inbox and «Отправленные»
+    are emptied first, so re-shooting gives the same pictures; inbox dates are fixed
+    so the list shows the same times every time.
+
+    `version` "0.8.0" (and "0.8.2"/"0.8.3"/"audit", which reuse the same mail) adds what the 0.8 shots
+    need (e2e/release-shots.mjs, SHOTS_SET): letters that passed DMARC (their senders get a
+    logo), an important one, a letter with many attachments and a full «Корзина». Without it
+    the set is the one of 0.7.
+    """
+    v8 = version in ("0.8.0", "0.8.2", "0.8.3", "audit", "trust")
+    # The trust set (0.8.13): a letter with pictures whose sender the server says nothing about.
+    trust = version == "trust"
+    c = conn()
+    # Start clean: these also drop the 620 letters of the acceptance seed.
+    # The 0.8 set has no folder tree: what a picture shows is the standard folders only.
+    folders = ("INBOX", "Sent", "Drafts", "Trash", "Архив", "Отложенные")
+    if not v8:
+        folders += ("Работа", "Работа.Сметы", "Отчёты")
+    for folder in folders:
+        typ, _ = c.select(imaplib_utf7(folder))
+        if typ != "OK":
+            c.create(imaplib_utf7(folder))
+            c.select(imaplib_utf7(folder))
+        c.store("1:*", "+FLAGS", "(\\Deleted)")
+        c.expunge()
+
+    base = 1_788_000_000  # 2026-08-28 10:40 UTC
+    day = 86_400
+    # The owner of the mailbox: in the 0.8 pictures an everyday made-up name, not a test one.
+    owner, me = ("Анна Крылова", "anna@example.org") if v8 else ("Кэрол Тестова", "carol@example.org")
+
+    def put(folder, subject, sender, body, when, mid, refs=None, extra="", seen=True, attach=None, to=None):
+        reply = f"In-Reply-To: <{refs[-1]}>\r\nReferences: {' '.join(f'<{r}>' for r in refs)}\r\n" if refs else ""
+        append(c, folder, msg(subject, body, sender=sender, to=to or me, when=when, mid=mid, extra=reply + extra, attach=attach),
+               "(\\Seen)" if seen else "", when)
+
+    # INBOX: one conversation of three letters, two people, one newsletter.
+    put("INBOX", "Смета на монтаж", "Пётр Сидоров <petr@example.com>",
+        "Подрядчик прислал смету на монтаж склада. Посмотрите, пожалуйста, и скажите, что убрать.",
+        base - 7200, "c-1@example.com", seen=False)
+    put("INBOX", "Re: Смета на монтаж", "Пётр Сидоров <petr@example.com>",
+        "Согласен, тогда жду финальную смету до пятницы. Со своей стороны всё согласовал.",
+        base - 3600, "c-2@example.com", refs=["c-1@example.com"], seen=True)
+    put("INBOX", "Re: Смета на монтаж", "Подрядчик <estimate@example.com>",
+        "Смету пересчитали, сумма выросла на 40 000 ₽. Приложил новую таблицу к ответу.",
+        base - 1800, "c-3@example.com", refs=["c-1@example.com", "c-2@example.com"], seen=False)
+    put("INBOX", "Отчёт за сентябрь", "Мария Соколова <maria@example.org>",
+        "Отчёт за сентябрь готов, замечания во вложении.", base - day, "report-9@example.org",
+        attach=("report.pdf", "application/pdf", DOCS_ATTACH["contract.pdf"]))
+    # What the receiving server (the mailbox's own domain) says of a sender: DMARC passed.
+    dmarc = lambda domain: f"Authentication-Results: mx.example.org; dmarc=pass header.from={domain}\r\n"
+    put("INBOX", "Счёт на оплату", "Бухгалтерия <billing@example.org>",
+        "Просим оплатить счёт до 15 октября.", base - 2 * day, "invoice-15@example.org",
+        extra=(dmarc("example.org") + "Importance: high\r\n") if v8 else "")
+    if v8:
+        # A really signed letter: the app's own check confirms it (ступень 3), and the brand
+        # logo of the sender stands next to it in the list. The stand has no name server, so
+        # the e2e run publishes the key (e2e_publish_dkim_key).
+        append(c, "INBOX", signed_letter(
+            "Договор на подпись", "Прошу подписать договор, приложенный к письму.",
+            "Контрагенты <contract@example.org>", me, base - 2 * day, "contract-1@example.org",
+        ), "(\\Seen)", base - 2 * day)
+    shop = "shop.example.net" if v8 else "shop.example.org"
+    put("INBOX", "Монтаж и освещение: ноябрьские скидки", f"Магазин «Свет и монтаж» <news@{shop}>",
+        "Скидки на монтаж и освещение до конца ноября.",
+        base - 3 * day, "weekly-44@example.org",
+        extra=f"List-Id: <weekly.{shop}>\r\n"
+              f"List-Unsubscribe: <mailto:unsubscribe@{shop}?subject=unsubscribe>\r\n" + (dmarc(shop) if v8 else ""))
+    if trust:
+        # A letter with pictures whose sender the mailbox's server says nothing about: the line
+        # over the letter names the reason (0.8.13, 5.1 Б).
+        append(c, "INBOX", trust_letter(me), "", base - 3_600)
+    if v8:
+        names = ["Договор поставки.pdf", "Спецификация №1.xlsx", "Спецификация №2.xlsx", "Акт сверки за сентябрь.pdf",
+                 "Счёт-фактура 0412.pdf", "Накладная ТОРГ-12.pdf", "Скан договора поставки, приложение к спецификации (подписано).pdf",
+                 "Протокол разногласий.docx", "Графики поставки.xlsx", "Реквизиты.txt", "Схема склада.png", "Фото упаковки.png"]
+        append(c, "INBOX", demo_files("Пакет документов по поставке", ("Отдел закупок", "buy@example.org"), base - 4 * day,
+                                      "pack-1@example.org", me, names), "(\\Seen)", base - 4 * day)
+        # Two spellings of one person, each with letters (the merge dialog counts them, the card lists them).
+        for subj, who, text, ago, mid in [
+            ("Согласование графика отпусков", "Ольга Смирнова <olga.smirnova@example.org>", "Прошу согласовать график отпусков склада на ноябрь.", 6, "olga-1"),
+            ("Планёрка в четверг", "Ольга Смирнова <olga.smirnova@example.org>", "Планёрка в четверг в 11:00, приходите с цифрами по поставкам.", 9, "olga-2"),
+            ("Акт приёмки оборудования", "Смирнова Ольга <smirnova.o@example.net>", "Акт приёмки оборудования подписан, оригинал пришлю почтой.", 7, "olga-3"),
+            ("Реквизиты для оплаты", "Смирнова Ольга <smirnova.o@example.net>", "Реквизиты для оплаты поставки во вложении письма ниже.", 11, "olga-4"),
+        ]:
+            put("INBOX", subj, who, text, base - ago * day, f"{mid}@example.org")
+        # «Корзина» with a round number of letters for the «Очистить» dialog.
+        for i, subj in enumerate(["Напоминание о собрании", "Re: График отпусков", "Опрос по обеду", "Акция недели",
+                                  "Приглашение на вебинар", "Re: Заявка на пропуск", "Итоги квартала"]):
+            put("Trash", subj, "Служба рассылок <info@example.com>", "Письмо, которое уже не нужно.",
+                base - (5 + i) * day, f"trash-{i}@example.org")
+
+    # «Отправленные»: answers the user waits for (the wait itself is added by shots.mjs).
+    now = int(time.time())
+    put("Sent", "Проверка датчиков на складе", f"{owner} <{me}>",
+        "Коллеги, когда закончите проверку датчиков?", now - 10 * day, "f-done@example.org",
+        to="maria@example.org" if v8 else None)
+    put("Sent", "Заявка на пропуск для подрядчиков", f"{owner} <{me}>",
+        "Прошу продлить пропуска для подрядчиков на ноябрь.", now - 5400, "f-wait@example.org",
+        to="petr@example.com" if v8 else None)
+    # A draft, as if a letter were being written and left for later.
+    put("Drafts", "Re: Смета на монтаж", f"{owner} <{me}>",
+        "Коллеги, посмотрела смету — по-моему, завышена доставка.", now - 3 * day, "draft-1@example.org",
+        to="petr@example.com" if v8 else None)
+    c.logout()
+
+
+def reply(folder, subject):
+    """Answers the message from `folder` into INBOX, as the other side would."""
+    c = conn()
+    uids = find(c, folder, subject)
+    typ, data = c.uid("FETCH", uids[-1], "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+    mid = data[0][1].decode().split(":", 1)[1].strip()
+    append(c, "INBOX", msg(f"Re: {subject}", "Отвечаю.", sender="Ответчик <answer@example.org>",
+                           extra=f"In-Reply-To: {mid}\r\nReferences: {mid}\r\n"))
+    c.logout()
+
+
+def imaplib_utf7(name):
+    # Modified UTF-7 for the Cyrillic folder name.
+    if all(ord(ch) < 128 for ch in name):
+        return name
+    b64 = base64.b64encode(name.encode("utf-16-be")).decode().rstrip("=").replace("/", ",")
+    return f'"&{b64}-"'
+
+
+def big(subject, kb, when=None):
+    """A letter with one attachment of `kb` kilobytes of noise: large mail for #16."""
+    import os
+
+    data = base64.encodebytes(os.urandom(kb * 1024)).decode().replace("\n", "\r\n")
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    date = email.utils.formatdate(when or time.time(), localtime=True)
+    return (
+        f"From: =?utf-8?B?{base64.b64encode('Мария Соколова'.encode()).decode()}?= <maria@example.org>\r\n"
+        f"To: {ME}\r\nSubject: {subj}\r\nDate: {date}\r\nMessage-ID: <big-{kb}-{int(time.time())}@example.org>\r\n"
+        'MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="big"\r\n\r\n'
+        "--big\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nPhotos attached.\r\n"
+        '--big\r\nContent-Type: application/zip; name="photos.zip"\r\nContent-Disposition: attachment; filename="photos.zip"\r\n'
+        f"Content-Transfer-Encoding: base64\r\n\r\n{data}--big--\r\n"
+    ).encode()
+
+
+def many_files(subject, n):
+    """A letter with `n` small text attachments of mixed name lengths: the reader folds them to two rows."""
+    names = ["Акт сверки {i:02d}.txt", "Скан договора поставки №{i}, приложение к спецификации (подписано).txt", "{i}.txt", "Счёт-фактура {i:03d} от октября.txt"]
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    body = "".join(f"Строка {k} письма с акта сверки: платёж по договору поставки закрыт.\r\n" for k in range(1, 15))
+    parts = [
+        f"From: =?utf-8?B?{base64.b64encode('Отдел закупок'.encode()).decode()}?= <buy@example.org>\r\n"
+        f"To: {ME}\r\nSubject: {subj}\r\nDate: {email.utils.formatdate(time.time(), localtime=True)}\r\n"
+        f"Message-ID: <many-{n}-{int(time.time())}@example.org>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        f"--mix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+    ]
+    for i in range(1, n + 1):
+        name = names[i % len(names)].format(i=i)
+        data = base64.encodebytes(f"Файл {i}\r\n".encode()).decode().replace("\n", "\r\n")
+        enc = "utf-8''" + __import__("urllib.parse").parse.quote(name)
+        parts.append(
+            f'--mix\r\nContent-Type: text/plain; charset=utf-8; name*={enc}\r\nContent-Disposition: attachment; filename*={enc}\r\n'
+            f"Content-Transfer-Encoding: base64\r\n\r\n{data}"
+        )
+    parts.append("--mix--\r\n")
+    return "".join(parts).encode()
+
+
+def utf7_path(name):
+    """Modified UTF-7 of a folder path: each level apart, GreenMail's "." left as it is."""
+    return '"' + ".".join(imaplib_utf7(part).strip('"') for part in name.split(".")) + '"'
+
+
+def find(c, folder, subject):
+    """UIDs whose decoded subject contains `subject` (GreenMail has no SEARCH CHARSET)."""
+    from email.header import decode_header, make_header
+
+    typ, _ = c.select(imaplib_utf7(folder))
+    if typ != "OK":
+        return []
+    typ, data = c.uid("FETCH", "1:*", "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
+    uids = []
+    for item in data:
+        if not isinstance(item, tuple):
+            continue
+        uid = item[0].split(b"UID ")[1].split()[0]
+        raw = item[1].decode("ascii", "replace").split(":", 1)[-1].replace("\r\n", "").strip()
+        if subject in str(make_header(decode_header(raw))):
+            uids.append(uid)
+    return uids
+
+
+def main():
+    cmd = sys.argv[1]
+    if cmd == "seed":
+        seed()
+        return
+    if cmd == "demo-seed":
+        demo_seed(sys.argv[2] if len(sys.argv) > 2 else "")
+        return
+    if cmd == "dkim-key":
+        # The key of the signed letter of the stand: the name it is asked about and the record
+        # the name servers of the internet would have given.
+        sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent / "fixtures"))
+        import dkim_sign
+        print(json.dumps({"name": dkim_sign.NAME, "record": dkim_sign.key_record()}))
+        return
+    if cmd == "reply":
+        reply(sys.argv[2], sys.argv[3])
+        print("ok")
+        return
+    if cmd == "deliver":
+        c = conn()
+        append(c, "INBOX", msg(sys.argv[2], "Новое письмо для правил.", sender="Пётр Сидоров <petr@example.org>"))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "big":
+        c = conn()
+        # Read: unread counters of later steps stay as they were.
+        append(c, utf7_path(sys.argv[2]), big(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
+        c.logout()
+        print("ok")
+        return
+    if cmd == "many-files":
+        c = conn()
+        # Read: unread counters of later steps stay as they were.
+        append(c, utf7_path(sys.argv[2]), many_files(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-important":
+        # The two headers Outlook writes for «High importance» (#72).
+        c = conn()
+        append(c, "INBOX", msg(sys.argv[2], "Прочитайте первым.", sender="Пётр Сидоров <petr@example.org>", extra="Importance: High\r\nX-Priority: 1 (Highest)\r\n"))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-overlay":
+        c = conn()
+        append(c, "INBOX", overlay(sys.argv[2]))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite":
+        # An invitation, its update of the same meeting, its cancellation, and a file that is no
+        # calendar: the four states of the meeting card (0.8.13).
+        c = conn()
+        append(c, "INBOX", invite_letter(sys.argv[2], invite_mid(sys.argv[2]), invitation()))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite-update":
+        c = conn()
+        append(
+            c,
+            "INBOX",
+            invite_letter(
+                sys.argv[2],
+                invite_mid(sys.argv[2])[:-1].replace("<inv-", "<upd-") + ">",
+                invitation(sequence=2, hour=16, location="Переговорная 4"),
+                references=invite_mid(sys.argv[2]),
+            ),
+        )
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite-cancel":
+        c = conn()
+        append(c, "INBOX", invite_letter(sys.argv[2], invite_mid(sys.argv[2]), invitation(method="CANCEL", status="CANCELLED")))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-invite-broken":
+        c = conn()
+        append(c, "INBOX", invite_letter(sys.argv[2], invite_mid(sys.argv[2]), invitation(broken=True)))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "thread-long-html":
+        # A conversation whose middle letter is an HTML body taller than any window (#А7).
+        c = conn()
+        for raw, when in long_thread(sys.argv[2]):
+            append(c, "INBOX", raw, "(\\Seen)", when)
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-markdown":
+        c = conn()
+        append(c, "INBOX", markdown(sys.argv[2]))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "many":
+        # A series to triage with a held key: `many FOLDER COUNT`.
+        folder, n = sys.argv[2], int(sys.argv[3])
+        c = conn()
+        for i in range(n):
+            append(c, folder, msg(f"Разбор {i:03d}", f"Тело письма {i}"), "")
+        c.logout()
+        print(n)
+        return
+    if cmd == "rename-folder":
+        # The stand's way to make the copy in «Sent» impossible (and to undo it): APPEND to a
+        # folder that is not there is refused.
+        c = conn()
+        typ, data = c.rename(utf7_path(sys.argv[2]), utf7_path(sys.argv[3]))
+        assert typ == "OK", data
+        c.logout()
+        print("ok")
+        return
+    folder, subject = sys.argv[2], sys.argv[3]
+    c = conn()
+    c._encoding = "utf-8"
+    if cmd == "delete":
+        c.select(utf7_path(folder))
+        typ, data = c.uid("FETCH", "1:*", "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
+        from email.header import decode_header, make_header
+
+        for item in data:
+            if isinstance(item, tuple):
+                raw = item[1].decode("ascii", "replace").split(":", 1)[-1].replace("\r\n", "").strip()
+                if subject in str(make_header(decode_header(raw))):
+                    c.uid("STORE", item[0].split(b"UID ")[1].split()[0], "+FLAGS", "(\\Deleted)")
+        c.expunge()
+        c.logout()
+        print("ok")
+        return
+    uids = find(c, folder, subject)
+    if cmd == "count":
+        print(len(uids))
+    elif cmd == "flags":
+        if uids:
+            typ, data = c.uid("FETCH", uids[-1], "(FLAGS)")
+            print(data[0].decode())
+    elif cmd == "header":
+        if uids:
+            typ, data = c.uid("FETCH", uids[-1], f"(BODY.PEEK[HEADER.FIELDS ({sys.argv[4]})])")
+            print(data[0][1].decode().strip())
+    elif cmd == "raw":
+        if uids:
+            typ, data = c.uid("FETCH", uids[-1], "(BODY.PEEK[])")
+            print(data[0][1].decode("utf-8", "replace"))
+    elif cmd == "plain":
+        # The letter's text/plain part, decoded: what a reader without HTML sees.
+        if uids:
+            typ, data = c.uid("FETCH", uids[-1], "(BODY.PEEK[])")
+            letter = email.message_from_bytes(data[0][1])
+            for part in letter.walk():
+                if part.get_content_type() == "text/plain":
+                    print(part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace"))
+                    break
+    elif cmd == "flag":
+        c.uid("STORE", uids[-1], "+FLAGS", "(\\Flagged)")
+        print("ok")
+    c.logout()
+
+
+if __name__ == "__main__":
+    main()
