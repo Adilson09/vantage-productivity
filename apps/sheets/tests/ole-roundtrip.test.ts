@@ -7,6 +7,7 @@ import JSZip from 'jszip'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { saveWorkbookViaSidecar } from '@vantage/xlsx-gateway/gateway/xlsx-package-io'
+import { MacroPreservationError } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 import { XlsxSidecarClient } from '../src/main/xlsx-sidecar-client'
 import { workbookFileSchema } from '../src/shared/desktop-api'
 
@@ -186,46 +187,33 @@ describe('embedded OLE objects', () => {
     }
   })
 
-  it('moves the saved oleObjects and VML anchors with inserted rows and columns', async () => {
+  it('refuses row and column shifts with OLE bindings and leaves both files unchanged', async () => {
     const sourcePath = join(directory, 'ole-shift-source.xlsx')
     const targetPath = join(directory, 'ole-shift-saved.xlsx')
-    await writeFile(sourcePath, await buildOleFixture())
+    const sourceBuffer = await buildOleFixture()
+    const targetBefore = Buffer.from('existing destination must survive the refused save')
+    await writeFile(sourcePath, sourceBuffer)
+    await writeFile(targetPath, targetBefore)
 
-    const result = await saveWorkbookViaSidecar({
-      client,
-      sourcePath,
-      targetPath,
-      edits: [],
-      structuralOps: [
-        {
-          sheetName: 'Data',
-          ops: [
-            { kind: 'insert-rows', index: 0, count: 2 },
-            { kind: 'insert-cols', index: 2, count: 1 },
-          ],
-        },
-      ],
-    })
-    expect(result.touchedEntries).toContain('xl/drawings/vmlDrawing1.vml')
-    expect(result.touchedEntries).not.toContain('xl/embeddings/oleObject1.bin')
-    expect(result.touchedEntries).not.toContain('xl/media/image1.emf')
-
-    const savedZip = await JSZip.loadAsync(await readFile(targetPath))
-    const sheet = await savedZip.file('xl/worksheets/sheet1.xml')?.async('text')
-    // Rows 1..3 -> 3..5; the from column (1) sits before the inserted column
-    // 2 and stays, the to column (4) moves to 5. Offsets are kept.
-    expect(sheet).toContain(
-      '<from><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>0</xdr:rowOff></from>',
-    )
-    expect(sheet).toContain(
-      '<to><xdr:col>5</xdr:col><xdr:colOff>384810</xdr:colOff><xdr:row>5</xdr:row><xdr:rowOff>156210</xdr:rowOff></to>',
-    )
-    // The embedding relationship and the fallback element are untouched.
-    expect(sheet).toContain(
-      '<mc:Fallback><oleObject progId="Word.Document.12" shapeId="1025" r:id="rId3"/></mc:Fallback>',
-    )
-    const vml = await savedZip.file('xl/drawings/vmlDrawing1.vml')?.async('text')
-    expect(vml).toContain('<x:Anchor>1, 0, 3, 0, 5, 40, 5, 16</x:Anchor>')
+    await expect(
+      saveWorkbookViaSidecar({
+        client,
+        sourcePath,
+        targetPath,
+        edits: [],
+        structuralOps: [
+          {
+            sheetName: 'Data',
+            ops: [
+              { kind: 'insert-rows', index: 0, count: 2 },
+              { kind: 'insert-cols', index: 2, count: 1 },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(MacroPreservationError)
+    expect(await readFile(sourcePath)).toEqual(sourceBuffer)
+    expect(await readFile(targetPath)).toEqual(targetBefore)
   })
 })
 

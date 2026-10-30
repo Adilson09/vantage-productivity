@@ -4,6 +4,7 @@ import { parseDocx, saveDocx, type TextboxDisplay } from '@vantage/docx-engine'
 import { buildDocx } from '../../../packages/docx-engine/tests/helpers/build-docx'
 import { blocksToPmDoc, pmDocToSavePlan, type PmNode } from '../src/renderer/editor/convert'
 import { editorExtensions } from '../src/renderer/editor/extensions'
+import { captureRecoverySurfaces } from '../src/renderer/editor/recovery-snapshot'
 
 const TXBX_CONTENT =
   '<w:txbxContent>' +
@@ -75,6 +76,34 @@ function editTextboxPara(
 }
 
 describe('text box rich-text edit and save', () => {
+  it('captures an uncommitted textbox draft without replacing the live sub-editor or caret', async () => {
+    const { editor, parsed } = await openTextboxDoc()
+    try {
+      const subDom = editor.view.dom.querySelector('.doc-textbox-editor') as HTMLElement & {
+        editor: Editor
+      }
+      const sub = subDom.editor
+      sub.commands.insertContent('Pending textbox recovery. ')
+      const before = editor.getJSON(),
+        selection = sub.state.selection.toJSON()
+      const snapshot = captureRecoverySurfaces(editor)
+      expect(snapshot.changed).toBe(true)
+      expect(snapshot.document).toBeDefined()
+      expect(editor.getJSON()).toEqual(before)
+      expect(sub.isDestroyed).toBe(false)
+      expect(sub.state.selection.toJSON()).toEqual(selection)
+      const plan = pmDocToSavePlan(snapshot.document!, parsed.blocks)
+      const recovered = await parseDocx(await saveDocx(parsed, plan.saveBlocks))
+      expect(
+        recovered.blocks
+          .find((block) => block.textboxes)
+          ?.textboxes?.[0].paras[0].runs.map((run) => run.text)
+          .join(''),
+      ).toContain('Pending textbox recovery.')
+    } finally {
+      editor.destroy()
+    }
+  })
   it('mounts a rich sub-editor inside each rendered box', async () => {
     const { editor } = await openTextboxDoc()
     const subDom = editor.view.dom.querySelector('.doc-textbox .doc-textbox-editor')

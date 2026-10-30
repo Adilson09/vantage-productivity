@@ -1,0 +1,410 @@
+{
+  "schemaVersion": 1,
+  "candidate": "0.15.0-dev.2",
+  "recordedAt": "2026-10-29T21:43:12.832Z",
+  "scope": "Next-candidate source integration of actual local PDF standards validation. Published 0.15.0-dev.1 package/assets/source-sealed were not changed.",
+  "status": "native-bridge-and-relocated-staging-passed; GUI acceptance awaits rebuilt shell",
+  "upstreams": {
+    "verapdf": {
+      "schemaVersion": 1,
+      "capturedAt": "2026-10-29T21:32:49.752Z",
+      "component": "veraPDF CLI",
+      "version": "1.30.3",
+      "unmodified": true,
+      "distribution": "https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.3-installer.zip",
+      "archiveSha256": "b512bf24945503a33fc10738ecffc1f2dccaaf8593a448e94ee9ac86a9559a59",
+      "jarSha256": "19f6edd5c92841a38d9b3b018a555b7ba173b13e4e0d29edecc232e5ba6c1d70",
+      "verifiedSignatureFingerprint": "13DD102B4DD69354D12DE5A83184863278B17FE7",
+      "signatureSource": "https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.3-installer.zip.asc",
+      "publicKeySource": "https://software.verapdf.org/keys/KEY",
+      "sources": [
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-apps",
+          "ref": "v1.30.3",
+          "commit": "7d9b5c3f709846ab83f86ca1a538b24eac2d3f72",
+          "archive": "https://github.com/veraPDF/veraPDF-apps/archive/7d9b5c3f709846ab83f86ca1a538b24eac2d3f72.zip"
+        },
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-library",
+          "ref": "v1.30.3"
+        },
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-validation-profiles",
+          "note": "Rules bundled in the pinned unmodified CLI JAR; a matching repository release tag was not confirmed."
+        },
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-parser",
+          "ref": "v1.30.3"
+        }
+      ],
+      "licenses": [
+        "LICENSE.MPL (MPLv2+)",
+        "LICENSE.GPL (GPLv3+)",
+        "Bundled dependency license/notice entries remain in the unmodified JAR"
+      ],
+      "extraction": "File-only from signed IzPack CLI pack; installer never executed."
+    },
+    "java": {
+      "schemaVersion": 1,
+      "capturedAt": "2026-10-29T21:32:49.752Z",
+      "component": "Eclipse Temurin JRE",
+      "version": "21.0.13+9",
+      "unmodified": true,
+      "distribution": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip",
+      "archiveSha256": "2332c0b4cff6bed722da3567c91d5e47568bcba863fa4945d0a8d6fc76158628",
+      "checksumSource": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip.sha256.txt",
+      "officialMetadataSource": "https://api.adoptium.net/v3/assets/latest/21/hotspot?architecture=x64&image_type=jre&os=windows&vendor=eclipse",
+      "releaseSource": "https://github.com/adoptium/temurin21-binaries/releases/tag/jdk-21.0.13%2B9",
+      "sourceRepository": "https://github.com/adoptium/jdk21u",
+      "sourceRef": "jdk-21.0.13+9_adopt",
+      "sourceCommitFromRelease": "2ab10ca20c19",
+      "sourceUrl": "https://github.com/adoptium/jdk21u/tree/2ab10ca20c19",
+      "buildSourceRepository": "https://github.com/adoptium/temurin-build",
+      "buildSourceCommit": "1cf43d7a3e77886bfea7d550a902e151a87d724d",
+      "javaExecutableSha256": "f8dc082a7dedbfd2924c3562405a5a1fd12efd2641808c92e2de819c76a58b7e",
+      "license": "GPLv2 with Classpath Exception; all additional component notices preserved under jdk-21.0.13+9-jre/legal",
+      "extractedReleaseFile": "IMPLEMENTOR=\"Eclipse Adoptium\"\r\nIMPLEMENTOR_VERSION=\"Temurin-21.0.13+9\"\r\nJAVA_RUNTIME_VERSION=\"21.0.13+9-LTS\"\r\nJAVA_VERSION=\"21.0.13\"\r\nJAVA_VERSION_DATE=\"2026-10-20\"\r\nLIBC=\"default\"\r\nMODULES=\"java.base java.compiler java.datatransfer java.xml java.prefs java.desktop java.instrument java.logging java.management java.security.sasl java.naming java.rmi java.management.rmi java.net.http java.scripting java.security.jgss java.transaction.xa java.sql java.sql.rowset java.xml.crypto java.se java.smartcardio jdk.accessibility jdk.internal.jvmstat jdk.attach jdk.charsets jdk.internal.opt jdk.zipfs jdk.compiler jdk.crypto.ec jdk.crypto.cryptoki jdk.crypto.mscapi jdk.dynalink jdk.internal.ed jdk.editpad jdk.hotspot.agent jdk.httpserver jdk.incubator.vector jdk.internal.le jdk.internal.vm.ci jdk.internal.vm.compiler jdk.internal.vm.compiler.management jdk.jartool jdk.javadoc jdk.jcmd jdk.management jdk.management.agent jdk.jconsole jdk.jdeps jdk.jdwp.agent jdk.jdi jdk.jfr jdk.jlink jdk.jpackage jdk.jshell jdk.jsobject jdk.jstatd jdk.localedata jdk.management.jfr jdk.naming.dns jdk.naming.rmi jdk.net jdk.nio.mapmode jdk.random jdk.sctp jdk.security.auth jdk.security.jgss jdk.unsupported jdk.unsupported.desktop jdk.xml.dom\"\r\nOS_ARCH=\"x86_64\"\r\nOS_NAME=\"Windows\"\r\nSOURCE=\".:git:2ab10ca20c19\"\r\nBUILD_SOURCE=\"git:1cf43d7a3e77886bfea7d550a902e151a87d724d\"\nBUILD_SOURCE_REPO=\"https://github.com/adoptium/temurin-build.git\"\nSOURCE_REPO=\"https://github.com/adoptium/jdk21u.git\"\nFULL_VERSION=\"21.0.13+9-LTS\"\nSEMANTIC_VERSION=\"21.0.13+9\"\nBUILD_INFO=\"OS: Windows Server 2022 Version: 10.0\"\nJVM_VARIANT=\"Hotspot\"\nJVM_VERSION=\"21.0.13+9-LTS\"\nIMAGE_TYPE=\"JRE\"\n"
+    }
+  },
+  "enginePin": {
+    "path": "temurin21/jdk-21.0.13+9-jre/bin/java.exe",
+    "sha256": "f8dc082a7dedbfd2924c3562405a5a1fd12efd2641808c92e2de819c76a58b7e",
+    "launch": {
+      "kind": "java-jar",
+      "jar": "verapdf-1.30.3/bin/cli-1.30.3.jar",
+      "sha256": "19f6edd5c92841a38d9b3b018a555b7ba173b13e4e0d29edecc232e5ba6c1d70"
+    },
+    "validation": {
+      "status": "conformance-smoke-passed",
+      "detail": "Official PDF/A-1b and PDF/UA-1 pass/fail fixtures returned 0/1; malformed input returned 7; fixture and copied input hashes preserved. Machine checks only; human accessibility review remains required."
+    }
+  },
+  "archives": [
+    {
+      "component": "veraPDF",
+      "version": "1.30.3",
+      "source": "https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.3-installer.zip",
+      "sha256": "b512bf24945503a33fc10738ecffc1f2dccaaf8593a448e94ee9ac86a9559a59",
+      "signature": "https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.3-installer.zip.asc",
+      "verifiedSigningFingerprint": "13DD102B4DD69354D12DE5A83184863278B17FE7"
+    },
+    {
+      "component": "Eclipse Temurin",
+      "version": "21.0.13+9",
+      "source": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip",
+      "sha256": "2332c0b4cff6bed722da3567c91d5e47568bcba863fa4945d0a8d6fc76158628",
+      "checksumSource": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip.sha256.txt"
+    }
+  ],
+  "primarySources": [
+    "https://docs.verapdf.org/install/",
+    "https://docs.verapdf.org/cli/validation/",
+    "https://github.com/veraPDF/veraPDF-library/blob/v1.30.3/core/src/main/java/org/verapdf/processor/JsonHandler.java",
+    "https://github.com/veraPDF/veraPDF-library/blob/v1.30.3/core/src/main/java/org/verapdf/processor/reports/Summarisers.java",
+    "https://github.com/veraPDF/veraPDF-apps/blob/v1.30.3/cli/src/main/java/org/verapdf/cli/CliConstants.java",
+    "https://adoptium.net/installation/archives/"
+  ],
+  "acceptance": {
+    "corpusCommit": "bb75f4f0073d9350dfd058c0162a367e6fadf25e",
+    "corpusSource": "https://github.com/veraPDF/veraPDF-corpus",
+    "corpusLicense": "CC-BY-4.0",
+    "bridgeReport": "D:\\Codex-builds\\vantage-engine-tools-next\\bridge-acceptance-1\\report.json",
+    "passed": true,
+    "cases": [
+      {
+        "name": "pdfa-1b-pass.pdf",
+        "flavour": "1b",
+        "expected": "pass",
+        "status": "pass",
+        "code": 0,
+        "complete": true,
+        "checkedProfileIds": ["1b"],
+        "sourceSha256": "0a578e09d02ca14e2b669cae84e66056d646d47680688f62468d527bc4c9e222",
+        "sourceUnchanged": true,
+        "qpdf": {
+          "status": "pass",
+          "code": 0
+        }
+      },
+      {
+        "name": "pdfa-1b-fail.pdf",
+        "flavour": "1b",
+        "expected": "fail",
+        "status": "fail",
+        "code": 1,
+        "complete": true,
+        "checkedProfileIds": ["1b"],
+        "sourceSha256": "ee0792dbe6a3802a31e9e73abe7bb372e01d21d738c7abc785d46d8521bb5643",
+        "sourceUnchanged": true,
+        "qpdf": {
+          "status": "pass",
+          "code": 0
+        }
+      },
+      {
+        "name": "pdfua-1-pass.pdf",
+        "flavour": "ua1",
+        "expected": "pass",
+        "status": "pass",
+        "code": 0,
+        "complete": true,
+        "checkedProfileIds": ["ua1"],
+        "sourceSha256": "853fc52f5dca32dd257cac1da4ca9c1702623e357b48a361f835c4f271bd2c68",
+        "sourceUnchanged": true,
+        "qpdf": {
+          "status": "pass",
+          "code": 0
+        }
+      },
+      {
+        "name": "pdfua-1-fail.pdf",
+        "flavour": "ua1",
+        "expected": "fail",
+        "status": "fail",
+        "code": 1,
+        "complete": true,
+        "checkedProfileIds": ["ua1"],
+        "sourceSha256": "33d9008d84746cb8cf7cf11f50d8e67a97b3640978d845050e18ee47bfb95310",
+        "sourceUnchanged": true,
+        "qpdf": {
+          "status": "pass",
+          "code": 0
+        }
+      },
+      {
+        "name": "malformed.pdf",
+        "expected": "incomplete",
+        "status": "incomplete",
+        "code": 7,
+        "complete": false,
+        "checkedProfileIds": [],
+        "sourceSha256": "a64b9f188761528efee789979dca5c673feaa09e4b00c368c8e60827f241fa7f",
+        "sourceUnchanged": true
+      },
+      {
+        "name": "owned-runtime-deadline",
+        "expected": "incomplete",
+        "status": "incomplete",
+        "code": 1,
+        "stopped": "timeout",
+        "complete": false,
+        "checkedProfileIds": [],
+        "sourceSha256": "0a578e09d02ca14e2b669cae84e66056d646d47680688f62468d527bc4c9e222",
+        "sourceUnchanged": true
+      },
+      {
+        "name": "owned-JVM-heap-failure",
+        "expected": "incomplete",
+        "status": "incomplete",
+        "code": 1,
+        "complete": false,
+        "checkedProfileIds": [],
+        "actualHeapFailure": true
+      }
+    ],
+    "finalFixtureHashes": [
+      {
+        "name": "pdfa-1b-pass.pdf",
+        "sha256": "0a578e09d02ca14e2b669cae84e66056d646d47680688f62468d527bc4c9e222",
+        "unchanged": true
+      },
+      {
+        "name": "pdfa-1b-fail.pdf",
+        "sha256": "ee0792dbe6a3802a31e9e73abe7bb372e01d21d738c7abc785d46d8521bb5643",
+        "unchanged": true
+      },
+      {
+        "name": "pdfua-1-pass.pdf",
+        "sha256": "853fc52f5dca32dd257cac1da4ca9c1702623e357b48a361f835c4f271bd2c68",
+        "unchanged": true
+      },
+      {
+        "name": "pdfua-1-fail.pdf",
+        "sha256": "33d9008d84746cb8cf7cf11f50d8e67a97b3640978d845050e18ee47bfb95310",
+        "unchanged": true
+      }
+    ],
+    "firstColdStartup": {
+      "report": "D:\\Codex-builds\\vantage-engine-tools-next\\probe\\first-cold-version-timeout.json",
+      "outcome": "incomplete: 20-second cold version deadline exceeded; bounded 60-second retry and subsequent production-limit runs completed"
+    },
+    "unit": {
+      "passed": 79,
+      "failed": 0,
+      "skipped": 0,
+      "log": "D:\\Codex-builds\\vantage-engine-tools-next\\bridge-final-unit-tests.log",
+      "logSha256": "52d02d8adaf52cd2125d767f40398c1b6cb0554448a466b1604be0a670e9d1d0",
+      "command": "node --test --test-concurrency=1 packages/engine-bridge/tests/*.test.mjs"
+    }
+  },
+  "staging": {
+    "stagedAt": "2026-10-29T21:36:53.977Z",
+    "packageRoot": "D:\\Codex-builds\\vantage-engine-tools-next\\staging-smoke\\win-unpacked",
+    "manifest": "D:\\Codex-builds\\vantage-engine-tools-next\\staging-smoke\\win-unpacked\\resources\\engines\\engines.json",
+    "engineIds": ["qpdf", "verapdf"],
+    "skippedEngineIds": ["libreoffice"],
+    "copiedAndVerifiedFiles": 615,
+    "distributionBytes": 255315161,
+    "executableSha256": "1bdaf878f37eaffea1ea3c30591214c77636a0f2fc7432427516b6e22e36c0ff",
+    "privateJavaSha256": "f8dc082a7dedbfd2924c3562405a5a1fd12efd2641808c92e2de819c76a58b7e",
+    "veraPdfJarSha256": "19f6edd5c92841a38d9b3b018a555b7ba173b13e4e0d29edecc232e5ba6c1d70",
+    "manifestSha256": "560f0b8c40712fa1a6e5fede11b60d522014427bf3adb077cf9690e702aa793d",
+    "appBuildModified": false,
+    "report": "D:\\Codex-builds\\vantage-engine-tools-next\\staging-smoke\\staging-evidence.json",
+    "relocatedReport": "D:\\Codex-builds\\vantage-engine-tools-next\\staging-smoke\\relocated-runtime-evidence.json",
+    "relocatedPassed": true,
+    "appSentinelUnchanged": true,
+    "relocatedCases": [
+      {
+        "name": "pdfua-1-pass.pdf",
+        "engine": "verapdf",
+        "status": "pass",
+        "code": 0,
+        "sourceUnchanged": true,
+        "mixedCaseJavaOptionsRemoved": true
+      },
+      {
+        "name": "pdfa-1b-fail.pdf",
+        "engine": "qpdf",
+        "status": "pass",
+        "code": 0,
+        "sourceUnchanged": true
+      },
+      {
+        "name": "malformed.pdf",
+        "engine": "qpdf",
+        "status": "fail",
+        "code": 2,
+        "sourceUnchanged": true
+      }
+    ]
+  },
+  "gui": {
+    "status": "pending-rebuilt-shell-acceptance",
+    "spec": "e2e/pdf-standards.spec.ts",
+    "manifestEnvironment": "VANTAGE_TEST_ENGINE_MANIFEST=D:\\Codex-builds\\vantage-engine-tools-next\\source-engines.json",
+    "fixturesEnvironment": "VANTAGE_TEST_VERAPDF_FIXTURES=D:\\Codex-builds\\vantage-engine-tools-next\\fixtures"
+  },
+  "boundaries": [
+    "Machine PDF/A and PDF/UA checks do not replace human accessibility and visual checks.",
+    "A qpdf structural pass does not establish PDF/A or PDF/UA compliance.",
+    "This focused corpus smoke does not establish comprehensive standards coverage.",
+    "Processes run as the desktop user; JVM heap, output and deadline limits are not an operating-system sandbox.",
+    "LibreOffice conversion remains unavailable from the prior extracted runtime trial and is excluded from validated staging."
+  ],
+  "sourceComponentMetadataRecordedAt": "2026-10-29T22:35:13.345Z",
+  "thirdPartyComponents": [
+    {
+      "id": "verapdf-cli",
+      "name": "veraPDF CLI",
+      "version": "1.30.3",
+      "license": "MPL-2.0 OR GPL-3.0-or-later",
+      "upstreamLicenseDescription": "MPLv2+ or GPLv3+ dual license",
+      "source": [
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-apps",
+          "ref": "v1.30.3",
+          "commit": "7d9b5c3f709846ab83f86ca1a538b24eac2d3f72",
+          "archive": "https://github.com/veraPDF/veraPDF-apps/archive/7d9b5c3f709846ab83f86ca1a538b24eac2d3f72.zip"
+        },
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-library",
+          "ref": "v1.30.3"
+        },
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-validation-profiles",
+          "note": "Rules bundled in the pinned unmodified CLI JAR; a matching repository release tag was not confirmed."
+        },
+        {
+          "repository": "https://github.com/veraPDF/veraPDF-parser",
+          "ref": "v1.30.3"
+        }
+      ],
+      "archive": {
+        "component": "veraPDF",
+        "version": "1.30.3",
+        "source": "https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.3-installer.zip",
+        "sha256": "b512bf24945503a33fc10738ecffc1f2dccaaf8593a448e94ee9ac86a9559a59",
+        "signature": "https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.3-installer.zip.asc",
+        "verifiedSigningFingerprint": "13DD102B4DD69354D12DE5A83184863278B17FE7"
+      },
+      "executableArtifact": {
+        "kind": "java-jar",
+        "jar": "verapdf-1.30.3/bin/cli-1.30.3.jar",
+        "sha256": "19f6edd5c92841a38d9b3b018a555b7ba173b13e4e0d29edecc232e5ba6c1d70"
+      },
+      "licenseFiles": ["verapdf-1.30.3/LICENSE.MPL", "verapdf-1.30.3/LICENSE.GPL"],
+      "dependencyNotices": "Unmodified CLI JAR retains its bundled META-INF/LICENSE*, META-INF/NOTICE* and org/xmlresolver/notices/ files."
+    },
+    {
+      "id": "temurin-private-jre",
+      "name": "Eclipse Temurin private JRE",
+      "version": "21.0.13+9",
+      "license": "GPL-2.0-only WITH Classpath-exception-2.0; bundled component notices also retained",
+      "source": {
+        "repository": "https://github.com/adoptium/jdk21u",
+        "ref": "jdk-21.0.13+9_adopt",
+        "sourceCommitFromRelease": "2ab10ca20c19",
+        "buildSourceCommit": "1cf43d7a3e77886bfea7d550a902e151a87d724d"
+      },
+      "archive": {
+        "component": "Eclipse Temurin",
+        "version": "21.0.13+9",
+        "source": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip",
+        "sha256": "2332c0b4cff6bed722da3567c91d5e47568bcba863fa4945d0a8d6fc76158628",
+        "checksumSource": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip.sha256.txt"
+      },
+      "executable": {
+        "path": "temurin21/jdk-21.0.13+9-jre/bin/java.exe",
+        "sha256": "f8dc082a7dedbfd2924c3562405a5a1fd12efd2641808c92e2de819c76a58b7e"
+      },
+      "legalDirectory": "temurin21/jdk-21.0.13+9-jre/legal",
+      "sourceRecord": "temurin21/SOURCE.json"
+    },
+    {
+      "id": "verapdf-official-test-corpus",
+      "name": "veraPDF Consortium official test corpus",
+      "version": "bb75f4f0073d9350dfd058c0162a367e6fadf25e",
+      "license": "CC-BY-4.0",
+      "attribution": "veraPDF Consortium, veraPDF-corpus",
+      "source": "https://github.com/veraPDF/veraPDF-corpus",
+      "licenseStatement": "https://github.com/veraPDF/veraPDF-corpus/blob/bb75f4f0073d9350dfd058c0162a367e6fadf25e/README.md",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "files": [
+        {
+          "localName": "pdfa-1b-pass.pdf",
+          "upstreamPath": "PDF_A-1b/6.6 Actions/6.6.1 General/veraPDF test suite 6-6-1-t02-pass-a.pdf",
+          "downloadUrl": "https://raw.githubusercontent.com/veraPDF/veraPDF-corpus/bb75f4f0073d9350dfd058c0162a367e6fadf25e/PDF_A-1b/6.6%20Actions/6.6.1%20General/veraPDF%20test%20suite%206-6-1-t02-pass-a.pdf",
+          "sha256": "0a578e09d02ca14e2b669cae84e66056d646d47680688f62468d527bc4c9e222",
+          "bytes": 10231,
+          "modified": false
+        },
+        {
+          "localName": "pdfa-1b-fail.pdf",
+          "upstreamPath": "PDF_A-1b/6.6 Actions/6.6.1 General/veraPDF test suite 6-6-1-t01-fail-a.pdf",
+          "downloadUrl": "https://raw.githubusercontent.com/veraPDF/veraPDF-corpus/bb75f4f0073d9350dfd058c0162a367e6fadf25e/PDF_A-1b/6.6%20Actions/6.6.1%20General/veraPDF%20test%20suite%206-6-1-t01-fail-a.pdf",
+          "sha256": "ee0792dbe6a3802a31e9e73abe7bb372e01d21d738c7abc785d46d8521bb5643",
+          "bytes": 6213,
+          "modified": false
+        },
+        {
+          "localName": "pdfua-1-pass.pdf",
+          "upstreamPath": "PDF_UA-1/5 Version identification/5-t01-pass-a.pdf",
+          "downloadUrl": "https://raw.githubusercontent.com/veraPDF/veraPDF-corpus/bb75f4f0073d9350dfd058c0162a367e6fadf25e/PDF_UA-1/5%20Version%20identification/5-t01-pass-a.pdf",
+          "sha256": "853fc52f5dca32dd257cac1da4ca9c1702623e357b48a361f835c4f271bd2c68",
+          "bytes": 42497,
+          "modified": false
+        },
+        {
+          "localName": "pdfua-1-fail.pdf",
+          "upstreamPath": "PDF_UA-1/5 Version identification/5-t01-fail-a.pdf",
+          "downloadUrl": "https://raw.githubusercontent.com/veraPDF/veraPDF-corpus/bb75f4f0073d9350dfd058c0162a367e6fadf25e/PDF_UA-1/5%20Version%20identification/5-t01-fail-a.pdf",
+          "sha256": "33d9008d84746cb8cf7cf11f50d8e67a97b3640978d845050e18ee47bfb95310",
+          "bytes": 38394,
+          "modified": false
+        }
+      ],
+      "reportNormalization": "The checked-in generated JSON report fixtures replace itemDetails.name only; raw PDF corpus files are not shipped in source."
+    }
+  ]
+}

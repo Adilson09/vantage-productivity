@@ -1,3 +1,4 @@
+import { beforeSlidesSessionMutation } from './slides-session-ownership'
 /**
  * Shared main-process state for Vantage Slides, extracted from slides-main.ts so
  * the IPC modules (slides-main, ai-ipc, presenter-show) can share it:
@@ -18,11 +19,7 @@ import {
   type SlideElement,
   type TextElement,
 } from '@vantage/pptx-engine'
-import {
-  buildRenderSlide,
-  type FontMetricsProvider,
-  type RenderSlide,
-} from '@vantage/pptx-render'
+import { buildRenderSlide, type FontMetricsProvider, type RenderSlide } from '@vantage/pptx-render'
 import { createSystemFontMetrics, resetFontRegistry } from './fonts'
 import { tiffToPng } from './tiff-decode'
 import { neutralizeJpegOrientation } from './jpeg-orientation'
@@ -91,6 +88,7 @@ export const sessions = new Map<number, Session>()
 
 /** Flag an archive-only edit (notes/comments) and advance the save-snapshot counter. */
 export function markMetaDirty(session: Session): void {
+  beforeSlidesSessionMutation(session)
   session.metaDirty = true
   session.metaRev = (session.metaRev ?? 0) + 1
 }
@@ -249,6 +247,7 @@ export function scheduleDeckBroadcast(session: Session): void {
 
 /** Call before an edit operation: push onto the undo stack and clear the redo stack. */
 export function pushHistory(session: Session): void {
+  beforeSlidesSessionMutation(session)
   session.undoStack.push(takeSnapshot(session))
   trimHistory(session.undoStack)
   session.redoStack = []
@@ -257,6 +256,7 @@ export function pushHistory(session: Session): void {
 
 /** Begin a nestable transaction. Individual edit handlers keep their normal rollback behavior. */
 export function beginHistoryBatch(session: Session): void {
+  beforeSlidesSessionMutation(session)
   if (session.historyBatch) {
     session.historyBatch.depth += 1
     return
@@ -275,6 +275,7 @@ export function beginHistoryBatch(session: Session): void {
  * so the caller can register it as an AI-panel rollback point.
  */
 export function endHistoryBatch(session: Session): HistorySnapshot | null {
+  beforeSlidesSessionMutation(session)
   const batch = session.historyBatch
   if (!batch) return null
   batch.depth -= 1
@@ -286,6 +287,28 @@ export function endHistoryBatch(session: Session): HistorySnapshot | null {
   trimHistory(session.undoStack)
   scheduleHistoryNotify(session)
   return batch.before
+}
+
+/** Finish only a capability's exact batch, including its carried references. */
+export function endCapturedHistoryBatch(
+  session: Session,
+  batch: NonNullable<Session['historyBatch']>,
+  carriers: readonly Session[],
+): HistorySnapshot | null {
+  let before: HistorySnapshot | null = null
+  if (batch.depth > 0) {
+    if (session.historyBatch !== batch)
+      throw new Error('The captured history batch is no longer on this source.')
+    before = endHistoryBatch(session)
+  }
+  if (batch.depth <= 0)
+    for (const carrier of carriers)
+      if (carrier.historyBatch === batch) {
+        beforeSlidesSessionMutation(carrier)
+        carrier.historyBatch = undefined
+        scheduleHistoryNotify(carrier)
+      }
+  return before
 }
 
 /** Preserve the old deck and its history when AI replaces the entire presentation. */
@@ -325,6 +348,7 @@ export function restoreAiSnapshot(session: Session, id: number): boolean {
 }
 
 export function restoreSnapshot(session: Session, snap: HistorySnapshot): void {
+  beforeSlidesSessionMutation(session)
   // Clone: the live deck mutates elements in place, so handing a snapshot's own
   // arrays over would let later edits rewrite history still referenced by the
   // other stack (undo → edit → redo would replay mutated state).

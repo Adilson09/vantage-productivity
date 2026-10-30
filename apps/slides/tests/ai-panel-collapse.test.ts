@@ -1,6 +1,6 @@
 // Slides: the AI panel stays mounted while collapsed (rail only),
 // so the conversation, draft, and in-flight runs survive collapse/expand.
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
@@ -25,7 +25,7 @@ vi.mock('react-konva', () => {
 })
 
 import { AiPanel } from '../src/renderer/ai/AiPanel'
-import { AI_PROVIDERS, type AiSettings } from '../src/shared/ipc'
+import { AI_PROVIDERS, type AiSettings, type SlidesApi } from '../src/shared/ipc'
 import { applyAiPanelPrefs } from '@vantage/ui'
 
 const settings: AiSettings = {
@@ -83,6 +83,35 @@ function typeInto(textarea: HTMLTextAreaElement, text: string) {
 beforeAll(() => {
   // jsdom has no scrollTo; the panel auto-scrolls its chat log
   Element.prototype.scrollTo ??= () => {}
+})
+
+const ownedHistoryApi: Pick<
+  SlidesApi,
+  'beginOwnedHistoryBatch' | 'finishOwnedHistoryBatch' | 'aiGskStatus'
+> = {
+  aiGskStatus: vi.fn(async () => ({ loggedIn: false })),
+  beginOwnedHistoryBatch: vi.fn(async () => {
+    throw new Error('Collapse fixture must not begin a native history batch')
+  }),
+  finishOwnedHistoryBatch: vi.fn(async () => {
+    throw new Error('Collapse fixture must not finish a native history batch')
+  }),
+}
+let priorSlidesApi: PropertyDescriptor | undefined
+beforeEach(() => {
+  priorSlidesApi = Object.getOwnPropertyDescriptor(window, 'slidesApi')
+  vi.mocked(ownedHistoryApi.beginOwnedHistoryBatch).mockClear()
+  vi.mocked(ownedHistoryApi.finishOwnedHistoryBatch).mockClear()
+  Object.defineProperty(window, 'slidesApi', { configurable: true, value: ownedHistoryApi })
+})
+afterEach(() => {
+  try {
+    expect(ownedHistoryApi.beginOwnedHistoryBatch).not.toHaveBeenCalled()
+    expect(ownedHistoryApi.finishOwnedHistoryBatch).not.toHaveBeenCalled()
+  } finally {
+    if (priorSlidesApi) Object.defineProperty(window, 'slidesApi', priorSlidesApi)
+    else Reflect.deleteProperty(window, 'slidesApi')
+  }
 })
 
 describe('AiPanel collapse (slides)', () => {

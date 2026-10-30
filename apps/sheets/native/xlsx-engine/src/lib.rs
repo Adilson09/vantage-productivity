@@ -17,10 +17,17 @@ use zip::ZipArchive;
 
 pub mod archive;
 pub mod convert;
+pub mod document;
+pub mod document_backend;
+pub mod document_calculation;
+pub mod document_store;
+pub mod preservation;
 pub mod edit_backend;
 #[cfg(test)]
 mod edit_backend_tests;
 pub mod find;
+#[cfg(all(feature = "native-ffi", not(target_arch = "wasm32")))]
+pub mod ffi;
 pub mod odf;
 pub mod protocol;
 pub mod recalc;
@@ -219,6 +226,7 @@ fn create_cache_directory(
 pub struct WorkbookSessions {
     sessions: HashMap<String, WorkbookSession>,
     pub(crate) edits: edit_backend::EditSessions,
+    pub(crate) documents: document_backend::DocumentSessions,
 }
 
 /// Excel wraps password-encrypted workbooks in an OLE2 compound container
@@ -239,6 +247,7 @@ impl WorkbookSessions {
         Self {
             sessions: HashMap::new(),
             edits: edit_backend::EditSessions::default(),
+            documents: document_backend::DocumentSessions::default(),
         }
     }
 

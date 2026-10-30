@@ -1,3 +1,14 @@
+import type {
+  CloseLeaseStamp,
+  CloseLeaseTicket,
+} from '../../../../packages/electron-utils/src/close-lease'
+import type { HtmlAssetCleanupReport, HtmlSourceState, HtmlCloseReceipt } from './html-close-lease'
+import type {
+  HtmlDraftChange,
+  HtmlDraftSaveAcknowledgment,
+  HtmlDraftWriteRequest,
+  HtmlDraftWriteResult,
+} from './html-draft'
 import type { AiPanelPrefs } from '@vantage/ui'
 import type { HeadlessExportTarget } from '@vantage/electron-utils/headless-export'
 import type { Lang } from '@vantage/i18n'
@@ -10,14 +21,32 @@ import type {
 
 export const HTML_CHANNELS = {
   consumePending: 'html:consume-pending',
+  draftActivate: 'html:draft-activate',
+  draftReloadRead: 'html:draft-reload-read',
+  draftReloadApplied: 'html:draft-reload-applied',
+  draftChanged: 'html:draft-changed',
+  draftWrite: 'html:draft-write',
+  draftSaved: 'html:draft-saved',
+  draftDiscarded: 'html:draft-discarded',
   previewUpdate: 'html:preview-update',
   previewInfo: 'html:preview-info',
   presentFullScreen: 'html:present-fullscreen',
   presentNewTab: 'html:present-new-tab',
   readFile: 'html:read-file',
+  readPublication: 'html:read-publication',
+  publicationLoaded: 'html:publication-loaded',
   save: 'html:save',
   saveRequest: 'html:save-request',
   saveRequestAck: 'html:save-request-ack',
+  closeSourceState: 'html:close-source-state',
+  closeSourceCheck: 'html:close-source-check',
+  closeFrameAttested: 'html:close-frame-attested',
+  closeFrameRetired: 'html:close-frame-retired',
+  previewPublish: 'html:preview-publish',
+  previewRetire: 'html:preview-retire',
+  closeLeaseClaim: 'html:close-lease-claim',
+  closeLeaseCancel: 'html:close-lease-cancel',
+  closeLeaseRelease: 'html:close-lease-release',
   readTextRequest: 'html:read-text-request',
   readTextResult: 'html:read-text-result',
   dirtyChanged: 'html:dirty-changed',
@@ -100,6 +129,14 @@ export interface AttachmentImageResult {
 export type SaveMode = 'save' | 'saveAs'
 
 export interface SaveHtmlRequest {
+  publicationId?: string | null
+  /** Background publication may defer during a main-owned native close decision. */
+  automatic?: boolean
+  closeSource?: CloseLeaseStamp
+  /** Main-issued Save waiter identity; absent for direct user/AutoSave writes. */
+  requestId?: string
+  /** Captured before serialization; successful Save must not clear a newer activation. */
+  draft: { token: string; revision: number; throughSequence: number }
   /** full document text (frontmatter included) */
   text: string
   /** Authored image paths in document order; the main process validates every path. */
@@ -117,15 +154,18 @@ export interface SaveHtmlRequest {
   overwrite?: boolean
 }
 
-export type SaveHtmlResult =
-  | {
-      ok: true
-      path: string
-      /** Save As may relocate local images into the new document's assets directory. */
-      imageRewrites?: Array<{ from: string; to: string }>
-    }
-  | { ok: true; canceled: true }
-  | { ok: false; error: string; conflict?: true }
+export type SaveHtmlResult = HtmlAssetCleanupReport &
+  (
+    | {
+        ok: true
+        path: string
+        publicationId?: string
+        /** Save As may relocate local images into the new document's assets directory. */
+        imageRewrites?: Array<{ from: string; to: string }>
+      }
+    | { ok: true; canceled: true }
+    | { ok: false; error: string; conflict?: true }
+  )
 
 /** AI channels are app-wide shared ipcMain handlers (shell registers via docs-main registerAiIpc); pass-through only */
 export const AI_CHANNELS = {
@@ -207,6 +247,23 @@ export interface ImageData {
 
 /** API exposed by preload to the renderer (window.htmlApi) */
 export interface HtmlApi {
+  readReloadSource(request: {
+    token: string
+    documentPath: string
+    revision: number
+  }): Promise<string>
+  applyDraftReload(request: {
+    token: string
+    documentPath: string
+    previousRevision: number
+    revision: number
+    throughSequence: number
+  }): Promise<void>
+  activateDraft(documentPath: string | null, revision: number): Promise<string>
+  draftChanged(change: HtmlDraftChange): void
+  writeDraft(request: HtmlDraftWriteRequest): Promise<HtmlDraftWriteResult>
+  acknowledgeDraftSaved(request: HtmlDraftSaveAcknowledgment): Promise<boolean>
+  onDraftDiscarded(handler: (token: string) => void): () => void
   /** Take the md path pending for this view (queued at tab creation); null = new untitled document */
   consumePending(): Promise<string | null>
   /** open any shell-routed document path (an AI answer's filenav citation) */
@@ -217,6 +274,11 @@ export interface HtmlApi {
   headlessExportDone(result: { ok: boolean; error?: string }): void
   /** Read the file as UTF-8 text. Only paths granted to this view are allowed */
   readFile(path: string): Promise<string>
+  readPublication(
+    path: string,
+    reload?: { token: string; documentPath: string; revision: number },
+  ): Promise<{ text: string; publicationId: string }>
+  publicationLoaded(request: { publicationId: string; path: string; stamp: CloseLeaseStamp }): void
   /** Push the current buffer so html-preview:// serves it to the preview iframe */
   updatePreview(text: string): void
   /** The html-preview:// URL bound to this view (a present tab gets its owner's URL) */
@@ -234,9 +296,37 @@ export interface HtmlApi {
   /** Mirror unsaved-changes state to the main process; drives the save prompt before closing a tab/window */
   setDirty(dirty: boolean): void
   /** Shell menu Save / Save As → renderer serializes and calls save() with the given mode */
-  onSaveRequest(handler: (mode: SaveMode) => void): () => void
+  onSaveRequest(
+    handler: (
+      mode: SaveMode,
+      requestId: string,
+      targetPath?: string,
+      ticket?: HtmlSaveTicket,
+    ) => void,
+  ): () => void
   /** Resolves a menu-save waiter when doSave exits without ever invoking save() (busy/loading) */
-  sendSaveRequestAck(ok: boolean): void
+  sendSaveRequestAck(requestId: string, result: HtmlCloseReceipt): void
+  closeSourceState(state: HtmlSourceState): void
+  validateCloseSource(request: {
+    requestId: string
+    token: string
+    revision: number
+    text: string
+    stamp: CloseLeaseStamp
+    sourceOnly: boolean
+    frameName: string
+  }): Promise<{ ok: boolean; error?: string; proof?: string }>
+  confirmCloseFrame(request: { requestId: string; proof: string }): Promise<boolean>
+  isCloseFrameRetired(request: { requestId: string; frameName: string }): Promise<boolean>
+  publishPreview(request: {
+    source: string
+    instrumented: string
+    stamp: CloseLeaseStamp
+  }): Promise<{ id: string; url: string }>
+  retirePreview(id: string): Promise<void>
+  claimCloseLease(ticket: CloseLeaseTicket): Promise<boolean>
+  cancelCloseLease(ticket: CloseLeaseTicket, reason: string): Promise<void>
+  onCloseLeaseRelease(handler: (ticket: CloseLeaseTicket) => void): () => void
   /**
    * Main process asks for the live document source — the MCP read of an open
    * document, unsaved edits included; reply through sendReadTextResult.
@@ -259,12 +349,16 @@ export interface HtmlApi {
    * returns the relative path to author into the html, or null when the
    * document is untitled or the picker was canceled.
    */
-  pickImage(): Promise<string | null>
+  pickImage(closeSource?: CloseLeaseStamp): Promise<string | null>
   /**
    * Persist pasted/dropped image bytes into `assets/` next to the open
    * document; returns the relative path to author, or null when untitled.
    */
-  saveImage(data: { base64: string; ext: string }): Promise<string | null>
+  saveImage(data: {
+    base64: string
+    ext: string
+    closeSource?: CloseLeaseStamp
+  }): Promise<string | null>
   /**
    * Read an image referenced by the document for DOCX embedding. Only paths
    * inside the document's directory are allowed; anything else returns null.
@@ -328,7 +422,11 @@ export interface HtmlApi {
   /** Download an image URL in the main process (CORS-free, scheme/target validated) */
   fetchImage(url: string): Promise<ImageData | null>
   /** Genspark cloud image generation (html-owned channel, gsk login required) */
-  aiGenerateImage(op: { prompt: string; aspectRatio?: string }): Promise<{
+  aiGenerateImage(op: {
+    prompt: string
+    aspectRatio?: string
+    closeSource?: CloseLeaseStamp
+  }): Promise<{
     url?: string
     error?: string
   }>
@@ -338,4 +436,14 @@ export interface UserSkillEntry {
   name: string
   description: string
   relevant: boolean
+}
+
+export interface HtmlSaveTicket {
+  requestId: string
+  requireClean: boolean
+  sourcePath: string | null
+  targetPath?: string
+  closeLease?: CloseLeaseTicket
+  intent?: 'save' | 'discard' | 'clean'
+  approved?: CloseLeaseStamp
 }

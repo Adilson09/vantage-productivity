@@ -297,7 +297,8 @@ export const he = {
   appFormulaTooExpensive:
     'נוסחה זו מחשבת טווח גדול עבור כל רכיב — החישוב היה מקפיא את היישום, ולכן בוטלה. צמצמו את הטווח ונסו שוב.',
   appPivotSheetNoStructural: 'גיליון זה מכיל טבלת ציר — שינויי מבנה אינם נתמכים עדיין.',
-  appDeleteSpanFormulas: 'נוסחה מפנה רק לשורות/עמודות שנמחקות — עדכן או הסר אותה תחילה.',
+  appDeleteSpanFormulas:
+    'לא ניתן לעדכן נוסחה בבטחה לאחר המחיקה הזאת. יש לשנות או להסיר את הנוסחה תחילה.',
   appIconSetUnsupported: 'לא ניתן לשמור שילוב אייקונים זה בקובץ xlsx — בחרו ערכת אייקונים אחרת.',
   appFullLoadFilterTitle: 'פעולה זו דורשת את חוברת העבודה המלאה',
   appFullLoadFilterBody:

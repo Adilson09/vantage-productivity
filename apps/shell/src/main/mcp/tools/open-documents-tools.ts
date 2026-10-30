@@ -1,3 +1,4 @@
+import type { CloseCleanupStatus } from '../../../../../../packages/electron-utils/src/close-cleanup'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
@@ -36,6 +37,20 @@ const READABLE_KINDS: ReadonlySet<TabKind> = new Set<TabKind>([
   'html',
 ])
 
+export type OpenDocumentCleanup =
+  | CloseCleanupStatus
+  | { journal: string; assets: string; retainedAssets?: number }
+  | { id: string; phase: string; custody: boolean }
+
+export interface OpenDocumentCloseResult {
+  savedPath?: string
+  cleanupId?: string
+  journalCleanup?: CloseCleanupStatus
+  cleanup?: OpenDocumentCleanup
+  assetCleanup?: { assets: 'retained' }
+  warnings?: string[]
+}
+
 export interface OpenDocumentsControl {
   /** every editor tab the user can see (Home and chrome-free Present tabs excluded) */
   list: () => Promise<OpenDocumentTab[]>
@@ -49,13 +64,15 @@ export interface OpenDocumentsControl {
   close: (
     tab: OpenDocumentTab,
     options: { unsaved: 'save' | 'discard' },
-  ) => Promise<{ savedPath?: string }>
+  ) => Promise<OpenDocumentCloseResult>
   /**
    * Write the document's live content back to its own file, or into the default
    * save folder when it has never been saved. Unlike `close`, the tab stays open,
    * so the user can keep editing after the agent commits the file to disk.
    */
-  save: (tab: OpenDocumentTab) => Promise<{ savedPath: string }>
+  save: (
+    tab: OpenDocumentTab,
+  ) => Promise<{ savedPath: string; assetCleanup?: { assets: 'retained' }; warnings?: string[] }>
 }
 
 export interface OpenDocumentsDeps {
@@ -185,11 +202,9 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
         'To *edit* one of these documents, pass its id (or path) as the `document` argument of the ' +
         'family content tools (insert_content / apply_ops / apply_sheet_ops / apply_slide_ops): no ' +
         'session is needed, and the UI switches to that tab so the user sees the change land. ' +
-        'PDF tabs are listed and can be closed, but this tool does not read or save them: the ' +
-        'pdf app is a viewer, so an open PDF has no live editable content. Read a PDF with ' +
-        'read_pdf; it cannot be written back. Closing one just ' +
-        'drops the tab — a PDF with unsaved annotations (its only unsaved state) must be closed ' +
-        'with unsaved:"discard".',
+        'PDF content is available through read_pdf. Closing a PDF uses its editor’s full Save or ' +
+        'Discard checks; pending content that cannot be fully saved keeps the document open. ' +
+        'Use the application to save a PDF while keeping its tab open.',
       inputSchema: {
         action: z.enum(['list', 'read', 'save', 'close']).describe('what to do'),
         target: z
@@ -220,10 +235,7 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
 
         if (action === 'read') {
           if (!READABLE_KINDS.has(doc.kind)) {
-            throw new Error(
-              `"${doc.title}" is a PDF: the pdf app is a viewer, so this tool cannot read it — ` +
-                'read_pdf returns its text',
-            )
+            throw new Error(`"${doc.title}" is a PDF: use read_pdf to read its text`)
           }
           return {
             id: doc.id,
@@ -239,11 +251,10 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
         if (action === 'save') {
           if (doc.kind === 'pdf') {
             throw new Error(
-              `"${doc.title}" is a PDF: the pdf app is a viewer, so an open PDF has nothing ` +
-                'to save through this tool',
+              `"${doc.title}" is a PDF: use Vantage to save it while keeping its tab open`,
             )
           }
-          const { savedPath } = await control.save(doc)
+          const { savedPath, assetCleanup, warnings } = await control.save(doc)
           return {
             saved: true,
             id: doc.id,
@@ -251,12 +262,15 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
             title: doc.title,
             path: doc.filePath ?? null,
             savedTo: savedPath,
+            ...(assetCleanup ? { assetCleanup } : {}),
+            ...(warnings?.length ? { warnings } : {}),
           }
         }
 
         if (action === 'close') {
           const unsaved = args.unsaved === 'discard' ? 'discard' : 'save'
-          const { savedPath } = await control.close(doc, { unsaved })
+          const { savedPath, cleanup, cleanupId, journalCleanup, assetCleanup, warnings } =
+            await control.close(doc, { unsaved })
           return {
             closed: true,
             id: doc.id,
@@ -265,6 +279,16 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
             path: doc.filePath ?? null,
             ...(savedPath ? { savedTo: savedPath } : {}),
             ...(unsaved === 'discard' && doc.dirty ? { discardedUnsavedChanges: true } : {}),
+            ...(cleanup ? { cleanup } : {}),
+            ...(cleanupId ? { cleanupId } : {}),
+            ...(journalCleanup ? { journalCleanup } : {}),
+            ...(assetCleanup ? { assetCleanup } : {}),
+            ...(warnings?.length ? { warnings } : {}),
+            ...(journalCleanup?.phase === 'retained' ||
+            (cleanup &&
+              ('phase' in cleanup ? cleanup.phase === 'retained' : cleanup.journal === 'retained'))
+              ? { cleanupIncomplete: true }
+              : {}),
           }
         }
 

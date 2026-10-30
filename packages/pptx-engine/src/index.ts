@@ -743,6 +743,71 @@ export async function savePptx(opened: OpenedPptx): Promise<Uint8Array> {
   }
 }
 
+/** Stream with a compressed-output cap; the final contiguous copy also consumes memory. */
+export async function savePptxBounded(
+  opened: OpenedPptx,
+  maximumBytes: number,
+): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > 128 * 1024 * 1024)
+    throw new Error('The presentation snapshot byte limit is invalid.')
+  const chunks: Buffer[] = []
+  let total = 0
+  try {
+    const source = buildZip(opened).generateNodeStream({
+      type: 'nodebuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+      streamFiles: true,
+    }) as NodeJS.ReadableStream & { destroy?: () => void }
+    // JSZip uses readable-stream, whose installed version has no async iterator.
+    // Consume bounded events and pause its producer before rejecting an overrun.
+    return await new Promise<Buffer>((resolve, reject) => {
+      let settled = false
+      const fail = (error: unknown) => {
+        if (settled) return
+        settled = true
+        try {
+          source.pause()
+          source.destroy?.()
+        } catch {
+          /* Retain the original failure. */
+        }
+        reject(error)
+      }
+      source.on('error', fail)
+      source.on('data', (value: Buffer | Uint8Array) => {
+        if (settled) return
+        try {
+          const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
+          if (chunk.length > maximumBytes - total) {
+            fail(
+              new Error(`The complete presentation draft exceeds its ${maximumBytes} byte limit.`),
+            )
+            return
+          }
+          total += chunk.length
+          chunks.push(chunk)
+        } catch (error) {
+          fail(error)
+        }
+      })
+      source.once('end', () => {
+        if (settled) return
+        try {
+          const bytes = Buffer.concat(chunks, total)
+          settled = true
+          resolve(bytes)
+        } catch (error) {
+          fail(error)
+        }
+      })
+    })
+  } catch (error) {
+    saveSnapshot.delete(opened)
+    throw error
+  }
+}
+
 /**
  * Same output as savePptx, written straight to `filePath`.
  *

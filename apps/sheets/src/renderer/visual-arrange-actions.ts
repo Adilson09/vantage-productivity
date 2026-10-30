@@ -6,6 +6,7 @@
  */
 import { ADDABLE_SHAPE_TYPES } from '@vantage/xlsx-gateway/shared/shape-types'
 import { BehaviorSubject } from 'rxjs'
+import { enqueueWorkbookMutation } from './workbook-mutation-queue'
 import type { WorkbookVisualObject } from '../shared/desktop-api'
 import {
   isSheetRemoved,
@@ -16,6 +17,8 @@ import {
   recordVisualEdit,
   removeVisualAdd,
   reorderVisualAdd,
+  replaceJournalVisualAdds,
+  replaceChartJournalEntry,
   updateVisualAdd,
 } from './edit-journal'
 import { t } from './i18n/locale'
@@ -140,11 +143,17 @@ export function handleVisualCommand(
   if (!visual) return true
   switch (group) {
     case 'cut':
+      void enqueueWorkbookMutation(async () => {
+        const copied = await copyVisual(ctx, visual)
+        if (!copied) return
+        if (ctx.lazyWorkbookRef.current !== state || ctx.univerRef.current !== runtime)
+          throw new Error('The accepted cut source changed while loading its picture.')
+        ctx.shapeEditRef.current(visualId, { remove: true })
+      }).catch(() => ctx.setMessage(t('appVisualNoCopy')))
+      return true
     case 'copy':
       void copyVisual(ctx, visual).then((copied) => {
-        if (!copied) return
-        if (group === 'cut') ctx.shapeEditRef.current(visualId, { remove: true })
-        else ctx.setMessage(t('appVisualCopied'))
+        if (copied) ctx.setMessage(t('appVisualCopied'))
       })
       return true
     case 'alt-text':
@@ -159,7 +168,9 @@ export function handleVisualCommand(
       return true
     }
     case 'embed-in-cell':
-      void embedVisualInCell(ctx, runtime, state, visual)
+      void enqueueWorkbookMutation(() => embedVisualInCell(ctx, runtime, state, visual)).catch(() =>
+        ctx.setMessage(t('appVisualEmbedFailed')),
+      )
       return true
     case 'z':
       reorder(ctx, runtime, state, visual, argument as ZOrderOp)
@@ -226,11 +237,11 @@ function reorder(
     const afterList = [...journal.visualAdds]
     pushVisualUndo(runtime, {
       undo: () => {
-        journal.visualAdds.splice(0, journal.visualAdds.length, ...before)
+        replaceJournalVisualAdds(journal, before)
         ctx.refreshLazyVisuals(state)
       },
       redo: () => {
-        journal.visualAdds.splice(0, journal.visualAdds.length, ...afterList)
+        replaceJournalVisualAdds(journal, afterList)
         ctx.refreshLazyVisuals(state)
       },
     })
@@ -313,7 +324,7 @@ function deleteSelection(
     adds: readonly WorkbookVisualObject[],
   ): void => {
     for (const [id, snapshot] of entries) restoreVisualJournal(state, id, chartPathOf(id), snapshot)
-    journal.visualAdds.splice(0, journal.visualAdds.length, ...adds)
+    replaceJournalVisualAdds(journal, adds)
     for (const id of ids) ctx.resyncChart(state, chartPathOf(id) ?? id)
   }
   for (const id of ids) {
@@ -326,7 +337,8 @@ function deleteSelection(
       ctx.setMessage(t('appVisualNoDelete'))
       return
     }
-    if (visual.chartPath !== undefined) journal.chartEdits.delete(visual.chartPath)
+    if (visual.chartPath !== undefined)
+      replaceChartJournalEntry(journal, visual.chartPath, undefined)
   }
   const afterSnapshots = new Map(
     ids.map((id) => [id, captureVisualJournal(state, id, chartPathOf(id))] as const),
@@ -524,6 +536,8 @@ async function embedVisualInCell(
     return
   }
   const dataUrl = await pictureDataUrl(state, visual)
+  if (ctx.lazyWorkbookRef.current !== state || ctx.univerRef.current !== runtime)
+    throw new Error('The accepted picture-embedding source changed while its media was loading.')
   const mediaType = dataUrl === null ? null : embeddedImageType(dataUrl)
   if (dataUrl === null || mediaType === null) {
     ctx.setMessage(t('appVisualEmbedFailed'))

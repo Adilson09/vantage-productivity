@@ -1,6 +1,11 @@
 import type { zh } from './zh'
 
 export const pl = {
+  recoveryFailed:
+    'Nie można zaktualizować kopii odzyskiwania: {error}. Poprzednia kopia została zachowana.',
+  recoveryRetry: 'Ponów próbę',
+  recoveryRemote:
+    'Ta kopia nadal zależy od {count} zasobów zdalnych, które mogą wymagać internetu.',
   redactMenuLabel: 'Ukryj zaznaczenie przed AI',
   redactDialogDesc:
     'Słowa zostają w dokumencie i w pliku; model widzi tylko symbol. Nadaj mu nazwę, by wiedział, co oznacza.',

@@ -31,12 +31,10 @@ import {
   installInjectorResolutionGuard,
   installWrapMeasureLifecycle,
   noteSidecarCrash,
+  configureWorkbookReaderRecovery,
 } from './univer-sync'
 import { installGridGrowth } from './grid-growth'
-import {
-  pollUntilReady,
-  runHeadlessRendererExport,
-} from '@vantage/electron-utils/headless-export'
+import { pollUntilReady, runHeadlessRendererExport } from '@vantage/electron-utils/headless-export'
 import {
   commitActiveCellEditor,
   installJournalSuppressionUndoFilter,
@@ -223,6 +221,7 @@ import type {
   RecoveryPromptPayload,
   WorkbookFile,
   WorkbookVisualObject,
+  WorkbookWriteContext,
 } from '../shared/desktop-api'
 import type { StructuralJournalOp } from './edit-journal'
 import {
@@ -459,6 +458,28 @@ import { handleExportCsv as handleExportCsvImpl, type CsvExportContext } from '.
 import { effectivePageBreaks, installPageBreakPreview } from './page-break-preview'
 import { mapProtectedRanges } from './protected-ranges'
 import { handleSave as handleSaveImpl, type SaveContext, type SaveOutcome } from './save-actions'
+import { DocumentCheckpointLoop } from './document-checkpoint-loop'
+import {
+  AUTOMATIC_WORKBOOK_WRITE,
+  installAutomaticWorkbookWriteLoop,
+} from './automatic-workbook-write-loop'
+import {
+  enqueueWorkbookMutation,
+  workbookMutationsPending,
+  configureWorkbookMutationAdmission,
+  createWorkbookPublicationOwner,
+  enqueueWorkbookPublication,
+  workbookWorkPending,
+  type WorkbookPublicationOwner,
+} from './workbook-mutation-queue'
+import { SheetsAppCloseSession } from './sheets-app-close-session'
+import { checkpointWorkbookForClose } from './workbook-close-checkpoint'
+import {
+  bindJournalAuthoredAdmission,
+  installWorkbookCommandAdmission,
+} from './workbook-authored-admission'
+import { ICommandService } from '@univerjs/core'
+
 import {
   applyChartEdit as applyChartEditImpl,
   applyShapeEdit as applyShapeEditImpl,
@@ -593,6 +614,17 @@ function dateTextKind(value: string): 'date-like' | 'text' {
   return kind
 }
 
+/** A trusted load scope ends synchronously even when the command returns a Promise. */
+function runSynchronousDerivedLoad<T>(action: () => T): T {
+  const previous = journalSuppression.active
+  journalSuppression.active = true
+  try {
+    return action()
+  } finally {
+    journalSuppression.active = previous
+  }
+}
+
 export function App({
   queuedWorkbookAtBoot = false,
 }: {
@@ -679,7 +711,14 @@ export function App({
   const [preview, setPreview] = useState<ChangePlan | null>(null)
   const [_revision, setRevision] = useState(0)
   const [workbookFile, setWorkbookFile] = useState<WorkbookFile | null>(null)
-  const [pendingEdits, setPendingEdits] = useState(0)
+  const [pendingEdits, setPendingEditsState] = useState(0)
+  const documentEditGenerationRef = useRef(0)
+  const setPendingEdits = useCallback((count: number) => {
+    // Same-cell re-edits keep the badge count but still require persistence.
+    documentEditGenerationRef.current += 1
+    setPendingEditsState(count)
+    closeSessionRef.current?.notify()
+  }, [])
   /// Whether any cell in the workbook has content — the ribbon's one-click AI
   /// action buttons are greyed out on a fully empty sheet.
   const [sheetHasContent, setSheetHasContent] = useState(false)
@@ -709,20 +748,80 @@ export function App({
   // The close guard lives in the main process; keep it fed with the badge count.
   useEffect(() => {
     window.desktopApi?.notifyPendingEdits?.(
-      pendingEditsForClose(pendingEdits, editingCellRef.current),
+      pendingEditsForClose(
+        pendingEdits +
+          (redactionsPendingSave() ? 1 : 0) +
+          (lazyWorkbookRef.current?.file.restoredFromRecovery ? 1 : 0),
+        editingCellRef.current,
+      ),
     )
-  }, [pendingEdits])
+  }, [pendingEdits, _revision, workbookFile?.sessionId])
   const [autoSave, setAutoSave] = useAutoSavePref('ai-sheets-auto-save', window.desktopApi)
   // Ref mirror for callbacks captured when an AI run starts
   const autoSaveRef = useRef(autoSave)
   autoSaveRef.current = autoSave
   const saveGateRef = useRef(createSaveGate())
+  const documentPublicationInFlightRef = useRef(false)
+  const publicationOwnerRef = useRef<WorkbookPublicationOwner | null>(null)
+  const closeRoutingRef = useRef({
+    commands: false,
+    journal: false,
+    sourceMapping: false,
+    // App callbacks, note picker, table design, sheet tabs and the ribbon now
+    // return their actual admitted lifetimes. Root still gates release/close
+    // independently through the main runtime and coordinated acceptance.
+    directUiCallbacks: true,
+    detachedAsyncCallbacks: true,
+  })
+  const closeSessionRef = useRef<SheetsAppCloseSession | null>(null)
+  const closeOptions = {
+    api: () => window.desktopApi,
+    file: () => lazyWorkbookRef.current?.file ?? null,
+    context: () => saveContext(),
+    dirty: () =>
+      Boolean(
+        lazyWorkbookRef.current &&
+        (editingCellRef.current ||
+          journalSize(lazyWorkbookRef.current.editJournal) > 0 ||
+          redactionsPendingSave() ||
+          lazyWorkbookRef.current.file.restoredFromRecovery),
+      ),
+    busy: (owner?: WorkbookPublicationOwner) =>
+      workbookWorkPending(owner) ||
+      (saveGateRef.current.busy && owner === undefined) ||
+      workbookOpeningRef.current,
+    derived: () => journalSuppression.active,
+    coverageComplete: () => Object.values(closeRoutingRef.current).every(Boolean),
+    commitEditor: () => commitActiveEditor(),
+    save: (request: import('../shared/sheets-close').SheetsPrepareCloseRequest) =>
+      handleSave(
+        request.path ? 'save-as' : 'save',
+        request.path !== undefined,
+        request.path ? { path: request.path, overwrite: request.overwrite === true } : undefined,
+        undefined,
+        { origin: 'close' },
+      ),
+    report: (error: unknown) => setMessage(error instanceof Error ? error.message : String(error)),
+  }
+  if (!closeSessionRef.current) closeSessionRef.current = new SheetsAppCloseSession(closeOptions)
+  closeSessionRef.current.update(closeOptions)
+  useEffect(() => {
+    const close = closeSessionRef.current!
+    const stopQueue = configureWorkbookMutationAdmission(close.admission)
+    const stopRecovery = configureWorkbookReaderRecovery((state) => close.recoverSameModel(state))
+    const stopTransport = close.install(document)
+    return () => {
+      stopTransport()
+      stopRecovery()
+      stopQueue()
+    }
+  }, [])
   // AutoSave tick (docs/slides parity): every 30 s and on window blur, flush
   // pending edits of the open workbook. The journal is read at tick time so
   // the interval stays stable; demo mode has no backing file and is skipped.
   useEffect(() => {
     if (!autoSave) return
-    const tick = () => {
+    const tick = (writeContext: WorkbookWriteContext) => {
       const state = lazyWorkbookRef.current
       // Never while the in-cell editor is open (saving reloads the workbook
       // and would wipe the edit), never for converted .xls imports whose
@@ -732,7 +831,7 @@ export function App({
       if (
         !state ||
         !shouldRunSaveTick({
-          saveInFlight: saveGateRef.current.busy,
+          saveInFlight: saveGateRef.current.busy || workbookMutationsPending(),
           hasWorkbook: true,
           journalEmpty: journalSize(state.editJournal) === 0,
           redactionsPendingSave: redactionsPendingSave(),
@@ -745,14 +844,15 @@ export function App({
         })
       )
         return
-      void handleSaveRef.current('save', true)
+      return handleSaveRef.current('save', true, undefined, undefined, writeContext)
     }
-    const id = window.setInterval(tick, 30_000)
-    window.addEventListener('blur', tick)
-    return () => {
-      window.clearInterval(id)
-      window.removeEventListener('blur', tick)
-    }
+    return installAutomaticWorkbookWriteLoop({
+      intervalMs: 30_000,
+      target: window,
+      write: tick,
+      setInterval: (callback, ms) => window.setInterval(callback, ms),
+      clearInterval: (timer) => window.clearInterval(timer as number),
+    })
   }, [autoSave])
 
   // Crash-recovery copy: independent of the AutoSave pill — a dirty
@@ -760,7 +860,7 @@ export function App({
   // renderer crash no longer costs everything since the last manual save. A normal
   // save removes the copy; reopening a file whose copy is newer offers Restore.
   useEffect(() => {
-    const tick = () => {
+    const tick = (writeContext: WorkbookWriteContext) => {
       const state = lazyWorkbookRef.current
       // The in-cell editor's pending text is not in the journal yet, a
       // converted import has no original file to recover into, and a restored
@@ -768,7 +868,7 @@ export function App({
       if (
         !state ||
         !shouldRunSaveTick({
-          saveInFlight: saveGateRef.current.busy,
+          saveInFlight: saveGateRef.current.busy || workbookMutationsPending(),
           hasWorkbook: true,
           journalEmpty: journalSize(state.editJournal) === 0,
           redactionsPendingSave: redactionsPendingSave(),
@@ -781,12 +881,51 @@ export function App({
         })
       )
         return
-      void handleSaveRef.current('recovery')
+      return handleSaveRef.current('recovery', false, undefined, undefined, writeContext)
     }
-    const id = window.setInterval(tick, 30_000)
-    return () => window.clearInterval(id)
+    return installAutomaticWorkbookWriteLoop({
+      intervalMs: 30_000,
+      write: tick,
+      setInterval: (callback, ms) => window.setInterval(callback, ms),
+      clearInterval: (timer) => window.clearInterval(timer as number),
+    })
   }, [])
   const [recoveryPrompt, setRecoveryPrompt] = useState<RecoveryPromptPayload | null>(null)
+  useEffect(() => {
+    const loop = new DocumentCheckpointLoop({
+      observe: () => {
+        const state = lazyWorkbookRef.current
+        return state
+          ? {
+              sessionId: state.file.sessionId,
+              generation: documentEditGenerationRef.current,
+              pending:
+                journalSize(state.editJournal) > 0 ||
+                redactionsPendingSave() ||
+                state.file.restoredFromRecovery === true,
+              paused:
+                editingCellRef.current ||
+                workbookMutationsPending() ||
+                saveGateRef.current.busy ||
+                typeof window.desktopApi?.checkpointWorkbookDocument !== 'function',
+            }
+          : null
+      },
+      checkpoint: () =>
+        handleSaveRef.current('checkpoint', false, undefined, undefined, AUTOMATIC_WORKBOOK_WRITE),
+    })
+    const stopLoop = installAutomaticWorkbookWriteLoop({
+      intervalMs: 400,
+      target: window,
+      write: () => loop.poll(),
+      setInterval: (callback, ms) => window.setInterval(callback, ms),
+      clearInterval: (timer) => window.clearInterval(timer as number),
+    })
+    return () => {
+      stopLoop()
+      loop.dispose()
+    }
+  }, [])
   useEffect(
     () => window.desktopApi?.onRecoveryPrompt?.((prompt) => setRecoveryPrompt(prompt)) ?? undefined,
     [],
@@ -810,7 +949,13 @@ export function App({
   const [changeWorkbookPasswordOpen, setChangeWorkbookPasswordOpen] = useState(false)
   const [message, setMessage] = useState(t('appReadyInitial'))
   const sheetTabActions = useMemo(
-    () => createSheetTabActions({ univerRef, lazyWorkbookRef, notify: setMessage }),
+    () =>
+      createSheetTabActions({
+        univerRef,
+        lazyWorkbookRef,
+        notify: setMessage,
+        admission: closeSessionRef.current!.admission,
+      }),
     [],
   )
   const [openingWorkbook, setOpeningWorkbook] = useState(
@@ -932,9 +1077,11 @@ export function App({
   /// menuActionRef, so the interval closure never goes stale).
   const handleSaveRef = useRef<
     (
-      mode: 'save' | 'save-as' | 'recovery',
+      mode: 'save' | 'save-as' | 'recovery' | 'checkpoint',
       quiet?: boolean,
       explicitTarget?: { path: string; overwrite: boolean },
+      defaultName?: string,
+      writeContext?: WorkbookWriteContext,
     ) => Promise<SaveOutcome>
   >(() => Promise.resolve({ ok: false }))
   /// Latest MCP bridge handlers (assigned each render; see the install below).
@@ -988,6 +1135,7 @@ export function App({
   /** App-scope refs/state bundle for the extracted visual-insert actions (visual-actions.ts). */
   function visualContext(): VisualActionContext {
     return {
+      runAuthored: runAuthoredUi,
       adapterRef,
       univerRef,
       lazyWorkbookRef,
@@ -1093,6 +1241,7 @@ export function App({
       lazyWorkbookRef,
       setMessage,
       requestSaveAs: () => void handleSaveRef.current('save-as'),
+      writeContext: { origin: 'manual' },
     }
   }
 
@@ -1107,6 +1256,14 @@ export function App({
       // null until the part was read: a save in that window must not clear it
       redactionStates: () =>
         loadedRedactionStatesRef.current === null ? null : redactionStatesRef.current,
+      documentDirty: () =>
+        Boolean(
+          lazyWorkbookRef.current &&
+          (journalSize(lazyWorkbookRef.current.editJournal) > 0 ||
+            redactionsPendingSave() ||
+            lazyWorkbookRef.current.file.restoredFromRecovery === true),
+        ),
+      requireOwnedAdoption: true,
       stashViewRestore: (view) => {
         viewRestoreRef.current = view
       },
@@ -1225,12 +1382,75 @@ export function App({
   /** Current session's projectId/chatId (resolved when the workbook opens) */
   const chatRefIdsRef = useRef<{ projectId: string; chatId: string } | null>(null)
 
-  // File renamed externally (in the shell Home list) → sync the title-bar file
-  // name (the save path is synced by the main process)
+  // A main-verified owned rename keeps the immutable base/model, but its path
+  // capability and native recovery producer must move together before Save.
   useEffect(
     () =>
-      window.desktopApi?.onWorkbookRenamed?.((newName) => {
-        setWorkbookFile((prev) => (prev ? { ...prev, name: newName } : prev))
+      window.desktopApi?.onWorkbookRenamed?.((newName, metadata) => {
+        const state = lazyWorkbookRef.current
+        if (
+          !metadata?.refreshId &&
+          (!state || (metadata && metadata.sessionId !== state.file.sessionId))
+        )
+          return
+        void (async () => {
+          try {
+            const checkpoint = await runAuthoredUi(async () => {
+              if (!state)
+                throw new Error('The renamed spreadsheet is no longer the active workbook.')
+              if (
+                lazyWorkbookRef.current !== state ||
+                (metadata && metadata.sessionId !== state.file.sessionId)
+              )
+                throw new Error('The spreadsheet changed before its rename could be refreshed.')
+              state.file = {
+                ...state.file,
+                name: newName,
+                ...(metadata
+                  ? {
+                      path: metadata.path,
+                      csvPath: metadata.csvPath,
+                      closeSource: metadata.closeSource,
+                    }
+                  : {}),
+              }
+              closeSessionRef.current!.select(state.file)
+              setWorkbookFile(state.file)
+              const checkpoint = metadata?.requiresCheckpoint
+                ? await checkpointWorkbookForClose({
+                    ...saveContext(),
+                    writeContext: metadata.writeContext ?? { origin: 'manual' },
+                  })
+                : undefined
+              closeSessionRef.current!.notify()
+              return checkpoint
+            })
+            if (metadata?.refreshId) {
+              if (!checkpoint)
+                throw new Error('The rename did not produce a full native checkpoint.')
+              window.desktopApi.completeWorkbookRenameRefresh(metadata.refreshId, {
+                ok: true,
+                sessionId: metadata.sessionId,
+                source: metadata.closeSource,
+                payloadSha256: checkpoint.payloadSha256,
+                documentId: checkpoint.receipt.documentId,
+                revision: checkpoint.receipt.revision,
+              })
+            }
+          } catch (error) {
+            setMessage(String(error))
+            if (metadata?.refreshId)
+              window.desktopApi.completeWorkbookRenameRefresh(metadata.refreshId, {
+                ok: false,
+                error:
+                  'The renamed spreadsheet could not complete its checkpoint refresh. Keep it open and retry Save As.',
+              })
+          } finally {
+            // This is a separate actual callback finalizer, never a timeout packet.
+            if (metadata?.refreshId)
+              window.desktopApi.settleWorkbookRenameRefresh(metadata.refreshId)
+          }
+        })().catch((error: unknown) => setMessage(String(error)))
       }) ?? (() => undefined),
     [],
   )
@@ -1874,8 +2094,24 @@ export function App({
     })
   }
 
+  /** Reserve the entire accepted callback, including its awaited continuation. */
+  function runAuthoredUi<T>(action: () => T | Promise<T>): Promise<T> {
+    return closeSessionRef.current!.admission.runAsync(() => {
+      if (workbookOpeningRef.current)
+        throw new Error('The spreadsheet is still replacing its source.')
+      return action()
+    })
+  }
+
+  function onRedactSelection(request: SelectionRequest): void {
+    void runAuthoredUi(() => onRedactSelectionNow(request))
+  }
+  function onRedactConfirm(label: string): void {
+    void runAuthoredUi(() => onRedactConfirmNow(label))
+  }
+
   /** Turn a grid right-click into either a dialog or an immediate clear. */
-  function onRedactSelection(request: SelectionRequest) {
+  function onRedactSelectionNow(request: SelectionRequest) {
     const state = lazyWorkbookRef.current
     if (!state) return
     const workbook = univerRef.current?.univerAPI.getActiveWorkbook()
@@ -1918,6 +2154,7 @@ export function App({
               endColumn: clearEndCol,
             })
       redactionStatesRef.current = next
+      documentEditGenerationRef.current += 1
       rebuildRedactionIndex()
       // The tint is the only thing the mark ever did to the reader's own
       // formatting, so clearing has to take it back off.
@@ -1958,7 +2195,7 @@ export function App({
   }
 
   /** Commit the label the reader typed. */
-  function onRedactConfirm(label: string) {
+  function onRedactConfirmNow(label: string) {
     const pending = redactDialog
     setRedactDialog(null)
     if (!pending) return
@@ -2009,6 +2246,7 @@ export function App({
     }
     const next = addMark(redactionStatesRef.current, pending.sheetName, mark)
     redactionStatesRef.current = next
+    documentEditGenerationRef.current += 1
     // Not `indexFor(next, …)`: the states are in file coordinates now, and the
     // index the grid reads has to be the screen ones. The same replay the
     // loaded marks go through covers this one.
@@ -2151,6 +2389,26 @@ export function App({
     installVeryHiddenSheetGuard(runtime, lazyWorkbookRef)
     loadSnapshotIntoUniver(runtime, initialSnapshot, 'new-workbook', 'Untitled')
     univerRef.current = runtime
+    const close = closeSessionRef.current!
+    const commandService = runtime.univer.__getInjector().get(ICommandService)
+    const stopCloseCommands = installWorkbookCommandAdmission(commandService, close.admission, {
+      resolveSource: (_id, params) => {
+        if (workbookOpeningRef.current && !journalSuppression.active)
+          throw new Error(
+            'The spreadsheet is replacing its source; retry this command after opening finishes.',
+          )
+        const unitId = (params as { unitId?: string } | undefined)?.unitId
+        const activeId = runtime.univerAPI.getActiveWorkbook()?.getId()
+        if (unitId && activeId && unitId !== activeId)
+          throw new Error('A command targeted a replaced workbook source.')
+        return close.admission.captureSource()
+      },
+    })
+    closeRoutingRef.current.commands = true
+    // Explicit old-unit IDs are rejected. Owned async callbacks retain their
+    // source through actual settlement; Open drains them and Save refuses a
+    // busy fence, so their unkeyed continuations cannot cross a model rebase.
+    closeRoutingRef.current.sourceMapping = true
     // The hidden spare can have a canvas/editor before Univer finishes booting.
     // Expose its lifecycle readiness only to explicitly enabled e2e drivers.
     if ((window as unknown as Record<string, unknown>).__vantageDebugHooks === true) {
@@ -2511,7 +2769,12 @@ export function App({
     const syncCellEditorPending = (): void => {
       const state = lazyWorkbookRef.current
       window.desktopApi?.notifyPendingEdits?.(
-        pendingEditsForClose(state ? journalSize(state.editJournal) : 0, editingCellRef.current),
+        pendingEditsForClose(
+          (state ? journalSize(state.editJournal) : 0) +
+            (redactionsPendingSave() ? 1 : 0) +
+            (state?.file.restoredFromRecovery ? 1 : 0),
+          editingCellRef.current,
+        ),
       )
     }
     const editStartDisposable = runtime.univerAPI.addEvent(
@@ -3209,6 +3472,20 @@ export function App({
       (event) => {
         const state = lazyWorkbookRef.current
         if (journalSuppression.active || !state) return
+        // Publication installs a clean replacement workbook. Block new input
+        // mutations until that replacement exists so structural/metadata edits
+        // cannot be lost while the old journal is being retired. Calculated
+        // results and the suppressed installation remain derived work.
+        if (
+          documentPublicationInFlightRef.current &&
+          !(event.options as { fromFormula?: boolean } | undefined)?.fromFormula &&
+          (/^(?:sheet|drawing)\.(?:command|mutation)\./.test(event.id) ||
+            event.id === 'univer.command.undo' ||
+            event.id === 'univer.command.redo')
+        ) {
+          event.cancel = true
+          return
+        }
         if (event.id === SET_RANGE_VALUES_COMMAND || event.id === SET_RANGE_VALUES_MUTATION) {
           // Quadratic array-criteria formulas (distinct-count COUNTIF idioms
           // over 80k+ rows) freeze the main-thread formula engine for
@@ -3282,9 +3559,9 @@ export function App({
             setMessage(t('appPivotSheetNoStructural'))
             return
           }
-          // The save aborts when a formula references only the deleted span;
-          // reject the removal up front like the AI path does (#1134). The
-          // remove commands act on the selection unless a range is given.
+          // Reject reference forms the preserving writer cannot update safely.
+          // Ordinary deleted references become #REF!. Remove commands act on
+          // the selection unless a range is given.
           if (sheet && /^sheet\.command\.remove-(row|col)/.test(event.id)) {
             const uiWorkbook = runtime.univerAPI.getActiveWorkbook()
             const range =
@@ -3360,7 +3637,11 @@ export function App({
               }
               event.cancel = true
               setMessage(t('appLargeFilterApplying'))
-              void action(runtime, state)
+              void runAuthoredUi(() => {
+                if (lazyWorkbookRef.current !== state || univerRef.current !== runtime)
+                  throw new Error('The workbook changed before the filter operation could run.')
+                return action(runtime, state)
+              })
                 .then(() => {
                   setPendingEdits(journalSize(state.editJournal))
                   setMessage(t('appReadyInitial'))
@@ -3505,15 +3786,15 @@ export function App({
       window.desktopApi?.onMenuAction((action) => menuActionRef.current(action)) ??
       (() => undefined)
     // Close guard chose Save: run the journal save and report the outcome.
-    const unsubscribeCloseSave =
-      window.desktopApi?.onCloseSaveRequest?.(() => void closeSaveRef.current()) ??
-      (() => undefined)
+    // Legacy Boolean replies cannot grant a close permission after migration.
+    const unsubscribeCloseSave = () => undefined
     const gridHost = document.getElementById('univer-container')
     const disposePictureTransfer = gridHost
       ? installPictureTransfer(gridHost, {
           isCellEditing: () => editingCellRef.current,
           cellAtPoint: (x, y) => cellAtClientPoint(runtime, x, y),
-          insert: (file, anchor) => handleInsertPictureFile(visualContext(), file, anchor),
+          insert: (file, anchor) =>
+            runAuthoredUi(() => handleInsertPictureFile(visualContext(), file, anchor)),
         })
       : () => undefined
     // Double-click on a cell picture opens the viewer instead of the editor.
@@ -3786,6 +4067,7 @@ export function App({
       if (lazyState) {
         void window.desktopApi.closeWorkbook(lazyState.file.sessionId)
       }
+      stopCloseCommands()
       runtime.univer.dispose()
       univerRef.current = null
     }
@@ -3966,8 +4248,14 @@ export function App({
       setMessage(t('appAiChangesNotSaved'))
       return
     }
+    // Background completion follows the same format policy as interval saves;
+    // it must not open a format/Save As prompt or flatten a CSV silently.
+    if (state.file.csvPath !== undefined || (state.file.needsSaveAs && !state.file.unsavedNew)) {
+      setMessage(t('appAiChangesNotSaved'))
+      return
+    }
     // AutoSave-driven write after an AI run: silent like the interval autosave.
-    await handleSave('save', true)
+    await handleSave('save', true, undefined, undefined, AUTOMATIC_WORKBOOK_WRITE)
     const after = lazyWorkbookRef.current
     if (after && journalSize(after.editJournal) === 0) {
       // Saving reopens the sidecar session and resets Univer's undo stack.
@@ -3980,7 +4268,12 @@ export function App({
         .find((name) => name.length > 0 && !DEFAULT_SHEET_NAME_RE.test(name))
       if (candidate) {
         try {
-          await window.desktopApi.autoRenameWorkbook(after.file.sessionId, candidate)
+          const renamed = await window.desktopApi.autoRenameWorkbook(
+            after.file.sessionId,
+            candidate,
+            AUTOMATIC_WORKBOOK_WRITE,
+          )
+          if (renamed.error) setMessage(renamed.error)
         } catch {
           // naming is best-effort; the save itself already succeeded
         }
@@ -4513,7 +4806,7 @@ export function App({
       setMessage(t('appRecalculated'))
       return
     }
-    handleRibbonCommandImpl(ribbonContext(), command)
+    void runAuthoredUi(() => handleRibbonCommandImpl(ribbonContext(), command))
   }
 
   /// Adds every cell of the active selection (capped — a whole-column
@@ -4690,10 +4983,24 @@ export function App({
 
   async function openLazyWorkbook(
     opened: WorkbookFile,
-    opts?: { continueChat?: boolean; onInitialRangeLoaded?: () => void },
+    opts?: {
+      continueChat?: boolean
+      onInitialRangeLoaded?: () => void
+      canAdopt?: () => boolean
+      deferPreviousRelease?: boolean
+      writeContext?: WorkbookWriteContext
+    },
   ): Promise<boolean> {
+    const close = closeSessionRef.current!
+    if (!opts?.continueChat) await close.beforeExplicitOpen()
+    const admittedEpoch = close.admission.captureSource()
     if (!(await commitActiveEditor())) return false
+    if (!(await close.mayAdopt(opened))) return false
     await untilCellFontsLoaded(registerCellFontAliases(workbookFontFamilies(opened)))
+    if (!(await close.mayAdopt(opened))) return false
+    if (close.admission.captureSource() !== admittedEpoch || (opts?.canAdopt && !opts.canAdopt()))
+      return false
+    const sourceEpoch = close.beginRebase()
     if (opts?.continueChat) chatContinuesRef.current = true
     const selected: WorkbookFile = {
       ...opened,
@@ -4714,7 +5021,8 @@ export function App({
     const previous = lazyWorkbookRef.current
     if (previous) {
       clearLazyState(previous)
-      void window.desktopApi.closeWorkbook(previous.file.sessionId).catch(() => undefined)
+      // Main retains the previous reader/base/recovery until replacement ACK/adoption.
+      // Generic release follows successful adoption at the end of this function.
     }
     if (demoVisualInstallTimerRef.current) {
       clearTimeout(demoVisualInstallTimerRef.current)
@@ -4777,6 +5085,8 @@ export function App({
         lastRunAt: 0,
       },
     }
+    bindJournalAuthoredAdmission(state.editJournal, close.admission, sourceEpoch)
+    closeRoutingRef.current.journal = true
     // Column outline levels arrive with the sheet metadata; seed them now.
     for (const sheet of selected.sheets) {
       for (const columnWidth of sheet.columnWidths) {
@@ -4792,6 +5102,7 @@ export function App({
       }
     }
     lazyWorkbookRef.current = state
+    close.select(selected)
     void loadRowOutlines(state, lazyWorkbookRef)
     // The cells the reader withheld, read once per open: every read tool asks
     // about cells, so a lazy read would either cost an archive read per call or
@@ -4898,146 +5209,166 @@ export function App({
     setTimelines([])
     setTimelinePicker(null)
     disposeVisuals(visualDisposablesRef.current)
-    loadWorkbookSkeleton(univerRef.current, selected)
+    runSynchronousDerivedLoad(() => loadWorkbookSkeleton(univerRef.current, selected))
     applyWorkbookNotes(univerRef.current, selected)
     threadStore.load(selected)
     threadPane.close()
     applyDefinedNames(univerRef.current, selected, state)
     const runtime = univerRef.current
     if (runtime) {
-      requestAnimationFrame(() => {
-        const workbook = runtime.univerAPI.getActiveWorkbook()
-        if (!workbook) {
-          opts?.onInitialRangeLoaded?.()
-          return
-        }
-        // Register existing file tables under their displayName so Univer
-        // renders filter dropdowns and resolves structured references. The
-        // journal stays empty for file tables, so failures are swallowed —
-        // the data is still usable.
-        const tableInstalls: Promise<unknown>[] = []
-        const sessionNames = state.editJournal.tableAdds.map((table) => table.name)
-        for (const entry of planFileTableRegistrations(selected.sheets, sessionNames)) {
-          const ws = workbook.getSheetBySheetId(entry.sheetId)
-          if (!ws) continue
-          const { tableId, tableName } = entry
+      await new Promise<void>((resolve, reject) =>
+        requestAnimationFrame(() => {
           try {
-            // File column names must reach Univer, or empty header cells
-            // fall back to its locale template ("Column 1" with a space)
-            // where Excel shows the table part's names ("Column1").
-            const columnOptions = entry.columns
-              ? {
-                  columns: entry.columns.map((name, columnIndex) => ({
-                    id: `${tableId}-col-${columnIndex}`,
-                    displayName: name,
-                  })),
-                }
-              : undefined
-            const added = ws.addTable(
-              tableName,
-              entry.range,
-              tableId,
-              columnOptions as never,
-            ) as unknown
-            // Univer paints its own lavender default table theme over the
-            // cells; file tables carry Excel's real banding in the cell
-            // fills (applyTableBanding), so mute the theme to plain.
-            tableInstalls.push(
-              Promise.resolve(added)
-                .then(() =>
-                  (
-                    ws as unknown as {
-                      addTableTheme(id: string, theme: { name: string }): unknown
+            const workbook = runtime.univerAPI.getActiveWorkbook()
+            if (!workbook) {
+              throw new Error('The loaded workbook model is unavailable for adoption.')
+            }
+            // Register existing file tables under their displayName so Univer
+            // renders filter dropdowns and resolves structured references. The
+            // journal stays empty for file tables, so failures are swallowed —
+            // the data is still usable.
+            const tableInstalls: Promise<unknown>[] = []
+            const sessionNames = state.editJournal.tableAdds.map((table) => table.name)
+            for (const entry of planFileTableRegistrations(selected.sheets, sessionNames)) {
+              const ws = workbook.getSheetBySheetId(entry.sheetId)
+              if (!ws) continue
+              const { tableId, tableName } = entry
+              try {
+                // File column names must reach Univer, or empty header cells
+                // fall back to its locale template ("Column 1" with a space)
+                // where Excel shows the table part's names ("Column1").
+                const columnOptions = entry.columns
+                  ? {
+                      columns: entry.columns.map((name, columnIndex) => ({
+                        id: `${tableId}-col-${columnIndex}`,
+                        displayName: name,
+                      })),
                     }
-                  ).addTableTheme(tableId, { name: `plain-${tableId}` }),
+                  : undefined
+                const added = runSynchronousDerivedLoad(() =>
+                  ws.addTable(tableName, entry.range, tableId, columnOptions as never),
+                ) as unknown
+                // Univer paints its own lavender default table theme over the
+                // cells; file tables carry Excel's real banding in the cell
+                // fills (applyTableBanding), so mute the theme to plain.
+                tableInstalls.push(
+                  Promise.resolve(added)
+                    .then(() => {
+                      if (lazyWorkbookRef.current !== state || univerRef.current !== runtime)
+                        throw new Error('The workbook changed during its table decoration.')
+                      return runSynchronousDerivedLoad(() =>
+                        (
+                          ws as unknown as {
+                            addTableTheme(id: string, theme: { name: string }): unknown
+                          }
+                        ).addTableTheme(tableId, { name: `plain-${tableId}` }),
+                      )
+                    })
+                    // Theme muting is cosmetic; the table itself is registered.
+                    .catch(() => undefined),
                 )
-                // Theme muting is cosmetic; the table itself is registered.
-                .catch(() => undefined),
+              } catch {
+                // Best-effort: skip if Univer rejects (e.g. overlapping ranges)
+              }
+            }
+            // Post-save reopen: swap the load-time decoration's undo entries
+            // (table/note/name installs are load artifacts, not edits) for the
+            // pre-save user history carried across the session swap. Table
+            // registration is async and pushes its undo entries (each push also
+            // clears the redo stack) only when its command settles — consume
+            // strictly after every install, or the artifacts would land on top
+            // of the carried history and wipe the carried redos.
+            void Promise.allSettled(tableInstalls)
+              .then(() => {
+                if (lazyWorkbookRef.current === state)
+                  consumePendingUndoCarry(runtime, workbook.getId())
+                resolve()
+              })
+              .catch(reject)
+            const worksheet = workbook.getActiveSheet()
+            if (!worksheet) {
+              throw new Error('The loaded workbook has no active sheet for adoption.')
+            }
+            // apply the opening sheet's formula view (sheetView/@showFormulas)
+            runSynchronousDerivedLoad(() =>
+              applyShowFormulasView(runtime, state, worksheet.getSheetId()),
             )
-          } catch {
-            // Best-effort: skip if Univer rejects (e.g. overlapping ranges)
+            queueVisualInstall(
+              runtime,
+              lazyWorkbookRef,
+              visualDisposablesRef,
+              visualInstallTimerRef,
+              chartEditRef,
+              chartVectorRef,
+              shapeEditRef,
+            )
+            // A post-save reinstall lands back where the user was; anything else
+            // (fresh opens) starts at the first sheet's origin. Falls back to the
+            // origin when the stashed sheet no longer exists.
+            const restore = viewRestoreRef.current
+            viewRestoreRef.current = null
+            const restoredSheet = restore ? workbook.getSheetBySheetId(restore.sheetId) : null
+            try {
+              if (restore && restoredSheet) {
+                runSynchronousDerivedLoad(() => {
+                  workbook.setActiveSheet(restoredSheet)
+                  restoredSheet.getRange(restore.row, restore.column, 1, 1).activate()
+                })
+                // scrollToCell puts its target at the viewport's top-left, so
+                // scroll to the captured viewport origin — not the selection —
+                // to reproduce the exact pre-save view.
+                restoredSheet.scrollToCell(restore.viewRow, restore.viewColumn)
+              } else {
+                worksheet.scrollToCell(0, 0)
+              }
+            } catch {
+              // A workbook opened during startup (the shell's queued-open nudge)
+              // can land before Univer's Rendered lifecycle registers the scroll
+              // render controller, and the facade then throws a redi
+              // QuantityCheckError. The fresh view is already at the origin, so
+              // skipping the reset is harmless.
+            }
+            // getVisibleRange lags the jump by a frame (same as name-box goto) —
+            // anchor the first stream at the restored cell, not the stale origin.
+            void loadVisibleRange(
+              runtime,
+              lazyWorkbookRef,
+              restoredSheet ?? worksheet,
+              setMessage,
+              restore && restoredSheet
+                ? { row: restore.viewRow, column: restore.viewColumn }
+                : undefined,
+            ).then(
+              () => opts?.onInitialRangeLoaded?.(),
+              (error: unknown) => {
+                setMessage(error instanceof Error ? error.message : t('appLoadRangeFailed'))
+                opts?.onInitialRangeLoaded?.()
+              },
+            )
+            if (state.formulaMode) {
+              void startFullLoad(runtime, lazyWorkbookRef, setMessage)
+            } else {
+              // Deferred so first paint and initial streaming win the sidecar.
+              setTimeout(() => {
+                void activateFormulaClosure(runtime, lazyWorkbookRef, setMessage)
+              }, 1500)
+            }
+          } catch (error) {
+            reject(error)
           }
-        }
-        // Post-save reopen: swap the load-time decoration's undo entries
-        // (table/note/name installs are load artifacts, not edits) for the
-        // pre-save user history carried across the session swap. Table
-        // registration is async and pushes its undo entries (each push also
-        // clears the redo stack) only when its command settles — consume
-        // strictly after every install, or the artifacts would land on top
-        // of the carried history and wipe the carried redos.
-        void Promise.allSettled(tableInstalls).then(() => {
-          if (lazyWorkbookRef.current !== state) return
-          consumePendingUndoCarry(runtime, workbook.getId())
-        })
-        const worksheet = workbook.getActiveSheet()
-        if (!worksheet) {
-          opts?.onInitialRangeLoaded?.()
-          return
-        }
-        // apply the opening sheet's formula view (sheetView/@showFormulas)
-        applyShowFormulasView(runtime, state, worksheet.getSheetId())
-        queueVisualInstall(
-          runtime,
-          lazyWorkbookRef,
-          visualDisposablesRef,
-          visualInstallTimerRef,
-          chartEditRef,
-          chartVectorRef,
-          shapeEditRef,
-        )
-        // A post-save reinstall lands back where the user was; anything else
-        // (fresh opens) starts at the first sheet's origin. Falls back to the
-        // origin when the stashed sheet no longer exists.
-        const restore = viewRestoreRef.current
-        viewRestoreRef.current = null
-        const restoredSheet = restore ? workbook.getSheetBySheetId(restore.sheetId) : null
-        try {
-          if (restore && restoredSheet) {
-            workbook.setActiveSheet(restoredSheet)
-            restoredSheet.getRange(restore.row, restore.column, 1, 1).activate()
-            // scrollToCell puts its target at the viewport's top-left, so
-            // scroll to the captured viewport origin — not the selection —
-            // to reproduce the exact pre-save view.
-            restoredSheet.scrollToCell(restore.viewRow, restore.viewColumn)
-          } else {
-            worksheet.scrollToCell(0, 0)
-          }
-        } catch {
-          // A workbook opened during startup (the shell's queued-open nudge)
-          // can land before Univer's Rendered lifecycle registers the scroll
-          // render controller, and the facade then throws a redi
-          // QuantityCheckError. The fresh view is already at the origin, so
-          // skipping the reset is harmless.
-        }
-        // getVisibleRange lags the jump by a frame (same as name-box goto) —
-        // anchor the first stream at the restored cell, not the stale origin.
-        void loadVisibleRange(
-          runtime,
-          lazyWorkbookRef,
-          restoredSheet ?? worksheet,
-          setMessage,
-          restore && restoredSheet
-            ? { row: restore.viewRow, column: restore.viewColumn }
-            : undefined,
-        ).then(
-          () => opts?.onInitialRangeLoaded?.(),
-          (error: unknown) => {
-            setMessage(error instanceof Error ? error.message : t('appLoadRangeFailed'))
-            opts?.onInitialRangeLoaded?.()
-          },
-        )
-        if (state.formulaMode) {
-          void startFullLoad(runtime, lazyWorkbookRef, setMessage)
-        } else {
-          // Deferred so first paint and initial streaming win the sidecar.
-          setTimeout(() => {
-            void activateFormulaClosure(runtime, lazyWorkbookRef, setMessage)
-          }, 1500)
-        }
-      })
+        }),
+      )
     } else {
       opts?.onInitialRangeLoaded?.()
     }
+    if (!(await close.finishAdoption(selected, opts?.writeContext ?? { origin: 'manual' }))) {
+      setMessage(
+        'The replacement workbook is open but its checkpoint adoption is incomplete; prior recovery was retained.',
+      )
+      return false
+    }
+    if (previous) await window.desktopApi.closeWorkbook(previous.file.sessionId)
+    close.notify()
     return true
   }
 
@@ -5073,10 +5404,13 @@ export function App({
 
   async function handleInspectWorkbook(): Promise<void> {
     if (workbookOpeningRef.current) return
+    await closeSessionRef.current!.beforeExplicitOpen()
     workbookOpeningRef.current = true
+    closeSessionRef.current!.notify()
     setOpeningWorkbook(true)
     const finishOpening = (): void => {
       workbookOpeningRef.current = false
+      closeSessionRef.current!.notify()
       setOpeningWorkbook(false)
       focusSheetGrid()
     }
@@ -5127,50 +5461,129 @@ export function App({
   }
 
   async function handleSave(
-    mode: 'save' | 'save-as' | 'recovery',
+    mode: 'save' | 'save-as' | 'recovery' | 'checkpoint',
     quiet = false,
     explicitTarget?: { path: string; overwrite: boolean },
     defaultName?: string,
+    writeContext: WorkbookWriteContext = { origin: 'manual' },
   ): Promise<SaveOutcome> {
+    // Do not let an automatic producer revoke a renderer-held close barrier.
+    // The main prompt gate remains authoritative before that barrier exists.
+    const automaticHeld = () =>
+      writeContext.origin === 'automatic' &&
+      (editingCellRef.current ||
+        closeSessionRef.current!.barrier.locked ||
+        closeSessionRef.current!.closeTicket !== undefined)
+    if (automaticHeld()) return { ok: false }
     // Manual and AI saves take the same gate as the timers: a recovery copy
     // written beside a real save would outlive it as a phantom Restore prompt.
     const gate = saveGateRef.current
-    if (mode === 'recovery' && gate.busy) return { ok: false }
-    return gate.run(async () => {
-      if (!(await commitActiveEditor())) return { ok: false }
-      return handleSaveImpl(saveContext(), mode, quiet, explicitTarget, defaultName)
-    })
+    if ((mode === 'recovery' || mode === 'checkpoint') && (gate.busy || workbookMutationsPending()))
+      return { ok: false }
+    if (mode === 'checkpoint' && editingCellRef.current) return { ok: false }
+    return gate
+      .run(async () => {
+        if (mode !== 'checkpoint' && !(await commitActiveEditor())) return { ok: false }
+        const save = async () => {
+          const context = saveContext()
+          context.writeContext = writeContext
+          context.closeTicket =
+            writeContext.origin === 'close' ? closeSessionRef.current?.closeTicket : undefined
+          if (mode === 'save' || mode === 'save-as') {
+            await closeSessionRef.current!.refreshFingerprint()
+            const owner = publicationOwnerRef.current
+            const fence = owner
+              ? closeSessionRef.current!.captureOwnedPublicationFence(owner)
+              : null
+            if (!fence)
+              return Promise.resolve({
+                ok: false,
+                error: 'The complete workbook publication fence is unavailable.',
+              })
+            context.publicationFence = fence
+          }
+          return handleSaveImpl(context, mode, quiet, explicitTarget, defaultName)
+        }
+        if (automaticHeld()) return { ok: false }
+        return mode === 'save' || mode === 'save-as'
+          ? withWorkbookPublication(save, writeContext)
+          : save()
+      })
+      .finally(() => closeSessionRef.current?.notify())
+  }
+  async function withWorkbookPublication<T>(
+    write: () => Promise<T>,
+    writeContext: WorkbookWriteContext,
+  ): Promise<T> {
+    // Main must revoke the close lock before capturing our own UI lock state.
+    // Otherwise its restoration could unlock an active save and our finally
+    // could restore the now-obsolete close lock after that lease is gone.
+    if (writeContext.origin === 'automatic') {
+      if (
+        closeSessionRef.current!.barrier.locked ||
+        closeSessionRef.current!.closeTicket !== undefined
+      )
+        throw new Error('Automatic workbook publication is deferred by the active close operation.')
+    } else await closeSessionRef.current!.barrier.beforeMutation()
+    const inertBefore = document.body.inert
+    document.body.inert = true
+    try {
+      // Earlier batches may still be awaiting indexed state or image data.
+      // Let them finish before capturing the full document. Later batches
+      // remain queued and revalidate their workbook after the replacement.
+      const owner = createWorkbookPublicationOwner()
+      return await enqueueWorkbookPublication(owner, async () => {
+        publicationOwnerRef.current = owner
+        documentPublicationInFlightRef.current = true
+        closeSessionRef.current?.notify()
+        try {
+          return await write()
+        } finally {
+          publicationOwnerRef.current = null
+          documentPublicationInFlightRef.current = false
+        }
+      })
+    } finally {
+      document.body.inert = inertBefore
+      documentPublicationInFlightRef.current = false
+      if (!inertBefore) requestAnimationFrame(() => focusSheetGrid())
+    }
   }
   async function updateWorkbookPassword(newPassword: string): Promise<string | null> {
     try {
-      return await saveGateRef.current.run(async () => {
-        if (!(await commitActiveEditor())) return t('appSaveFailed')
-        const beforeSave = lazyWorkbookRef.current
-        if (!beforeSave?.file.passwordProtected) {
-          return t('appWorkbookNotPasswordProtected')
-        }
-
-        // Commit all current sheet edits before changing the package password.
-        // The sidecar snapshot stays plaintext for this session, while the
-        // main process updates the encrypted file atomically on disk.
-        const saved = await handleSaveImpl(saveContext(), 'save', true)
+      if (!(await commitActiveEditor())) return t('appSaveFailed')
+      if (!lazyWorkbookRef.current?.file.passwordProtected)
+        return t('appWorkbookNotPasswordProtected')
+      // The normal owned publication must finish outside the password producer;
+      // otherwise its own authored reservation would block the save fence.
+      const saved = await handleSave('save', true)
+      if (!saved.ok && saveContext().documentDirty?.()) return saved.error ?? t('appSaveFailed')
+      return await runAuthoredUi(async () => {
         const current = lazyWorkbookRef.current
-        if (!current) return t('appWorkbookNotReady')
-        if (!saved.ok && journalSize(current.editJournal) > 0) {
-          return saved.error ?? t('appSaveFailed')
-        }
-        if (!current.file.passwordProtected) {
-          return t('appWorkbookNotPasswordProtected')
-        }
-
+        if (!current?.file.passwordProtected) return t('appWorkbookNotPasswordProtected')
         const result = await window.desktopApi.updateWorkbookPassword(
           current.file.sessionId,
           newPassword,
         )
+        if (lazyWorkbookRef.current !== current)
+          return 'The password changed, but the active workbook was replaced.'
         const file: WorkbookFile = { ...current.file, ...result }
-        lazyWorkbookRef.current = { ...current, file }
+        current.file = file
         setWorkbookFile(file)
-        setMessage(t('appWorkbookPasswordChanged'))
+        closeSessionRef.current!.select(file)
+        let recoveryIncomplete = Boolean(result.recoveryWarning)
+        try {
+          await checkpointWorkbookForClose(saveContext())
+        } catch {
+          recoveryIncomplete = true
+        }
+        // Cipher publication already succeeded. A checkpoint retry must not tell
+        // the user to keep using the old password or roll back the source proof.
+        setMessage(
+          recoveryIncomplete
+            ? 'Password changed; the recovery checkpoint will be retried.'
+            : t('appWorkbookPasswordChanged'),
+        )
         return null
       })
     } catch (error: unknown) {
@@ -5194,22 +5607,7 @@ export function App({
     await handleSave('save-as', false, undefined, stem)
   }
   closeSaveRef.current = async () => {
-    if (!(await commitActiveEditor())) {
-      window.desktopApi?.reportCloseSaveResult?.(false)
-      return
-    }
-    const state = lazyWorkbookRef.current
-    if (!state || journalSize(state.editJournal) === 0) {
-      window.desktopApi?.reportCloseSaveResult?.(true)
-      return
-    }
-    await handleSave('save')
-    // handleSave swallows errors into the status bar; a drained journal
-    // (fresh state after openLazyWorkbook) is the success signal.
-    const after = lazyWorkbookRef.current
-    window.desktopApi?.reportCloseSaveResult?.(
-      after === null || journalSize(after.editJournal) === 0,
-    )
+    window.desktopApi?.reportCloseSaveResult?.(false)
   }
   function sortColumnOptions(): { label: string; colIndex: number }[] {
     const range = univerRef.current?.univerAPI.getActiveWorkbook()?.getActiveRange()
@@ -5307,50 +5705,55 @@ export function App({
         /* the address is malformed, or the workbook closed mid-jump */
       }
     },
-    applyOps: async (ops, dryRun) => {
-      const runtime = univerRef.current
-      const state = lazyWorkbookRef.current
-      const workbook = runtime?.univerAPI.getActiveWorkbook()
-      if (!runtime || !state || !workbook) {
-        return { ok: false, reason: t('appNoWorkbookOpen') }
-      }
-      if (dryRun) {
-        try {
-          const plan = planFromOps(ops, workbook, 'mcp')
-          return {
-            ok: true,
-            dryRun: true,
-            structuralChanges: plan.structuralChanges.map((change) => change.label),
-            formatChanges: plan.formatChanges.map((change) => change.label),
-            cellChanges: plan.cellChanges
-              .slice(0, 100)
-              .map((change) => ({ address: change.address, after: change.after.value })),
-            cellChangeCount: plan.cellChanges.length,
-            sheetRenames: plan.sheetRenames.map((rename) => `${rename.before} -> ${rename.after}`),
-          }
-        } catch (error: unknown) {
-          return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    applyOps: (ops, dryRun) =>
+      runAuthoredUi(async () => {
+        if (workbookOpeningRef.current)
+          return { ok: false, reason: 'The spreadsheet is still opening.' }
+        const runtime = univerRef.current
+        const state = lazyWorkbookRef.current
+        const workbook = runtime?.univerAPI.getActiveWorkbook()
+        if (!runtime || !state || !workbook) {
+          return { ok: false, reason: t('appNoWorkbookOpen') }
         }
-      }
-      const outcome = await runUiOps(ops)
-      if (!outcome.ok) return outcome
-      // A formula's text lands synchronously but its result is computed
-      // asynchronously, so an immediate read of the cells this batch targeted
-      // would show null and an agent could read that as a failed edit. Report
-      // the computed values with the result (see formula-values.ts).
-      const targets = formulaTargetsFromOps(ops)
-      if (targets.length === 0) return outcome
-      const values = await awaitFormulaValues(targets, (addresses, sheetId) =>
-        readCellsImpl(readContext(), [...addresses], sheetId),
-      )
-      // Remember which cells settled so the next save can write a real cached
-      // <v> for them (the overlay skips the very cells a batch just wrote); the
-      // value itself is read live at save time, see formula-values.ts.
-      for (const cell of values) {
-        rememberFormulaValue(cell.sheetId, cell.address, { formula: cell.formula ?? '' })
-      }
-      return { ...outcome, formulaValues: values }
-    },
+        if (dryRun) {
+          try {
+            const plan = planFromOps(ops, workbook, 'mcp')
+            return {
+              ok: true,
+              dryRun: true,
+              structuralChanges: plan.structuralChanges.map((change) => change.label),
+              formatChanges: plan.formatChanges.map((change) => change.label),
+              cellChanges: plan.cellChanges
+                .slice(0, 100)
+                .map((change) => ({ address: change.address, after: change.after.value })),
+              cellChangeCount: plan.cellChanges.length,
+              sheetRenames: plan.sheetRenames.map(
+                (rename) => `${rename.before} -> ${rename.after}`,
+              ),
+            }
+          } catch (error: unknown) {
+            return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+          }
+        }
+        const outcome = await runUiOps(ops)
+        if (!outcome.ok) return outcome
+        // A formula's text lands synchronously but its result is computed
+        // asynchronously, so an immediate read of the cells this batch targeted
+        // would show null and an agent could read that as a failed edit. Report
+        // the computed values with the result (see formula-values.ts).
+        const targets = formulaTargetsFromOps(ops)
+        if (targets.length === 0) return outcome
+        const values = await awaitFormulaValues(targets, (addresses, sheetId) =>
+          readCellsImpl(readContext(), [...addresses], sheetId),
+        )
+        // Remember which cells settled so the next save can write a real cached
+        // <v> for them (the overlay skips the very cells a batch just wrote); the
+        // value itself is read live at save time, see formula-values.ts.
+        for (const cell of values) {
+          rememberFormulaValue(cell.sheetId, cell.address, { formula: cell.formula ?? '' })
+        }
+        return { ...outcome, formulaValues: values }
+      }),
     saveTo: async (path, overwrite) => handleSave('save-as', true, { path, overwrite }),
   }
   useEffect(() => {
@@ -5404,11 +5807,13 @@ export function App({
     queueChartDataSyncImpl(visualSyncContext(), sheetId, bounds)
   }
 
-  chartEditRef.current = (editKey, edit) => applyChartEditImpl(visualSyncContext(), editKey, edit)
+  chartEditRef.current = (editKey, edit) => {
+    void runAuthoredUi(() => applyChartEditImpl(visualSyncContext(), editKey, edit))
+  }
   chartVectorRef.current = (editKey, rangeText) =>
     readChartVectorImpl(visualSyncContext(), editKey, rangeText)
   shapeEditRef.current = (visualId, changes) =>
-    applyShapeEditImpl(visualSyncContext(), visualId, changes)
+    void runAuthoredUi(() => applyShapeEditImpl(visualSyncContext(), visualId, changes))
 
   // Ribbon echo of the selected chart; a live lookup so deletion, file
   // switches, and pending type edits reflect without extra bookkeeping.
@@ -5738,25 +6143,29 @@ export function App({
         onGetCreateTableRange={() => createTableDefaultRange(tableDesignContext())}
         onGetSortColumns={sortColumnOptions}
         onGetSheetProtection={sheetProtectionEcho}
-        onProtectSheet={protectActiveSheet}
-        onUnprotectSheet={unprotectActiveSheet}
+        onProtectSheet={(request) => runAuthoredUi(() => protectActiveSheet(request))}
+        onUnprotectSheet={(password) => runAuthoredUi(() => unprotectActiveSheet(password))}
         sheetTabActions={sheetTabActions}
         onGetWorkbookProtection={workbookProtectionEcho}
         passwordProtected={workbookFile?.passwordProtected === true}
         formulaBarVisible={formulaBarVisible}
         crossHighlightVisible={crossHighlightVisible}
         onGetProtectedRanges={protectedRangesSnapshot}
-        onApplyProtectedRanges={applyProtectedRanges}
+        onApplyProtectedRanges={(ranges) => runAuthoredUi(() => applyProtectedRanges(ranges))}
         onGetDefinedNames={definedNameRows}
-        onDefinedNameAction={handleDefinedNameAction}
+        onDefinedNameAction={(action) => runAuthoredUi(() => handleDefinedNameAction(action))}
         onGetPivotFields={(sourceRange) => pivotFieldOptionsImpl(pivotContext(), sourceRange)}
         onGetSourceRange={() => getSourceRangeImpl(pivotContext())}
-        onCreatePivot={(request) => handleCreatePivotImpl(pivotContext(), request)}
+        onCreatePivot={(request) =>
+          runAuthoredUi(() => handleCreatePivotImpl(pivotContext(), request))
+        }
         onGetPivotEditSeed={() => pivotEditInitialImpl(pivotContext())}
-        onEditPivot={(config) => handleEditPivotApplyImpl(pivotContext(), config)}
+        onEditPivot={(config) =>
+          runAuthoredUi(() => handleEditPivotApplyImpl(pivotContext(), config))
+        }
         onGetPivotFieldMembers={(fieldIndex) => pivotFieldMembersImpl(pivotContext(), fieldIndex)}
         pivotSelectionKey={pivotSelectionKey}
-        onRefreshPivot={() => handleRefreshPivotImpl(pivotContext())}
+        onRefreshPivot={() => runAuthoredUi(() => handleRefreshPivotImpl(pivotContext()))}
         onIsSelectionInPivot={() => isSelectionInPivotImpl(pivotContext())}
         onGetActiveCell={() => activeCellLabelImpl(dataToolsContext())}
         onGetAnchorValue={anchorCellValue}
@@ -5764,16 +6173,24 @@ export function App({
         onGoToReference={(ref) => goToReferenceImpl(dataToolsContext(), ref)}
         onListDefinedNames={() => listDefinedNamesImpl(dataToolsContext())}
         onReadPasteSpecialSource={readPasteSpecialSourceFromRuntime}
-        onPasteSpecial={handlePasteSpecial}
+        onPasteSpecial={(source, options) =>
+          runAuthoredUi(() => handlePasteSpecial(source, options))
+        }
         functionArguments={functionArgumentsHost}
         onListFunctions={() => {
           const runtime = univerRef.current
           return runtime ? readLiveFunctionInfos(runtime) : []
         }}
-        onCreateSubtotal={(config) => handleCreateSubtotalImpl(dataToolsContext(), config)}
-        onCreateConsolidate={(config) => handleCreateConsolidateImpl(dataToolsContext(), config)}
+        onCreateSubtotal={(config) =>
+          runAuthoredUi(() => handleCreateSubtotalImpl(dataToolsContext(), config))
+        }
+        onCreateConsolidate={(config) =>
+          runAuthoredUi(() => handleCreateConsolidateImpl(dataToolsContext(), config))
+        }
         onGetConsolidateDefault={() => consolidateDefaultReferenceImpl(dataToolsContext())}
-        onApplyHeaderFooter={(result) => handleApplyHeaderFooterImpl(pageLayoutContext(), result)}
+        onApplyHeaderFooter={(result) =>
+          runAuthoredUi(() => handleApplyHeaderFooterImpl(pageLayoutContext(), result))
+        }
       />
       {openingWorkbook && (
         <div className="workbook-opening-screen" role="status" aria-live="polite">
@@ -5798,7 +6215,7 @@ export function App({
         file={workbookFile}
         pending={pendingNotePictures()}
         onRemove={(sheetId, row, column) =>
-          handleRemoveNotePicture(ribbonContext(), sheetId, row, column)
+          runAuthoredUi(() => handleRemoveNotePicture(ribbonContext(), sheetId, row, column))
         }
         getRuntime={getRuntime}
       />
@@ -5840,7 +6257,7 @@ export function App({
           mode={cellsDialog}
           onApply={(choice) => {
             const runtime = univerRef.current
-            if (runtime) runCellsChoice(runtime, cellsDialog, choice)
+            if (runtime) runAuthoredUi(() => runCellsChoice(runtime, cellsDialog, choice))
           }}
           onClose={() => setCellsDialog(null)}
         />
@@ -5848,20 +6265,22 @@ export function App({
       {advancedFilterColumns !== null && (
         <AdvancedFilterDialog
           columns={advancedFilterColumns}
-          onApply={(criteria) => handleApplyAdvancedFilterImpl(dataToolsContext(), criteria)}
+          onApply={(criteria) =>
+            runAuthoredUi(() => handleApplyAdvancedFilterImpl(dataToolsContext(), criteria))
+          }
           onClose={() => setAdvancedFilterColumns(null)}
         />
       )}
       {symbolDialogOpen && (
         <SymbolDialog
-          onInsert={(char) => handleInsertSymbolImpl(dataToolsContext(), char)}
+          onInsert={(char) => runAuthoredUi(() => handleInsertSymbolImpl(dataToolsContext(), char))}
           onClose={() => setSymbolDialogOpen(false)}
         />
       )}
       {screenshotDialogOpen && (
         <ScreenshotDialog
           onInsert={(dataUrl, width, height) =>
-            handleInsertScreenshot(visualContext(), dataUrl, width, height)
+            runAuthoredUi(() => handleInsertScreenshot(visualContext(), dataUrl, width, height))
           }
           onClose={() => setScreenshotDialogOpen(false)}
         />
@@ -5869,7 +6288,7 @@ export function App({
       {iconsDialogOpen && (
         <IconsDialog
           onInsert={(dataUrl, size, name) =>
-            handleInsertIconImpl(visualContext(), dataUrl, size, name)
+            runAuthoredUi(() => handleInsertIconImpl(visualContext(), dataUrl, size, name))
           }
           onClose={() => setIconsDialogOpen(false)}
         />
@@ -5877,7 +6296,7 @@ export function App({
       {equationDialogOpen && (
         <EquationDialog
           onInsert={(dataUrl, width, height) =>
-            handleInsertEquationImpl(visualContext(), dataUrl, width, height)
+            runAuthoredUi(() => handleInsertEquationImpl(visualContext(), dataUrl, width, height))
           }
           onClose={() => setEquationDialogOpen(false)}
         />
@@ -5885,37 +6304,47 @@ export function App({
       {recommendedCharts !== null && (
         <RecommendedChartsDialog
           recommendations={recommendedCharts}
-          onPick={(kind) => void handleInsertChartImpl(visualContext(), kind)}
+          onPick={(kind) => void runAuthoredUi(() => handleInsertChartImpl(visualContext(), kind))}
           onClose={() => setRecommendedCharts(null)}
         />
       )}
       {slicerPicker !== null && (
         <SlicerFieldPicker
           fields={slicerPicker.fields}
-          onPick={(field) => handleCreateSlicerImpl(pivotContext(), field)}
+          onPick={(field) => runAuthoredUi(() => handleCreateSlicerImpl(pivotContext(), field))}
           onClose={() => setSlicerPicker(null)}
         />
       )}
       <SlicerPanels
         slicers={slicers}
-        onToggle={(slicerId, member) => handleSlicerToggleImpl(pivotContext(), slicerId, member)}
-        onSelectAll={(slicerId) => handleSlicerSelectAllImpl(pivotContext(), slicerId)}
-        onRemove={(slicerId) => handleRemoveSlicerImpl(pivotContext(), slicerId)}
+        onToggle={(slicerId, member) =>
+          runAuthoredUi(() => handleSlicerToggleImpl(pivotContext(), slicerId, member))
+        }
+        onSelectAll={(slicerId) =>
+          runAuthoredUi(() => handleSlicerSelectAllImpl(pivotContext(), slicerId))
+        }
+        onRemove={(slicerId) =>
+          runAuthoredUi(() => handleRemoveSlicerImpl(pivotContext(), slicerId))
+        }
       />
       {timelinePicker !== null && (
         <TimelineFieldPicker
           fields={timelinePicker.fields}
-          onPick={(field) => handleCreateTimelineImpl(pivotContext(), field)}
+          onPick={(field) => runAuthoredUi(() => handleCreateTimelineImpl(pivotContext(), field))}
           onClose={() => setTimelinePicker(null)}
         />
       )}
       <TimelinePanels
         timelines={timelines}
         onRange={(timelineId, start, end) =>
-          handleTimelineRangeImpl(pivotContext(), timelineId, { start, end })
+          runAuthoredUi(() => handleTimelineRangeImpl(pivotContext(), timelineId, { start, end }))
         }
-        onClear={(timelineId) => handleTimelineRangeImpl(pivotContext(), timelineId, null)}
-        onRemove={(timelineId) => handleRemoveTimelineImpl(pivotContext(), timelineId)}
+        onClear={(timelineId) =>
+          runAuthoredUi(() => handleTimelineRangeImpl(pivotContext(), timelineId, null))
+        }
+        onRemove={(timelineId) =>
+          runAuthoredUi(() => handleRemoveTimelineImpl(pivotContext(), timelineId))
+        }
       />
       {watchOpen && (
         <WatchWindowPanel

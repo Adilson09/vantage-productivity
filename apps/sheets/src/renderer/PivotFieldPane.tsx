@@ -146,6 +146,8 @@ interface MenuState {
 
 type SettingsTarget = PivotChipRef
 
+type PivotChangeResult = string | null | void | Promise<string | null | void>
+
 export function PivotFieldPane({
   fields,
   model,
@@ -154,18 +156,20 @@ export function PivotFieldPane({
   onDeferredChange,
   dirty,
   error,
+  pending = false,
   onUpdate,
   onClose,
   onGetFieldMembers,
 }: {
   readonly fields: readonly PivotField[]
   readonly model: PivotLayoutModel
-  readonly onModelChange: (next: PivotLayoutModel) => void
+  readonly onModelChange: (next: PivotLayoutModel) => PivotChangeResult
   readonly deferred: boolean
   readonly onDeferredChange: (deferred: boolean) => void
   /// Deferred changes not yet applied.
   readonly dirty: boolean
   readonly error: string | null
+  readonly pending?: boolean
   readonly onUpdate: () => void
   readonly onClose: () => void
   readonly onGetFieldMembers: (fieldIndex: number) => string[]
@@ -175,12 +179,38 @@ export function PivotFieldPane({
   const [drag, setDrag] = useState<DragState | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [settings, setSettings] = useState<SettingsTarget | null>(null)
+  const [writing, setWriting] = useState(false)
+  const [writeError, setWriteError] = useState<string | null>(null)
+  const writingRef = useRef(false)
+  const busy = pending || writing
+  const failure = error ?? writeError
+  const changeModel = async (next: PivotLayoutModel): Promise<string | null> => {
+    if (writingRef.current || pending) return failure
+    writingRef.current = true
+    setWriting(true)
+    setWriteError(null)
+    try {
+      const result = await onModelChange(next)
+      const failure = typeof result === 'string' ? result : null
+      setWriteError(failure)
+      return failure
+    } catch (error) {
+      const result = error instanceof Error ? error.message : String(error)
+      setWriteError(result)
+      return result
+    } finally {
+      writingRef.current = false
+      setWriting(false)
+    }
+  }
   const dragRef = useRef(drag)
   dragRef.current = drag
   const dragging = drag !== null
 
+  useEffect(() => setWriteError(null), [model])
+
   const beginDrag = (event: React.PointerEvent, source: PivotDragSource, label: string): void => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || pending || writingRef.current) return
     setMenu(null)
     setDrag({
       source,
@@ -228,7 +258,7 @@ export function PivotFieldPane({
       const current = dragRef.current
       setDrag(null)
       if (!current?.active || !current.over) return
-      onModelChange(moveChip(model, fields, current.source, current.over))
+      void changeModel(moveChip(model, fields, current.source, current.over))
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -238,7 +268,7 @@ export function PivotFieldPane({
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [dragging, model, fields, onModelChange])
+  }, [dragging, model, fields, changeModel])
 
   useEffect(() => {
     if (!menu) return
@@ -258,6 +288,7 @@ export function PivotFieldPane({
   }, [menu])
 
   const runMenu = (ref: PivotChipRef, action: () => void): void => {
+    if (pending || writingRef.current) return
     setMenu(null)
     action()
   }
@@ -267,7 +298,7 @@ export function PivotFieldPane({
   ): { label: string; disabled?: boolean; onPick: () => void }[] => {
     const length = areaLength(model, ref.area)
     const move = (index: number) => () =>
-      onModelChange(moveChip(model, fields, ref, { area: ref.area, index }))
+      void changeModel(moveChip(model, fields, ref, { area: ref.area, index }))
     const fieldIndex =
       ref.area === 'values'
         ? (model.values[ref.index]?.fieldIndex ?? -1)
@@ -297,12 +328,12 @@ export function PivotFieldPane({
       items.push({
         label: t(MOVE_TO_LABELS[area]),
         onPick: () =>
-          onModelChange(moveChip(model, fields, ref, { area, index: areaLength(model, area) })),
+          void changeModel(moveChip(model, fields, ref, { area, index: areaLength(model, area) })),
       })
     }
     items.push({
       label: t('dlgPivotRemoveField'),
-      onPick: () => onModelChange(removeChip(model, ref)),
+      onPick: () => void changeModel(removeChip(model, ref)),
     })
     items.push({
       label: ref.area === 'values' ? t('dlgPivotValueFieldSettings') : t('dlgPivotFieldSettings'),
@@ -338,6 +369,7 @@ export function PivotFieldPane({
           type="button"
           aria-label={t('dlgPivotFieldMenu', { name: label })}
           aria-haspopup="menu"
+          disabled={busy}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
             setMenu({ ref, x: rect.right, y: rect.bottom })
@@ -375,10 +407,18 @@ export function PivotFieldPane({
   }
 
   return (
-    <div className="pivot-fields-pane" ref={paneRef} role="complementary">
+    <div className="pivot-fields-pane" ref={paneRef} role="complementary" aria-busy={busy}>
       <header>
         <span>{t('dlgPivotPaneTitle')}</span>
-        <button type="button" data-tip={t('appClose')} aria-label={t('appClose')} onClick={onClose}>
+        <button
+          type="button"
+          disabled={busy}
+          data-tip={t('appClose')}
+          aria-label={t('appClose')}
+          onClick={() => {
+            if (!pending && !writingRef.current) onClose()
+          }}
+        >
           ✕
         </button>
       </header>
@@ -397,7 +437,8 @@ export function PivotFieldPane({
                 <input
                   type="checkbox"
                   checked={isFieldUsed(model, fieldIndex)}
-                  onChange={() => onModelChange(toggleField(model, fields, fieldIndex))}
+                  disabled={busy}
+                  onChange={() => void changeModel(toggleField(model, fields, fieldIndex))}
                 />
                 <span title={field.label}>{field.label}</span>
               </label>
@@ -409,9 +450,9 @@ export function PivotFieldPane({
         <strong>{t('dlgPivotPaneDragHint')}</strong>
         <div className="pivot-area-grid">{PIVOT_AREAS.map(renderArea)}</div>
       </div>
-      {error && (
+      {failure && (
         <p className="dialog-error" role="alert">
-          {error}
+          {failure}
         </p>
       )}
       <footer>
@@ -419,11 +460,17 @@ export function PivotFieldPane({
           <input
             type="checkbox"
             checked={deferred}
+            disabled={busy}
             onChange={(event) => onDeferredChange(event.target.checked)}
           />
           {t('dlgPivotDeferUpdate')}
         </label>
-        <button type="button" className="primary-action" disabled={!dirty} onClick={onUpdate}>
+        <button
+          type="button"
+          className="primary-action"
+          disabled={busy || !dirty}
+          onClick={onUpdate}
+        >
           {t('dlgPivotUpdate')}
         </button>
       </footer>
@@ -439,7 +486,7 @@ export function PivotFieldPane({
               key={index}
               type="button"
               role="menuitem"
-              disabled={item.disabled}
+              disabled={busy || item.disabled}
               onClick={() => runMenu(menu.ref, item.onPick)}
             >
               {item.label}
@@ -454,7 +501,7 @@ export function PivotFieldPane({
             model={model}
             value={model.values[settings.index]!}
             onGetFieldMembers={onGetFieldMembers}
-            onApply={(patch) => onModelChange(updateValueSpec(model, settings.index, patch))}
+            onApply={(patch) => changeModel(updateValueSpec(model, settings.index, patch))}
             onClose={() => setSettings(null)}
           />
         ) : (
@@ -467,7 +514,7 @@ export function PivotFieldPane({
                 ? onGetFieldMembers(model.filters[settings.index]?.fieldIndex ?? -1)
                 : []
             }
-            onModelChange={onModelChange}
+            onModelChange={changeModel}
             onClose={() => setSettings(null)}
           />
         ))}
@@ -487,12 +534,18 @@ function ValueFieldSettingsDialog({
   readonly model: PivotLayoutModel
   readonly value: PivotValueSpec
   readonly onGetFieldMembers: (fieldIndex: number) => string[]
-  readonly onApply: (patch: Partial<PivotValueSpec>) => void
+  readonly onApply: (patch: Partial<PivotValueSpec>) => PivotChangeResult
   readonly onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const [draft, setDraft] = useState<PivotValueSpec>(value)
-  const modal = useModalDialog(onClose)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
+  const close = (): void => {
+    if (!pendingRef.current) onClose()
+  }
+  const modal = useModalDialog(close)
   const isCalc = draft.formula !== undefined
   const sourceName = isCalc ? (draft.calcName ?? '') : fieldLabel(t, fields, draft.fieldIndex)
   // Base-field modes: the picker lists the current row/column fields (Excel's
@@ -510,17 +563,48 @@ function ValueFieldSettingsDialog({
   const baseItem = usesBaseItem
     ? ((baseMembers.includes(draft.baseItem ?? '\u0000') ? draft.baseItem : baseMembers[0]) ?? '')
     : undefined
+  const apply = async (): Promise<void> => {
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setPending(true)
+    setError(null)
+    try {
+      const result = await onApply({
+        agg: draft.agg,
+        showDataAs: draft.showDataAs,
+        ...(usesBaseField && baseFieldIndex >= 0 ? { baseFieldIndex } : {}),
+        ...(usesBaseItem && baseFieldIndex >= 0 ? { baseItem } : {}),
+        name: draft.name?.trim() || undefined,
+        calcName: draft.calcName,
+        formula: draft.formula,
+        filter: draft.filter,
+      })
+      const failure = typeof result === 'string' ? result : null
+      setError(failure)
+      if (failure === null) onClose()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      pendingRef.current = false
+      setPending(false)
+    }
+  }
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
+    <div className="dialog-backdrop" onClick={close}>
       <div
         className="format-cells-dialog pivot-dialog"
         role="dialog"
         {...modal}
         aria-label={t('dlgPivotValueFieldSettingsTitle', { name: sourceName })}
+        aria-busy={pending}
         onClick={(event) => event.stopPropagation()}
       >
         <header>{t('dlgPivotValueFieldSettingsTitle', { name: sourceName })}</header>
-        <div className="dialog-grid">
+        <fieldset
+          className="dialog-grid"
+          disabled={pending}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
           {isCalc ? (
             <>
               <label>
@@ -633,27 +717,17 @@ function ValueFieldSettingsDialog({
             filter={draft.filter}
             onChange={(filter) => setDraft({ ...draft, filter })}
           />
-        </div>
+        </fieldset>
+        {error && (
+          <p className="dialog-note dialog-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="dialog-actions">
-          <button className="secondary" onClick={onClose}>
+          <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
-          <button
-            className="primary-action"
-            onClick={() => {
-              onApply({
-                agg: draft.agg,
-                showDataAs: draft.showDataAs,
-                ...(usesBaseField && baseFieldIndex >= 0 ? { baseFieldIndex } : {}),
-                ...(usesBaseItem && baseFieldIndex >= 0 ? { baseItem } : {}),
-                name: draft.name?.trim() || undefined,
-                calcName: draft.calcName,
-                formula: draft.formula,
-                filter: draft.filter,
-              })
-              onClose()
-            }}
-          >
+          <button className="primary-action" disabled={pending} onClick={() => void apply()}>
             {t('dlgApply')}
           </button>
         </div>
@@ -758,11 +832,17 @@ function FieldSettingsDialog({
   readonly model: PivotLayoutModel
   readonly target: PivotChipRef
   readonly members: readonly string[]
-  readonly onModelChange: (next: PivotLayoutModel) => void
+  readonly onModelChange: (next: PivotLayoutModel) => PivotChangeResult
   readonly onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
-  const modal = useModalDialog(onClose)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
+  const close = (): void => {
+    if (!pendingRef.current) onClose()
+  }
+  const modal = useModalDialog(close)
   const fieldIndex =
     target.area === 'filters'
       ? (model.filters[target.index]?.fieldIndex ?? -1)
@@ -779,17 +859,47 @@ function FieldSettingsDialog({
   const [item, setItem] = useState<string | null>(model.filters[target.index]?.item ?? null)
   const groupingValue =
     grouping === null ? '' : grouping.kind === 'date' ? `date:${grouping.dateUnit}` : 'range'
+  const apply = async (): Promise<void> => {
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setPending(true)
+    setError(null)
+    try {
+      const next =
+        target.area === 'filters'
+          ? setPageItem(model, target.index, item)
+          : setFieldLabelFilter(
+              setFieldGrouping(model, fieldIndex, grouping),
+              fieldIndex,
+              labelFilter,
+            )
+      const result = await onModelChange(next)
+      const failure = typeof result === 'string' ? result : null
+      setError(failure)
+      if (failure === null) onClose()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      pendingRef.current = false
+      setPending(false)
+    }
+  }
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
+    <div className="dialog-backdrop" onClick={close}>
       <div
         className="format-cells-dialog pivot-dialog"
         role="dialog"
         {...modal}
         aria-label={t('dlgPivotFieldSettingsTitle', { name })}
+        aria-busy={pending}
         onClick={(event) => event.stopPropagation()}
       >
         <header>{t('dlgPivotFieldSettingsTitle', { name })}</header>
-        <div className="dialog-grid">
+        <fieldset
+          className="dialog-grid"
+          disabled={pending}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
           {target.area === 'filters' ? (
             <label className="dialog-span">
               {t('dlgPivotReportFilterItem')}
@@ -879,28 +989,17 @@ function FieldSettingsDialog({
               )}
             </>
           )}
-        </div>
+        </fieldset>
+        {error && (
+          <p className="dialog-note dialog-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="dialog-actions">
-          <button className="secondary" onClick={onClose}>
+          <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
-          <button
-            className="primary-action"
-            onClick={() => {
-              if (target.area === 'filters') {
-                onModelChange(setPageItem(model, target.index, item))
-              } else {
-                onModelChange(
-                  setFieldLabelFilter(
-                    setFieldGrouping(model, fieldIndex, grouping),
-                    fieldIndex,
-                    labelFilter,
-                  ),
-                )
-              }
-              onClose()
-            }}
-          >
+          <button className="primary-action" disabled={pending} onClick={() => void apply()}>
             {t('dlgApply')}
           </button>
         </div>

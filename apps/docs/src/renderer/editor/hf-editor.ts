@@ -6,6 +6,11 @@
  * stay display-only and are spliced back around the edited paragraphs.
  */
 import { Editor, Extension, Node } from '@tiptap/core'
+import {
+  markRecoveryPending,
+  RECOVERY_SNAPSHOT_EVENT,
+  recoverySnapshotListener,
+} from './recovery-snapshot'
 import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state'
 import type { ResolvedPos } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
@@ -656,6 +661,12 @@ export function mountHfEditor(
     if (next) opts.onCommit(next)
     exit()
   }
+  const onRecoverySnapshot = recoverySnapshotListener((event) => {
+    const next = changed()
+    if (!next) return
+    markRecoveryPending(event)
+    opts.onCommit(next)
+  })
   const onFocusOut = (e: FocusEvent) => {
     const next = e.relatedTarget as HTMLElement | null
     if (next && (host.contains(next) || next.closest(KEEP_OPEN_SELECTOR))) return
@@ -675,6 +686,7 @@ export function mountHfEditor(
     exited = true
     host.removeEventListener('focusout', onFocusOut)
     window.removeEventListener(HF_COMMIT_EVENT, onCommitEvent)
+    window.removeEventListener(RECOVERY_SNAPSHOT_EVENT, onRecoverySnapshot)
     const next = commit ? changed() : null
     dropActiveSubEditor(editor)
     editor.destroy()
@@ -684,6 +696,7 @@ export function mountHfEditor(
   const exit = () => close(true)
   host.addEventListener('focusout', onFocusOut)
   window.addEventListener(HF_COMMIT_EVENT, onCommitEvent)
+  window.addEventListener(RECOVERY_SNAPSHOT_EVENT, onRecoverySnapshot)
   editor.commands.focus('end')
   return { editor, changed, exit, discard: () => close(false) }
 }

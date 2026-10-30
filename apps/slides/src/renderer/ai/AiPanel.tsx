@@ -1,3 +1,10 @@
+import { slidesAuthored } from '../slides-authored'
+import {
+  captureSlidesHistoryBatches,
+  runSlidesHistoryBatch,
+  type SlidesHistoryBatchAccess,
+  type SlidesHistoryBatchLease,
+} from '../slides-history-batch'
 import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
@@ -407,6 +414,58 @@ export function AiPanel({
   onQueueConsume,
 }: AiPanelProps) {
   const { t, lang } = useI18n()
+  const ownershipRef = useRef({ runtime: slidesAuthored(), scope: slidesAuthored()?.scope() })
+  const { runtime: authoredRuntime, scope: authoredScope } = ownershipRef.current
+  const ownedApi =
+    authoredRuntime && authoredScope
+      ? authoredRuntime.bindApi(window.slidesApi, authoredScope)
+      : window.slidesApi
+  const historyAccessRef = useRef<SlidesHistoryBatchAccess | null>(null),
+    historyMountedRef = useRef(false)
+  const getHistoryAccess = () => {
+    if (!historyMountedRef.current) throw new Error('This AI history owner has ended.')
+    return (historyAccessRef.current ??= captureSlidesHistoryBatches(
+      window.slidesApi,
+      authoredRuntime,
+      authoredScope,
+    ))
+  }
+  useEffect(() => {
+    historyMountedRef.current = true
+    const access = getHistoryAccess()
+    return () => {
+      historyMountedRef.current = false
+      access.retire()
+      if (historyAccessRef.current === access) historyAccessRef.current = null
+      const lease = historyBatchActiveRef.current
+      historyBatchActiveRef.current = null
+      if (lease)
+        void lease
+          .finish()
+          .catch((error) =>
+            console.warn('[slides] Owned AI history cleanup remains pending.', error),
+          )
+    }
+  }, [authoredRuntime, authoredScope])
+  useEffect(() => {
+    authoredRuntime?.notifyReady()
+  })
+  const waitSource = <Result,>(work: PromiseLike<Result> | Result): Promise<Result> =>
+    authoredRuntime && authoredScope
+      ? authoredRuntime.wait(authoredScope, work)
+      : Promise.resolve(work)
+  useEffect(
+    () =>
+      authoredRuntime?.registerParticipant(() =>
+        loopRef.current?.busy ||
+        runStartingRef.current ||
+        qcRunningRef.current ||
+        historyBatchActiveRef.current
+          ? 'Finish or stop the active presentation AI run before Save and Close.'
+          : null,
+      ),
+    [authoredRuntime],
+  )
   // Panel chrome follows the UI language; message text follows its own content (dir=auto below)
   const isRtl = lang === 'ar' || lang === 'he'
   const [input, setInput] = useState('')
@@ -554,7 +613,7 @@ export function AiPanel({
   useEffect(() => {
     let alive = true
     const refresh = () => {
-      void window.slidesApi
+      void ownedApi
         ?.aiGskStatus()
         .then((s) => {
           if (alive) gskLoggedInRef.current = !!s?.loggedIn
@@ -718,7 +777,7 @@ export function AiPanel({
    * it there would feed it straight back on the next reopen.
    */
   const logRunFailure = (kind: 'error' | 'stopped', error?: string) => {
-    void window.slidesApi
+    void ownedApi
       .aiLogRunFailure({
         kind,
         instruction: instructionRef.current,
@@ -759,7 +818,7 @@ export function AiPanel({
   const accessRef = useRef<DeckAccess | null>(null)
   /** Wall-clock start of the current run, drives the elapsed badge */
   const runStartedAtRef = useRef(0)
-  const historyBatchActiveRef = useRef(false)
+  const historyBatchActiveRef = useRef<SlidesHistoryBatchLease | null>(null)
   const inputEditedSinceRunRef = useRef(false)
   /** This run's rollback batch — carried onto the QC entry when a QC pass
       follows (mid-turn segments never show the action toolbar) */
@@ -791,16 +850,35 @@ export function AiPanel({
   }
 
   const finishHistoryBatch = async () => {
-    if (!historyBatchActiveRef.current) return
-    historyBatchActiveRef.current = false
-    const id = await window.slidesApi.endHistoryBatch()
+    const lease = historyBatchActiveRef.current
+    if (!lease) return
+    historyBatchActiveRef.current = null
+    const id = await lease.finish()
+    if (
+      !historyMountedRef.current ||
+      (authoredRuntime && authoredScope && !authoredRuntime.current(authoredScope))
+    )
+      return
     if (typeof id !== 'number') return
     runSnapshotIdRef.current = id
     patchLastAssistant({ snapshotId: id })
   }
+  const beginPersistentHistoryBatch = async () => {
+    const access = getHistoryAccess(),
+      lease = await access.acquire()
+    if (!lease) throw new Error('The AI history batch is unavailable.')
+    try {
+      access.assertCurrent()
+      if (historyBatchActiveRef.current) throw new Error('An AI history batch is already active.')
+      historyBatchActiveRef.current = lease
+    } catch (error) {
+      await lease.finish()
+      throw error
+    }
+  }
 
   const rollback = async (snapshotId: number) => {
-    const restored = await window.slidesApi.aiSnapshotRestore(snapshotId)
+    const restored = await waitSource(ownedApi.aiSnapshotRestore(snapshotId))
     if (!restored) {
       // Evicted from the main-process snapshot ring — retire the dead action
       setChat((prev) =>
@@ -867,7 +945,7 @@ export function AiPanel({
           signal?.removeEventListener('abort', onAbort)
           unsub()
           // On timeout/abort the main-process stream keeps running; it must be cancelled explicitly or orphan streams eat proxy concurrency
-          if (cancelUpstream) void window.slidesApi.aiStreamCancel(requestId)
+          if (cancelUpstream) void ownedApi.aiStreamCancel(requestId)
           resolve(r)
         }
         const onAbort = () =>
@@ -892,7 +970,7 @@ export function AiPanel({
           )
         }
         armTimeout()
-        const unsub = window.slidesApi.onAiStream((chunk) => {
+        const unsub = ownedApi.onAiStream((chunk) => {
           if (chunk.requestId !== requestId) return
           armTimeout() // any chunk (including pings) proves the turn is alive
           if (chunk.type === 'delta') buf += chunk.text ?? ''
@@ -914,7 +992,7 @@ export function AiPanel({
         })
         signal?.addEventListener('abort', onAbort, { once: true })
         // If invoke itself rejects (IPC-layer failure), fail immediately instead of waiting out the timeout
-        window.slidesApi
+        ownedApi
           .aiStream({
             requestId,
             settings,
@@ -939,13 +1017,15 @@ export function AiPanel({
       signal?: AbortSignal,
       maxTokens?: number,
     ): Promise<LlmResult> => {
-      const first = await runLlmAttempt(
-        useGenModel ? settingsForGen() : settingsRef.current,
-        system,
-        user,
-        timeoutMs,
-        signal,
-        maxTokens,
+      const first = await waitSource(
+        runLlmAttempt(
+          useGenModel ? settingsForGen() : settingsRef.current,
+          system,
+          user,
+          timeoutMs,
+          signal,
+          maxTokens,
+        ),
       )
       if (first.ok || !useGenModel || signal?.aborted) return first
       // Only "request errors" fall back to the user's model for a retry; timeouts/empty output don't switch models (mostly network/output problems, switching won't help)
@@ -971,13 +1051,17 @@ export function AiPanel({
         insertAt?: number,
       ) => {
         try {
-          const res = await window.slidesApi.landGeneratedPages(
-            pageMarkers,
-            fitWidthPx,
-            mode,
-            insertAt,
-            deckName,
+          const res = await waitSource(
+            ownedApi.landGeneratedPages(pageMarkers, fitWidthPx, mode, insertAt, deckName),
           )
+          if (res && 'sourceCandidateId' in res && res.sourceCandidateId)
+            return {
+              ok: true,
+              pages: res.slides.length,
+              appendedFrom: 0,
+              fallbackReason:
+                'The generated presentation was published; switching the editor awaits its Save/Discard approval.',
+            }
           if (res && 'slides' in res && Array.isArray(res.slides)) {
             const appendedFrom =
               'appendedFrom' in res && typeof res.appendedFrom === 'number' ? res.appendedFrom : 0
@@ -1023,11 +1107,8 @@ export function AiPanel({
       },
       regenerateSlide: async (slideIndex: number, marker: string) => {
         try {
-          const res = await window.slidesApi.landGeneratedPages(
-            [marker],
-            fitWidthPx,
-            'replace_at',
-            slideIndex,
+          const res = await waitSource(
+            ownedApi.landGeneratedPages([marker], fitWidthPx, 'replace_at', slideIndex),
           )
           if (res && 'slides' in res && Array.isArray(res.slides)) {
             applyDeckRef.current(res.slides, slideIndex)
@@ -1124,13 +1205,13 @@ export function AiPanel({
               ? userMsg
               : `${userMsg}\n\nYour previous output was rejected: ${lastErr}. Output the corrected JSON object only.`
           // Text-heavy spec JSON can exceed the default 8192 tokens; single-page requests get a higher cap
-          const r = await runLlmOnce(sys, msg, 120000, true, args.signal, 16384)
+          const r = await waitSource(runLlmOnce(sys, msg, 120000, true, args.signal, 16384))
           if (!r.ok || !r.text) {
             lastErr = r.error ?? tGlobal('aiErrEmptyOutput')
             continue
           }
           try {
-            const res = await window.slidesApi.localGeneratePage({ specJson: r.text })
+            const res = await waitSource(ownedApi.localGeneratePage({ specJson: r.text }))
             if (res?.ok && res.marker) return res
             lastErr = res?.error ?? tGlobal('aiErrUnknown')
           } catch (e) {
@@ -1166,7 +1247,7 @@ export function AiPanel({
         const q = a.questionnaire ? `\nUser questionnaire answers: ${a.questionnaire}` : ''
         const hint = a.styleHint ? `\nStyle preference: ${a.styleHint}` : ''
         const userMsg = `Topic and style preferences: ${a.topic}${hint}${q}\nOutput the Style Skill.`
-        const r = await runLlmOnce(sys, userMsg, undefined, true, a.signal)
+        const r = await waitSource(runLlmOnce(sys, userMsg, undefined, true, a.signal))
         return r.ok && r.text
           ? { ok: true, styleSkill: r.text.trim() }
           : { ok: false, error: r.error ?? tGlobal('aiErrEmptyOutput') }
@@ -1216,7 +1297,7 @@ export function AiPanel({
         let lastErr = tGlobal('aiErrEmptyOutput')
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           if (a.signal?.aborted) return { ok: false, error: tGlobal('aiErrStopped') }
-          const r = await runLlmOnce(sys, userMsg, undefined, true, a.signal)
+          const r = await waitSource(runLlmOnce(sys, userMsg, undefined, true, a.signal))
           if (!r.ok || !r.text) {
             lastErr = r.error ?? tGlobal('aiErrEmptyOutput')
             // Empty output/timeout doesn't burn another attempt; request-level errors may retry
@@ -1292,7 +1373,7 @@ export function AiPanel({
       },
       searchImages: async (query: string, maxResults: number) => {
         try {
-          const r = await window.slidesApi.imageSearch(query, maxResults)
+          const r = await waitSource(ownedApi.imageSearch(query, maxResults))
           return r.images.map((im) => im.imageUrl).filter(Boolean)
         } catch {
           return []
@@ -1300,28 +1381,28 @@ export function AiPanel({
       },
       saveSidecar: async (data) => {
         try {
-          await window.slidesApi.saveStyleSidecar(data)
+          await waitSource(ownedApi.saveStyleSidecar(data))
         } catch {
           /* fail-open */
         }
       },
       saveStyleTemplate: async (name, data) => {
         try {
-          return await window.slidesApi.saveStyleTemplate(name, data)
+          return await waitSource(ownedApi.saveStyleTemplate(name, data))
         } catch {
           return { ok: false, error: String('') }
         }
       },
       listStyleTemplates: async () => {
         try {
-          return await window.slidesApi.listStyleTemplates()
+          return await waitSource(ownedApi.listStyleTemplates())
         } catch {
           return []
         }
       },
       loadStyleTemplate: async (name) => {
         try {
-          return await window.slidesApi.loadStyleTemplate(name)
+          return await waitSource(ownedApi.loadStyleTemplate(name))
         } catch {
           return { ok: false, error: String('') }
         }
@@ -1351,7 +1432,7 @@ export function AiPanel({
           }
         }
         try {
-          const r = await window.desktop.readAttachmentImage(match.path)
+          const r = await waitSource(window.desktop.readAttachmentImage(match.path))
           if (!r.ok || !r.base64)
             return {
               ok: false as const,
@@ -1490,7 +1571,7 @@ export function AiPanel({
           // gsk status rather than matching the localized error text — but only
           // when Genspark is the provider: a BYOK user's error (e.g. their own
           // provider's rate limit) must not advertise a Genspark sign-in (vantage#1948)
-          void window.slidesApi
+          void ownedApi
             .aiGskStatus()
             .then((status) => {
               if (status.loggedIn) return
@@ -1604,7 +1685,7 @@ export function AiPanel({
     const failures: string[] = []
     for (const att of imageAtts.slice(0, MAX_IMAGES_PER_MESSAGE)) {
       try {
-        const result = await window.desktop.readAttachmentImage(att.path)
+        const result = await waitSource(window.desktop.readAttachmentImage(att.path))
         if (result.ok && result.base64 && result.mime) {
           images.push({ base64: result.base64, mime: result.mime })
         } else {
@@ -1639,7 +1720,7 @@ export function AiPanel({
     if (!slide) return null
     if (!screenshotAllowed(slide)) return null
     try {
-      const [png] = await renderSlidesToPngBase64([slide], imagesRef.current, 1)
+      const [png] = await waitSource(renderSlidesToPngBase64([slide], imagesRef.current, 1))
       return png ? { base64: png, mime: 'image/png' } : null
     } catch {
       return null
@@ -1725,9 +1806,9 @@ export function AiPanel({
       .then(async (images) => {
         // AI Beautify sends the current slide's rendering along, so the model sees what it edits;
         // the note rides on the model instruction only — the chat bubble stays the localized preset text
-        let modelInstruction = await withSkillBodies(instruction, sentSkills)
+        let modelInstruction = await waitSource(withSkillBodies(instruction, sentSkills))
         if (opts?.slideShot && settingsSupportVision(settingsRef.current)) {
-          const shot = await captureSlideShot(currentRef.current)
+          const shot = await waitSource(captureSlideShot(currentRef.current))
           if (shot) {
             images.push(shot)
             modelInstruction += `\n\n(Attached image: the current rendering of this slide, slideIndex ${currentRef.current}. Use it to spot visual issues the element inventory can't show.)`
@@ -1739,8 +1820,8 @@ export function AiPanel({
         }
         // Clear the flag before run: loop.run sets running synchronously, leaving no re-entry window
         runStartingRef.current = false
-        await onBeforeRunRef.current?.()
-        if (await window.slidesApi.beginHistoryBatch()) historyBatchActiveRef.current = true
+        await waitSource(onBeforeRunRef.current?.())
+        await beginPersistentHistoryBatch()
         loop.run(modelInstruction, images)
       })
       .catch(() => {
@@ -1752,14 +1833,16 @@ export function AiPanel({
   /** the attached skills' full text in front of the request; a skill that vanished is skipped */
   const withSkillBodies = async (instruction: string, names: readonly string[]) => {
     if (names.length === 0) return instruction
-    const bodies = await Promise.all(
-      names.map(async (name) => {
-        try {
-          return { name, body: await window.slidesApi.skillText(name) }
-        } catch {
-          return null
-        }
-      }),
+    const bodies = await waitSource(
+      Promise.all(
+        names.map(async (name) => {
+          try {
+            return { name, body: await waitSource(ownedApi.skillText(name)) }
+          } catch {
+            return null
+          }
+        }),
+      ),
     )
     return withAttachedSkills(
       instruction,
@@ -1768,7 +1851,10 @@ export function AiPanel({
   }
 
   const listSkillsForMenu = async () =>
-    (await window.slidesApi.skillsList()).map(({ name, description }) => ({ name, description }))
+    (await waitSource(ownedApi.skillsList())).map(({ name, description }) => ({
+      name,
+      description,
+    }))
   const toggleSkill = (name: string) =>
     setAttachedSkills((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
@@ -1802,9 +1888,8 @@ export function AiPanel({
       setBusy(true)
       queueRunResolverRef.current = resolve
       void Promise.resolve(onBeforeRunRef.current?.())
-        .then(() => window.slidesApi.beginHistoryBatch())
-        .then((ok) => {
-          if (ok) historyBatchActiveRef.current = true
+        .then(() => beginPersistentHistoryBatch())
+        .then(() => {
           runStartingRef.current = false
           loop.run(instruction)
         })
@@ -1868,7 +1953,7 @@ export function AiPanel({
     if (skipped.length > 0) onQueueConsume?.(skipped.map((r) => r.item.key))
     for (let i = 0; i < groups.length; i++) {
       const group = groups[i]!
-      const ok = await runQueuePage(buildPageInstruction(group, groups.length, i + 1))
+      const ok = await waitSource(runQueuePage(buildPageInstruction(group, groups.length, i + 1)))
       if (!ok) break // stopped or failed: the remaining pages stay queued for a retry
       onQueueConsume?.(group.entries.map((e) => e.item.key))
     }
@@ -1915,32 +2000,39 @@ export function AiPanel({
       for (const page of capped) {
         if (controller.signal.aborted) break
         const useScreenshot = !forceGeometryOnly && settingsSupportVision(settingsRef.current)
-        const shot = useScreenshot ? await captureSlideShot(page) : null
+        const shot = useScreenshot ? await waitSource(captureSlideShot(page)) : null
         if (useScreenshot && !shot) {
           if (slidesRef.current[page]) lines.push(tGlobal('aiQcPageSkipped', { n: page + 1 }))
           continue
         }
-        const batchOpened = await window.slidesApi.beginHistoryBatch()
-        let result = await qcSlidePage({
-          access,
-          transport,
-          pageIndex: page,
-          screenshot: shot,
-          systemSuffix: aiLangDirective,
-          signal: controller.signal,
+        const batchResult = await runSlidesHistoryBatch(getHistoryAccess(), async () => {
+          let result = await waitSource(
+            qcSlidePage({
+              access,
+              transport,
+              pageIndex: page,
+              screenshot: shot,
+              systemSuffix: aiLangDirective,
+              signal: controller.signal,
+            }),
+          )
+          if (shot && result.error && isUnsupportedImageInputError(result.error)) {
+            forceGeometryOnly = true
+            result = await waitSource(
+              qcSlidePage({
+                access,
+                transport,
+                pageIndex: page,
+                screenshot: null,
+                systemSuffix: aiLangDirective,
+                signal: controller.signal,
+              }),
+            )
+          }
+          return result
         })
-        if (shot && result.error && isUnsupportedImageInputError(result.error)) {
-          forceGeometryOnly = true
-          result = await qcSlidePage({
-            access,
-            transport,
-            pageIndex: page,
-            screenshot: null,
-            systemSuffix: aiLangDirective,
-            signal: controller.signal,
-          })
-        }
-        const batchId = batchOpened ? await window.slidesApi.endHistoryBatch() : null
+        const result = batchResult.value,
+          batchId = batchResult.snapshotId
         if (controller.signal.aborted) break
         if (result.error) {
           // QC is optional polish. Keep provider/network details in diagnostics instead of
@@ -1950,7 +2042,7 @@ export function AiPanel({
         } else if (result.edited && result.postIssues > result.preIssues) {
           // The fix made the deterministic audit worse — undo this page's batch
           if (typeof batchId === 'number') {
-            const restored = await window.slidesApi.aiSnapshotRestore(batchId)
+            const restored = await waitSource(ownedApi.aiSnapshotRestore(batchId))
             if (restored)
               applyDeckRef.current(restored, Math.min(currentRef.current, restored.length - 1))
           }
@@ -1973,6 +2065,7 @@ export function AiPanel({
       if (controller.signal.aborted) lines.push(tGlobal('aiQcStopped'))
     } finally {
       qcRunningRef.current = false
+      authoredRuntime?.notifyReady()
       qcAbortRef.current = null
       const finalText = renderEntry()
       patchLastAssistant({
@@ -2053,7 +2146,8 @@ export function AiPanel({
     }
   }
 
-  const pickAttachments = async () => mergeAttachments(await window.desktop.pickAttachments())
+  const pickAttachments = async () =>
+    mergeAttachments(await waitSource(window.desktop.pickAttachments()))
 
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault()
@@ -2062,7 +2156,8 @@ export function AiPanel({
     const paths = Array.from(e.dataTransfer.files)
       .map((f) => window.desktop.getPathForFile(f))
       .filter(Boolean)
-    if (paths.length > 0) mergeAttachments(await window.desktop.addAttachmentPaths(paths))
+    if (paths.length > 0)
+      mergeAttachments(await waitSource(window.desktop.addAttachmentPaths(paths)))
   }
 
   /** Files pasted into the input box: those with local paths go the regular attachment route; pure bitmaps like screenshots land in a temp file first */
@@ -2075,9 +2170,12 @@ export function AiPanel({
         continue
       }
       const ext = PASTE_MIME_EXT[f.type] ?? f.name.split('.').pop()?.toLowerCase() ?? 'bin'
-      mergeAttachments(await window.desktop.addPastedImage(await f.arrayBuffer(), ext))
+      mergeAttachments(
+        await waitSource(window.desktop.addPastedImage(await waitSource(f.arrayBuffer()), ext)),
+      )
     }
-    if (paths.length > 0) mergeAttachments(await window.desktop.addAttachmentPaths(paths))
+    if (paths.length > 0)
+      mergeAttachments(await waitSource(window.desktop.addAttachmentPaths(paths)))
   }
 
   const removeAttachment = (path: string) =>
@@ -2166,10 +2264,7 @@ export function AiPanel({
           {t('aiPanelTitle')}
         </span>
         <div className="ai-panel-header-actions">
-          <AiPanelSideButton
-            lang={lang}
-            onMove={(side) => window.slidesApi.setAiPanelPrefs({ side })}
-          />
+          <AiPanelSideButton lang={lang} onMove={(side) => ownedApi.setAiPanelPrefs({ side })} />
           {(chat.length > 0 || historicChat.length > 0) && (
             <button
               className="ai-header-btn"
@@ -2299,7 +2394,7 @@ export function AiPanel({
                 <div className="ai-msg-error">{t('aiMsgError', { error: entry.error })}</div>
               )}
               {entry.loginRequired && (
-                <button className="ai-login-btn" onClick={() => void window.slidesApi.aiGskLogin()}>
+                <button className="ai-login-btn" onClick={() => void ownedApi.aiGskLogin()}>
                   {t('aiGskLoginBtn')}
                 </button>
               )}
@@ -2547,7 +2642,7 @@ export function AiPanel({
                 selected={attachedSkills}
                 onToggle={toggleSkill}
                 onAddFile={() => void pickAttachments()}
-                onManage={() => void window.slidesApi.openSkillsSettings?.().catch(() => {})}
+                onManage={() => void ownedApi.openSkillsSettings?.().catch(() => {})}
               />
               {busy ? (
                 <button

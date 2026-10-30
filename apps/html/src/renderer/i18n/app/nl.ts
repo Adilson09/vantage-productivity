@@ -1,6 +1,11 @@
 import type { zh } from './zh'
 
 export const nl = {
+  recoveryFailed:
+    'De herstelkopie kon niet worden bijgewerkt: {error}. De vorige kopie blijft bewaard.',
+  recoveryRetry: 'Opnieuw proberen',
+  recoveryRemote:
+    'Deze kopie gebruikt nog {count} externe bronnen waarvoor internet nodig kan zijn.',
   redactMenuLabel: 'Selectie verbergen voor de AI',
   redactDialogDesc:
     'De woorden blijven in het document en het bestand; het model ziet alleen de placeholder. Geef hem een naam.',

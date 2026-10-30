@@ -19,6 +19,7 @@ import { textBoxInsertSpec } from './textbox-insert'
 import type { EditParagraph, MasterPartItem } from '../shared/ipc'
 import { t } from './i18n/locale'
 import { setImageSource } from './image-loader'
+import { slidesRecoveryClient } from './slides-recovery'
 
 interface Props {
   initialItems: MasterPartItem[]
@@ -121,9 +122,16 @@ export function MasterView({ initialItems, onClose }: Props) {
   const commitEdit = useCallback(
     async (paragraphs: EditParagraph[]) => {
       if (!editing) return
-      applyCurrent(
-        await window.slidesApi.masterEditText({ sourceId: editing.sourceId, paragraphs }),
-      )
+      const recovery = slidesRecoveryClient()
+      const ticket = recovery?.beginSave()
+      const updated = await window.slidesApi.masterEditText({
+        sourceId: editing.sourceId,
+        paragraphs,
+      })
+      if (ticket && recovery && !recovery.isCurrent(ticket)) return
+      if (!updated)
+        throw new Error('Master text changes could not be applied; the text editor was kept open.')
+      applyCurrent(updated)
       setEditing(null)
       setSelectedIds([editing.sourceId])
     },
@@ -367,6 +375,11 @@ export function MasterView({ initialItems, onClose }: Props) {
             {editing && editNode && (
               <TextEditOverlay
                 node={editNode}
+                recoveryTarget={{
+                  kind: 'master',
+                  partPath: items[sel]!.partPath,
+                  sourceId: editing.sourceId,
+                }}
                 scale={slide.scale}
                 caretPoint={editing.caret}
                 onCommit={commitEdit}

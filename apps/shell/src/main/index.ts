@@ -1,3 +1,42 @@
+import { runRootFileMutation, tryReadyRootFileMutation } from './root-file-mutation'
+import { createSheetsCloseAdapter } from './sheets-close-adapter'
+// SHEETS_NATIVE_RUNTIME_IMPORTS: main-owned registration and memory-only quit custody.
+import { installSheetsCloseRuntime } from './sheets-close-runtime'
+import { SheetsCloseQuitLedger, installSheetsCloseQuitGuard } from './sheets-close-quit-ledger'
+import { getCloseCleanupStatus } from '../../../../packages/electron-utils/src/close-cleanup-runtime'
+import { registerRootCloseAdapter, rootCloseAdapter } from './root-close-adapters'
+import { rootQuitIntent } from './root-quit-intent'
+import { cancelCloseCleanupQuitDrain } from '../../../../packages/electron-utils/src/close-cleanup-runtime'
+import {
+  configureRecoveryProfile,
+  initializeRecoveryRuntime,
+  recoveryRuntimeState,
+  queueRecoveryWarning,
+} from '@vantage/electron-utils/recovery-bootstrap'
+import { initializeShellRecovery } from './recovery-runtime-bootstrap'
+import { registerRetainedRecoveryMaintenance } from './retained-recovery-ipc'
+import {
+  inspectRetainedPdfPrivateBases,
+  retryRetainedPdfPrivateBase,
+  configurePdfRuntime,
+  flushPdfSave,
+  markPdfUntitledPath,
+  pdfFileRenamed,
+  pdfIsDirty,
+  requestPdfSaveAs,
+  sendPdfPrintRequest,
+  setPdfRenamedHook,
+  setPdfRedactionSavedHook,
+  setPdfSaveAsInFlight,
+  preparePdfNativeClose,
+  isPdfClosePrepared,
+  sealPdfClose,
+  completePdfClose,
+  cancelPdfClose,
+  pdfIsWorkspace,
+  preparePdfClose,
+  awaitPdfCloseCleanup,
+} from '../../../pdf/src/main/pdf-main'
 // Vantage Productivity modification (2026): independent identity, profile, and local workspace tools.
 import { registerVantageIpc } from './vantage-ipc'
 import { currentNetworkPolicy, installPrivacyRuntime } from './privacy-runtime'
@@ -179,6 +218,14 @@ import {
   defaultSaveDir,
   uniquePathIn,
   authorizeMcpDocWrite,
+  docsCloseSourceToken,
+  prepareDocsDiscardClose,
+  setDocsCloseInvalidationHook,
+  prepareDocsNativeClose,
+  isDocsClosePrepared,
+  sealDocsClose,
+  completeDocsClose,
+  cancelDocsClose,
 } from '../../../docs/src/main/docs-main'
 import { blankXlsxBuffer } from '@vantage/xlsx-gateway/gateway/csv-import'
 import { blankPdfBuffer } from '../../../pdf/src/main/blank-pdf'
@@ -193,10 +240,12 @@ import {
   startMcpFromSettings,
   stopMcpSync,
   type McpSettings,
+  installMcpQuitGuard,
+  cancelMcpQuitDrain,
 } from './mcp/app-mcp'
 import { createCliRunner } from './mcp/cli-runner'
 import { DEFAULT_MCP_PORT } from './mcp/mcp-server'
-import { createDocsControl, installDocsBridge } from './mcp/docs-bridge'
+import { createDocsControl, installDocsBridge, cancelDocsCloseForSender } from './mcp/docs-bridge'
 import { createSlidesControl } from './mcp/slides-bridge'
 import { createSheetsControl, installSheetsBridge } from './mcp/sheets-bridge'
 import { createOpenDocumentsControl, createOpenTargetResolver } from './mcp/open-documents-bridge'
@@ -222,6 +271,14 @@ import {
   setSheetsWorkbookOpenedHook,
   startSheetsCaptureServer,
   stopSheetsSidecar,
+  prepareSheetsNativeClose,
+  isSheetsClosePrepared,
+  sealSheetsClose,
+  completeSheetsClose,
+  cancelSheetsClose,
+  resetSheetsShuttingDown,
+  setSheetsCloseRuntime,
+  sheetsCloseState,
 } from '../../../sheets/src/main/sheets-main'
 import {
   configureSlidesRuntime,
@@ -237,19 +294,13 @@ import {
   setSlidesShellWindow,
   setSlidesShowBleed,
   slidesFileRenamed,
+  prepareSlidesNativeClose,
+  isSlidesClosePrepared,
+  sealSlidesClose,
+  completeSlidesClose,
+  cancelSlidesClose,
 } from '../../../slides/src/main/slides-main'
-import {
-  configurePdfRuntime,
-  flushPdfSave,
-  markPdfUntitledPath,
-  pdfFileRenamed,
-  pdfIsDirty,
-  requestPdfSaveAs,
-  sendPdfPrintRequest,
-  setPdfRenamedHook,
-  setPdfRedactionSavedHook,
-  setPdfSaveAsInFlight,
-} from '../../../pdf/src/main/pdf-main'
+
 import { PDF_CHANNELS } from '../../../pdf/src/shared/ipc'
 import { convertPdfFileToDocxLocalWithPrompt, PdfLoadError } from './pdf2docx-local'
 import { convertPdfFileToPptxLocalWithPrompt } from './pdf2pptx-local'
@@ -259,6 +310,9 @@ import {
   configureMarkdownRuntime,
   exportMarkdownPdfHeadless,
   markdownDiscardPendingAssets,
+  prepareMarkdownClose,
+  completeMarkdownClose,
+  cancelMarkdownClose,
   markdownFileRenamed,
   markdownReadText,
   markdownSaveToPath,
@@ -267,11 +321,17 @@ import {
   sendMarkdownPrintRequest,
   setMarkdownDocxExportedHook,
   setMarkdownFileSavedHook,
+  prepareMarkdownNativeClose,
+  isMarkdownClosePrepared,
+  sealMarkdownClose,
 } from '../../../markdown/src/main/markdown-main'
 import {
   configureHtmlRuntime,
   exportHtmlHeadless,
   htmlDiscardPendingAssets,
+  prepareHtmlClose,
+  completeHtmlClose,
+  cancelHtmlClose,
   htmlFileRenamed,
   htmlReadText,
   htmlSaveToPath,
@@ -284,6 +344,9 @@ import {
   setHtmlFileSavedHook,
   setHtmlPresentHooks,
   setHtmlProvisionalTitleHook,
+  prepareHtmlNativeClose,
+  isHtmlClosePrepared,
+  sealHtmlClose,
 } from '../../../html/src/main/html-main'
 import type {
   AccountLoginEvent,
@@ -327,12 +390,18 @@ import {
   DOCX_RE,
   HTML_RE,
   PDF_RE,
+  PDF_WORKSPACE_RE,
   PPTX_RE,
   TEXT_RE,
   XLSX_RE,
   renameStaysInApp,
 } from './app-routing'
-import { isSameFile, pdfSaveAsTarget, isValidRawRenameName } from './rename-validation'
+import {
+  isSameFile,
+  pdfSaveAsTarget,
+  isValidRawRenameName,
+  isValidRenameName,
+} from './rename-validation'
 import {
   FolderWatcher,
   createFolder,
@@ -381,7 +450,7 @@ import {
   SHELL_WINDOW_MIN_HEIGHT,
   SHELL_WINDOW_MIN_WIDTH,
 } from './window-bounds'
-import { installShellCloseGuard } from './window-close-guard'
+import { installShellCloseGuard, shellQuitTracker } from './window-close-guard'
 import {
   activateDetached,
   closeDetachedWithoutPrompt,
@@ -431,31 +500,26 @@ for (const stream of [process.stdout, process.stderr]) {
   })
 }
 
-// The renamed suite owns its profile and single-instance lock.
-// Explicit launchers can retain the user's established profile without copying credentials.
-app.setName('Vantage Productivity')
-const vantageProfileOverride = process.env.VANTAGE_USER_DATA
-app.setPath(
-  'userData',
-  vantageProfileOverride ||
-    join(app.getPath('appData'), app.isPackaged ? 'VantageProductivity' : 'VantageProductivity-Dev'),
-)
-process.env.VANTAGE_RECOVERY_ROOT = join(app.getPath('userData'), 'recovery')
-process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT = app.getPath('userData')
-// Child CLI/control clients discover the same running suite profile.
-process.env.VANTAGE_USER_DATA = app.getPath('userData')
-
-/**
- * `--headless-export <file> --to <format> --out <path> [--json]`: one document, no
- * window, one stdout line, then exit. Parsed at module scope so the dock icon
- * is gone before the app can bounce it and so every editor module sees the
- * headless flag before it registers anything.
- */
+// RECOVERY_BOOTSTRAP: parse process mode BEFORE selecting any profile/services.
 const headlessArgv = parseHeadlessExportArgv(process.argv)
 if (headlessArgv.kind !== 'none') {
   setHeadlessMode(true)
   app.dock?.hide()
 }
+app.setName('Vantage Productivity')
+const recoveryProfile = configureRecoveryProfile({
+  app,
+  mode: headlessArgv.kind === 'none' ? 'gui' : 'headless-export',
+  guiProfile:
+    process.env.VANTAGE_USER_DATA ||
+    join(
+      app.getPath('appData'),
+      app.isPackaged ? 'VantageProductivity' : 'VantageProductivity-Dev',
+    ),
+})
+if (headlessArgv.kind !== 'none')
+  initializeRecoveryRuntime({ app, ...recoveryProfile, lockAcquired: false })
+let guiRecoveryStartupReady = false
 
 // module build outputs: packaged builds carry them as extraResources
 // (resources/modules/*, resources/native/*); dev/unpacked resolves them
@@ -719,7 +783,10 @@ function initAnalytics(): void {
     analytics = createAnalytics({
       keys: resolveAnalyticsKeys(),
       getClientId: () => getClientState().clientId,
-      isEnabled: () => !currentNetworkPolicy().localOnly && currentNetworkPolicy().features.telemetry && analyticsEnabled(),
+      isEnabled: () =>
+        !currentNetworkPolicy().localOnly &&
+        currentNetworkPolicy().features.telemetry &&
+        analyticsEnabled(),
       shouldTrackFirstLaunch: () => getClientState().firstLaunchPending,
       onFirstLaunchSent: () => markAnalyticsFirstLaunchSent(APP_SETTINGS_PATH()),
       // Country-only approximation from OS regional settings. This avoids an
@@ -3756,14 +3823,54 @@ function applyPendingDir(wcId: number, filePath: string): string {
   if (!existsSync(pending.dir)) return filePath
   // a clash with an existing name takes the "(2)" suffix rather than staying in the root
   const target = join(pending.dir, uniqueNameIn(pending.dir, basename(filePath)))
-  try {
-    renameSync(filePath, target)
-  } catch (err) {
-    console.warn('[shell] move new file into folder failed:', err)
+  if (!rootQuitIntent.mutationAllowed()) {
+    showAppWarning(
+      'The new file stayed in its original location because another source move is still finishing. Move it into the chosen folder after that work finishes.',
+    )
     return filePath
   }
-  afterFileMoved(filePath, target)
-  return target
+  let moved = false
+  let held: { started: false } | { started: true; actual: Promise<void> }
+  try {
+    held = tryReadyRootFileMutation(
+      rootQuitIntent,
+      [
+        { path: filePath, kind: 'file' },
+        { path: target, kind: 'file' },
+      ],
+      'A first-save relocation changed the source path.',
+      async () => {
+        // The legacy hook returns a path synchronously; never promise a move
+        // that is waiting behind a publisher. The actual move starts NOW.
+        renameSync(filePath, target)
+        moved = true
+        await afterFileMoved(filePath, target)
+      },
+    )
+  } catch (error) {
+    console.error('[shell] first-save relocation admission failed:', error)
+    showAppWarning(
+      'The new file stayed in its original location because its move could not be reserved safely. Keep it open and move it manually after saving finishes.',
+    )
+    return filePath
+  }
+  if (!held.started) {
+    showAppWarning(
+      'The new file stayed in its original location because a save is still publishing there. Keep it open and move it into the chosen folder after saving finishes.',
+    )
+    return filePath
+  }
+  // Cancellation of a caller never settles this owned refresh Promise.
+  void held.actual.catch((error) => {
+    console.error('[shell] first-save relocation or source refresh failed:', error)
+    showAppWarning(
+      moved
+        ? 'The file moved, but the document could not follow its new location. Keep it open and review it before saving.'
+        : 'The new file could not be moved and remains in its original location. Keep it open and review it before trying again.',
+    )
+    rootQuitIntent.cancel('First-save source relocation or refresh failed.')
+  })
+  return moved ? target : filePath
 }
 
 /**
@@ -3771,7 +3878,7 @@ function applyPendingDir(wcId: number, filePath: string): string {
  * the AI chat history (project-store), the slides start-screen list and any
  * open tab (which re-grants the new path and refreshes its title).
  */
-function afterFileMoved(oldPath: string, newPath: string): void {
+async function afterFileMoved(oldPath: string, newPath: string): Promise<void> {
   replaceRecentFile(oldPath, newPath)
   projectFileRenamed(oldPath, newPath)
   if (/\.pptx$/i.test(newPath)) void replaceSlidesRecentFile(oldPath, newPath)
@@ -3779,12 +3886,12 @@ function afterFileMoved(oldPath: string, newPath: string): void {
   const detachedAffected = detachedRenameFile(oldPath, newPath)
   if (detachedAffected) affected.push(detachedAffected)
   for (const t of affected) {
-    if (t.kind === 'slides') slidesFileRenamed(t.webContents, oldPath, newPath)
-    else if (t.kind === 'docs') docsFileRenamed(t.webContents, oldPath, newPath)
-    else if (t.kind === 'sheets') sheetsFileRenamed(t.webContents, oldPath, newPath)
-    else if (t.kind === 'markdown') markdownFileRenamed(t.webContents, oldPath, newPath)
-    else if (t.kind === 'html') htmlFileRenamed(t.webContents, oldPath, newPath)
-    else if (t.kind === 'pdf') pdfFileRenamed(t.webContents, oldPath, newPath)
+    if (t.kind === 'slides') await slidesFileRenamed(t.webContents, oldPath, newPath)
+    else if (t.kind === 'docs') await docsFileRenamed(t.webContents, oldPath, newPath)
+    else if (t.kind === 'sheets') await sheetsFileRenamed(t.webContents, oldPath, newPath)
+    else if (t.kind === 'markdown') await markdownFileRenamed(t.webContents, oldPath, newPath)
+    else if (t.kind === 'html') await htmlFileRenamed(t.webContents, oldPath, newPath)
+    else if (t.kind === 'pdf') await pdfFileRenamed(t.webContents, oldPath, newPath)
   }
 }
 
@@ -3822,8 +3929,12 @@ function fileTargetSources(): FileTargetSources {
 }
 
 /** a folder moved/renamed: re-key every tracked file that lived under it */
-function afterFolderMoved(oldDir: string, newDir: string, filesBefore: readonly string[]): void {
-  for (const file of filesBefore) afterFileMoved(file, rebasePath(file, oldDir, newDir))
+async function afterFolderMoved(
+  oldDir: string,
+  newDir: string,
+  filesBefore: readonly string[],
+): Promise<void> {
+  for (const file of filesBefore) await afterFileMoved(file, rebasePath(file, oldDir, newDir))
 }
 
 const folderWatchers = new Map<string, FolderWatcher>()
@@ -4354,6 +4465,7 @@ const OPEN_DIALOG_EXTENSIONS = [
   'odp',
   'otp',
   'pdf',
+  'vpdfdraft',
   'md',
   'markdown',
   'txt',
@@ -4370,7 +4482,7 @@ function notifyUnsupportedFile(filePath: string): void {
 /** shell-hosted warning box; focused when a shell window exists, standalone otherwise */
 function showAppWarning(message: string): void {
   const options = { type: 'warning' as const, message }
-  if (shellWindow) {
+  if (shellWindow && !shellWindow.isDestroyed()) {
     shellWindow.show()
     shellWindow.focus()
     void dialog.showMessageBox(shellWindow, options)
@@ -4461,7 +4573,7 @@ function routeDocumentPath(filePath: string): boolean {
     }
     return true
   }
-  if (PDF_RE.test(filePath)) {
+  if (PDF_RE.test(filePath) || PDF_WORKSPACE_RE.test(filePath)) {
     recordRecentFile(filePath)
     const existing = tabManager.findPdfTabByPath(filePath)
     if (existing) tabManager.activateTab(existing)
@@ -5017,7 +5129,7 @@ function registerHomeIpc(): void {
           extensions: ['xlsx', 'xlsm', 'xls', 'csv', 'tsv', 'ods', 'ots'],
         },
         { name: tm('filterPpt'), extensions: ['pptx', 'ppt', 'odp', 'otp'] },
-        { name: tm('filterPdf'), extensions: ['pdf'] },
+        { name: tm('filterPdf'), extensions: ['pdf', 'vpdfdraft'] },
         { name: tm('filterMarkdown'), extensions: ['md', 'markdown', 'txt', 'json'] },
         { name: tm('filterHtml'), extensions: ['html', 'htm'] },
       ],
@@ -5078,7 +5190,7 @@ function registerHomeIpc(): void {
 
   ipcMain.handle(
     HOME_CHANNELS.renameFile,
-    (_event, path: unknown, newName: unknown): RenameResult => {
+    async (_event, path: unknown, newName: unknown): Promise<RenameResult> => {
       if (typeof path !== 'string' || typeof newName !== 'string')
         return { ok: false, error: tm('errBadArgs') }
       // Validate the raw name before trimming: trimming first would
@@ -5100,13 +5212,38 @@ function registerHomeIpc(): void {
       if (existsSync(target) && !isSameFile(path, target)) {
         return { ok: false, error: tm('errExists') }
       }
-      try {
-        renameSync(path, target)
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : tm('errRenameFailed') }
-      }
-      afterFileMoved(path, target)
-      return { ok: true, path: target }
+      return runRootFileMutation(
+        rootQuitIntent,
+        [
+          { path, kind: 'file' },
+          { path: target, kind: 'file' },
+        ],
+        'A file rename changed the close source.',
+        async () => {
+          // An older admitted publisher may have created the destination while
+          // draining. Check again inside the exclusive physical-move phase.
+          if (!existsSync(path)) return { ok: false, error: tm('errMissing') }
+          if (existsSync(target) && !isSameFile(path, target))
+            return { ok: false, error: tm('errExists') }
+          try {
+            renameSync(path, target)
+          } catch (err) {
+            return { ok: false, error: err instanceof Error ? err.message : tm('errRenameFailed') }
+          }
+          // The disk move has succeeded. A failed refresh must not be reported as
+          // a failed physical rename or hidden behind a successful close receipt.
+          try {
+            await afterFileMoved(path, target)
+          } catch (error) {
+            console.error('[shell] moved-file editor refresh failed:', error)
+            showAppWarning(
+              'The file moved, but an open document could not follow its new location. Keep it open and review it before saving.',
+            )
+            rootQuitIntent.cancel('Moved-file source refresh failed.')
+          }
+          return { ok: true, path: target }
+        },
+      )
     },
   )
 
@@ -5122,16 +5259,23 @@ function registerHomeIpc(): void {
     const list = stringPaths(paths).filter(
       (p) => isUserVisibleFile(p, targets) && statMaybeFile(p)?.isFile() !== false,
     )
-    for (const p of list) {
-      try {
-        await shell.trashItem(p)
-      } catch {
-        // file already gone or trash unavailable; still drop it from the list
+    if (list.length === 0) return
+    const releaseMutation = rootQuitIntent.beginMutation(
+      'A file removal changed an open document source.',
+    )
+    try {
+      for (const p of list) {
+        try {
+          await shell.trashItem(p)
+        } catch {
+          /* preserve existing missing/trash behavior */
+        }
       }
+      removeRecentFiles(list)
+      removeStarredFiles(list)
+    } finally {
+      releaseMutation()
     }
-    removeRecentFiles(list)
-    // the files were deliberately destroyed — stars must not survive as ghosts
-    removeStarredFiles(list)
   })
 
   ipcMain.handle(HOME_CHANNELS.openTrash, () => {
@@ -5444,15 +5588,37 @@ function registerHomeIpc(): void {
 
   ipcMain.handle(
     HOME_CHANNELS.renameFolder,
-    (_event, dir: unknown, newName: unknown): RenameResult => {
+    async (_event, dir: unknown, newName: unknown): Promise<RenameResult> => {
       if (!insideRoot(dir) || isRoot(dir) || typeof newName !== 'string')
         return { ok: false, error: tm('errBadArgs') }
-      const filesBefore = trackedFilesUnder(dir)
-      const result = renameFolder(dir, newName, folderErrors())
-      if (result.ok && result.path && result.path !== dir) {
-        afterFolderMoved(dir, result.path, filesBefore)
-      }
-      return result
+      const name = newName.trim()
+      if (!isValidRenameName(name)) return { ok: false, error: tm('errBadName') }
+      const target = join(dirname(dir), name)
+      return runRootFileMutation(
+        rootQuitIntent,
+        [
+          { path: dir, kind: 'directory' },
+          { path: target, kind: 'directory' },
+        ],
+        'A folder rename changed open document sources.',
+        async () => {
+          // Include any view opened while pre-existing actual writers drained.
+          const filesBefore = trackedFilesUnder(dir)
+          const result = renameFolder(dir, newName, folderErrors())
+          if (result.ok && result.path && result.path !== dir) {
+            try {
+              await afterFolderMoved(dir, result.path, filesBefore)
+            } catch (error) {
+              console.error('[shell] moved-folder editor refresh failed:', error)
+              showAppWarning(
+                'The folder moved, but an open document could not follow its new location. Keep it open and review it before saving.',
+              )
+              rootQuitIntent.cancel('Moved-folder source refresh failed.')
+            }
+          }
+          return result
+        },
+      )
     },
   )
 
@@ -5476,53 +5642,88 @@ function registerHomeIpc(): void {
       // files may come from anywhere the UI can show (the Recent list); folders only from inside the tree, never a root itself
       const moveSources = { ...fileTargetSources(), isDirectory: isDir, isAnyRoot }
       const sources = list.filter((p) => isMoveSource(p, moveSources))
-      const dirFiles = new Map(sources.filter(isDir).map((p) => [p, trackedFilesUnder(p)]))
+      const sourcePaths = sources.map((path) => ({
+        path,
+        kind: isDir(path) ? ('directory' as const) : ('file' as const),
+      }))
       // 'replace' must not destroy data: the displaced target goes to the trash,
       // and everything keyed on its path (recents, stars, chat history) leaves
       // with it so the incoming file does not inherit another document's record
       const displaced: string[] = []
-      const result = movePathsInto(sources, targetDir, conflictPolicy, folderErrors(), {
-        replaceExisting: (path) => {
-          const parked = join(dirname(path), `.vantage-replaced-${Date.now()}-${basename(path)}`)
-          const files = isDir(path) ? trackedFilesUnder(path) : [path]
-          renameSync(path, parked)
-          return {
-            commit: () => {
-              displaced.push(parked)
-              removeRecentFiles(files)
-              removeStarredFiles(files)
-              for (const file of files) projectFileRenamed(file, rebasePath(file, path, parked))
+      // keepBoth/replacement parking names are selected synchronously by the
+      // mover, so reserve the actual destination DIRECTORY namespace as well.
+      return runRootFileMutation(
+        rootQuitIntent,
+        [...sourcePaths, { path: targetDir, kind: 'directory' as const }],
+        'A file move changed open document sources.',
+        async () => {
+          const dirFiles = new Map(
+            sourcePaths
+              .filter((value) => value.kind === 'directory')
+              .map((value) => [value.path, trackedFilesUnder(value.path)]),
+          )
+          const result = movePathsInto(sources, targetDir, conflictPolicy, folderErrors(), {
+            replaceExisting: (path) => {
+              const parked = join(
+                dirname(path),
+                `.vantage-replaced-${Date.now()}-${basename(path)}`,
+              )
+              const files = isDir(path) ? trackedFilesUnder(path) : [path]
+              renameSync(path, parked)
+              return {
+                commit: () => {
+                  displaced.push(parked)
+                  removeRecentFiles(files)
+                  removeStarredFiles(files)
+                  for (const file of files) projectFileRenamed(file, rebasePath(file, path, parked))
+                },
+                rollback: () => renameSync(parked, path),
+              }
             },
-            rollback: () => renameSync(parked, path),
+          })
+          for (const parked of displaced) {
+            try {
+              await shell.trashItem(parked)
+            } catch {
+              rmSync(parked, { recursive: true, force: true })
+            }
           }
+          for (const { from, to } of result.moved) {
+            const files = dirFiles.get(from)
+            try {
+              if (files) await afterFolderMoved(from, to, files)
+              else await afterFileMoved(from, to)
+            } catch (error) {
+              console.error('[shell] moved-source editor refresh failed:', error)
+              showAppWarning(
+                'A file moved, but an open document could not follow its new location. Keep it open and review it before saving.',
+              )
+              rootQuitIntent.cancel('Moved-source refresh failed.')
+            }
+          }
+          return result
         },
-      })
-      for (const parked of displaced) {
-        try {
-          await shell.trashItem(parked)
-        } catch {
-          rmSync(parked, { recursive: true, force: true })
-        }
-      }
-      for (const { from, to } of result.moved) {
-        const files = dirFiles.get(from)
-        if (files) afterFolderMoved(from, to, files)
-        else afterFileMoved(from, to)
-      }
-      return result
+      )
     },
   )
 
   ipcMain.handle(HOME_CHANNELS.deleteFolder, async (_event, dir: unknown) => {
     if (!insideRoot(dir) || isRoot(dir)) return
     const files = trackedFilesUnder(dir)
+    const releaseMutation = rootQuitIntent.beginMutation(
+      'A folder removal changed open document sources.',
+    )
     try {
-      await shell.trashItem(dir)
-    } catch {
-      return
+      try {
+        await shell.trashItem(dir)
+      } catch {
+        return
+      }
+      removeRecentFiles(files)
+      removeStarredFiles(files)
+    } finally {
+      releaseMutation()
     }
-    removeRecentFiles(files)
-    removeStarredFiles(files)
   })
 
   ipcMain.handle(HOME_CHANNELS.getDefaultSaveDir, (): string => defaultSaveDir())
@@ -6361,12 +6562,18 @@ async function savePdfAs(tab = activePdfTarget()): Promise<void> {
   setPdfSaveAsInFlight(tab.webContents, true)
   try {
     const picked = await showSaveDialogWithMemory(dialog, host, {
-      defaultPath: tab.filePath,
+      defaultPath: PDF_WORKSPACE_RE.test(tab.filePath)
+        ? tab.filePath.replace(/\.vpdfdraft$/i, '.recovered.pdf')
+        : tab.filePath,
       filters: [{ name: tm('filterPdf'), extensions: ['pdf'] }],
     })
     const target = pdfSaveAsTarget(picked, tab.filePath)
     if (!target) return
-    if (pdfIsDirty(tab.webContents.id)) {
+    if (
+      pdfIsDirty(tab.webContents.id) ||
+      pdfIsWorkspace(tab.webContents.id) ||
+      PDF_WORKSPACE_RE.test(tab.filePath)
+    ) {
       // Renderer applies its pending edits onto the source bytes; the pdf main
       // process writes the result to the picked path only
       if (!(await requestPdfSaveAs(tab.webContents, target))) return
@@ -6929,7 +7136,7 @@ function openLaunchPaths(paths: readonly string[]): void {
 // until ready, after the path is known.
 app.on('open-file', (event, filePath) => {
   event.preventDefault()
-  if (!app.isReady()) {
+  if (!app.isReady() || !guiRecoveryStartupReady) {
     if (!pendingLaunchPaths.includes(filePath)) pendingLaunchPaths.push(filePath)
     return
   }
@@ -6939,55 +7146,62 @@ app.on('open-file', (event, filePath) => {
 
 app.on('second-instance', (_event, argv, _cwd, additionalData) => {
   const paths = collectLaunchPaths(argv, additionalData)
+  if (!guiRecoveryStartupReady) {
+    for (const path of paths) if (!pendingLaunchPaths.includes(path)) pendingLaunchPaths.push(path)
+    return
+  }
   revealShellWindow()
   openLaunchPaths(paths)
 })
 
 installNavigationGuard(app)
 installContextMenu(app, () => contextMenuLabels(currentLang()))
-registerAiIpc()
-const openHomeSettings = (section: 'aiModel' | 'skills'): void => {
-  const win = shellWindow
-  if (!win || win.isDestroyed()) return
-  // the request may come from a detached window or while the shell is minimized
-  if (win.isMinimized()) win.restore()
-  win.show()
-  win.focus()
-  tabManager?.openHomeTab()
-  win.webContents.send(HOME_CHANNELS.openSettings, { section })
+// RECOVERY_BOOTSTRAP: GUI services start only after profile+lock+runtime attempt.
+function registerGuiShellServices(): void {
+  registerAiIpc()
+  const openHomeSettings = (section: 'aiModel' | 'skills'): void => {
+    const win = shellWindow
+    if (!win || win.isDestroyed()) return
+    // the request may come from a detached window or while the shell is minimized
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    tabManager?.openHomeTab()
+    win.webContents.send(HOME_CHANNELS.openSettings, { section })
+  }
+  ipcMain.handle('ai:open-model-settings', () => openHomeSettings('aiModel'))
+  ipcMain.handle('ai:open-skills-settings', () => openHomeSettings('skills'))
+  // Model file naming. Registered here beside the other AI wiring so every
+  // window type can reach it.
+  registerAiNamingIpc(() => currentLang())
+  registerProjectIpc()
+  registerDocsIpc()
+  registerHomeIpc()
+  registerIntegrationsIpc({
+    settingsPath: APP_SETTINGS_PATH,
+    window: () => shellWindow,
+    cliDir: app.isPackaged
+      ? join(process.resourcesPath, 'cli')
+      : join(APPS_ROOT, '..', 'packages', 'cli', 'bin'),
+    skillPath: app.isPackaged
+      ? join(process.resourcesPath, 'cli', 'skills', 'vantage-productivity', 'SKILL.md')
+      : join(APPS_ROOT, '..', 'skills', 'vantage-productivity', 'SKILL.md'),
+    cliPackageJson: app.isPackaged
+      ? join(process.resourcesPath, 'cli', 'package.json')
+      : join(APPS_ROOT, '..', 'packages', 'cli', 'package.json'),
+    recommendedSkillsDir: app.isPackaged
+      ? join(process.resourcesPath, 'cli', 'skills', 'recommended')
+      : join(APPS_ROOT, '..', 'skills', 'recommended'),
+  })
+  registerTabsIpc()
+  registerDroppedFilesIpc()
+  registerUserSkillsIpc({
+    cliRunner: makeUserCliRunner,
+    folderRoots: folderRootPaths,
+    senderFile: (wcId) =>
+      tabManager?.describeWebContents(wcId)?.filePath ?? detachedFileForWebContents(wcId),
+  })
 }
-ipcMain.handle('ai:open-model-settings', () => openHomeSettings('aiModel'))
-ipcMain.handle('ai:open-skills-settings', () => openHomeSettings('skills'))
-// Model file naming. Registered here beside the other AI wiring so every
-// window type can reach it.
-registerAiNamingIpc(() => currentLang())
-registerProjectIpc()
-registerDocsIpc()
-registerHomeIpc()
-registerIntegrationsIpc({
-  settingsPath: APP_SETTINGS_PATH,
-  window: () => shellWindow,
-  cliDir: app.isPackaged
-    ? join(process.resourcesPath, 'cli')
-    : join(APPS_ROOT, '..', 'packages', 'cli', 'bin'),
-  skillPath: app.isPackaged
-    ? join(process.resourcesPath, 'cli', 'skills', 'vantage-productivity', 'SKILL.md')
-    : join(APPS_ROOT, '..', 'skills', 'vantage-productivity', 'SKILL.md'),
-  cliPackageJson: app.isPackaged
-    ? join(process.resourcesPath, 'cli', 'package.json')
-    : join(APPS_ROOT, '..', 'packages', 'cli', 'package.json'),
-  recommendedSkillsDir: app.isPackaged
-    ? join(process.resourcesPath, 'cli', 'skills', 'recommended')
-    : join(APPS_ROOT, '..', 'skills', 'recommended'),
-})
-registerTabsIpc()
-registerDroppedFilesIpc()
-registerUserSkillsIpc({
-  cliRunner: makeUserCliRunner,
-  folderRoots: folderRootPaths,
-  senderFile: (wcId) =>
-    tabManager?.describeWebContents(wcId)?.filePath ?? detachedFileForWebContents(wcId),
-})
 
 // sheets' project:resolveChat goes through the handler registered by docs-main; the sessionId reverse lookup hooks in here
 setSessionPathResolver(resolveSheetsSessionPath)
@@ -7013,9 +7227,15 @@ async function runHeadlessExportEntry(
   parsed: Exclude<HeadlessArgvParse, { kind: 'none' }>,
 ): Promise<void> {
   const outcome =
-    parsed.kind === 'error'
-      ? ({ ok: false, code: HEADLESS_EXIT.badArgs, message: parsed.message } as const)
-      : await runHeadlessExport(parsed.request, headlessExporters)
+    recoveryRuntimeState().phase !== 'disabled'
+      ? ({
+          ok: false,
+          code: HEADLESS_EXIT.conversionFailure,
+          message: 'Export refused because isolated recovery startup could not be confirmed.',
+        } as const)
+      : parsed.kind === 'error'
+        ? ({ ok: false, code: HEADLESS_EXIT.badArgs, message: parsed.message } as const)
+        : await runHeadlessExport(parsed.request, headlessExporters)
   const json = parsed.kind === 'error' ? parsed.json : parsed.request.json
   stopSheetsSidecar()
   for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.destroy()
@@ -7036,10 +7256,7 @@ async function runHeadlessExportEntry(
 
 app.whenReady().then(async () => {
   installPrivacyRuntime()
-  registerVantageIpc(() => shellWindow)
   if (process.platform === 'win32') app.setAppUserModelId('org.vantageproductivity.desktop')
-  // first scan waits for the windows to come up; later ones follow folder changes
-  setTimeout(() => ensureFileIndexer()?.refresh(), 4000)
   installRendererProtocol({
     docs: join(DOCS_OUT, 'renderer'),
     sheets: join(SHEETS_OUT, 'renderer'),
@@ -7051,6 +7268,8 @@ app.whenReady().then(async () => {
     help: join(__dirname, '../renderer'),
   })
   if (headlessArgv.kind !== 'none') {
+    // Export needs these handlers; their recovery producer is disabled explicitly.
+    registerDocsIpc()
     await runHeadlessExportEntry(headlessArgv)
     return
   }
@@ -7086,6 +7305,151 @@ app.whenReady().then(async () => {
     app.quit()
     return
   }
+  // RECOVERY_BOOTSTRAP: errors become public unavailable state; unrelated Open survives.
+  initializeShellRecovery({
+    app,
+    userDataRoot: recoveryProfile.userDataRoot,
+    lockAcquired: hasLock,
+    registerMaintenance: registerRetainedRecoveryMaintenance,
+    inspectPdf: inspectRetainedPdfPrivateBases,
+    retryPdf: retryRetainedPdfPrivateBase,
+  })
+  // SHEETS_NATIVE_RUNTIME_START: after the GUI profile/instance/recovery bootstrap,
+  // before any editor can create native work. Protected diagnostics stay generic.
+  const sheetsCloseLedger = new SheetsCloseQuitLedger({
+    report: () => {
+      console.warn(
+        '[sheets] Native spreadsheet work needs review; private details remain in memory.',
+      )
+    },
+  })
+  let sheetsCleanupNoticeOpen = false
+  try {
+    installSheetsCloseQuitGuard(app, sheetsCloseLedger, {
+      epoch: () => rootQuitIntent.capture(),
+      isCurrent: (epoch) => rootQuitIntent.current(epoch),
+      subscribeCancel: (listener) => rootQuitIntent.subscribe(() => listener()),
+      onDeferred: () => rootQuitIntent.beginApproval(),
+      onBlocked: () => {
+        // Invalidate all retry permissions, without releasing any actual work.
+        rootQuitIntent.cancel('Protected spreadsheet cleanup must finish before Quit.')
+        if (sheetsCleanupNoticeOpen) return
+        sheetsCleanupNoticeOpen = true
+        const host = shellWindow && !shellWindow.isDestroyed() ? shellWindow : undefined
+        const options = {
+          type: 'warning' as const,
+          message: 'Spreadsheet cleanup still needs to finish.',
+          detail:
+            'Some protected spreadsheet work is still held in memory. Keep the application open, or retry its cleanup. Retrying will not restart the cancelled quit.',
+          buttons: ['Retry cleanup', 'Keep open'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        }
+        const question = host
+          ? dialog.showMessageBox(host, options)
+          : dialog.showMessageBox(options)
+        void question
+          .then(async (answer) => {
+            if (answer.response === 0) await sheetsCloseLedger.retryFailed()
+          })
+          .catch(() => {
+            showAppWarning(
+              'Spreadsheet cleanup is still incomplete. Keep the application open and try cleanup again before quitting.',
+            )
+          })
+          .finally(() => {
+            sheetsCleanupNoticeOpen = false
+          })
+      },
+      report: () =>
+        console.warn('[sheets] Native quit custody remains held; keep the application open.'),
+    })
+    installSheetsCloseRuntime({
+      ledger: sheetsCloseLedger,
+      setRuntime: setSheetsCloseRuntime,
+      closeState: sheetsCloseState,
+    })
+  } catch {
+    queueRecoveryWarning(
+      'sheets-close-runtime-unavailable',
+      'Spreadsheet close recovery could not be initialized. Keep spreadsheet documents open and restart after repairing recovery storage.',
+    )
+    console.warn('[sheets] Close runtime registration failed; spreadsheet close remains refused.')
+  }
+  // SHEETS_NATIVE_RUNTIME_END: terminal resources still stop only in will-quit.
+  registerGuiShellServices()
+  rootQuitIntent.configure({
+    cancelMcp: () => cancelMcpQuitDrain(),
+    cancelCleanup: () => cancelCloseCleanupQuitDrain(),
+    resetSheets: () => resetSheetsShuttingDown(),
+    resetShell: () => shellQuitTracker().reset(),
+    revealWorkspace: () => revealShellWindow(),
+    report: (error) => console.error('[shell] quit cancellation failed:', error),
+  })
+  registerRootCloseAdapter(
+    'docs',
+    rootCloseAdapter({
+      prepare: prepareDocsNativeClose,
+      isPrepared: isDocsClosePrepared,
+      seal: sealDocsClose,
+      complete: completeDocsClose,
+      cancel: cancelDocsClose,
+    }),
+  )
+  registerRootCloseAdapter(
+    'sheets',
+    rootCloseAdapter({
+      prepare: prepareSheetsNativeClose,
+      isPrepared: isSheetsClosePrepared,
+      seal: sealSheetsClose,
+      complete: completeSheetsClose,
+      cancel: cancelSheetsClose,
+    }),
+  )
+  registerRootCloseAdapter(
+    'slides',
+    rootCloseAdapter({
+      prepare: prepareSlidesNativeClose,
+      isPrepared: isSlidesClosePrepared,
+      seal: sealSlidesClose,
+      complete: completeSlidesClose,
+      cancel: cancelSlidesClose,
+    }),
+  )
+  registerRootCloseAdapter(
+    'pdf',
+    rootCloseAdapter({
+      prepare: preparePdfNativeClose,
+      isPrepared: isPdfClosePrepared,
+      seal: sealPdfClose,
+      complete: completePdfClose,
+      cancel: cancelPdfClose,
+    }),
+  )
+  registerRootCloseAdapter(
+    'markdown',
+    rootCloseAdapter({
+      prepare: prepareMarkdownNativeClose,
+      isPrepared: isMarkdownClosePrepared,
+      seal: sealMarkdownClose,
+      complete: completeMarkdownClose,
+      cancel: cancelMarkdownClose,
+    }),
+  )
+  registerRootCloseAdapter(
+    'html',
+    rootCloseAdapter({
+      prepare: prepareHtmlNativeClose,
+      isPrepared: isHtmlClosePrepared,
+      seal: sealHtmlClose,
+      complete: completeHtmlClose,
+      cancel: cancelHtmlClose,
+    }),
+  )
+  registerVantageIpc(() => shellWindow, openDocumentPath)
+  guiRecoveryStartupReady = true
+  setTimeout(() => ensureFileIndexer()?.refresh(), 4000)
   // another Vantage-family app re-logging in rotates the shared key; the
   // home page re-reads its account status. A logout that leaves only the
   // gsk CLI fallback key is not a login
@@ -7145,6 +7509,7 @@ app.whenReady().then(async () => {
   // Register the docs renderer bridge listeners before the MCP server can take
   // a visible-editing request.
   installDocsBridge()
+  setDocsCloseInvalidationHook(cancelDocsCloseForSender)
   installSheetsBridge()
   // MCP server: localhost-only, docx generation for external agents. Deps are
   // injected so the mcp module never imports this file back.
@@ -7153,6 +7518,13 @@ app.whenReady().then(async () => {
   const mcpDocsControl = createDocsControl({
     openBlankTab: () => openBlankDocsTabForMcp(),
     authorizeSave: authorizeMcpDocWrite,
+    sourceToken: docsCloseSourceToken,
+    prepareDiscardClose: async (wcId, sourcePath) => {
+      const contents = webContents.fromId(wcId)
+      if (!contents || contents.isDestroyed()) return null
+      const receipt = await prepareDocsDiscardClose(contents, sourcePath)
+      return receipt?.kind === 'lease' ? receipt.closeLease : null
+    },
     abandonBlankTab: (wcId) => {
       if (tabManager) abandonBlankTabForMcp(tabManager.docsTabs(), wcId)
     },
@@ -7167,6 +7539,17 @@ app.whenReady().then(async () => {
     openBlankTab: () => openBlankSheetsTabForMcp(),
     authorizeSave: authorizeMcpSheetWrite,
     abandonBlankTab: (wcId) => abandonBlankSheetsTabForMcp(wcId),
+  })
+  const mcpSheetsCloseAdapter = createSheetsCloseAdapter({
+    contents: (tabId) => tabManager?.webContentsForTab(tabId) ?? detachedWebContentsFor(tabId),
+    remove: (tabId) => {
+      rootQuitIntent.assertMutationAvailable()
+      return (
+        closeDetachedWithoutPrompt(tabId) || (tabManager?.closeTabWithoutPrompt(tabId) ?? false)
+      )
+    },
+    authorizeSave: (contents, path) => authorizeMcpSheetWrite(contents.id, path),
+    cleanupStatus: getCloseCleanupStatus,
   })
   configureMcpRuntime({
     version: app.getVersion(),
@@ -7189,16 +7572,35 @@ app.whenReady().then(async () => {
       defaultSaveDir: () => defaultSaveDir(),
       docs: mcpDocsControl,
       sheets: mcpSheetsControl,
+      sheetsClose: (tabId, request) => mcpSheetsCloseAdapter.close(tabId, request),
+      pdf: {
+        prepareClose: preparePdfClose,
+        completeClose: completePdfClose,
+        cancelClose: cancelPdfClose,
+        cleanup: awaitPdfCloseCleanup,
+      },
       slides: mcpSlidesControl,
       slidesDiscard: discardSlidesRecovery,
       markdown: {
         read: markdownReadText,
-        save: markdownSaveToPath,
+        save: (contents, filePath) => {
+          rootQuitIntent.assertMutationAvailable()
+          return markdownSaveToPath(contents, filePath)
+        },
+        prepareClose: prepareMarkdownClose,
+        completeClose: completeMarkdownClose,
+        cancelClose: cancelMarkdownClose,
         discard: markdownDiscardPendingAssets,
       },
       html: {
         read: htmlReadText,
-        save: htmlSaveToPath,
+        save: (...args) => {
+          rootQuitIntent.assertMutationAvailable()
+          return htmlSaveToPath(...args)
+        },
+        prepareClose: prepareHtmlClose,
+        completeClose: completeHtmlClose,
+        cancelClose: cancelHtmlClose,
         discard: htmlDiscardPendingAssets,
       },
     }),
@@ -7225,6 +7627,40 @@ app.whenReady().then(async () => {
       },
     }),
     logFilePath: join(app.getPath('userData'), 'mcp-log.txt'),
+  })
+  installMcpQuitGuard(app, {
+    onQuitDeferred: () => rootQuitIntent.beginApproval(),
+    onQuitInterrupted: (_report, reason) =>
+      rootQuitIntent.cancel(`A local tool interrupted Quit: ${reason}`),
+    onQuitBlocked: () => {
+      rootQuitIntent.beginApproval()
+      revealShellWindow()
+      const epoch = rootQuitIntent.capture()
+      const options = {
+        type: 'warning' as const,
+        message: 'A local tool is still finishing.',
+        detail:
+          'Vantage is staying open until its work and reply finish. Keep working cancels this quit.',
+        buttons: ['Keep working', 'Quit when ready'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      }
+      const host = shellWindow && !shellWindow.isDestroyed() ? shellWindow : undefined
+      const decision = host ? dialog.showMessageBox(host, options) : dialog.showMessageBox(options)
+      void decision
+        .then(({ response }) => {
+          if (!rootQuitIntent.current(epoch)) return
+          if (response === 0) rootQuitIntent.cancel('Keep working was selected.')
+          // Quit when ready retains only the still-current service-owned intention;
+          // it never reinstates an already canceled epoch or settles a writer.
+        })
+        .catch((error) => {
+          if (rootQuitIntent.current(epoch))
+            rootQuitIntent.cancel('The pending-tool dialog failed.')
+          console.warn('[mcp] pending-work warning failed:', error)
+        })
+    },
   })
   void startMcpFromSettings(currentMcpSettings()).catch((error) => {
     console.error('[mcp] failed to start on boot:', error)
@@ -7267,7 +7703,7 @@ app.whenReady().then(async () => {
   }
   openLaunchPaths(launchPaths)
   pendingLaunchPaths = []
-  for (const recoverAs of pendingUnsavedNewRecoveries()) void newSheetTab(recoverAs)
+  for (const recoverAs of await pendingUnsavedNewRecoveries()) void newSheetTab(recoverAs)
 
   startControlServer(
     app.getPath('userData'),
@@ -7298,17 +7734,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  // No close prompt may fall through to "Save" during shutdown
-  markSheetsShuttingDown()
-  stopSheetsSidecar()
-  // release the MCP port synchronously (macOS keeps the process alive after
-  // the last window closes, so window-all-closed is not enough)
-  stopMcpSync()
-})
+// RECOVERY_BOOTSTRAP: common quit coordinator owns before-quit approval/cancellation.
+// Terminal resources remain alive through every guard, veto and transport flush.
 
 // after every window has closed, so the shell window's own 'closed' republish cannot revive the file
 app.on('will-quit', () => {
+  markSheetsShuttingDown()
+  stopSheetsSidecar()
+  stopMcpSync()
   fileIndexer?.stop()
   fileIndexStore?.close()
   stopAuthWatch?.()

@@ -72,15 +72,15 @@ describe('applyStructuralOps rows', () => {
     expect(xml).toContain('sqref="A1:A8"')
   })
 
-  it('aborts when a formula references only deleted cells', async () => {
-    expect(() =>
+  it('invalidates a formula reference when all its cells are deleted', () => {
+    expect(
       shiftFormulaText(
         'A5*2',
         SHEET,
         { boundary: 4, delta: -2, deleted: { start: 4, end: 5 } },
         'row',
       ),
-    ).toThrow(StructuralShiftError)
+    ).toBe('#REF!*2')
   })
 
   it('clamps a range formula that straddles the deleted rows', () => {
@@ -249,10 +249,10 @@ describe('cross-sheet reference rewriting', () => {
     expect(shifted).not.toContain('&lt;v&gt;')
   })
 
-  it('fails closed when a qualified reference lands in a deleted range', () => {
-    expect(() =>
+  it('invalidates a qualified reference and shrinks a partially deleted range', () => {
+    expect(
       shiftCrossSheetFormulas(otherSheet, SHEET, [{ kind: 'remove-rows', index: 7, count: 1 }]),
-    ).toThrow(StructuralShiftError)
+    ).toContain('<f>SUM(Data!A5:A9)+Data!#REF!+A5</f>')
   })
 
   it('shifts defined names', () => {
@@ -721,7 +721,7 @@ describe('structural save integration', () => {
     expect(other).toContain('<f>Data!A8</f>')
   })
 
-  it('still fails closed when a cross-sheet reference is deleted', async () => {
+  it('saves a deleted cross-sheet reference as #REF!', async () => {
     const zip = await JSZip.loadAsync(await buildStructureFixture())
     zip.file(
       'xl/worksheets/sheet2.xml',
@@ -729,13 +729,16 @@ describe('structural save integration', () => {
       { createFolders: false },
     )
     const buffer = await zip.generateAsync({ type: 'nodebuffer' })
-    await expect(
-      applyCellEditsToXlsx(
-        buffer,
-        [],
-        [{ sheetName: SHEET, ops: [{ kind: 'remove-rows', index: 0, count: 1 }] }],
-      ),
-    ).rejects.toThrow('deleted range')
+    const mutation = await applyCellEditsToXlsx(
+      buffer,
+      [],
+      [{ sheetName: SHEET, ops: [{ kind: 'remove-rows', index: 0, count: 1 }] }],
+    )
+    expect(() => assertOnlyTouchedEntriesChanged(mutation)).not.toThrow()
+    const saved = await JSZip.loadAsync(mutation.buffer)
+    expect(await saved.file('xl/worksheets/sheet2.xml')?.async('text')).toContain(
+      '<f>Data!#REF!</f>',
+    )
   })
 
   const anchoredTable =

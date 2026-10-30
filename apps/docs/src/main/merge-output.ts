@@ -22,13 +22,22 @@ export function mergeOutputFileName(name: string): string {
 }
 
 /** a free path inside dir for that name: name.docx, name-2.docx, name-3.docx… */
-export function mergeOutputPath(dir: string, name: string): string {
+export function mergeOutputPath(
+  dir: string,
+  name: string,
+  reserved: ReadonlySet<string> = new Set(),
+): string {
   const fileName = mergeOutputFileName(name)
   const dot = fileName.lastIndexOf('.')
   const base = dot > 0 ? fileName.slice(0, dot) : fileName
   const ext = dot > 0 ? fileName.slice(dot) : ''
   let candidate = join(dir, fileName)
-  for (let i = 2; existsSync(candidate); i += 1) {
+  for (
+    let i = 2;
+    existsSync(candidate) ||
+    reserved.has(process.platform === 'win32' ? candidate.toLowerCase() : candidate);
+    i += 1
+  ) {
     candidate = join(dir, `${base}-${i}${ext}`)
   }
   return candidate

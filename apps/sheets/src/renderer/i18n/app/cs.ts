@@ -323,7 +323,7 @@ export const cs = {
   appPivotSheetNoStructural:
     'Tento list obsahuje kontingenční tabulku — strukturální změny zatím nejsou podporovány.',
   appDeleteSpanFormulas:
-    'Některý vzorec odkazuje pouze na odstraňované řádky/sloupce — nejprve ho upravte nebo odeberte.',
+    'Po tomto odstranění nelze některý vzorec bezpečně aktualizovat. Nejprve ho upravte nebo odeberte.',
   appIconSetUnsupported:
     'Tuto kombinaci ikon nelze uložit do xlsx — zvolte prosím jinou sadu ikon.',
   appFullLoadFilterTitle: 'Tato akce vyžaduje celý sešit',

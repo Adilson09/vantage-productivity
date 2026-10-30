@@ -542,4 +542,5 @@ export const vi = {
   appMergeSourceLoaded: 'Đã tải {name} ({n} bản ghi)',
   appMergeWritten: 'Đã ghi {n} tài liệu',
   appMergeNothingToWrite: 'Không có gì để ghi',
+  appRecoveryFailed: 'Không thể lưu bản nháp để khôi phục: {error}',
 } satisfies Record<keyof typeof zh, string>

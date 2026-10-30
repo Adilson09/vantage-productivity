@@ -1,3 +1,7 @@
+import type {
+  SlidesToolSaveCompletion,
+  SlidesCloseIntent,
+} from '../../../../../slides/src/shared/slides-tool-save'
 import { z } from 'zod'
 import { outlineToOps, parsePptxOutline, type PptxSourceFormat } from '../pptx-outline'
 import { createPptxViaCli } from '../headless-cli'
@@ -57,8 +61,33 @@ export interface SlidesControl {
   runTxn: (wcId: number, req: SlidesTxnRequest) => Promise<unknown>
   /** read the visible deck (slides/elements with ids and geometry) */
   readDeck: (wcId: number) => Promise<unknown>
-  /** save the session's deck to an absolute path */
-  saveDeck: (wcId: number, path: string, overwrite: boolean) => Promise<{ path: string }>
+  /** UI-backed save flushes the renderer; ordinary publication need not mean clean. */
+  saveDeck: (
+    wcId: number,
+    path: string,
+    overwrite: boolean,
+    options?: { requireClean?: boolean },
+  ) => Promise<{
+    path: string
+    requestId?: string
+    published?: boolean
+    current?: boolean
+    clean?: boolean
+  }>
+  prepareClose?: (
+    wcId: number,
+    path: string | undefined,
+    intent: SlidesCloseIntent,
+  ) => Promise<SlidesToolSaveCompletion>
+  completeClose?: (
+    wcId: number,
+    receipt: SlidesToolSaveCompletion,
+    removeSync: () => boolean,
+  ) => boolean
+  cancelClose?: (wcId: number, receipt: SlidesToolSaveCompletion) => void | Promise<void>
+  /** Internal main-only callback: consume a matching ready lease and remove the tab synchronously. */
+  completeSaveClose?: (wcId: number, requestId: string, close: () => boolean) => boolean
+  cancelSaveClose?: (wcId: number, requestId: string) => void
 }
 
 const PPTX_EXT = `.${generateExtension('pptx')}`

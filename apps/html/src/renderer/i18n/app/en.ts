@@ -1,6 +1,10 @@
 import type { zh } from './zh'
 
 export const en = {
+  recoveryFailed: 'Recovery copy could not be updated: {error}. Your previous copy is retained.',
+  recoveryRetry: 'Retry recovery',
+  recoveryRemote:
+    'This recovery copy still depends on {count} remote resource(s), which may require an internet connection.',
   redactMenuLabel: 'Hide the selection from AI',
   redactDialogDesc:
     'The words stay in the document and in the file; the model sees the placeholder below instead. Name it so the model knows what it stands for.',

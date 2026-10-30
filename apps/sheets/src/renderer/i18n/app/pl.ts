@@ -337,7 +337,7 @@ export const pl = {
   appPivotSheetNoStructural:
     'Ten arkusz zawiera tabelę przestawną — zmiany strukturalne nie są jeszcze obsługiwane.',
   appDeleteSpanFormulas:
-    'Formuła odwołuje się wyłącznie do usuwanych wierszy/kolumn — najpierw ją zaktualizuj lub usuń.',
+    'Po tym usunięciu nie można bezpiecznie zaktualizować formuły. Najpierw ją zmień lub usuń.',
   appIconSetUnsupported:
     'Tej kombinacji ikon nie można zapisać w pliku xlsx — wybierz inny zestaw ikon.',
   appFullLoadFilterTitle: 'Ta operacja wymaga pełnego skoroszytu',

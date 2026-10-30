@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "candidate": "0.15.0-dev.2",
+  "recordedAt": "2026-10-29T22:35:12.964Z",
+  "status": "focused-process-suite-passed; built-Electron-and-ASAR-acceptance-owned-by-root",
+  "implementation": {
+    "client": "packages/productivity-engine/src/calendar-isolated.ts",
+    "supervisorAndThread": "packages/productivity-engine/src/calendar-worker.ts",
+    "protocol": "packages/productivity-engine/src/calendar-worker-protocol.ts",
+    "test": "packages/productivity-engine/tests/calendar-isolated.test.ts",
+    "shellEntry": "apps/shell/src/main/calendar-child.ts",
+    "shape": "A separate Node child supervises an operation worker_thread with an independent timer. Each operation opens its own existing CalendarWorkspace connection inside the thread and closes it before publishing a result.",
+    "mainResponsibilities": [
+      "Create/initialize the trusted SQLite schema before constructing the async client.",
+      "Publish calendar files through the trusted main CalendarWorkspace.exportToFile so recovery history/cipher configuration stays in the main process."
+    ],
+    "standalonePreview": "expandCalendarSourceIsolated dispatches expandSource before opening any SQLite store.",
+    "excluded": [
+      "close",
+      "exportToFile",
+      "runLocalTestTransport",
+      "provider/network transports",
+      "functions, accessors and arbitrary shell/JVM/Node arguments"
+    ]
+  },
+  "bounds": {
+    "inputBytes": 8388608,
+    "outputBytes": 8388608,
+    "diagnosticBytes": 65536,
+    "defaultDeadlineMs": 5000,
+    "queueConsumesMonotonicDeadline": true,
+    "maxRunning": 2,
+    "maxQueued": 8,
+    "defaultSupervisorOldSpaceMiB": 256,
+    "defaultThreadOldSpaceMiB": 256,
+    "threadYoungSpaceMiB": 16,
+    "threadStackMiB": 4,
+    "responseFlushExitFallbackMs": 250,
+    "startupInputDeadlineMs": 10000,
+    "boundary": "V8 heap, protocol and process/thread deadlines; not an OS sandbox or a total native allocation cap."
+  },
+  "protocol": [
+    "Strict UTF-8 with bounded JSON nesting/tokens, duplicate-key refusal, one exact nonce/method/version envelope, method-specific DTO guards, and exit-code agreement.",
+    "Calendar and outbox metadata are body-free. Raw ICS is returned only by explicit exportCalendar/exportOutboxMessage calls.",
+    "Unverified write outcomes require refresh and explicitly state that changes may already have been saved. The client does not retry writes.",
+    "Dispose/abortAll cancels owned active and queued jobs; abortAllCalendarWorkers also covers standalone previews."
+  ],
+  "tests": {
+    "passed": 17,
+    "failed": 0,
+    "skipped": 0,
+    "log": "D:\\Codex-builds\\vantage-engine-tools-next\\calendar-isolation-tests.log",
+    "logSha256": "a5ddde6694bd090dd9af1c3ffcd134f263ec6ef4dfd687fb8ee9a99289d12d8b",
+    "command": "node ../../node_modules/vitest/vitest.mjs run tests/calendar-isolated.test.ts --maxWorkers=1",
+    "workingDirectory": "packages/productivity-engine",
+    "typecheck": {
+      "recordedAt": "2026-10-29T22:34:17.2618311Z",
+      "exitCode": 0,
+      "command": "node node_modules/typescript/bin/tsc --noEmit --project packages/productivity-engine/tsconfig.json"
+    },
+    "finalCoreRebuildProof": {
+      "log": "D:\\Codex-builds\\vantage-engine-tools-next\\calendar-isolation-final-core.log",
+      "logSha256": "7f57b7fad4719cb33fc2edf1bb6ffeed4205a336ed2769ee62c3b66e90a38caf",
+      "selected": "persists edits across calls",
+      "passed": 1,
+      "otherTestsExcludedByFilter": 16,
+      "purpose": "Fresh normal mutation/persistence worker bundle after the final core-only timezone fixes; the complete 17-case boundary suite had already passed."
+    },
+    "snapshotRegression": {
+      "log": "D:\\Codex-builds\\vantage-engine-tools-next\\calendar-isolation-snapshot-regression.log",
+      "logSha256": "603b4c98085cc510016ef7ecb0df22cdf068b08ab8990a41ece27b1dae469193",
+      "passed": 5,
+      "otherTestsExcludedByFilter": 13,
+      "purpose": "Late queued caller mutations/hooks cannot alter the validated snapshot; queue limits/cancellation/deadlines and normal persisted edits remain valid."
+    }
+  },
+  "actualReceipts": {
+    "recordedAt": "2026-10-29T22:24:15.679Z",
+    "fixtureRule": "FREQ=SECONDLY;BYMONTH=2;BYMONTHDAY=30",
+    "receipts": [
+      {
+        "kind": "parent-hard-deadline",
+        "operationStarted": true,
+        "errorCode": "CALENDAR_DEADLINE",
+        "sqliteUnchanged": true,
+        "beforeSha256": "955e8c5476f564349af05e9e8e3a98d326398cdbe2c415f4934af8af5a399086",
+        "afterSha256": "955e8c5476f564349af05e9e8e3a98d326398cdbe2c415f4934af8af5a399086"
+      },
+      {
+        "kind": "orphan-self-deadline",
+        "fixtureParentPid": 28920,
+        "childPid": 22784,
+        "sqliteWriterLockObservedBeforeParentExit": true,
+        "fixtureParentExited": true,
+        "childExited": true,
+        "errorCode": "CALENDAR_DEADLINE",
+        "nonceMatched": true,
+        "sqliteRevision": 1,
+        "sqliteSourceUnchanged": true
+      },
+      {
+        "kind": "active-cancellation",
+        "childPid": 28232,
+        "childExited": true,
+        "errorCode": "CALENDAR_CANCELLED"
+      },
+      {
+        "kind": "committed-write-lost-response",
+        "uncertain": true,
+        "expectedSavedRevision": 2,
+        "replayed": false
+      },
+      {
+        "kind": "shared-queue-cap",
+        "runningCap": 2,
+        "queuedCap": 8,
+        "accepted": 10,
+        "eleventhRejected": true,
+        "concurrentCapViolated": false
+      },
+      {
+        "kind": "queue-deadline",
+        "expiredBeforeSpawn": true,
+        "possibleMutation": false
+      },
+      {
+        "kind": "dispose-active-and-queued",
+        "startedChildPids": [28288, 30476],
+        "allStartedChildrenExited": true,
+        "requestsCancelled": 10
+      }
+    ]
+  },
+  "queuedSnapshotReceipts": {
+    "recordedAt": "2026-10-29T22:32:17.308Z",
+    "fixtureRule": "FREQ=SECONDLY;BYMONTH=2;BYMONTHDAY=30",
+    "receipts": [
+      {
+        "kind": "shared-queue-cap",
+        "runningCap": 2,
+        "queuedCap": 8,
+        "accepted": 10,
+        "eleventhRejected": true,
+        "concurrentCapViolated": false
+      },
+      {
+        "kind": "queue-deadline",
+        "expiredBeforeSpawn": true,
+        "possibleMutation": false
+      },
+      {
+        "kind": "queued-data-snapshot",
+        "callerMutationIgnored": true,
+        "lateToJsonHookInvoked": false
+      },
+      {
+        "kind": "dispose-active-and-queued",
+        "startedChildPids": [25524, 18388],
+        "allStartedChildrenExited": true,
+        "requestsCancelled": 10
+      }
+    ]
+  },
+  "sourceHashes": [
+    {
+      "path": "packages/productivity-engine/src/calendar-isolated.ts",
+      "sha256": "e96639fb48ebebd81a8cab12777c467df20c9acc66913e8b616f0f7f6c02cfe1"
+    },
+    {
+      "path": "packages/productivity-engine/src/calendar-worker.ts",
+      "sha256": "09d032fa143d05847b3eb0d3aa4955c1dfe653f20d29a963a504a5a65dd6374e"
+    },
+    {
+      "path": "packages/productivity-engine/src/calendar-worker-protocol.ts",
+      "sha256": "8aec80d882d3f2cca673b708178ce5bf6663160069506fda31d1678802e04b6d"
+    },
+    {
+      "path": "packages/productivity-engine/tests/calendar-isolated.test.ts",
+      "sha256": "99c746b99961f6238641244046f8f9f264169cc2ec9194e15d3ef10a588eb683"
+    },
+    {
+      "path": "packages/productivity-engine/src/calendar.ts",
+      "sha256": "02eb6e4bac3d522fcbeb8707b4a7277af5d439050267457ed4a51a983d1179fb"
+    },
+    {
+      "path": "packages/productivity-engine/src/calendar-timezones.ts",
+      "sha256": "57e30cbf5ba93a0de6c0e8befc40b5bc93236ed7aa536c3d7af60f002216e5e3"
+    },
+    {
+      "path": "packages/productivity-engine/src/calendar-mutations.ts",
+      "sha256": "651661da8184d437860921e31fc420131851fb8ba1ddef39ec5c798df8b83d47"
+    },
+    {
+      "path": "packages/productivity-engine/src/calendar-workspace.ts",
+      "sha256": "ae86d7a3ef3cad6354c0d213c8be4f1e20a985f09979c827832f77546c353e90"
+    }
+  ],
+  "fixtureInterpretation": "The genuine SECONDLY;BYMONTH=2;BYMONTHDAY=30 recurrence exceeded declared budgets. Tests prove bounded work and actual child death, without claiming a mathematically infinite iterator. The MONTHLY variant previously returned a normal nonoccurrence rejection and is not counted as a hard-deadline proof.",
+  "bundling": "Root entry wrapper and Rollup input inspected. An in-memory static-main/dynamic-child reproduction emitted a pure shared core chunk, without child import of main bootstrap. Inner thread starts the absolute process.argv[1] entry, not chunk-local __filename. Actual built app and ASAR tests remain separate.",
+  "publishedPreview": "Published 0.15.0-dev.1 source, package and assets were not changed."
+}

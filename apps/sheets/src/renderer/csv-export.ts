@@ -9,6 +9,8 @@ import { INumfmtService } from '@univerjs/sheets'
 import { ConditionalFormattingService } from '@univerjs/preset-sheets-conditional-formatting'
 
 import { MAX_CSV_EXPORT_CHARS } from '../shared/ipc-channels'
+import type { WorkbookWriteContext } from '../shared/desktop-api'
+import type { CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
 import { formulaViewSheets } from './formula-view'
 import { t } from './i18n/locale'
 import { DATE_1904_OFFSET, isCalendarDatePattern, patternType } from './numfmt-fix'
@@ -26,6 +28,8 @@ export interface CsvExportContext {
   /// Routes into the regular Save As flow when the user picks "Save as .xlsx"
   /// in the formula-loss warning.
   requestSaveAs: () => void
+  writeContext?: WorkbookWriteContext
+  closeTicket?: CloseLeaseTicket
 }
 
 /// The slice of the Univer facade the export reads (structural, so the
@@ -250,13 +254,17 @@ export async function handleExportCsv(ctx: CsvExportContext, targetPath?: string
       return
     }
     const baseName = (state?.file.name ?? 'Book1').replace(/\.[^.]+$/, '')
-    const result = await window.desktopApi.exportCsv({
-      fileName: `${baseName}.csv`,
-      content,
-      hasFormulas: sheetHasFormulas(sheet),
-      ...(sheetCount > 1 ? { activeSheetName: sheet.getSheetName() } : {}),
-      ...(targetPath === undefined ? {} : { targetPath }),
-    })
+    const result = await window.desktopApi.exportCsv(
+      {
+        fileName: `${baseName}.csv`,
+        content,
+        hasFormulas: sheetHasFormulas(sheet),
+        ...(sheetCount > 1 ? { activeSheetName: sheet.getSheetName() } : {}),
+        ...(targetPath === undefined ? {} : { targetPath }),
+      },
+      ctx.writeContext,
+      ctx.closeTicket,
+    )
     if (result.canceled) {
       if (result.saveAsXlsxInstead) ctx.requestSaveAs()
       else ctx.setMessage(t('appCsvExportCanceled'))

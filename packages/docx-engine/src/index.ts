@@ -278,3 +278,4 @@ export {
   type CompareResult,
   type CompareSummary,
 } from './compare'
+export { readDocxRecoveryData, writeDocxRecoveryData } from './recovery-data'

@@ -1,3 +1,4 @@
+import { markdownCloseStamp, runMarkdownAsyncMutation } from '../close-lease'
 import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
@@ -126,6 +127,7 @@ const SCOPE_TEXT_MAX = 200
 /** structured, not the serialized file text: a body starting with `---` must
  *  never be re-parsed as a frontmatter block on rollback */
 export interface DocSnapshot {
+  source?: string
   /** document body as markdown */
   body: string
   /** raw frontmatter block (fences included), kept byte-for-byte */
@@ -408,16 +410,25 @@ export function AiPanel({
   )
 
   // The loop is built once; every mutable value goes through a ref getter
+  const runSourceRef = useRef<string | null>(null)
+  const runSourceCurrent = () =>
+    runSourceRef.current === null || runSourceRef.current === markdownCloseStamp().source
   const loopRef = useRef<AgentLoop<DocSnapshot> | null>(null)
   if (!loopRef.current) {
     loopRef.current = new AgentLoop<DocSnapshot>({
       transport: transportRef.current,
       skill: composeSkills('markdown+search', '', [
         createMarkdownSkill(
-          () => depsRef.current.getEditor(),
+          () => (runSourceCurrent() ? depsRef.current.getEditor() : null),
           {
-            read: () => depsRef.current.getFrontmatter(),
-            write: (inner) => depsRef.current.setFrontmatter(inner),
+            read: () => {
+              if (!runSourceCurrent()) throw new Error('The AI source changed.')
+              return depsRef.current.getFrontmatter()
+            },
+            write: (inner) => {
+              if (!runSourceCurrent()) throw new Error('The AI source changed.')
+              depsRef.current.setFrontmatter(inner)
+            },
           },
           () => imageGenerationAvailable(settingsRef.current, gskLoggedInRef.current),
           () => ({
@@ -496,7 +507,7 @@ export function AiPanel({
           persistMessage('assistant', final, runToolsRef.current)
           const editor = depsRef.current.getEditor()
           if (editor) clearAiHighlights(editor)
-          depsRef.current.onRunDone(runMutatedRef.current)
+          runSourceCurrent() && depsRef.current.onRunDone(runMutatedRef.current)
           setBusy(false)
         },
         onError: (error) => {
@@ -675,11 +686,12 @@ export function AiPanel({
       { role: 'assistant', text: '', streaming: true },
     ])
     setPrompt('')
+    runSourceRef.current = markdownCloseStamp().source
     setBusy(true)
     // persist what the user saw — a restored transcript must not surface the
     // internal batch protocol text behind a queue submission
     persistMessage('user', displayText ?? instruction, undefined, scope)
-    void (async () => {
+    void runMarkdownAsyncMutation(async () => {
       try {
         settingsRef.current = await window.markdownApi.getAiSettings()
         const withSkills = await withSkillBodies(instruction, sentSkills)
@@ -694,7 +706,12 @@ export function AiPanel({
         })
         setBusy(false)
       }
-    })()
+    }).catch((error) => {
+      if (mountedRef.current) {
+        patchLast({ streaming: false, text: String(error), isError: true })
+        setBusy(false)
+      }
+    })
   }
 
   const stop = (): void => {

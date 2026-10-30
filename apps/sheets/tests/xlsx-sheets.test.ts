@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest'
 import {
   applyCellEditsToXlsx,
   assertOnlyTouchedEntriesChanged,
+  createBufferEntrySource,
+  inspectMacroPreservation,
+  MacroPreservationError,
+  planCellEditsToXlsx,
 } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 import { relsPathFor, resolveRelTarget } from '@vantage/xlsx-gateway/gateway/xlsx-drawing-add'
 import {
@@ -11,6 +15,7 @@ import {
   definedNamesUseToken,
   formatSheetQualifier,
   partPathForRels,
+  parseRelationships,
   pivotCacheReadsFromSheet,
   prepareClonedSheetRels,
   renameSheetInFormula,
@@ -220,23 +225,162 @@ describe('sheet remove save', () => {
     expect(rels).not.toContain('sheet2.xml')
   })
 
-  it('fails closed when formulas, charts, or defined names still reference the sheet', async () => {
+  it('invalidates surviving formulas, chart references and names without losing package relationships or other parts', async () => {
+    const relationshipType = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/'
+    const relationshipsNs = 'http://schemas.openxmlformats.org/package/2006/relationships'
+    const zip = await JSZip.loadAsync(await buildSheetsFixture())
+    const otherSource = await zip.file('xl/worksheets/sheet2.xml')!.async('text')
+    zip.file(
+      'xl/worksheets/sheet2.xml',
+      otherSource
+        .replace('<worksheet ', `<worksheet xmlns:r="${relationshipType.slice(0, -1)}" `)
+        .replace('</worksheet>', '<drawing r:id="drawing1"/></worksheet>'),
+    )
+    zip.file(
+      'xl/worksheets/_rels/sheet2.xml.rels',
+      `<Relationships xmlns="${relationshipsNs}">` +
+        `<Relationship Id="drawing1" Type="${relationshipType}drawing" Target="../drawings/drawing1.xml"/></Relationships>`,
+    )
+    zip.file(
+      'xl/drawings/drawing1.xml',
+      '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"' +
+        ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"' +
+        ` xmlns:r="${relationshipType.slice(0, -1)}">` +
+        '<xdr:twoCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>' +
+        '<xdr:to><xdr:col>8</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>12</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>' +
+        '<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="1" name="Chart 1"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>' +
+        '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic>' +
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">' +
+        '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="chart1"/>' +
+        '</a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>',
+    )
+    zip.file(
+      'xl/drawings/_rels/drawing1.xml.rels',
+      `<Relationships xmlns="${relationshipsNs}">` +
+        `<Relationship Id="chart1" Type="${relationshipType}chart" Target="../charts/chart1.xml"/></Relationships>`,
+    )
+    const types = await zip.file('[Content_Types].xml')!.async('text')
+    zip.file(
+      '[Content_Types].xml',
+      types.replace(
+        '</Types>',
+        '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>' +
+          '<Override PartName="/xl/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/></Types>',
+      ),
+    )
+    const opaqueXml = '<private xmlns="urn:vantage:test">Preserve &amp; retain exactly.</private>'
+    zip.file('customXml/item1.xml', opaqueXml)
+    const packageRels = await zip.file('_rels/.rels')!.async('text')
+    zip.file(
+      '_rels/.rels',
+      packageRels.replace(
+        '</Relationships>',
+        `<Relationship Id="custom1" Type="${relationshipType}customXml" Target="customXml/item1.xml"/></Relationships>`,
+      ),
+    )
+    const source = await zip.generateAsync({ type: 'nodebuffer' })
+    const mutation = await applyCellEditsToXlsx(source, [], [], [], {
+      renames: [],
+      additions: [],
+      removals: ['Data'],
+      order: ['Other', 'My Sheet'],
+    })
+    expect(() => assertOnlyTouchedEntriesChanged(mutation)).not.toThrow()
+    expect(mutation.removedEntries).toEqual(['xl/calcChain.xml', 'xl/worksheets/sheet1.xml'])
+    expect(mutation.addedEntries).toEqual([])
+    const saved = await JSZip.loadAsync(mutation.buffer)
+    const files = Object.values(saved.files)
+      .filter((entry) => !entry.dir)
+      .map((entry) => entry.name)
+      .sort()
+    expect(files).toEqual(
+      Object.values(zip.files)
+        .filter((entry) => !entry.dir && !mutation.removedEntries.includes(entry.name))
+        .map((entry) => entry.name)
+        .sort(),
+    )
+    const other = await saved.file('xl/worksheets/sheet2.xml')!.async('text')
+    // Compare every surviving row, including its cached values and text.
+    const rows = [...other.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map((match) => match[1])
+    expect(rows).toEqual([
+      '<c r="A1"><f>#REF!+SUM(\'My Sheet\'!A1:A2)</f><v>6</v></c>',
+      '<c r="A2" t="inlineStr"><is><t>go</t></is></c>',
+    ])
+    expect(other).toContain('location="#REF!"')
+    expect(other).toContain('<drawing r:id="drawing1"/>')
+    expect(await saved.file('xl/charts/chart1.xml')!.async('text')).toContain('<c:f>#REF!</c:f>')
+    const workbook = await saved.file('xl/workbook.xml')!.async('text')
+    expect(workbook).toContain('<definedName name="GlobalTotal">#REF!</definedName>')
+    expect(workbook).toContain(
+      '<definedName name="LocalMy" localSheetId="1">\'My Sheet\'!$A$1</definedName>',
+    )
+    expect(workbook).toContain('fullCalcOnLoad="1"')
+    expect(await saved.file('customXml/item1.xml')!.async('text')).toBe(opaqueXml)
+    expect(await saved.file('xl/styles.xml')!.async('uint8array')).toEqual(
+      await zip.file('xl/styles.xml')!.async('uint8array'),
+    )
+    for (const rels of Object.values(saved.files).filter(
+      (entry) => !entry.dir && entry.name.endsWith('.rels'),
+    )) {
+      const owner = partPathForRels(rels.name)
+      for (const relationship of parseRelationships(await rels.async('text'))) {
+        if (!relationship.external)
+          expect(
+            saved.file(resolveRelTarget(owner, relationship.target)),
+            `${rels.name} -> ${relationship.target}`,
+          ).not.toBeNull()
+      }
+    }
+  })
+
+  it('also invalidates a deleted quoted sheet name in all surviving sheets', async () => {
+    const mutation = await applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
+      renames: [],
+      additions: [],
+      removals: ['My Sheet'],
+      order: ['Data', 'Other'],
+    })
+    expect(() => assertOnlyTouchedEntriesChanged(mutation)).not.toThrow()
+    expect(await entryText(mutation.buffer, 'xl/worksheets/sheet1.xml')).toContain('<f>#REF!*2</f>')
+    expect(await entryText(mutation.buffer, 'xl/worksheets/sheet2.xml')).toContain(
+      '<f>Data!A1+SUM(#REF!)</f>',
+    )
+  })
+
+  it.each(['Data!ScopedName', 'Data:Other!A1', 'Data!A1#'])(
+    'still refuses unsupported surviving references: %s',
+    async (formula) => {
+      const zip = await JSZip.loadAsync(await buildSheetsFixture())
+      const other = await zip.file('xl/worksheets/sheet2.xml')!.async('text')
+      zip.file('xl/worksheets/sheet2.xml', other.replace("Data!A1+SUM('My Sheet'!A1:A2)", formula))
+      const source = await zip.generateAsync({ type: 'nodebuffer' })
+      await expect(
+        applyCellEditsToXlsx(source, [], [], [], {
+          renames: [],
+          additions: [],
+          removals: ['Data'],
+          order: ['Other', 'My Sheet'],
+        }),
+      ).rejects.toThrow(/unsupported/)
+    },
+  )
+
+  it('refuses unpatchable surviving sheets rather than trusting an exact-case raw name scan', async () => {
+    const source = await createBufferEntrySource(await buildSheetsFixture())
     await expect(
-      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-        renames: [],
-        additions: [],
-        removals: ['My Sheet'],
-        order: ['Data', 'Other'],
-      }),
-    ).rejects.toThrow('reference "My Sheet"')
-    await expect(
-      applyCellEditsToXlsx(await buildSheetsFixture(), [], [], [], {
-        renames: [],
-        additions: [],
-        removals: ['Data'],
-        order: ['Other', 'My Sheet'],
-      }),
-    ).rejects.toThrow('"Data"')
+      planCellEditsToXlsx(
+        { ...source, canPatch: async (path) => path !== 'xl/worksheets/sheet2.xml' },
+        [],
+        [],
+        [],
+        {
+          renames: [],
+          additions: [],
+          removals: ['Data'],
+          order: ['Other', 'My Sheet'],
+        },
+      ),
+    ).rejects.toThrow(/too large to verify/)
   })
 
   it('refuses to remove the last visible sheet', async () => {
@@ -338,7 +482,12 @@ describe('sheet remove save', () => {
   })
 
   it('cascade-removes the drawings, charts, images, comments, VML, and tables the sheet owns', async () => {
-    const mutation = await applyCellEditsToXlsx(await buildSatelliteSheetFixture(), [], [], [], {
+    const source = await buildSatelliteSheetFixture()
+    const inventory = await inspectMacroPreservation(await createBufferEntrySource(source))
+    expect(inventory.vbaProject).toBe(false)
+    expect(inventory.macroSheets).toBe(false)
+    expect(inventory.preservedParts).toEqual([])
+    const mutation = await applyCellEditsToXlsx(source, [], [], [], {
       renames: [],
       additions: [],
       removals: ['Deco'],
@@ -371,6 +520,54 @@ describe('sheet remove save', () => {
     }
     const workbook = await entryText(mutation.buffer, 'xl/workbook.xml')
     expect(workbook).not.toContain('name="Deco"')
+  })
+
+  it.each([
+    'unknown VML',
+    'VML button',
+    'mixed VML',
+    'note with macro binding',
+    'ActiveX',
+  ] as const)('still refuses cascade deletion when %s carries protected bindings', async (kind) => {
+    const zip = await JSZip.loadAsync(await buildSatelliteSheetFixture())
+    const path = 'xl/drawings/vmlDrawing1.vml'
+    const note = await zip.file(path)!.async('text')
+    const button =
+      '<v:shape id="button"><x:ClientData ObjectType="Button"><x:FmlaMacro>[0]!Synthetic_Click</x:FmlaMacro></x:ClientData></v:shape>'
+    if (kind === 'unknown VML') {
+      zip.file(
+        path,
+        '<xml xmlns:v="urn:schemas-microsoft-com:vml"><v:shape id="unknown" type="#_x0000_t202"/></xml>',
+      )
+    } else if (kind === 'VML button') {
+      zip.file(
+        path,
+        `<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:x="urn:schemas-microsoft-com:office:excel">${button}</xml>`,
+      )
+    } else if (kind === 'mixed VML') {
+      zip.file(path, note.replace('</xml>', `${button}</xml>`))
+    } else if (kind === 'note with macro binding') {
+      zip.file(
+        path,
+        note.replace('ObjectType="Note"', 'ObjectType="Note" onClick="Synthetic_Click"'),
+      )
+    } else {
+      zip.file(
+        'xl/activeX/activeX1.xml',
+        '<ocx xmlns="http://schemas.microsoft.com/office/2006/activeX" classid="inert-test-sentinel"/>',
+      )
+    }
+    const source = await zip.generateAsync({ type: 'nodebuffer' })
+    const before = Buffer.from(source)
+    await expect(
+      applyCellEditsToXlsx(source, [], [], [], {
+        renames: [],
+        additions: [],
+        removals: ['Deco'],
+        order: ['Keep'],
+      }),
+    ).rejects.toBeInstanceOf(MacroPreservationError)
+    expect(source).toEqual(before)
   })
 
   it('keeps an image a surviving sheet still references', async () => {

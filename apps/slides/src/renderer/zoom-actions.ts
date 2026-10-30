@@ -1,3 +1,5 @@
+import { slidesActionApi, slidesActionWait, slidesActionWork } from './slides-action-ownership'
+import { withSlidesHistoryBatch } from './slides-history-batch'
 /**
  * Insert > Zoom: Slide Zoom / Section Zoom / Summary Zoom. Every tile is a snapshot picture
  * of its target slide (what PowerPoint writes as the fallback image for older viewers) with a
@@ -27,51 +29,56 @@ interface ZoomTile {
 
 const sortUnique = (indexes: number[]): number[] => [...new Set(indexes)].sort((a, b) => a - b)
 
-async function batched<T>(fn: () => Promise<T>): Promise<T> {
-  const opened = await window.slidesApi.beginHistoryBatch()
-  try {
-    return await fn()
-  } finally {
-    if (opened) await window.slidesApi.endHistoryBatch()
-  }
+async function batched<T>(ctx: ActionCtx, fn: () => Promise<T>): Promise<T> {
+  return withSlidesHistoryBatch(ctx, fn)
 }
 
 /** Drops the tiles on slideIndex in order (later tiles on top); returns the last page state and the new ids. */
 async function placeTiles(
+  ctx: ActionCtx,
   slides: RenderSlide[],
   images: ActionCtx['images'],
   slideIndex: number,
   tiles: ZoomTile[],
 ): Promise<{ slide: RenderSlide | null; ids: string[] }> {
   // Lazy: export-render pulls in Konva, which the rest of this module never needs
-  const { renderSlidesToPngBase64 } = await import('./export-render')
-  const pngs = await renderSlidesToPngBase64(
-    tiles.map((tile) => slides[tile.target]!),
-    images,
-    1,
+  const { renderSlidesToPngBase64 } = await slidesActionWait(ctx, import('./export-render'))
+  const pngs = await slidesActionWait(
+    ctx,
+    renderSlidesToPngBase64(
+      tiles.map((tile) => slides[tile.target]!),
+      images,
+      1,
+    ),
   )
   let slide: RenderSlide | null = null
   const ids: string[] = []
   for (const [i, tile] of tiles.entries()) {
     const png = pngs[i]
     if (!png) continue
-    const r = await window.slidesApi.addImageBytes({
-      slideIndex,
-      base64: png,
-      ext: 'png',
-      fitWidthPx: FIT_WIDTH,
-      xPx: tile.frame.x,
-      yPx: tile.frame.y,
-      wPx: tile.frame.w,
-      hPx: tile.frame.h,
-      name: tile.name,
-    })
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).addImageBytes({
+        slideIndex,
+        base64: png,
+        ext: 'png',
+        fitWidthPx: FIT_WIDTH,
+        xPx: tile.frame.x,
+        yPx: tile.frame.y,
+        wPx: tile.frame.w,
+        hPx: tile.frame.h,
+        name: tile.name,
+      }),
+    )
     if (!r || 'error' in r) continue
-    const linked = await window.slidesApi.setLink({
-      slideIndex,
-      sourceId: r.sourceId,
-      target: { kind: 'slide', slideIndex: tile.target },
-    })
+    const linked = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).setLink({
+        slideIndex,
+        sourceId: r.sourceId,
+        target: { kind: 'slide', slideIndex: tile.target },
+      }),
+    )
     slide = linked ?? r.slide
     ids.push(r.sourceId)
   }
@@ -79,39 +86,46 @@ async function placeTiles(
 }
 
 async function insertCascade(ctx: ActionCtx, targets: number[], label: string): Promise<void> {
-  const { slide, current } = ctx
-  if (!slide || !targets.length) return
-  const frames = zoomCascadeFrames(slide, targets.length)
-  const tiles = targets.map((target, i) => ({
-    target,
-    frame: frames[i]!,
-    name: `${label} ${target + 1}`,
-  }))
-  const { slide: updated, ids } = await batched(() =>
-    placeTiles(ctx.slides, ctx.images, current, tiles),
-  )
-  if (!updated) return
-  ctx.applySlide(current, updated)
-  ctx.setSelectedIds(ids)
-  ctx.setStatus(
-    ids.length === 1
-      ? t('appStatusZoomInserted', { page: targets[0]! + 1 })
-      : t('appStatusZoomsInserted', { count: ids.length }),
-  )
+  return slidesActionWork(ctx, async () => {
+    const { slide, current } = ctx
+    if (!slide || !targets.length) return
+    const frames = zoomCascadeFrames(slide, targets.length)
+    const tiles = targets.map((target, i) => ({
+      target,
+      frame: frames[i]!,
+      name: `${label} ${target + 1}`,
+    }))
+    const { slide: updated, ids } = await slidesActionWait(
+      ctx,
+      batched(ctx, () => placeTiles(ctx, ctx.slides, ctx.images, current, tiles)),
+    )
+    if (!updated) return
+    ctx.applySlide(current, updated)
+    ctx.setSelectedIds(ids)
+    ctx.setStatus(
+      ids.length === 1
+        ? t('appStatusZoomInserted', { page: targets[0]! + 1 })
+        : t('appStatusZoomsInserted', { count: ids.length }),
+    )
+  })
 }
 
 export async function insertSlideZooms(ctx: ActionCtx, targets: number[]): Promise<void> {
-  const valid = sortUnique(targets).filter((i) => ctx.slides[i])
-  await insertCascade(ctx, valid, 'Slide Zoom')
+  return slidesActionWork(ctx, async () => {
+    const valid = sortUnique(targets).filter((i) => ctx.slides[i])
+    await slidesActionWait(ctx, insertCascade(ctx, valid, 'Slide Zoom'))
+  })
 }
 
 /** sectionIndexes address groupSections() entries (the unsectioned lead group counts as PowerPoint's Default Section). */
 export async function insertSectionZooms(ctx: ActionCtx, sectionIndexes: number[]): Promise<void> {
-  const groups = groupSections(ctx.sections, ctx.slides.length) ?? []
-  const targets = sortUnique(sectionIndexes)
-    .map((i) => groups[i]?.start)
-    .filter((start): start is number => start !== undefined)
-  await insertCascade(ctx, targets, 'Section Zoom')
+  return slidesActionWork(ctx, async () => {
+    const groups = groupSections(ctx.sections, ctx.slides.length) ?? []
+    const targets = sortUnique(sectionIndexes)
+      .map((i) => groups[i]?.start)
+      .filter((start): start is number => start !== undefined)
+    await slidesActionWait(ctx, insertCascade(ctx, targets, 'Section Zoom'))
+  })
 }
 
 /** Title placeholder text of a slide ('' when it has none). */
@@ -185,28 +199,41 @@ async function insertSummarySlide(
   ctx: ActionCtx,
   before: number,
 ): Promise<{ slides: RenderSlide[]; index: number } | null> {
-  const layoutPath = summaryLayoutPath(
-    ctx.layouts ?? (await window.slidesApi.getLayouts())?.layouts ?? null,
-  )
-  if (!layoutPath) {
-    const r = await window.slidesApi.addBlankSlide({
-      sourceIndex: Math.max(before - 1, 0),
-      fitWidthPx: FIT_WIDTH,
-      ...(before === 0 ? { before: true } : {}),
-    })
-    return r ? { slides: mergeSlideUpdate(ctx.slides, r), index: r.index } : null
-  }
-  const r = await window.slidesApi.addSlideWithLayout({
-    sourceIndex: Math.max(before - 1, 0),
-    layoutPath,
-    fitWidthPx: FIT_WIDTH,
+  return slidesActionWork(ctx, async () => {
+    const layoutPath = summaryLayoutPath(
+      ctx.layouts ??
+        (await slidesActionWait(ctx, slidesActionApi(ctx).getLayouts()))?.layouts ??
+        null,
+    )
+    if (!layoutPath) {
+      const r = await slidesActionWait(
+        ctx,
+        slidesActionApi(ctx).addBlankSlide({
+          sourceIndex: Math.max(before - 1, 0),
+          fitWidthPx: FIT_WIDTH,
+          ...(before === 0 ? { before: true } : {}),
+        }),
+      )
+      return r ? { slides: mergeSlideUpdate(ctx.slides, r), index: r.index } : null
+    }
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).addSlideWithLayout({
+        sourceIndex: Math.max(before - 1, 0),
+        layoutPath,
+        fitWidthPx: FIT_WIDTH,
+      }),
+    )
+    if (!r) return null
+    const added = { slides: mergeSlideUpdate(ctx.slides, r), index: r.index }
+    if (before > 0) return added
+    // The layout op only appends after a slide; landing at position 0 takes one more move
+    const moved = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).moveSlide({ fromIndex: r.index, toIndex: 0 }),
+    )
+    return moved ? { slides: mergeSlideUpdate(added.slides, moved), index: 0 } : added
   })
-  if (!r) return null
-  const added = { slides: mergeSlideUpdate(ctx.slides, r), index: r.index }
-  if (before > 0) return added
-  // The layout op only appends after a slide; landing at position 0 takes one more move
-  const moved = await window.slidesApi.moveSlide({ fromIndex: r.index, toIndex: 0 })
-  return moved ? { slides: mergeSlideUpdate(added.slides, moved), index: 0 } : added
 }
 
 /**
@@ -215,55 +242,68 @@ async function insertSummarySlide(
  * and every chosen slide that does not already head a section starts one.
  */
 export async function insertSummaryZoom(ctx: ActionCtx, slideIndices: number[]): Promise<void> {
-  const chosen = sortUnique(slideIndices).filter((i) => ctx.slides[i])
-  if (!chosen.length) return
-  const first = chosen[0]!
-  const done = await batched(async () => {
-    const added = await insertSummarySlide(ctx, first)
-    if (!added) return null
-    let { slides } = added
-    const index = added.index
-    // Every chosen slide sits one position later now
-    const targets = chosen.map((i) => i + 1)
-    const page = slides[index]!
-    let box: InsertFrame = graphicFrameInsertFrame(page)
-    const body = page.nodes.find(
-      (n) => (n.type === 'shape' || n.type === 'text') && n.placeholder && isBodyPh(n.placeholder),
-    )
-    if (body) {
-      box = { x: body.box.x, y: body.box.y, w: body.box.w, h: body.box.h }
-      const cleared = await window.slidesApi.deleteElement({
-        slideIndex: index,
-        sourceId: body.sourceId,
-      })
-      if (cleared) slides = slides.map((s, i) => (i === index ? cleared : s))
-    }
-    const frames = summaryZoomLayout(targets.length, box, page.widthPx / page.heightPx)
-    const tiles = targets.map((target, i) => ({
-      target,
-      frame: frames[i]!,
-      name: 'Summary Zoom',
-    }))
-    const placed = await placeTiles(slides, ctx.images, index, tiles)
-    if (placed.slide) slides = slides.map((s, i) => (i === index ? placed.slide! : s))
+  return slidesActionWork(ctx, async () => {
+    const chosen = sortUnique(slideIndices).filter((i) => ctx.slides[i])
+    if (!chosen.length) return
+    const first = chosen[0]!
+    const done = await slidesActionWait(
+      ctx,
+      batched(ctx, async () => {
+        const added = await slidesActionWait(ctx, insertSummarySlide(ctx, first))
+        if (!added) return null
+        let { slides } = added
+        const index = added.index
+        // Every chosen slide sits one position later now
+        const targets = chosen.map((i) => i + 1)
+        const page = slides[index]!
+        let box: InsertFrame = graphicFrameInsertFrame(page)
+        const body = page.nodes.find(
+          (n) =>
+            (n.type === 'shape' || n.type === 'text') && n.placeholder && isBodyPh(n.placeholder),
+        )
+        if (body) {
+          box = { x: body.box.x, y: body.box.y, w: body.box.w, h: body.box.h }
+          const cleared = await slidesActionWait(
+            ctx,
+            slidesActionApi(ctx).deleteElement({
+              slideIndex: index,
+              sourceId: body.sourceId,
+            }),
+          )
+          if (cleared) slides = slides.map((s, i) => (i === index ? cleared : s))
+        }
+        const frames = summaryZoomLayout(targets.length, box, page.widthPx / page.heightPx)
+        const tiles = targets.map((target, i) => ({
+          target,
+          frame: frames[i]!,
+          name: 'Summary Zoom',
+        }))
+        const placed = await slidesActionWait(
+          ctx,
+          placeTiles(ctx, slides, ctx.images, index, tiles),
+        )
+        if (placed.slide) slides = slides.map((s, i) => (i === index ? placed.slide! : s))
 
-    const wanted = summaryZoomSections(
-      ctx.sections,
-      ctx.slides.length,
-      first,
-      chosen,
-      (pos) => slideTitleText(slides[pos]!) || t('appSectionN', { n: pos + 1 }),
+        const wanted = summaryZoomSections(
+          ctx.sections,
+          ctx.slides.length,
+          first,
+          chosen,
+          (pos) => slideTitleText(slides[pos]!) || t('appSectionN', { n: pos + 1 }),
+        )
+        const sections =
+          (await slidesActionWait(ctx, slidesActionApi(ctx).setSections(wanted))) ?? wanted
+        return { slides, index, sections, count: placed.ids.length }
+      }),
     )
-    const sections = (await window.slidesApi.setSections(wanted)) ?? wanted
-    return { slides, index, sections, count: placed.ids.length }
+    if (!done) return
+    ctx.setSlides(done.slides)
+    ctx.setSections(done.sections)
+    ctx.setCurrent(done.index)
+    ctx.setSelectedSlides([done.index])
+    ctx.setSelectedIds([])
+    ctx.setEditing(null)
+    ctx.setDirty(true)
+    ctx.setStatus(t('appStatusSummaryZoomInserted', { count: done.count }))
   })
-  if (!done) return
-  ctx.setSlides(done.slides)
-  ctx.setSections(done.sections)
-  ctx.setCurrent(done.index)
-  ctx.setSelectedSlides([done.index])
-  ctx.setSelectedIds([])
-  ctx.setEditing(null)
-  ctx.setDirty(true)
-  ctx.setStatus(t('appStatusSummaryZoomInserted', { count: done.count }))
 }

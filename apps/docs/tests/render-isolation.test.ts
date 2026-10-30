@@ -14,6 +14,7 @@ import {
 } from '../src/renderer/components/ribbon-format-state'
 import { Ribbon } from '../src/renderer/components/Ribbon'
 import { CommentsPanel } from '../src/renderer/components/CommentsPanel'
+import { adoptCommentDraftRecovery } from '../src/renderer/comment-draft-recovery'
 // spy on a function the ribbon home tab calls on every render → precise re-render detector
 vi.mock('../src/renderer/font-list', { spy: true })
 import { fontFamiliesFor } from '../src/renderer/font-list'
@@ -222,6 +223,7 @@ describe('Ribbon render isolation', () => {
 
 describe('CommentsPanel anchor scan', () => {
   it('shows anchor text collected in a single DOM pass', () => {
+    adoptCommentDraftRecovery()
     const editor = makeEditor()
     const pm = document.createElement('div')
     pm.className = 'ProseMirror'
@@ -235,12 +237,13 @@ describe('CommentsPanel anchor scan', () => {
     const comments = [{ id: 'c1', author: 'A', text: 'note', done: false }]
     const { root, container } = mount(
       createElement(CommentsPanel, {
-        comments: comments as never,
+        comments,
         docNode: editor.state.doc,
         composing: false,
-        onSubmitNew: noop,
-        onReply: noop,
-        onEdit: noop,
+        onSubmitNew: () => false,
+        onReply: () => false,
+        onEdit: () => false,
+        selectionAnchor: () => undefined,
         onResolve: noop,
         onCancelNew: noop,
         onDelete: noop,

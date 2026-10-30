@@ -8,18 +8,25 @@
   "exports": {
     ".": "./src/index.ts",
     "./calendar": "./src/calendar.ts",
+    "./calendar-types": "./src/calendar-types.ts",
+    "./calendar-isolated": "./src/calendar-isolated.ts",
+    "./calendar-workspace": "./src/calendar-workspace.ts",
+    "./calendar-timezones": "./src/calendar-timezones.ts",
     "./database": "./src/database.ts",
     "./database-isolated": "./src/database-isolated.ts",
     "./collaboration": "./src/collaboration.ts",
     "./providers": "./src/providers.ts"
   },
   "scripts": {
+    "pretest": "node ../../tools/build-query-worker.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "cli": "tsx src/cli.ts"
   },
   "dependencies": {
-    "ical.js": "2.2.1"
+    "ical.js": "2.2.1",
+    "moment": "2.30.1",
+    "moment-timezone": "0.6.6"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

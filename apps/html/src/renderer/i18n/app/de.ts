@@ -1,6 +1,11 @@
 import type { zh } from './zh'
 
 export const de = {
+  recoveryFailed:
+    'Die Wiederherstellungskopie konnte nicht aktualisiert werden: {error}. Die vorherige Kopie bleibt erhalten.',
+  recoveryRetry: 'Erneut versuchen',
+  recoveryRemote:
+    'Diese Kopie benötigt weiterhin {count} entfernte Ressource(n), möglicherweise mit Internetverbindung.',
   redactMenuLabel: 'Auswahl vor der KI verbergen',
   redactDialogDesc:
     'Die Wörter bleiben im Dokument und in der Datei; das Modell sieht nur den Platzhalter. Geben Sie ihm einen Namen.',

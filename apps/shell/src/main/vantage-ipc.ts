@@ -1,3 +1,4 @@
+import { registerRecoveryRuntimeIpc } from './recovery-runtime-bootstrap'
 // Vantage Productivity addition (2026): user-selected, local-only inspection and recovery copies.
 import { extname, join, parse, resolve } from 'node:path'
 import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
@@ -13,7 +14,10 @@ import {
   restoreRecoveryCopy,
 } from '../../../../packages/electron-utils/src/recovery-vault'
 
-export function registerVantageIpc(getHost: () => BrowserWindow | null): void {
+export function registerVantageIpc(
+  getHost: () => BrowserWindow | null,
+  openRestored?: (path: string) => boolean,
+): void {
   let inspection: AbortController | undefined
   let choosingInspection = false
   const root = join(app.getPath('userData'), 'recovery')
@@ -24,7 +28,15 @@ export function registerVantageIpc(getHost: () => BrowserWindow | null): void {
     }
     return host
   }
-  registerEngineeringIpc(hostFor)
+  registerRecoveryRuntimeIpc({
+    ipc: ipcMain,
+    hostFor,
+    getHost,
+    terminal: (cleanup) => {
+      app.once('will-quit', cleanup)
+    },
+  })
+  registerEngineeringIpc(hostFor, openRestored)
   const announced = new Map<string, string>()
   const saveWarnings = setInterval(() => {
     const host = getHost()
@@ -55,16 +67,20 @@ export function registerVantageIpc(getHost: () => BrowserWindow | null): void {
         'An inspection is already running. Cancel it before choosing another document.',
       )
     choosingInspection = true
-    const selected = await dialog.showOpenDialog(host, {
-      title: 'Inspect a document locally',
-      properties: ['openFile'],
-      filters: [
-        {
-          name: 'Supported documents',
-          extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'md', 'markdown', 'html', 'htm'],
-        },
-      ],
-    }).finally(() => { choosingInspection = false })
+    const selected = await dialog
+      .showOpenDialog(host, {
+        title: 'Inspect a document locally',
+        properties: ['openFile'],
+        filters: [
+          {
+            name: 'Supported documents',
+            extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'md', 'markdown', 'html', 'htm'],
+          },
+        ],
+      })
+      .finally(() => {
+        choosingInspection = false
+      })
     if (selected.canceled || !selected.filePaths[0]) return null
     const controller = new AbortController()
     inspection = controller

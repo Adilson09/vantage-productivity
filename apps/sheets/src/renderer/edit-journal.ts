@@ -1,3 +1,4 @@
+import { admitJournalAuthored } from './workbook-authored-admission'
 import { BorderStyleTypes, CellValueType } from '@univerjs/core'
 
 import type {
@@ -42,6 +43,80 @@ export interface JournalEntry {
   /// Clear Formats / Clear All: the cell returns to the default style before
   /// any remaining `style` delta applies.
   readonly styleReset?: boolean
+}
+
+/** Exact restore operations used by undo; they are authored writes too. */
+export function replaceChartJournalEntry(
+  journal: EditJournal,
+  chartPath: string,
+  entry: Omit<WorkbookChartEdit, 'chartPath'> | undefined,
+): void {
+  return admitJournalAuthored(journal, [chartPath, entry] as const, (path, accepted) => {
+    if (accepted === undefined) journal.chartEdits.delete(path)
+    else journal.chartEdits.set(path, accepted)
+  })
+}
+
+export function replaceJournalVisualAdds(
+  journal: EditJournal,
+  adds: readonly WorkbookVisualObject[],
+): void {
+  return admitJournalAuthored(journal, [adds] as const, (accepted) => {
+    journal.visualAdds.splice(0, journal.visualAdds.length, ...accepted)
+  })
+}
+
+export function replaceJournalVisualAdd(
+  journal: EditJournal,
+  visualId: string,
+  visual: WorkbookVisualObject,
+): boolean {
+  return admitJournalAuthored(journal, [visualId, visual] as const, (id, accepted) => {
+    const at = journal.visualAdds.findIndex((candidate) => candidate.id === id)
+    if (at < 0) return false
+    journal.visualAdds[at] = accepted
+    return true
+  })
+}
+
+export function replaceSessionPivotJournalEntry(
+  journal: EditJournal,
+  name: string,
+  entry: WorkbookPivotAdd,
+): boolean {
+  return admitJournalAuthored(journal, [name, entry] as const, (acceptedName, accepted) => {
+    const at = journal.pivotAdds.findIndex((pivot) => pivot.name === acceptedName)
+    if (at < 0) return false
+    journal.pivotAdds.splice(at, 1, accepted)
+    return true
+  })
+}
+
+export function restoreJournalVisual(
+  journal: EditJournal,
+  visualId: string,
+  chartPath: string | undefined,
+  snapshot: {
+    readonly add: WorkbookVisualObject | undefined
+    readonly edit: VisualEditEntry | undefined
+    readonly chartEdit: Omit<WorkbookChartEdit, 'chartPath'> | undefined
+  },
+): void {
+  return admitJournalAuthored(
+    journal,
+    [visualId, chartPath, snapshot] as const,
+    (id, path, accepted) => {
+      const adds = journal.visualAdds
+      const index = adds.findIndex((candidate) => candidate.id === id)
+      if (accepted.add === undefined) {
+        if (index >= 0) adds.splice(index, 1)
+      } else if (index >= 0) adds[index] = accepted.add
+      else adds.push(accepted.add)
+      if (accepted.edit === undefined) journal.visualEdits.delete(id)
+      else journal.visualEdits.set(id, accepted.edit)
+      if (path !== undefined) replaceChartJournalEntry(journal, path, accepted.chartEdit)
+    },
+  )
 }
 
 interface JournalBulkConstantFill extends WorkbookBulkConstantFill {
@@ -348,10 +423,22 @@ export function createEditJournal(): EditJournal {
 }
 
 export function recordNoteChange(journal: EditJournal, sheetId: string): void {
+  return admitJournalAuthored(journal, [sheetId] as const, (...accepted) =>
+    recordNoteChangeUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordNoteChangeUnadmitted(journal: EditJournal, sheetId: string): void {
   journal.noteDirty.add(sheetId)
 }
 
 export function recordPivotCacheRefresh(journal: EditJournal, cachePath: string): void {
+  return admitJournalAuthored(journal, [cachePath] as const, (...accepted) =>
+    recordPivotCacheRefreshUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordPivotCacheRefreshUnadmitted(journal: EditJournal, cachePath: string): void {
   journal.pivotCacheRefresh.add(cachePath)
 }
 
@@ -359,6 +446,20 @@ export function recordPivotCacheRefresh(journal: EditJournal, cachePath: string)
 /// write-back); when relayout is present it is an A3 layout edit, and the saver
 /// regenerates definition/cacheDefinition from it.
 export function recordPivotRefreshUpdate(
+  journal: EditJournal,
+  cachePath: string,
+  sheetId: string,
+  newOutputRef: string,
+  relayout?: WorkbookPivotAdd,
+): void {
+  return admitJournalAuthored(
+    journal,
+    [cachePath, sheetId, newOutputRef, relayout] as const,
+    (...accepted) => recordPivotRefreshUpdateUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordPivotRefreshUpdateUnadmitted(
   journal: EditJournal,
   cachePath: string,
   sheetId: string,
@@ -377,6 +478,16 @@ export function recordPageSetup(
   sheetId: string,
   patch: PageSetupJournalState,
 ): void {
+  return admitJournalAuthored(journal, [sheetId, patch] as const, (...accepted) =>
+    recordPageSetupUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordPageSetupUnadmitted(
+  journal: EditJournal,
+  sheetId: string,
+  patch: PageSetupJournalState,
+): void {
   const state = journal.pageSetup.get(sheetId) ?? {}
   journal.pageSetup.set(sheetId, { ...state, ...patch })
 }
@@ -391,6 +502,12 @@ export function toSavePageSetupStates(
 }
 
 export function recordDefinedNamesChange(journal: EditJournal): void {
+  return admitJournalAuthored(journal, [] as const, (...accepted) =>
+    recordDefinedNamesChangeUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordDefinedNamesChangeUnadmitted(journal: EditJournal): void {
   journal.definedNames.dirty = true
 }
 
@@ -399,10 +516,26 @@ export function recordWorkbookProtection(
   desired: boolean,
   original: boolean,
 ): void {
+  return admitJournalAuthored(journal, [desired, original] as const, (...accepted) =>
+    recordWorkbookProtectionUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordWorkbookProtectionUnadmitted(
+  journal: EditJournal,
+  desired: boolean,
+  original: boolean,
+): void {
   journal.workbookProtection.desired = desired === original ? null : desired
 }
 
 export function recordProtectedRangesChange(journal: EditJournal, sheetId: string): void {
+  return admitJournalAuthored(journal, [sheetId] as const, (...accepted) =>
+    recordProtectedRangesChangeUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordProtectedRangesChangeUnadmitted(journal: EditJournal, sheetId: string): void {
   journal.protectedRangesDirty.add(sheetId)
 }
 
@@ -411,10 +544,31 @@ export function recordThemeColors(
   name: string,
   values: readonly string[],
 ): void {
+  return admitJournalAuthored(journal, [name, values] as const, (...accepted) =>
+    recordThemeColorsUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordThemeColorsUnadmitted(
+  journal: EditJournal,
+  name: string,
+  values: readonly string[],
+): void {
   journal.theme.colors = { name, values: [...values] }
 }
 
 export function recordThemeFonts(
+  journal: EditJournal,
+  name: string,
+  major: string,
+  minor: string,
+): void {
+  return admitJournalAuthored(journal, [name, major, minor] as const, (...accepted) =>
+    recordThemeFontsUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordThemeFontsUnadmitted(
   journal: EditJournal,
   name: string,
   major: string,
@@ -429,19 +583,54 @@ export function recordSheetProtection(
   desired: SheetProtectionInfo,
   original: SheetProtectionInfo | undefined,
 ): void {
+  return admitJournalAuthored(journal, [sheetId, desired, original] as const, (...accepted) =>
+    recordSheetProtectionUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetProtectionUnadmitted(
+  journal: EditJournal,
+  sheetId: string,
+  desired: SheetProtectionInfo,
+  original: SheetProtectionInfo | undefined,
+): void {
   if (!desired.protected && !(original?.protected ?? false)) journal.sheetProtection.delete(sheetId)
   else journal.sheetProtection.set(sheetId, desired)
 }
 
 export function recordCfChange(journal: EditJournal, sheetId: string): void {
+  return admitJournalAuthored(journal, [sheetId] as const, (...accepted) =>
+    recordCfChangeUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordCfChangeUnadmitted(journal: EditJournal, sheetId: string): void {
   journal.cfDirty.add(sheetId)
 }
 
 export function recordDvChange(journal: EditJournal, sheetId: string): void {
+  return admitJournalAuthored(journal, [sheetId] as const, (...accepted) =>
+    recordDvChangeUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordDvChangeUnadmitted(journal: EditJournal, sheetId: string): void {
   journal.dvDirty.add(sheetId)
 }
 
 export function recordHyperlinkEdit(
+  journal: EditJournal,
+  sheetId: string,
+  row: number,
+  column: number,
+  target: string | null,
+): void {
+  return admitJournalAuthored(journal, [sheetId, row, column, target] as const, (...accepted) =>
+    recordHyperlinkEditUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordHyperlinkEditUnadmitted(
   journal: EditJournal,
   sheetId: string,
   row: number,
@@ -476,10 +665,22 @@ export function toSaveHyperlinkEdits(journal: EditJournal): WorkbookHyperlinkEdi
 }
 
 export function recordFilterChange(journal: EditJournal, sheetId: string): void {
+  return admitJournalAuthored(journal, [sheetId] as const, (...accepted) =>
+    recordFilterChangeUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordFilterChangeUnadmitted(journal: EditJournal, sheetId: string): void {
   journal.filterDirty.add(sheetId)
 }
 
 export function recordSheetInsert(journal: EditJournal, sheetId: string, name: string): void {
+  return admitJournalAuthored(journal, [sheetId, name] as const, (...accepted) =>
+    recordSheetInsertUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetInsertUnadmitted(journal: EditJournal, sheetId: string, name: string): void {
   // A re-insert of a previously removed sheet (undo of the removal) just
   // clears the mark; its journal entries were kept and stay valid.
   if (journal.sheets.removed.delete(sheetId)) return
@@ -487,6 +688,12 @@ export function recordSheetInsert(journal: EditJournal, sheetId: string, name: s
 }
 
 export function recordSheetRemove(journal: EditJournal, sheetId: string): void {
+  return admitJournalAuthored(journal, [sheetId] as const, (...accepted) =>
+    recordSheetRemoveUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetRemoveUnadmitted(journal: EditJournal, sheetId: string): void {
   journal.sheets.removed.add(sheetId)
 }
 
@@ -494,6 +701,17 @@ export function recordSheetRemove(journal: EditJournal, sheetId: string): void {
 /// journal only needs the source's *pending* edits copied across — they bring
 /// the clone up to the source's on-screen state at duplication time.
 export function recordSheetDuplicate(
+  journal: EditJournal,
+  sheetId: string,
+  name: string,
+  sourceSheetId: string,
+): void {
+  return admitJournalAuthored(journal, [sheetId, name, sourceSheetId] as const, (...accepted) =>
+    recordSheetDuplicateUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetDuplicateUnadmitted(
   journal: EditJournal,
   sheetId: string,
   name: string,
@@ -551,6 +769,17 @@ export function recordSheetRename(
   name: string,
   originalName: string | undefined,
 ): void {
+  return admitJournalAuthored(journal, [sheetId, name, originalName] as const, (...accepted) =>
+    recordSheetRenameUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetRenameUnadmitted(
+  journal: EditJournal,
+  sheetId: string,
+  name: string,
+  originalName: string | undefined,
+): void {
   const added = journal.sheets.added.get(sheetId)
   if (added) {
     // Keep the duplicate provenance: dropping sourceSheetId here made a
@@ -568,10 +797,29 @@ export function isSheetRemoved(journal: EditJournal, sheetId: string): boolean {
 }
 
 export function recordSheetOrderChange(journal: EditJournal): void {
+  return admitJournalAuthored(journal, [] as const, (...accepted) =>
+    recordSheetOrderChangeUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetOrderChangeUnadmitted(journal: EditJournal): void {
   journal.sheets.orderDirty = true
 }
 
 export function recordSheetHidden(
+  journal: EditJournal,
+  sheetId: string,
+  hidden: boolean,
+  originallyHidden: boolean,
+): void {
+  return admitJournalAuthored(
+    journal,
+    [sheetId, hidden, originallyHidden] as const,
+    (...accepted) => recordSheetHiddenUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetHiddenUnadmitted(
   journal: EditJournal,
   sheetId: string,
   hidden: boolean,
@@ -588,6 +836,17 @@ export function normalizeTabColor(color: unknown): string | null {
 }
 
 export function recordSheetTabColor(
+  journal: EditJournal,
+  sheetId: string,
+  color: unknown,
+  originalColor: unknown,
+): void {
+  return admitJournalAuthored(journal, [sheetId, color, originalColor] as const, (...accepted) =>
+    recordSheetTabColorUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSheetTabColorUnadmitted(
   journal: EditJournal,
   sheetId: string,
   color: unknown,
@@ -641,6 +900,16 @@ export function toSaveSheetOps(journal: EditJournal): WorkbookSheetOp[] {
 }
 
 export function recordChartEdit(
+  journal: EditJournal,
+  chartPath: string,
+  edit: Omit<WorkbookChartEdit, 'chartPath'>,
+): void {
+  return admitJournalAuthored(journal, [chartPath, edit] as const, (...accepted) =>
+    recordChartEditUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordChartEditUnadmitted(
   journal: EditJournal,
   chartPath: string,
   edit: Omit<WorkbookChartEdit, 'chartPath'>,
@@ -707,12 +976,29 @@ function mergeSeriesEdits(
 }
 
 export function recordTableAdd(journal: EditJournal, table: WorkbookTableAdd): void {
+  return admitJournalAuthored(journal, [table] as const, (...accepted) =>
+    recordTableAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordTableAddUnadmitted(journal: EditJournal, table: WorkbookTableAdd): void {
   journal.tableAdds.push(table)
 }
 
 /// Updates the stored area and optionally columnNames of a session-added table.
 /// Returns false when no matching table is found (fail-closed: caller should throw).
 export function updateTableAdd(
+  journal: EditJournal,
+  sheetId: string,
+  name: string,
+  patch: Partial<Omit<WorkbookTableAdd, 'sheetId'>>,
+): boolean {
+  return admitJournalAuthored(journal, [sheetId, name, patch] as const, (...accepted) =>
+    updateTableAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function updateTableAddUnadmitted(
   journal: EditJournal,
   sheetId: string,
   name: string,
@@ -740,6 +1026,12 @@ function tableEditKey(sheetId: string, tableName: string): string {
 /// Merges a Table Design change into the file table's pending edit; a
 /// removal collapses everything recorded before it.
 export function recordTableEdit(journal: EditJournal, edit: WorkbookTableEdit): void {
+  return admitJournalAuthored(journal, [edit] as const, (...accepted) =>
+    recordTableEditUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordTableEditUnadmitted(journal: EditJournal, edit: WorkbookTableEdit): void {
   const key = tableEditKey(edit.sheetId, edit.tableName)
   if (edit.remove) {
     journal.tableEdits.set(key, { sheetId: edit.sheetId, tableName: edit.tableName, remove: true })
@@ -763,6 +1055,12 @@ export function toSaveTableEdits(journal: EditJournal): WorkbookTableEdit[] {
 }
 
 export function recordPivotAdd(journal: EditJournal, pivot: WorkbookPivotAdd): void {
+  return admitJournalAuthored(journal, [pivot] as const, (...accepted) =>
+    recordPivotAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordPivotAddUnadmitted(journal: EditJournal, pivot: WorkbookPivotAdd): void {
   journal.pivotAdds.push(pivot)
 }
 
@@ -775,10 +1073,22 @@ export interface SparklineAddEntry {
 }
 
 export function recordSparklineAdd(journal: EditJournal, entry: SparklineAddEntry): void {
+  return admitJournalAuthored(journal, [entry] as const, (...accepted) =>
+    recordSparklineAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSparklineAddUnadmitted(journal: EditJournal, entry: SparklineAddEntry): void {
   journal.sparklineAdds.push(entry)
 }
 
 export function removeSparklineAdd(journal: EditJournal, id: string): boolean {
+  return admitJournalAuthored(journal, [id] as const, (...accepted) =>
+    removeSparklineAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function removeSparklineAddUnadmitted(journal: EditJournal, id: string): boolean {
   const index = journal.sparklineAdds.findIndex((entry) => entry.id === id)
   if (index < 0) return false
   journal.sparklineAdds.splice(index, 1)
@@ -804,6 +1114,12 @@ export function toSaveSparklineAdds(journal: EditJournal): {
 /// Removes a session-added table (convert-to-range semantics: the baked
 /// cells stay). False for file-native tables — they are view-only.
 export function removeTableAdd(journal: EditJournal, sheetId: string, name: string): boolean {
+  return admitJournalAuthored(journal, [sheetId, name] as const, (...accepted) =>
+    removeTableAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function removeTableAddUnadmitted(journal: EditJournal, sheetId: string, name: string): boolean {
   const index = journal.tableAdds.findIndex(
     (table) => table.sheetId === sheetId && table.name.toLowerCase() === name.toLowerCase(),
   )
@@ -839,6 +1155,12 @@ export function toSavePivotAdds(journal: EditJournal): WorkbookPivotAdd[] {
 }
 
 export function recordVisualAdd(journal: EditJournal, visual: WorkbookVisualObject): void {
+  return admitJournalAuthored(journal, [visual] as const, (...accepted) =>
+    recordVisualAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordVisualAddUnadmitted(journal: EditJournal, visual: WorkbookVisualObject): void {
   journal.visualAdds.push(visual)
 }
 
@@ -849,12 +1171,32 @@ export function recordCellImageAdd(
   journal: EditJournal,
   entry: CellImageAdd,
 ): CellImageAdd | undefined {
+  return admitJournalAuthored(journal, [entry] as const, (...accepted) =>
+    recordCellImageAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordCellImageAddUnadmitted(
+  journal: EditJournal,
+  entry: CellImageAdd,
+): CellImageAdd | undefined {
   const displaced = removeCellImageAdd(journal, entry.sheetId, entry.row, entry.column)
   journal.cellImageAdds.push(entry)
   return displaced
 }
 
 export function removeCellImageAdd(
+  journal: EditJournal,
+  sheetId: string,
+  row: number,
+  column: number,
+): CellImageAdd | undefined {
+  return admitJournalAuthored(journal, [sheetId, row, column] as const, (...accepted) =>
+    removeCellImageAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function removeCellImageAddUnadmitted(
   journal: EditJournal,
   sheetId: string,
   row: number,
@@ -881,11 +1223,28 @@ export function cellImageAddAt(
 /// Records a picture put into a note; a second picture on the same note
 /// replaces the earlier one (a note carries one picture).
 export function recordNotePicture(journal: EditJournal, entry: NotePictureAdd): void {
+  return admitJournalAuthored(journal, [entry] as const, (...accepted) =>
+    recordNotePictureUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordNotePictureUnadmitted(journal: EditJournal, entry: NotePictureAdd): void {
   removeNotePicture(journal, entry.sheetId, entry.row, entry.column)
   journal.notePictures.push(entry)
 }
 
 export function removeNotePicture(
+  journal: EditJournal,
+  sheetId: string,
+  row: number,
+  column: number,
+): void {
+  return admitJournalAuthored(journal, [sheetId, row, column] as const, (...accepted) =>
+    removeNotePictureUnadmitted(journal, ...accepted),
+  )
+}
+
+function removeNotePictureUnadmitted(
   journal: EditJournal,
   sheetId: string,
   row: number,
@@ -980,6 +1339,16 @@ export function recordVisualEdit(
   visual: WorkbookVisualObject,
   changes: VisualEditChanges,
 ): boolean {
+  return admitJournalAuthored(journal, [visual, changes] as const, (...accepted) =>
+    recordVisualEditUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordVisualEditUnadmitted(
+  journal: EditJournal,
+  visual: WorkbookVisualObject,
+  changes: VisualEditChanges,
+): boolean {
   if (visual.drawingPath === undefined || visual.drawingIndex === undefined) return false
   const previous = journal.visualEdits.get(visual.id)
   // A removal wins over any earlier move; a later move revives nothing.
@@ -1010,6 +1379,12 @@ export function recordVisualEdit(
 
 /// Drops a session visual outright (its object only exists in the journal).
 export function removeVisualAdd(journal: EditJournal, visualId: string): boolean {
+  return admitJournalAuthored(journal, [visualId] as const, (...accepted) =>
+    removeVisualAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function removeVisualAddUnadmitted(journal: EditJournal, visualId: string): boolean {
   const index = journal.visualAdds.findIndex((visual) => visual.id === visualId)
   if (index < 0) return false
   journal.visualAdds.splice(index, 1)
@@ -1020,6 +1395,22 @@ export function removeVisualAdd(journal: EditJournal, visualId: string): boolean
 /// save writes the updated object, so no separate edit record is needed.
 /// False when the id is not a session visual (file visuals are view-only).
 export function updateVisualAdd(
+  journal: EditJournal,
+  visualId: string,
+  changes: VisualArrangeChanges & {
+    anchor?: WorkbookVisualObject['anchor']
+    frameSize?: { width: number; height: number }
+    text?: string
+    fillColor?: string
+    lineColor?: string
+  },
+): boolean {
+  return admitJournalAuthored(journal, [visualId, changes] as const, (...accepted) =>
+    updateVisualAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function updateVisualAddUnadmitted(
   journal: EditJournal,
   visualId: string,
   changes: VisualArrangeChanges & {
@@ -1056,6 +1447,12 @@ export function updateVisualAdd(
 /// Moves a session visual within the add list (session visuals render and
 /// save after every file anchor, in list order).
 export function reorderVisualAdd(journal: EditJournal, visualId: string, to: number): boolean {
+  return admitJournalAuthored(journal, [visualId, to] as const, (...accepted) =>
+    reorderVisualAddUnadmitted(journal, ...accepted),
+  )
+}
+
+function reorderVisualAddUnadmitted(journal: EditJournal, visualId: string, to: number): boolean {
   const from = journal.visualAdds.findIndex((visual) => visual.id === visualId)
   if (from < 0) return false
   const [visual] = journal.visualAdds.splice(from, 1)
@@ -1561,6 +1958,19 @@ export function removeStructuralOp(
   sheetId: string,
   op: StructuralJournalOp,
 ): void {
+  return admitJournalAuthored(
+    journal,
+    [sheetId, op] as const,
+    (...accepted) => removeStructuralOpUnadmitted(journal, ...accepted),
+    [1],
+  )
+}
+
+function removeStructuralOpUnadmitted(
+  journal: EditJournal,
+  sheetId: string,
+  op: StructuralJournalOp,
+): void {
   const ops = journal.structuralOps.get(sheetId)
   if (!ops) return
   const index = ops.lastIndexOf(op)
@@ -1570,6 +1980,17 @@ export function removeStructuralOp(
 }
 
 export function recordStructuralOp(
+  journal: EditJournal,
+  sheetId: string,
+  op: StructuralJournalOp,
+  sheetName?: string,
+): void {
+  return admitJournalAuthored(journal, [sheetId, op, sheetName] as const, (...accepted) =>
+    recordStructuralOpUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordStructuralOpUnadmitted(
   journal: EditJournal,
   sheetId: string,
   op: StructuralJournalOp,
@@ -1764,6 +2185,15 @@ export function recordBulkConstantFill(
   journal: EditJournal,
   fill: WorkbookBulkConstantFill,
 ): BulkConstantFillRecord {
+  return admitJournalAuthored(journal, [fill] as const, (...accepted) =>
+    recordBulkConstantFillUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordBulkConstantFillUnadmitted(
+  journal: EditJournal,
+  fill: WorkbookBulkConstantFill,
+): BulkConstantFillRecord {
   const entry: JournalBulkConstantFill =
     'journalId' in fill && typeof fill.journalId === 'number'
       ? (fill as JournalBulkConstantFill)
@@ -1812,6 +2242,16 @@ export function restoreJournalCells(
   sheetId: string,
   entries: readonly JournalEntry[],
 ): void {
+  return admitJournalAuthored(journal, [sheetId, entries] as const, (...accepted) =>
+    restoreJournalCellsUnadmitted(journal, ...accepted),
+  )
+}
+
+function restoreJournalCellsUnadmitted(
+  journal: EditJournal,
+  sheetId: string,
+  entries: readonly JournalEntry[],
+): void {
   if (entries.length === 0) return
   let cells = journal.cells.get(sheetId)
   if (!cells) {
@@ -1822,6 +2262,15 @@ export function restoreJournalCells(
 }
 
 export function removeBulkConstantFill(journal: EditJournal, fill: WorkbookBulkConstantFill): void {
+  return admitJournalAuthored(journal, [fill] as const, (...accepted) =>
+    removeBulkConstantFillUnadmitted(journal, ...accepted),
+  )
+}
+
+function removeBulkConstantFillUnadmitted(
+  journal: EditJournal,
+  fill: WorkbookBulkConstantFill,
+): void {
   const fills = journal.bulkConstantFills.get(fill.sheetId)
   if (!fills) return
   const journalId =
@@ -1907,6 +2356,19 @@ export function recordSetRangeValues(
   cellValue: unknown,
   resolveSharedFormula?: SharedFormulaResolver,
 ): JournalEntry[] {
+  return admitJournalAuthored(
+    journal,
+    [sheetId, cellValue, resolveSharedFormula] as const,
+    (...accepted) => recordSetRangeValuesUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSetRangeValuesUnadmitted(
+  journal: EditJournal,
+  sheetId: string,
+  cellValue: unknown,
+  resolveSharedFormula?: SharedFormulaResolver,
+): JournalEntry[] {
   if (typeof cellValue !== 'object' || cellValue === null) return []
   const recorded: JournalEntry[] = []
   for (const [rowKey, rowValue] of Object.entries(cellValue)) {
@@ -1935,6 +2397,16 @@ export function recordSetRangeValues(
 /// Ingests a `sheet.mutation.set.numfmt` payload
 /// (`{refMap: {key: {pattern}}, values: {key: {ranges}}}`).
 export function recordSetNumfmt(
+  journal: EditJournal,
+  sheetId: string,
+  params: unknown,
+): JournalEntry[] {
+  return admitJournalAuthored(journal, [sheetId, params] as const, (...accepted) =>
+    recordSetNumfmtUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordSetNumfmtUnadmitted(
   journal: EditJournal,
   sheetId: string,
   params: unknown,
@@ -1982,6 +2454,16 @@ export function recordRemoveNumfmt(
   sheetId: string,
   params: unknown,
 ): JournalEntry[] {
+  return admitJournalAuthored(journal, [sheetId, params] as const, (...accepted) =>
+    recordRemoveNumfmtUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordRemoveNumfmtUnadmitted(
+  journal: EditJournal,
+  sheetId: string,
+  params: unknown,
+): JournalEntry[] {
   if (typeof params !== 'object' || params === null) return []
   const { ranges } = params as { ranges?: unknown }
   if (!Array.isArray(ranges)) return []
@@ -2011,6 +2493,18 @@ function isBoundedIndex(value: unknown): boolean {
 /// represent (cell protection). They save to the file but have no on-screen
 /// rendering and no undo entry.
 export function recordNeutralStyleEdit(
+  journal: EditJournal,
+  sheetId: string,
+  row: number,
+  column: number,
+  delta: WorkbookStyleEdit,
+): void {
+  return admitJournalAuthored(journal, [sheetId, row, column, delta] as const, (...accepted) =>
+    recordNeutralStyleEditUnadmitted(journal, ...accepted),
+  )
+}
+
+function recordNeutralStyleEditUnadmitted(
   journal: EditJournal,
   sheetId: string,
   row: number,
@@ -2639,7 +3133,10 @@ export function toRecalcUserInput(entry: JournalEntry): string {
   if (value === null) return ''
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
   if (typeof value === 'number') return String(value)
-  return value.startsWith('=') || value.startsWith("'") ? `'${value}` : value
+  // Every journal string is already typed text. IronCalc's user-input
+  // parser otherwise turns numeric/boolean/date/error-looking strings into
+  // different values, and an empty string means clear on this transport.
+  return `'${value}`
 }
 
 export function toSaveEdits(journal: EditJournal): WorkbookCellEdit[] {

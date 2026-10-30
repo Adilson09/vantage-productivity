@@ -1,4 +1,9 @@
 import type { Node as PmNode } from '@tiptap/pm/model'
+import {
+  captureRecoveryAttrs,
+  RECOVERY_SNAPSHOT_EVENT,
+  recoverySnapshotListener,
+} from './recovery-snapshot'
 import {} from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import {} from '@tiptap/pm/tables'
@@ -1637,7 +1642,7 @@ export function wireChartEditing(
     for (const target of targets)
       target.setAttribute('contenteditable', editable ? 'true' : 'false')
   }
-  const commit = () => {
+  const commit = (event?: Event) => {
     const current = getNode()
     const model = current.attrs.chartDisplay as ChartDisplay | null
     if (!model) return
@@ -1670,18 +1675,22 @@ export function wireChartEditing(
     if (JSON.stringify(next) === JSON.stringify(model)) return
     const pos = getPos()
     if (typeof pos !== 'number') return
+    if (captureRecoveryAttrs(event, pos, { chartDisplay: next })) return
     view.dispatch(
       view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, chartDisplay: next }),
     )
   }
   for (const target of targets) target.addEventListener('keydown', preventProtectedLineBreak)
   window.addEventListener('ai-docs-commit-tables', commit)
+  const recoveryListener = recoverySnapshotListener(commit)
+  window.addEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
   return {
     setEditable,
     commit,
     cleanup: () => {
       for (const target of targets) target.removeEventListener('keydown', preventProtectedLineBreak)
       window.removeEventListener('ai-docs-commit-tables', commit)
+      window.removeEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
     },
   }
 }

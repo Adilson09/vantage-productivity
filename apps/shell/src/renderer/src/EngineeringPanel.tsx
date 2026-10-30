@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
+import { CalendarWorkspacePanel } from './CalendarWorkspacePanel'
 import type {
   CalendarPreview,
   ContactPreview,
@@ -8,6 +9,8 @@ import type {
   EngineeringStatus,
   RecoveryEntry,
   RecoveryStatus,
+  PdfValidationProfile,
+  SpecialistPdfResult,
 } from '../../shared/vantage-api'
 import {
   REMOTE_FEATURES,
@@ -24,7 +27,9 @@ const FEATURE_LABELS = {
   telemetry: 'Usage analytics',
 }
 const showValue = (value: unknown) => (value === null ? '' : String(value))
-export function EngineeringPanel() {
+export function EngineeringPanel({
+  onCalendarDirty,
+}: { onCalendarDirty?: (dirty: boolean) => void } = {}) {
   const [tab, setTab] = useState<'privacy' | 'tools' | 'calendar' | 'database' | 'history'>(
     'privacy',
   )
@@ -40,17 +45,20 @@ export function EngineeringPanel() {
     end: '',
     location: '',
   })
+  const [quickCalendarBaseline, setQuickCalendarBaseline] = useState(calendarEvent)
+  const [workspaceCalendarDirty, setWorkspaceCalendarDirty] = useState(false)
+  const quickCalendarDirty = (Object.keys(calendarEvent) as (keyof typeof calendarEvent)[]).some(
+    (key) => calendarEvent[key] !== quickCalendarBaseline[key],
+  )
+  useLayoutEffect(() => {
+    onCalendarDirty?.(workspaceCalendarDirty || quickCalendarDirty)
+  }, [workspaceCalendarDirty, quickCalendarDirty, onCalendarDirty])
   const [calendar, setCalendar] = useState<CalendarPreview | null>(null)
   const [contacts, setContacts] = useState<ContactPreview | null>(null)
   const [database, setDatabase] = useState<DatabasePreview | null>(null)
   const [result, setResult] = useState<DatabaseQueryResult | null>(null)
-  const [pdfResult, setPdfResult] = useState<{
-    engine: string
-    status: string
-    stdout: string
-    stderr: string
-    scope: string
-  } | null>(null)
+  const [pdfResult, setPdfResult] = useState<SpecialistPdfResult | null>(null)
+  const [pdfProfile, setPdfProfile] = useState<PdfValidationProfile | ''>('')
   const [table, setTable] = useState('')
   const [newTable, setNewTable] = useState('Records')
   const [columnNames, setColumnNames] = useState('Name, Notes')
@@ -246,6 +254,42 @@ export function EngineeringPanel() {
               <span className="vantage-panel-caption">{engine.license}</span>
             </div>
           ))}
+          <label className="vantage-engine-field">
+            PDF standard
+            <select
+              aria-label="PDF standard"
+              value={pdfProfile}
+              disabled={busy}
+              onChange={(event) => setPdfProfile(event.target.value as PdfValidationProfile | '')}
+            >
+              <option value="">Detect declared standards</option>
+              {(
+                [
+                  '1a',
+                  '1b',
+                  '2a',
+                  '2b',
+                  '2u',
+                  '3a',
+                  '3b',
+                  '3u',
+                  '4',
+                  '4e',
+                  '4f',
+                  'ua1',
+                  'ua2',
+                ] as const
+              ).map((id) => (
+                <option key={id} value={id}>
+                  {id.startsWith('ua') ? `PDF/UA-${id.slice(2)}` : `PDF/A-${id}`}
+                </option>
+              ))}
+            </select>
+            <span className="vantage-panel-caption">
+              Detection checks the declared profiles; a PDF with no valid declaration is checked
+              against PDF/A-1b.
+            </span>
+          </label>
           <div className="vantage-panel-toolbar">
             <button
               className="vantage-primary-button"
@@ -283,27 +327,48 @@ export function EngineeringPanel() {
                 disabled={busy || !status?.engines.some((e) => e.id === engine && e.available)}
                 onClick={() =>
                   void run(async () => {
-                    const value = await api.checkSpecialistPdf(engine)
+                    const value = await api.checkSpecialistPdf(
+                      engine,
+                      engine === 'verapdf' ? pdfProfile || undefined : undefined,
+                    )
                     if (value) {
                       setPdfResult(value)
-                      setMessage(`${value.engine}: ${value.status}.`)
+                      setMessage(value.conformance?.reason ?? `${value.engine}: ${value.status}.`)
                     } else setMessage('PDF selection cancelled.')
                   })
                 }
               >
-                {engine === 'qpdf' ? 'Check PDF structure' : 'Validate PDF profile'}
+                {engine === 'qpdf' ? 'Check PDF structure' : 'Validate PDF standard'}
               </button>
             ))}
           </div>
           {pdfResult && (
             <div className="vantage-engine-field">
+              {pdfResult.filePath && <p>PDF: {pdfResult.filePath.split(/[\\/]/).at(-1)}</p>}
               <strong>
-                {pdfResult.engine}: {pdfResult.status}
+                {pdfResult.conformance
+                  ? pdfResult.status === 'pass'
+                    ? 'Standards check passed'
+                    : pdfResult.status === 'fail'
+                      ? 'Standards check failed'
+                      : 'Standards check did not complete'
+                  : `${pdfResult.engine}: ${pdfResult.status}`}
               </strong>
+              {pdfResult.conformance?.profiles.map((profile) => (
+                <p key={profile.id}>
+                  {profile.name}: {profile.compliant ? 'passed' : 'not met'} ·{' '}
+                  {profile.failedChecks} failed checks.
+                </p>
+              ))}
+              {pdfResult.sourceUnchanged && <p>Source file stayed unchanged.</p>}
               <p>{pdfResult.scope}</p>
-              <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                {[pdfResult.stdout, pdfResult.stderr].filter(Boolean).join('\n')}
-              </pre>
+              <details>
+                <summary tabIndex={0}>Technical report</summary>
+                {pdfResult.sourceSha256 && <p>Source SHA256: {pdfResult.sourceSha256}</p>}
+                <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                  {[pdfResult.stdout, pdfResult.stderr].filter(Boolean).join('\n')}
+                </pre>
+              </details>
             </div>
           )}
           {status && (
@@ -320,9 +385,15 @@ export function EngineeringPanel() {
           </p>
         </section>
       )}
-      {tab === 'calendar' && (
-        <section aria-label="Local calendar and contacts">
-          <h3>Calendar and contacts on this computer</h3>
+      <section hidden={tab !== 'calendar'} aria-label="Local calendar and contacts">
+        <CalendarWorkspacePanel
+          api={api}
+          active={tab === 'calendar'}
+          onDirtyChange={setWorkspaceCalendarDirty}
+        />
+        <details className="vantage-engine-field">
+          <summary tabIndex={0}>Calendar files and contacts</summary>
+          <h3>Quick file tools</h3>
           <p>
             Open an iCalendar file to see events in the next 90 days, or a vCard file to browse
             contacts. Recurrence and embedded time zones are handled by ICAL.js. Provider
@@ -365,11 +436,13 @@ export function EngineeringPanel() {
             onSubmit={(e) => {
               e.preventDefault()
               void run(async () => {
+                const submitted = { ...calendarEvent }
                 const path = await api.saveCalendarEvent({
-                  ...calendarEvent,
-                  start: new Date(calendarEvent.start).toISOString(),
-                  end: new Date(calendarEvent.end).toISOString(),
+                  ...submitted,
+                  start: new Date(submitted.start).toISOString(),
+                  end: new Date(submitted.end).toISOString(),
                 })
+                if (path) setQuickCalendarBaseline(submitted)
                 setMessage(path ? `Calendar created: ${path}` : 'Calendar save cancelled.')
               })
             }}
@@ -450,8 +523,8 @@ export function EngineeringPanel() {
               </ul>
             </>
           )}
-        </section>
-      )}
+        </details>
+      </section>
       {tab === 'database' && (
         <section aria-label="Local database">
           <h3>Tables, records and queries</h3>

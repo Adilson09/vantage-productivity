@@ -1,8 +1,16 @@
 import { existsSync } from 'node:fs'
+import { rootQuitIntent } from '../root-quit-intent'
 import { extname, isAbsolute } from 'node:path'
 import { webContents } from 'electron'
 import { elementDurableId, slideDurableId, type SlideElement } from '@vantage/pptx-engine'
-import { applySessionTxn, saveSessionDeckTo } from '../../../../slides/src/main/slides-main'
+import {
+  applySessionTxn,
+  prepareSlidesClose,
+  completeSlidesClose,
+  requestSlidesToolSave,
+  completeSlidesToolClose,
+  cancelSlidesToolSave,
+} from '../../../../slides/src/main/slides-main'
 import { attachedIds, sessions, type Session } from '../../../../slides/src/main/session-state'
 import type { SlidesControl, SlidesTxnRequest } from './tools/slides-tools'
 
@@ -144,6 +152,7 @@ export function createSlidesControl(deps: SlidesBridgeDeps): SlidesControl {
       return wcId
     },
     runTxn: async (wcId: number, req: SlidesTxnRequest) => {
+      rootQuitIntent.assertMutationAvailable()
       const session = requireSession(wcId)
       const result = applySessionTxn(session, req as Parameters<typeof applySessionTxn>[1])
       if (!result) throw new Error('the deck session is gone — call create_session again')
@@ -171,7 +180,24 @@ export function createSlidesControl(deps: SlidesBridgeDeps): SlidesControl {
       return summary
     },
     readDeck: async (wcId: number) => readDeckModel(requireSession(wcId)),
-    saveDeck: async (wcId: number, filePath: string, overwrite: boolean) => {
+    prepareClose: (wcId, path, intent) => {
+      rootQuitIntent.assertMutationAvailable()
+      const contents = webContents.fromId(wcId)
+      if (!contents || contents.isDestroyed())
+        throw new Error('The presentation is no longer open.')
+      return prepareSlidesClose(contents, path, intent)
+    },
+    completeClose: (wcId, receipt, removeSync) => {
+      const contents = webContents.fromId(wcId)
+      return (
+        !!contents && !contents.isDestroyed() && completeSlidesClose(contents, receipt, removeSync)
+      )
+    },
+    cancelClose: (wcId, receipt) => cancelSlidesToolSave(wcId, receipt.requestId),
+    completeSaveClose: completeSlidesToolClose,
+    cancelSaveClose: cancelSlidesToolSave,
+    saveDeck: async (wcId: number, filePath: string, overwrite: boolean, options) => {
+      rootQuitIntent.assertMutationAvailable()
       if (!isAbsolute(filePath)) throw new Error('path must be absolute')
       const ext = extname(filePath).toLowerCase()
       const targetPath = ext === '' ? `${filePath}.pptx` : ext === '.pptx' ? filePath : null
@@ -179,9 +205,8 @@ export function createSlidesControl(deps: SlidesBridgeDeps): SlidesControl {
       if (existsSync(targetPath) && !overwrite) {
         throw new Error(`file already exists: ${targetPath} (pass overwrite:true to replace it)`)
       }
-      const session = requireSession(wcId)
-      await saveSessionDeckTo(session, targetPath)
-      return { path: targetPath }
+      requireSession(wcId)
+      return requestSlidesToolSave(wcId, targetPath, overwrite, options)
     },
   }
 }

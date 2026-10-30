@@ -1625,9 +1625,159 @@ export const FORMULA_REFERENCE_PATTERN = new RegExp(
   'gu',
 )
 
+// The writer accepts the same A1 subset case-insensitively, plus an already
+// broken qualified reference (needed when a later operation deletes its sheet).
+// Keep the public discovery pattern above stable for renderer consumers.
+export const WRITABLE_FORMULA_REFERENCE_PATTERN = new RegExp(
+  "(^|[^\\p{L}\\p{N}_.$'!:])" +
+    "(?:('(?:[^']|'')+'|[\\p{L}_][\\p{L}\\p{N}_.]*)!)?" +
+    '(\\$?[A-Z]{1,3}\\$?[0-9]+(?:\\s*:\\s*\\$?[A-Z]{1,3}\\$?[0-9]+)?' +
+    '|\\$?[A-Z]{1,3}\\s*:\\s*\\$?[A-Z]{1,3}' +
+    '|\\$?[0-9]+\\s*:\\s*\\$?[0-9]+|#REF!)' +
+    '(?![0-9\\p{L}_(])',
+  'giu',
+)
+
+/// Visits formula code while preserving quoted strings, table-column names,
+/// and complete external-workbook operands. Single-quoted sheet qualifiers
+/// remain code even when the sheet name contains a double quote. This is a
+/// lexical A1 rewrite seam, not an evaluator or a general formula parser.
+export function mapFormulaCode(formula: string, transform: (code: string) => string): string {
+  let output = ''
+  let start = 0
+  let index = 0
+  const protect = (end: number): void => {
+    output += transform(formula.slice(start, index)) + formula.slice(index, end)
+    index = end
+    start = end
+  }
+  while (index < formula.length) {
+    const character = formula[index]
+    if (character === '"') {
+      let end = index + 1
+      for (;;) {
+        if (end >= formula.length)
+          throw new StructuralShiftError('A formula has an unterminated string literal.')
+        if (formula[end] !== '"') {
+          end++
+          continue
+        }
+        if (formula[end + 1] === '"') {
+          end += 2
+          continue
+        }
+        end++
+        break
+      }
+      protect(end)
+      continue
+    }
+    if (character === "'") {
+      let end = index + 1
+      for (;;) {
+        if (end >= formula.length)
+          throw new StructuralShiftError('A formula has an unterminated sheet qualifier.')
+        if (formula[end] !== "'") {
+          end++
+          continue
+        }
+        if (formula[end + 1] === "'") {
+          end += 2
+          continue
+        }
+        end++
+        break
+      }
+      if (formula.slice(index + 1, end - 1).includes('[') && formula[end] === '!') {
+        protect(externalOperandEnd(formula, end + 1))
+      } else {
+        // Do not interpret a double quote inside a quoted sheet name as the
+        // start of a string literal.
+        index = end
+      }
+      continue
+    }
+    if (character === '[') {
+      let end = index + 1
+      let depth = 1
+      while (end < formula.length && depth > 0) {
+        // Structured-reference special characters can be apostrophe-escaped.
+        if (formula[end] === "'" && end + 1 < formula.length) {
+          end += 2
+          continue
+        }
+        if (formula[end] === '[') depth++
+        if (formula[end] === ']') depth--
+        end++
+      }
+      if (depth !== 0)
+        throw new StructuralShiftError('A formula has an unterminated bracketed reference.')
+      const suffix = /^(?:[\p{L}\p{N}_.]+(?::[\p{L}\p{N}_.]+)?)?!/u.exec(formula.slice(end))
+      const isTable = index > 0 && /[\p{L}\p{N}_.]/u.test(formula[index - 1] ?? '')
+      if (!isTable && suffix !== null) end = externalOperandEnd(formula, end + suffix[0].length)
+      protect(end)
+      continue
+    }
+    index++
+  }
+  return output + transform(formula.slice(start))
+}
+
+function externalOperandEnd(formula: string, start: number): number {
+  let end = start
+  while (end < formula.length && !/[\s+\-*/^%=&<>(),;]/u.test(formula[end] ?? '')) end++
+  return end
+}
+
+/// Structural edits cannot safely rewrite 3D references or ranges with a
+/// second sheet qualifier using a single-sheet A1 mapper. Refuse these forms
+/// rather than changing only their first endpoint. External operands have
+/// already been excluded by mapFormulaCode.
+export function assertWritableFormulaCode(code: string): void {
+  const qualifier = "(?:'(?:[^']|'')+'|[\\p{L}\\p{N}_.]+)"
+  if (
+    new RegExp(`${qualifier}\\s*:\\s*${qualifier}!`, 'u').test(code) ||
+    /'(?:[^']|'')*:(?:[^']|'')*'!/.test(code) ||
+    new RegExp(`!\\$?[A-Z]{1,3}\\$?[0-9]+\\s*:\\s*${qualifier}!`, 'iu').test(code) ||
+    new RegExp(`${qualifier}\\s+!|!\\s+\\$?[A-Z0-9]`, 'iu').test(code)
+  ) {
+    throw new StructuralShiftError('A formula uses an unsupported 3D or doubly qualified range.')
+  }
+  const residual = code.replace(
+    WRITABLE_FORMULA_REFERENCE_PATTERN,
+    (full, lead: string, _qualifier: string | undefined, token: string) =>
+      isWritableReferenceToken(token) ? lead : full,
+  )
+  // A colon joining a table, scoped name, function call, or protected string
+  // is a range operator too. Never update one endpoint independently.
+  if (residual.includes(':'))
+    throw new StructuralShiftError('A formula uses an unsupported range expression.')
+}
+
+export function isWritableReferenceToken(token: string): boolean {
+  if (token.toUpperCase() === '#REF!') return true
+  return token
+    .toUpperCase()
+    .replace(/\s/g, '')
+    .split(':')
+    .every((part) => {
+      const cell = /^\$?([A-Z]{1,3})\$?([0-9]+)$/.exec(part)
+      if (cell)
+        return (
+          lettersToColumn(cell[1] ?? '') < MAX_GRID_COLUMNS &&
+          Number(cell[2]) >= 1 &&
+          Number(cell[2]) <= MAX_GRID_ROWS
+        )
+      const column = /^\$?([A-Z]{1,3})$/.exec(part)
+      if (column) return lettersToColumn(column[1] ?? '') < MAX_GRID_COLUMNS
+      const row = /^\$?([0-9]+)$/.exec(part)
+      return row !== null && Number(row[1]) >= 1 && Number(row[1]) <= MAX_GRID_ROWS
+    })
+}
+
 /// Shifts A1 references in a formula, preserving `$` markers and other
 /// sheets' qualified references. String literals are left untouched. A
-/// reference fully inside a deleted range aborts (Excel would emit #REF!).
+/// reference fully inside a deleted range becomes #REF!.
 /// With qualifiedOnly, only references explicitly qualified with sheetName
 /// shift — the mode for rewriting OTHER sheets' formulas.
 export function shiftFormulaText(
@@ -1637,16 +1787,9 @@ export function shiftFormulaText(
   axis: Axis,
   qualifiedOnly = false,
 ): string {
-  // Formula string literals use "" escaping, so splitting on `"` leaves
-  // literal content in the odd-indexed segments.
-  return formula
-    .split('"')
-    .map((segment, index) =>
-      index % 2 === 1
-        ? segment
-        : shiftFormulaSegment(segment, sheetName, shift, axis, qualifiedOnly),
-    )
-    .join('"')
+  return mapFormulaCode(formula, (segment) =>
+    shiftFormulaSegment(segment, sheetName, shift, axis, qualifiedOnly),
+  )
 }
 
 function shiftFormulaSegment(
@@ -1656,39 +1799,51 @@ function shiftFormulaSegment(
   axis: Axis,
   qualifiedOnly: boolean,
 ): string {
+  assertWritableFormulaCode(segment)
   return segment.replace(
-    FORMULA_REFERENCE_PATTERN,
-    (full, lead: string, qualifier: string | undefined, token: string) => {
+    WRITABLE_FORMULA_REFERENCE_PATTERN,
+    (full, lead: string, qualifier: string | undefined, token: string, offset: number) => {
       if (qualifier === undefined && qualifiedOnly) return full
       if (qualifier !== undefined && !qualifierMatches(qualifier, sheetName)) return full
-      const shifted = shiftReferenceToken(token, shift, axis)
-      if (shifted === null) {
-        throw new StructuralShiftError(
-          `A formula references the deleted range (${token}) — deletion aborted.`,
-        )
-      }
-      return `${lead}${qualifier === undefined ? '' : `${qualifier}!`}${shifted}`
+      if (!isWritableReferenceToken(token) || token.toUpperCase() === '#REF!') return full
+      if (segment[offset + full.length] === '#')
+        throw new StructuralShiftError('A formula uses an unsupported spilled reference.')
+      const normalized = token.toUpperCase().replace(/\s/g, '')
+      const shifted = shiftReferenceToken(normalized, shift, axis)
+      if (shifted === normalized) return full
+      return `${lead}${qualifier === undefined ? '' : `${qualifier}!`}${shifted ?? '#REF!'}`
     },
   )
+}
+
+function moveFormulaRange(
+  start: number,
+  end: number,
+  shift: Shift,
+): { start: number; end: number } | null {
+  const reversed = start > end
+  const moved = moveRange(Math.min(start, end), Math.max(start, end), shift)
+  if (moved === null) return null
+  return reversed ? { start: moved.end, end: moved.start } : moved
 }
 
 function shiftReferenceToken(token: string, shift: Shift, axis: Axis): string | null {
   const wholeColumn = /^(\$?)([A-Z]{1,3}):(\$?)([A-Z]{1,3})$/.exec(token)
   if (wholeColumn) {
     if (axis === 'row') return token
-    const moved = moveRange(
+    const moved = moveFormulaRange(
       lettersToColumn(wholeColumn[2] ?? 'A'),
       lettersToColumn(wholeColumn[4] ?? 'A'),
       shift,
     )
-    if (moved === null) return null
+    if (moved === null || Math.max(moved.start, moved.end) >= MAX_GRID_COLUMNS) return null
     return `${wholeColumn[1]}${columnToLetters(moved.start)}:${wholeColumn[3]}${columnToLetters(moved.end)}`
   }
   const wholeRow = /^(\$?)([0-9]+):(\$?)([0-9]+)$/.exec(token)
   if (wholeRow) {
     if (axis === 'column') return token
-    const moved = moveRange(Number(wholeRow[2]) - 1, Number(wholeRow[4]) - 1, shift)
-    if (moved === null) return null
+    const moved = moveFormulaRange(Number(wholeRow[2]) - 1, Number(wholeRow[4]) - 1, shift)
+    if (moved === null || Math.max(moved.start, moved.end) >= MAX_GRID_ROWS) return null
     return `${wholeRow[1]}${moved.start + 1}:${wholeRow[3]}${moved.end + 1}`
   }
   const parts = token.split(':')
@@ -1707,19 +1862,25 @@ function shiftReferenceToken(token: string, shift: Shift, axis: Axis): string | 
     if (moved === null) return null
     const row = axis === 'row' ? moved : first.row
     const column = axis === 'column' ? moved : first.column
+    if (row >= MAX_GRID_ROWS || column >= MAX_GRID_COLUMNS) return null
     return `${first.colDollar}${columnToLetters(column)}${first.rowDollar}${row + 1}`
   }
   const second = parsed[1]
   if (!second) return token
   const moved =
     axis === 'row'
-      ? moveRange(first.row, second.row, shift)
-      : moveRange(first.column, second.column, shift)
+      ? moveFormulaRange(first.row, second.row, shift)
+      : moveFormulaRange(first.column, second.column, shift)
   if (moved === null) return null
   const startRow = axis === 'row' ? moved.start : first.row
   const endRow = axis === 'row' ? moved.end : second.row
   const startColumn = axis === 'column' ? moved.start : first.column
   const endColumn = axis === 'column' ? moved.end : second.column
+  if (
+    Math.max(startRow, endRow) >= MAX_GRID_ROWS ||
+    Math.max(startColumn, endColumn) >= MAX_GRID_COLUMNS
+  )
+    return null
   return (
     `${first.colDollar}${columnToLetters(startColumn)}${first.rowDollar}${startRow + 1}` +
     `:${second.colDollar}${columnToLetters(endColumn)}${second.rowDollar}${endRow + 1}`
@@ -1838,12 +1999,15 @@ function columnToLetters(column: number): string {
 }
 
 function decodeEntities(input: string): string {
-  return input
-    .replaceAll('&quot;', '"')
-    .replaceAll('&apos;', "'")
-    .replaceAll('&gt;', '>')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&amp;', '&')
+  const namedEntities: Record<string, string> = { quot: '"', apos: "'", gt: '>', lt: '<', amp: '&' }
+  return input.replace(
+    /&(?:#x([0-9A-Fa-f]+)|#([0-9]+)|(quot|apos|lt|gt|amp));/g,
+    (match, hex: string | undefined, decimal: string | undefined, named: string | undefined) => {
+      if (named !== undefined) return namedEntities[named] ?? match
+      const code = hex === undefined ? Number(decimal) : Number.parseInt(hex, 16)
+      return code <= 0x10ffff ? String.fromCodePoint(code) : match
+    },
+  )
 }
 
 function escapeXmlText(input: string): string {

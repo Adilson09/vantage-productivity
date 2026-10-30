@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::recalc::RecalcEdit;
+use crate::recalc::{MAX_RECALC_EDITS, RecalcEdit};
 use crate::session::{MemorySessionStore, OpenSessionRequest, SessionAuthority, SessionError, SessionInfo};
 use crate::snapshot::{SESSION_API_VERSION, SheetDescriptor, WorkbookSnapshot};
 use crate::transaction::{TransactionCommand, TransactionResult};
@@ -48,11 +48,23 @@ pub struct CalculationStamp {
     pub workbook_id: String,
     pub revision: u64,
     pub source_fingerprint: String,
+    pub max_edits: usize,
     current_revision: Arc<AtomicU64>,
     alive: Arc<AtomicBool>,
 }
 
 impl CalculationStamp {
+    pub fn new(
+        workbook_id: String,
+        revision: u64,
+        source_fingerprint: String,
+        current_revision: Arc<AtomicU64>,
+        alive: Arc<AtomicBool>,
+        max_edits: usize,
+    ) -> Self {
+        Self { workbook_id, revision, source_fingerprint, max_edits, current_revision, alive }
+    }
+
     pub fn is_current(&self) -> bool {
         self.alive.load(Ordering::Acquire)
             && self.current_revision.load(Ordering::Acquire) == self.revision
@@ -182,13 +194,10 @@ impl EditSessions {
         Ok(CalculationInput {
             path: session.source_path.clone(),
             edits,
-            stamp: CalculationStamp {
-                workbook_id: workbook_id.to_owned(),
-                revision,
-                source_fingerprint: snapshot.source_fingerprint.clone(),
-                current_revision: Arc::clone(&session.revision),
-                alive: Arc::clone(&session.alive),
-            },
+            stamp: CalculationStamp::new(
+                workbook_id.to_owned(), revision, snapshot.source_fingerprint.clone(),
+                Arc::clone(&session.revision), Arc::clone(&session.alive), MAX_RECALC_EDITS,
+            ),
         })
     }
 

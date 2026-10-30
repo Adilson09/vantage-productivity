@@ -570,4 +570,5 @@ export const ko = {
   appMergeSourceLoaded: '{name}({n}개 레코드)을 불러왔습니다',
   appMergeWritten: '문서 {n}개를 저장했습니다',
   appMergeNothingToWrite: '저장할 문서가 없습니다',
+  appRecoveryFailed: '초안 복구용 저장에 실패했습니다: {error}',
 } satisfies Record<keyof typeof zh, string>

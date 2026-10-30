@@ -285,8 +285,15 @@ export async function slimDocx(
 }
 
 function inflated(e: ZipEntry, raw: Buffer): Buffer {
-  if (e.method === 0) return raw
-  if (e.method === 8) return inflateRawSync(raw)
+  if (e.method === 0) {
+    if (raw.length !== e.usize) throw new Error(`zip: uncompressed size mismatch for ${e.name}`)
+    return raw
+  }
+  if (e.method === 8) {
+    const result = inflateRawSync(raw, { maxOutputLength: e.usize })
+    if (result.length !== e.usize) throw new Error(`zip: uncompressed size mismatch for ${e.name}`)
+    return result
+  }
   throw new Error(`zip: unsupported compression method ${e.method} for ${e.name}`)
 }
 

@@ -1,0 +1,260 @@
+import { describe, it, expect } from 'vitest'
+import { MarkdownCloseCoordinator } from '../src/main/markdown-close-lease'
+import type { MarkdownSourceState } from '../src/shared/markdown-close-lease'
+function fixture() {
+  const events: string[] = [],
+    timers = new Map<number, () => void>()
+  let next = 0,
+    live = true
+  let request: any
+  const owner = 7,
+    state: MarkdownSourceState = {
+      stamp: { source: 'renderer:1', revision: '1' },
+      path: 'C:/note.ext',
+      ready: true,
+      dirty: false,
+      pending: false,
+      busy: false,
+      composing: false,
+    }
+  const coordinator = new MarkdownCloseCoordinator({
+    alive: (id) => id === owner && live,
+    pathAllowed: () => true,
+    send: (_id, _mode, value) => {
+      request = value
+    },
+    release: (_id, ticket, reason) => events.push(ticket.id + ':' + reason),
+    setTimer: (callback) => {
+      const id = ++next
+      timers.set(id, callback)
+      return id
+    },
+    clearTimer: (id) => {
+      timers.delete(id as number)
+    },
+  })
+  coordinator.open(owner)
+  coordinator.observe(owner, state)
+  return {
+    owner,
+    state,
+    coordinator,
+    events,
+    timers,
+    get request() {
+      return request
+    },
+    ready() {
+      const ticket = request.closeLease
+      expect(coordinator.claim(owner, ticket)).toBe(true)
+      coordinator.receive(owner, {
+        requestId: request.requestId,
+        published: false,
+        current: true,
+        clean: !state.dirty,
+        closeLease: { ticket, stamp: { ...state.stamp } },
+      })
+    },
+    stop() {
+      live = false
+    },
+  }
+}
+describe('Markdown held close permission', () => {
+  it('does not accept main-owned cleanup or presentation disposition from a renderer ACK', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true),
+      ticket = f.request.closeLease
+    expect(f.coordinator.claim(f.owner, ticket)).toBe(true)
+    f.coordinator.receive(f.owner, {
+      requestId: f.request.requestId,
+      published: true,
+      current: true,
+      clean: true,
+      closeLease: { ticket, stamp: { ...f.state.stamp } },
+      readOnlyPresentation: 99,
+      journalCleanup: { id: 'foreign' },
+      cleanup: { journal: 'complete', assets: 'none' },
+      warnings: ['fabricated'],
+    })
+    const receipt = await pending
+    expect(receipt).not.toHaveProperty('readOnlyPresentation')
+    expect(receipt).not.toHaveProperty('journalCleanup')
+    expect(receipt).not.toHaveProperty('cleanup')
+    expect(receipt).not.toHaveProperty('warnings')
+    f.coordinator.cancel(f.owner, ticket)
+  })
+  it('closes actually clean state without a physical rewrite and removes synchronously once', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true)
+    f.ready()
+    const receipt = await pending
+    expect(receipt.published).toBe(false)
+    let removed = 0
+    expect(
+      f.coordinator.complete(f.owner, receipt, () => {
+        removed++
+        return true
+      }),
+    ).toBe(true)
+    expect(
+      f.coordinator.complete(f.owner, receipt, () => {
+        removed++
+        return true
+      }),
+    ).toBe(false)
+    expect(removed).toBe(1)
+  })
+  it('invalidates permission before accepting a new main mutation', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true)
+    f.ready()
+    const receipt = await pending
+    const work = f.coordinator.beginMutation(f.owner)
+    expect(f.events.length).toBe(1)
+    expect(
+      f.coordinator.complete(f.owner, receipt, () => {
+        throw Error('must not remove')
+      }),
+    ).toBe(false)
+    f.coordinator.finishMutation(work)
+  })
+  it('rejects newer authored state after the ready receipt', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true)
+    f.ready()
+    const receipt = await pending
+    f.coordinator.observe(f.owner, {
+      ...f.state,
+      dirty: true,
+      stamp: { ...f.state.stamp, revision: '2' },
+    })
+    expect(f.coordinator.complete(f.owner, receipt, () => true)).toBe(false)
+  })
+  it('rejects a replaced renderer even if path and numeric generation repeat', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true)
+    f.ready()
+    const receipt = await pending
+    f.coordinator.rendererGone(f.owner)
+    f.coordinator.observe(f.owner, {
+      ...f.state,
+      stamp: { source: 'new-renderer:1', revision: '1' },
+    })
+    expect(f.coordinator.complete(f.owner, receipt, () => true)).toBe(false)
+  })
+  it('keeps an expired writer reservation until actual delivery work and renderer acknowledgment finish', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true)
+    const request = f.request,
+      work = f.coordinator.beginMutation(f.owner, request.requestId, f.state.stamp)
+    ;[...f.timers.values()][0]!()
+    const expired = await pending
+    expect(expired.clean).toBe(false)
+    await expect(f.coordinator.request(f.owner, 'save', undefined, true)).rejects.toThrow(
+      'finishing',
+    )
+    f.coordinator.finishMutation(work, 'C:/published.ext')
+    await expect(f.coordinator.request(f.owner, 'save', undefined, true)).rejects.toThrow(
+      'finishing',
+    )
+    f.coordinator.receive(f.owner, {
+      requestId: request.requestId,
+      published: true,
+      current: true,
+      clean: false,
+    })
+    const retry = f.coordinator.request(f.owner, 'save', undefined, true)
+    f.ready()
+    await retry
+  })
+  it('does not deliver an old request after timeout and does not let old cancellation unlock a new lease', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true),
+      old = f.request
+    ;[...f.timers.values()][0]!()
+    await pending
+    expect(() => f.coordinator.beginMutation(f.owner, old.requestId)).toThrow('expired')
+    f.coordinator.receive(f.owner, {
+      requestId: old.requestId,
+      published: false,
+      current: true,
+      clean: false,
+    })
+    const next = f.coordinator.request(f.owner, 'save', undefined, true)
+    f.ready()
+    const receipt = await next
+    f.coordinator.cancel(f.owner, old.closeLease)
+    expect(f.coordinator.complete(f.owner, receipt, () => true)).toBe(true)
+  })
+  it('requires an exact approved dirty revision for explicit discard', async () => {
+    const f = fixture()
+    f.state.dirty = true
+    f.state.pending = true
+    f.coordinator.observe(f.owner, f.state)
+    const pending = f.coordinator.request(
+      f.owner,
+      'save',
+      undefined,
+      true,
+      'discard',
+      f.state.stamp,
+    )
+    f.ready()
+    const receipt = await pending
+    expect(receipt.clean).toBe(false)
+    expect(f.coordinator.complete(f.owner, receipt, () => true)).toBe(true)
+  })
+  it('refuses discard if pending input changes during preparation', async () => {
+    const f = fixture()
+    f.state.dirty = true
+    f.coordinator.observe(f.owner, f.state)
+    const pending = f.coordinator.request(
+      f.owner,
+      'save',
+      undefined,
+      true,
+      'discard',
+      f.state.stamp,
+    )
+    f.coordinator.observe(f.owner, { ...f.state, stamp: { ...f.state.stamp, revision: '2' } })
+    f.coordinator.receive(f.owner, {
+      requestId: f.request.requestId,
+      published: false,
+      current: true,
+      clean: false,
+    })
+    expect((await pending).closeLease).toBeUndefined()
+  })
+  it('retains actual publication truth when newer edits refuse close', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, false),
+      request = f.request,
+      work = f.coordinator.beginMutation(f.owner, request.requestId, f.state.stamp)
+    f.coordinator.finishMutation(work, 'C:/published.ext')
+    f.coordinator.receive(f.owner, {
+      requestId: request.requestId,
+      published: false,
+      current: true,
+      clean: false,
+    })
+    expect(await pending).toMatchObject({ published: true, clean: false, path: 'C:/published.ext' })
+  })
+  it('refuses ready while an independently delivered asset writer remains active', async () => {
+    const f = fixture(),
+      work = f.coordinator.beginMutation(f.owner),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true)
+    f.ready()
+    expect((await pending).closeLease).toBeUndefined()
+    f.coordinator.finishMutation(work)
+  })
+  it('expires ready permission and never grants it to a different sender', async () => {
+    const f = fixture(),
+      pending = f.coordinator.request(f.owner, 'save', undefined, true)
+    expect(f.coordinator.claim(99, f.request.closeLease)).toBe(false)
+    f.ready()
+    const receipt = await pending
+    ;[...f.timers.values()][0]!()
+    expect(f.coordinator.complete(f.owner, receipt, () => true)).toBe(false)
+  })
+})

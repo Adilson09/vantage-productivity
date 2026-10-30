@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Dropdown } from '@vantage/ui'
 import type { PivotField } from './PivotDialog'
 import { useI18n } from './i18n/locale'
@@ -20,7 +20,7 @@ export function SubtotalDialog({
 }: {
   readonly fields: readonly PivotField[]
   /// Returns an error message, or null on success.
-  readonly onCreate: (config: SubtotalConfig) => string | null
+  readonly onCreate: (config: SubtotalConfig) => string | null | Promise<string | null>
   readonly onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -28,15 +28,37 @@ export function SubtotalDialog({
   const [valueCol, setValueCol] = useState(fields[1]?.colIndex ?? fields[0]?.colIndex ?? 0)
   const [agg, setAgg] = useState<SubtotalConfig['agg']>('sum')
   const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
+  const close = (): void => {
+    if (!pendingRef.current) onClose()
+  }
+  const create = async (): Promise<void> => {
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setPending(true)
+    setError(null)
+    try {
+      const failure = await onCreate({ groupCol, valueCol, agg })
+      setError(failure)
+      if (failure === null) onClose()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      pendingRef.current = false
+      setPending(false)
+    }
+  }
 
-  const modal = useModalDialog(onClose)
+  const modal = useModalDialog(close)
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
+    <div className="dialog-backdrop" onClick={close}>
       <div
         className="format-cells-dialog"
         role="dialog"
         {...modal}
         aria-label={t('dlgSubtotalTitle')}
+        aria-busy={pending}
         onClick={(event) => event.stopPropagation()}
       >
         <header>{t('dlgSubtotalTitle')}</header>
@@ -47,6 +69,7 @@ export function SubtotalDialog({
             <label>
               {t('dlgSubtotalGroupBy')}
               <Dropdown
+                disabled={pending}
                 ariaLabel={t('dlgSubtotalGroupBy')}
                 value={String(groupCol)}
                 options={fields.map((field) => ({
@@ -59,6 +82,7 @@ export function SubtotalDialog({
             <label>
               {t('dlgSubtotalFunction')}
               <Dropdown
+                disabled={pending}
                 ariaLabel={t('dlgSubtotalFunction')}
                 value={agg}
                 options={[
@@ -72,6 +96,7 @@ export function SubtotalDialog({
             <label>
               {t('dlgSubtotalAddTo')}
               <Dropdown
+                disabled={pending}
                 ariaLabel={t('dlgSubtotalAddTo')}
                 value={String(valueCol)}
                 options={fields.map((field) => ({
@@ -90,18 +115,11 @@ export function SubtotalDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button className="secondary" onClick={onClose}>
+          <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
           {fields.length > 0 && (
-            <button
-              className="primary-action"
-              onClick={() => {
-                const failure = onCreate({ groupCol, valueCol, agg })
-                setError(failure)
-                if (failure === null) onClose()
-              }}
-            >
+            <button className="primary-action" disabled={pending} onClick={() => void create()}>
               {t('dlgOk')}
             </button>
           )}

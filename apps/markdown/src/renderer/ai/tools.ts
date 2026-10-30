@@ -1,3 +1,4 @@
+import { beforeMarkdownMutation, markdownCloseStamp, runMarkdownMutationWork } from '../close-lease'
 import { modelTextOf, redactJson, redactTextBetween } from '../editor/redact'
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
@@ -332,7 +333,9 @@ async function insertImageFromUrl(
   signal: AbortSignal | undefined,
   labels: { fail: string; done: string },
 ): Promise<ToolExecution> {
+  const source = markdownCloseStamp().source
   const fetched = await window.markdownApi.fetchImage(url)
+  await beforeMarkdownMutation(source)
   // never write after the user hit stop (the download may resolve long after the abort)
   if (signal?.aborted) return fail('stopped by the user; the image was not inserted', labels.fail)
   if (!fetched) return fail('download failed (the image may not be accessible)', labels.fail)
@@ -343,7 +346,12 @@ async function insertImageFromUrl(
       labels.fail,
     )
   }
-  const rel = await window.markdownApi.saveImage({ base64: fetched.base64, ext })
+  const rel = await window.markdownApi.saveImage({
+    base64: fetched.base64,
+    ext,
+    closeSource: markdownCloseStamp(),
+  })
+  await beforeMarkdownMutation(source)
   if (signal?.aborted) return fail('stopped by the user; the image was not inserted', labels.fail)
   if (!rel) {
     return fail(
@@ -401,6 +409,7 @@ async function writeDocument(
     )
   }
   const str = (v: unknown) => (v === undefined || v === null ? undefined : String(v))
+  const source = markdownCloseStamp().source
   const draft = new DraftLanding(editor, position)
   let result: DocWriteResult
   let rendered: string | null
@@ -413,7 +422,9 @@ async function writeDocument(
   } finally {
     rendered = draft.finish()
   }
-  if (editor.isDestroyed) return fail('the document was closed', label)
+  if (editor.isDestroyed || markdownCloseStamp().source !== source)
+    return fail('the document source changed before writing finished', label)
+  await beforeMarkdownMutation(source)
   if (!result.ok || !result.markdown?.trim()) {
     return fail(
       `The writer produced nothing (${result.error ?? 'no output'}); the document is unchanged. Tell the user briefly and offer to try again.`,
@@ -454,13 +465,14 @@ async function writeDocument(
   }
 }
 
-export function executeTool(
+function executeToolUntracked(
   editor: Editor,
   call: AgentToolCall,
   signal?: AbortSignal,
   fm?: FrontmatterAccess,
   writer?: AiDocWriter,
 ): ToolExecution | Promise<ToolExecution> {
+  const source = markdownCloseStamp().source
   const doc = editor.state.doc
   const maxIndex = doc.childCount - 1
 
@@ -554,8 +566,14 @@ export function executeTool(
       if (!prompt) return fail('prompt must not be empty', t('aiToolGenImage'))
       const aspectRatio = String(call.input.aspectRatio ?? '').trim()
       return window.markdownApi
-        .aiGenerateImage({ prompt, ...(aspectRatio ? { aspectRatio } : {}) })
+        .aiGenerateImage({
+          closeSource: markdownCloseStamp(),
+          prompt,
+          ...(aspectRatio ? { aspectRatio } : {}),
+        })
         .then((generated): ToolExecution | Promise<ToolExecution> => {
+          if (markdownCloseStamp().source !== source)
+            return fail('the source changed before image generation finished', t('aiToolGenImage'))
           if (signal?.aborted) {
             return fail('stopped by the user; the image was not inserted', t('aiToolGenImage'))
           }
@@ -592,4 +610,14 @@ export function executeTool(
     default:
       return fail(`Unknown tool: ${call.name}`, call.name)
   }
+}
+
+export function executeTool(
+  editor: Editor,
+  call: AgentToolCall,
+  signal?: AbortSignal,
+  fm?: FrontmatterAccess,
+  writer?: AiDocWriter,
+): ToolExecution | Promise<ToolExecution> {
+  return runMarkdownMutationWork(() => executeToolUntracked(editor, call, signal, fm, writer))
 }

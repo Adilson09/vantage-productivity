@@ -1,3 +1,9 @@
+import {
+  beforeHtmlMutation,
+  htmlCloseStamp,
+  runHtmlMutationWork,
+  assertHtmlSource,
+} from '../close-lease'
 import type { AgentSkill, AgentToolCall, AgentToolDef, ToolExecution } from '@vantage/agent-core'
 import { t } from '../i18n/locale'
 import type { ElementEntry, ParseMap } from '../document/parse-map'
@@ -620,12 +626,19 @@ function sniffImageExt(base64: string): 'png' | 'jpg' | 'gif' | null {
 async function persistImageSrc(
   url: string,
 ): Promise<{ src: string; where: 'assets' | 'inline' | 'remote' }> {
+  const source = htmlCloseStamp().source
   try {
     const fetched = await window.htmlApi.fetchImage(url)
     if (fetched) {
       const ext = sniffImageExt(fetched.base64)
       if (ext) {
-        const rel = await window.htmlApi.saveImage({ base64: fetched.base64, ext })
+        await beforeHtmlMutation(source)
+        const rel = await window.htmlApi.saveImage({
+          base64: fetched.base64,
+          ext,
+          closeSource: htmlCloseStamp(),
+        })
+        await beforeHtmlMutation(source)
         if (rel) return { src: rel, where: 'assets' }
       }
       return { src: `data:${fetched.mime};base64,${fetched.base64}`, where: 'inline' }
@@ -684,6 +697,7 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
   let currentSignal: AbortSignal | undefined
 
   const landPage = async (spec: PageWriteSpec, preface: string): Promise<ToolExecution> => {
+    const source = htmlCloseStamp().source
     const summary = t('aiToolWritePage')
     if (!access.writePage)
       return { output: 'page generation is not available here', isError: true, summary }
@@ -694,6 +708,7 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
         isError: true,
         summary: t('aiToolWritePageFailed'),
       }
+    assertHtmlSource(source)
     access.replaceAll(result.html, 'generate')
     markSeen()
     const lines = result.html.split('\n').length
@@ -731,7 +746,9 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
     const prompt = String(call.input.prompt ?? '').trim()
     if (!prompt) return { output: 'prompt must not be empty', isError: true, summary }
     const aspectRatio = String(call.input.aspectRatio ?? '').trim()
+    const source = htmlCloseStamp().source
     const generated = await window.htmlApi.aiGenerateImage({
+      closeSource: htmlCloseStamp(),
       prompt,
       ...(aspectRatio ? { aspectRatio } : {}),
     })
@@ -760,6 +777,7 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
         isError: true,
         summary,
       }
+    await beforeHtmlMutation(source)
     const result = access.applyOps([op], 'generate_image')
     if (!result.ok)
       return {
@@ -782,7 +800,10 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
     }
   }
 
-  return {
+  const core: {
+    buildContext(): string
+    executeTool(call: AgentToolCall, signal?: AbortSignal): ToolExecution | Promise<ToolExecution>
+  } = {
     buildContext() {
       markSeen()
       const text = access.getText()
@@ -831,6 +852,7 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
     },
 
     executeTool(call, signal) {
+      const executionSource = htmlCloseStamp().source
       currentSignal = signal
       const text = access.getText()
       const map = access.getMap()
@@ -938,6 +960,7 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
               ? call.input.summary
               : `apply_ops (${ops.length})`
           const finish = (finalOps: HtmlOp[]): ToolExecution => {
+            assertHtmlSource(executionSource)
             const result = access.applyOps(finalOps, label)
             if (!result.ok) {
               const lines = result.errors.map(
@@ -1137,6 +1160,10 @@ export function createHtmlSkillCore(access: HtmlDocAccess): {
           return { output: `Unknown tool: ${call.name}`, isError: true, summary: call.name }
       }
     },
+  }
+  return {
+    buildContext: () => core.buildContext(),
+    executeTool: (call, signal) => runHtmlMutationWork(() => core.executeTool(call, signal)),
   }
 }
 

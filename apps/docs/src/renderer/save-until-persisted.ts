@@ -14,6 +14,10 @@ export interface SaveUntilPersistedDeps {
    * was not typing anyway.
    */
   hasPath: () => boolean
+  /** The close request still belongs to the same document activation. */
+  isCurrent?: () => boolean
+  /** Rechecks dirty and pending editor surfaces after all save acknowledgments. */
+  canClose?: () => boolean
   /** Passes before giving up (a user typing without pause never converges). */
   maxPasses?: number
 }
@@ -60,9 +64,11 @@ export function createSaveSerializer(): (
 export async function saveUntilPersisted(deps: SaveUntilPersistedDeps): Promise<boolean> {
   const { save, wasIncomplete, hasPath, maxPasses = 3 } = deps
   for (let pass = 0; pass < maxPasses; pass++) {
+    if (deps.isCurrent && !deps.isCurrent()) return false
     if (!(await save())) return false
-    if (!wasIncomplete()) return true
-    if (!hasPath()) return true
+    if (deps.isCurrent && !deps.isCurrent()) return false
+    if (!wasIncomplete() && (!deps.canClose || deps.canClose())) return true
+    if (!hasPath()) return deps.canClose?.() ?? true
   }
   return false
 }

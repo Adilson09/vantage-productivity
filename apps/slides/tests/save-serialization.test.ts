@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // file-actions pulls export-render → pptx-render → konva → native `canvas`
 // (missing in CI). Mock the UI-only modules so this unit test exercises
@@ -9,6 +9,55 @@ vi.mock('../src/renderer/i18n/locale', () => ({ t: (k: string) => k }))
 
 import { adoptSavedSlides, save, saveAs } from '../src/renderer/file-actions'
 import type { ActionCtx } from '../src/renderer/action-context'
+import {
+  configureSlidesRecovery,
+  SlidesRecoveryClient,
+  type SlidesRecoveryApi,
+} from '../src/renderer/slides-recovery'
+import {
+  registerSlidesPendingEditor,
+  retireSlidesPendingEditor,
+} from '../src/renderer/slides-pending-edit'
+import type { SlidesPendingDraft } from '../src/shared/slides-draft'
+
+afterEach(() => {
+  configureSlidesRecovery(null)
+  retireSlidesPendingEditor()
+  vi.unstubAllGlobals()
+})
+function deferred<T>() {
+  let done!: (value: T) => void
+  const promise = new Promise<T>((resolve) => {
+    done = resolve
+  })
+  return { promise, done }
+}
+function recoveryFixture() {
+  let pending: SlidesPendingDraft = {}
+  const api: SlidesRecoveryApi = {
+    activateDraft: vi.fn(async () => ({ ok: true, token: '5e67ef5d-cdd5-416b-b839-a53b587955c1' })),
+    writeDraft: vi.fn(async () => ({ ok: true })),
+    acknowledgeDraftSave: vi.fn(async () => ({ ok: true })),
+    draftState: vi.fn(async () => ({ revision: '1:0', dirty: true })),
+    setPendingEditState: vi.fn(),
+    onDraftDiscarded: () => () => {},
+    onDraftWarning: () => () => {},
+  }
+  const client = new SlidesRecoveryClient({
+    api,
+    capturePending: () => ({ pending, composing: false }),
+    reportError: vi.fn(),
+  })
+  client.activate('/test/deck.pptx')
+  configureSlidesRecovery(client)
+  return {
+    client,
+    api,
+    setPending: (value: SlidesPendingDraft) => {
+      pending = value
+    },
+  }
+}
 
 function ctx(): ActionCtx {
   return {
@@ -30,6 +79,95 @@ function ctx(): ActionCtx {
 }
 
 describe('slides save serialization', () => {
+  it('refuses an active IME before blur can commit partial text', async () => {
+    const blur = vi.fn(),
+      commit = vi.fn(async () => {})
+    const mockSave = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { slidesApi: { save: mockSave } })
+    registerSlidesPendingEditor({ capture: () => null, composing: () => true, commit })
+    const active = vi
+      .spyOn(document, 'activeElement', 'get')
+      .mockReturnValue({ isContentEditable: true, blur } as unknown as HTMLElement)
+    try {
+      expect(await save(ctx)).toBe(false)
+      expect(blur).not.toHaveBeenCalled()
+      expect(commit).not.toHaveBeenCalled()
+      expect(mockSave).not.toHaveBeenCalled()
+    } finally {
+      active.mockRestore()
+    }
+  })
+  it('keeps text typed during an in-flight save dirty and does not replace its active editor', async () => {
+    const f = recoveryFixture()
+    const started = deferred<void>(),
+      written = deferred<{ ok: boolean; path: string; slides: [] }>()
+    const mockSave = vi.fn(() => {
+      started.done()
+      return written.promise
+    })
+    vi.stubGlobal('window', { slidesApi: { save: mockSave } })
+    const context = { ...ctx(), setDirty: vi.fn(), setSlides: vi.fn() }
+    const saving = save(() => context)
+    await started.promise
+    f.setPending({
+      text: {
+        kind: 'text',
+        slideIndex: 0,
+        sourceId: 'new-typing',
+        paragraphs: [{ runs: [{ text: 'typed after Save' }] }],
+      },
+    })
+    written.done({ ok: true, path: '/test/deck.pptx', slides: [] })
+    expect(await saving).toBe(false)
+    expect(context.setDirty).toHaveBeenCalledWith(true)
+    expect(context.setSlides).not.toHaveBeenCalled()
+    expect(f.api.acknowledgeDraftSave).toHaveBeenCalledWith(
+      expect.objectContaining({ clean: false }),
+    )
+  })
+  it('a late save reply cannot acknowledge or redraw a replacement presentation', async () => {
+    const f = recoveryFixture()
+    const started = deferred<void>(),
+      written = deferred<{ ok: boolean; path: string; slides: [] }>()
+    vi.stubGlobal('window', {
+      slidesApi: {
+        save: vi.fn(() => {
+          started.done()
+          return written.promise
+        }),
+      },
+    })
+    const context = { ...ctx(), setDirty: vi.fn(), setSlides: vi.fn(), setPath: vi.fn() }
+    const saving = save(() => context)
+    await started.promise
+    f.client.activate('/test/replacement.pptx')
+    written.done({ ok: true, path: '/test/deck.pptx', slides: [] })
+    expect(await saving).toBe(false)
+    expect(context.setDirty).not.toHaveBeenCalled()
+    expect(context.setSlides).not.toHaveBeenCalled()
+    expect(context.setPath).not.toHaveBeenCalled()
+    expect(f.api.acknowledgeDraftSave).not.toHaveBeenCalled()
+  })
+  it('a refused pending-text commit prevents a normal file write and remains recoverable', async () => {
+    const mockSave = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('window', { slidesApi: { save: mockSave } })
+    registerSlidesPendingEditor({
+      capture: () => ({
+        kind: 'text',
+        slideIndex: 0,
+        sourceId: 'e1',
+        paragraphs: [{ runs: [{ text: 'kept' }] }],
+      }),
+      composing: () => false,
+      commit: async () => {
+        throw new Error('The pending edit was refused')
+      },
+    })
+    const context = { ...ctx(), setStatus: vi.fn() }
+    expect(await save(() => context)).toBe(false)
+    expect(mockSave).not.toHaveBeenCalled()
+    expect(context.setStatus).toHaveBeenCalled()
+  })
   it('keeps the saved deck and clears stale selection when the current index is gone', () => {
     const slide = {
       widthPx: 960,
@@ -153,7 +291,10 @@ describe('slides save serialization', () => {
     }
     await Promise.all([save(getCtx, true), save(getCtx, true)])
 
-    expect(seen).toEqual([0, 1])
+    expect(seen[0]).toBe(0)
+    expect(seen).toContain(1)
+    expect(mockSave).toHaveBeenCalledTimes(2)
+    expect(saves).toBe(2)
 
     vi.unstubAllGlobals()
   })

@@ -1,0 +1,363 @@
+import { NativeCloseAdmission } from '../../../packages/electron-utils/src/native-close-admission'
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  MarkdownCloseCoordinator,
+  runMarkdownNativeClose,
+  type MarkdownClosePrepareOptions,
+} from '../src/main/markdown-close-lease'
+import type {
+  MarkdownSourceState,
+  MarkdownNativeCloseReceipt,
+} from '../src/shared/markdown-close-lease'
+function deferred<Value>() {
+  let done!: (value: Value) => void
+  const promise = new Promise<Value>((resolve) => {
+    done = resolve
+  })
+  return { promise, done }
+}
+const fixtures: Array<{ coordinator: MarkdownCloseCoordinator }> = []
+function fixture() {
+  const automatic = new NativeCloseAdmission<any>()
+  const sent = new Map<number, any>(),
+    states = new Map<number, MarkdownSourceState>(),
+    releases = vi.fn()
+  let valid = true,
+    sealing = false
+  const held: Array<{ owner: number; receipt: MarkdownNativeCloseReceipt }> = []
+  const coordinator = new MarkdownCloseCoordinator({
+    alive: () => true,
+    pathAllowed: () => true,
+    send: (owner, _mode, value) => {
+      sent.set(owner, value)
+    },
+    release: releases,
+  })
+  for (const owner of [1, 2]) {
+    coordinator.open(owner)
+    const state: MarkdownSourceState = {
+      stamp: { source: 'renderer:' + owner, revision: '1' },
+      path: null,
+      ready: true,
+      dirty: false,
+      pending: false,
+      busy: false,
+      composing: false,
+    }
+    states.set(owner, state)
+    coordinator.observe(owner, state)
+  }
+  const isCurrent = () =>
+    valid && (sealing || held.every((item) => coordinator.isPrepared(item.owner, item.receipt)))
+  const observe = (owner: number, change: Partial<MarkdownSourceState>) => {
+    const state = { ...states.get(owner)!, ...change }
+    states.set(owner, state)
+    coordinator.observe(owner, state)
+  }
+  const ack = (owner: number) => {
+    const request = sent.get(owner),
+      state = states.get(owner)!
+    coordinator.receive(owner, {
+      requestId: request.requestId,
+      published: false,
+      current: true,
+      clean: true,
+      closeLease: { ticket: request.closeLease, stamp: { ...state.stamp } },
+    })
+  }
+  const prepare = async (
+    owner: number,
+    options: MarkdownClosePrepareOptions = { deferSeal: true, isCurrent },
+  ) => {
+    const pending = coordinator.request(owner, 'save', undefined, true, 'clean', undefined, options)
+    ack(owner)
+    const receipt = await pending
+    if (receipt.phase !== 'prepared' && receipt.phase !== 'ready')
+      throw new Error(receipt.error ?? 'No phase authority')
+    return receipt as MarkdownNativeCloseReceipt
+  }
+  const nativeHost = (owner: number, prompt: () => Promise<number>) => ({
+    holdAutomaticSaves: () => automatic.hold(owner, owner),
+    alive: () => true,
+    state: () => states.get(owner)!,
+    retainedAssets: async () => [] as string[],
+    prompt: vi.fn(prompt),
+    prepare: vi.fn(
+      async (_intent: unknown, _stamp: unknown, options: MarkdownClosePrepareOptions) => {
+        observe(owner, { dirty: false, pending: false })
+        return prepare(owner, options)
+      },
+    ),
+    cancel: vi.fn(async (receipt: MarkdownNativeCloseReceipt) =>
+      coordinator.cancel(owner, receipt.closeLease?.ticket),
+    ),
+  })
+  const result = {
+    automatic,
+    coordinator,
+    sent,
+    states,
+    releases,
+    held,
+    isCurrent,
+    observe,
+    ack,
+    prepare,
+    nativeHost,
+    invalidate: () => {
+      valid = false
+    },
+    sealing: () => {
+      sealing = true
+    },
+  }
+  fixtures.push(result)
+  return result
+}
+beforeEach(() => vi.useFakeTimers())
+afterEach(() => {
+  for (const f of fixtures.splice(0)) {
+    f.coordinator.destroy(1)
+    f.coordinator.destroy(2)
+  }
+  vi.useRealTimers()
+})
+describe('Markdown actual deferred-seal and native-prompt control flow', () => {
+  it('keeps the first approval preparing while a later real native flow waits beyond5s, then seals once', async () => {
+    const f = fixture(),
+      first = await f.prepare(1)
+    f.held.push({ owner: 1, receipt: first })
+    f.observe(2, { dirty: true })
+    const prompt = deferred<number>(),
+      entered = deferred<void>(),
+      host = f.nativeHost(2, () => {
+        entered.done()
+        return prompt.promise
+      })
+    const later = runMarkdownNativeClose(host, { deferSeal: true, isCurrent: f.isCurrent })
+    await entered.promise
+    await vi.advanceTimersByTimeAsync(6_000)
+    expect(first.phase).toBe('prepared')
+    expect(f.coordinator.isPrepared(1, first)).toBe(true)
+    expect(host.prepare).not.toHaveBeenCalled()
+    prompt.done(0)
+    const second = await later
+    expect(second?.phase).toBe('prepared')
+    f.held.push({ owner: 2, receipt: second! })
+    expect(f.isCurrent()).toBe(true)
+    f.sealing()
+    const ready1 = f.coordinator.seal(1, first)!,
+      ready2 = f.coordinator.seal(2, second!)!
+    expect(ready1.phase).toBe('ready')
+    expect(ready2.phase).toBe('ready')
+    const remove = vi.fn(() => true)
+    expect(f.coordinator.complete(1, ready1, () => f.coordinator.complete(2, ready2, remove))).toBe(
+      true,
+    )
+    expect(remove).toHaveBeenCalledOnce()
+  })
+  it('complete refuses an unsealed or phase-forged preparation', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(1),
+      remove = vi.fn(() => true)
+    expect(f.coordinator.complete(1, { ...prepared, phase: 'ready' }, remove)).toBe(false)
+    expect(remove).not.toHaveBeenCalled()
+  })
+  it('the ready5s interval starts at seal and never extends preparing120s', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(1)
+    await vi.advanceTimersByTimeAsync(119_000)
+    expect(f.coordinator.isPrepared(1, prepared)).toBe(true)
+    const ready = f.coordinator.seal(1, prepared)!
+    expect(ready.phase).toBe('ready')
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(f.coordinator.complete(1, ready, () => true)).toBe(true)
+  })
+  it('an expired earlier preparation blocks Save after the later prompt, without dispatching a writer', async () => {
+    const f = fixture(),
+      first = await f.prepare(1)
+    f.held.push({ owner: 1, receipt: first })
+    f.observe(2, { dirty: true })
+    const prompt = deferred<number>(),
+      entered = deferred<void>(),
+      host = f.nativeHost(2, () => {
+        entered.done()
+        return prompt.promise
+      })
+    const later = runMarkdownNativeClose(host, { deferSeal: true, isCurrent: f.isCurrent })
+    await entered.promise
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(f.coordinator.isPrepared(1, first)).toBe(false)
+    prompt.done(0)
+    expect(await later).toBe(null)
+    expect(host.prepare).not.toHaveBeenCalled()
+  })
+  it('an aborted group cannot publish after a delayed Save or Discard choice', async () => {
+    for (const choice of [0, 1]) {
+      const f = fixture(),
+        abort = new AbortController(),
+        prompt = deferred<number>(),
+        entered = deferred<void>()
+      f.observe(2, { dirty: true })
+      const host = f.nativeHost(2, () => {
+          entered.done()
+          return prompt.promise
+        }),
+        later = runMarkdownNativeClose(host, {
+          deferSeal: true,
+          signal: abort.signal,
+          isCurrent: f.isCurrent,
+        })
+      await entered.promise
+      abort.abort()
+      prompt.done(choice)
+      expect(await later).toBe(null)
+      expect(host.prepare).not.toHaveBeenCalled()
+    }
+  })
+  it('source change during asset inventory refuses even opening a later prompt', async () => {
+    const f = fixture(),
+      inventory = deferred<readonly string[]>()
+    f.observe(2, { dirty: true })
+    const host = { ...f.nativeHost(2, async () => 0), retainedAssets: () => inventory.promise }
+    const later = runMarkdownNativeClose(host, { deferSeal: true, isCurrent: f.isCurrent })
+    f.observe(2, { stamp: { source: 'replacement', revision: '2' } })
+    inventory.done([])
+    expect(await later).toBe(null)
+    expect(host.prompt).not.toHaveBeenCalled()
+    expect(host.prepare).not.toHaveBeenCalled()
+  })
+  it('a prepared predicate never calls the recursive group permit', async () => {
+    const f = fixture(),
+      permit = vi.fn(() => true),
+      prepared = await f.prepare(1, { deferSeal: true, isCurrent: permit })
+    const calls = permit.mock.calls.length
+    expect(f.coordinator.isPrepared(1, prepared)).toBe(true)
+    expect(permit).toHaveBeenCalledTimes(calls)
+  })
+  it('group invalidation or source replacement refuses final sealing', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(1)
+    f.invalidate()
+    expect(f.coordinator.seal(1, prepared)).toBe(null)
+    const g = fixture(),
+      other = await g.prepare(1)
+    g.observe(1, { stamp: { source: 'new-page', revision: '2' } })
+    expect(g.coordinator.isPrepared(1, other)).toBe(false)
+    expect(g.coordinator.seal(1, other)).toBe(null)
+  })
+  it('actual writers remain owned after abort/expiry until their terminal finally settles', async () => {
+    const f = fixture(),
+      abort = new AbortController(),
+      pending = f.coordinator.request(1, 'save', undefined, true, 'clean', undefined, {
+        deferSeal: true,
+        signal: abort.signal,
+        isCurrent: f.isCurrent,
+      }),
+      request = f.sent.get(1),
+      work = f.coordinator.beginMutation(1, request.requestId, {
+        source: 'renderer:1',
+        revision: '1',
+      }),
+      gate = deferred<void>()
+    const actual = (async () => {
+      await gate.promise
+      f.coordinator.finishMutation(work)
+    })()
+    abort.abort()
+    f.ack(1)
+    expect((await pending).current).toBe(false)
+    expect(f.coordinator.current(work)).toBe(false)
+    expect(f.coordinator.pending(1)).toBe(true)
+    await vi.advanceTimersByTimeAsync(120_000)
+    await expect(f.coordinator.request(1, 'save', undefined, true)).rejects.toThrow('finishing')
+    gate.done()
+    await actual
+    expect(f.coordinator.pending(1)).toBe(false)
+  })
+  it('ordinary individual close returns ready, while repeated seal cannot restart its timer', async () => {
+    const f = fixture(),
+      ready = await f.prepare(1, { isCurrent: f.isCurrent })
+    expect(ready.phase).toBe('ready')
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(f.coordinator.seal(1, ready)).toBe(null)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(f.coordinator.complete(1, ready, () => true)).toBe(false)
+  })
+  it('a late abort from an old operation cannot release its replacement', async () => {
+    const f = fixture(),
+      oldAbort = new AbortController(),
+      old = await f.prepare(1, { deferSeal: true, signal: oldAbort.signal, isCurrent: f.isCurrent })
+    f.coordinator.cancel(1, old.closeLease!.ticket)
+    const fresh = await f.prepare(1)
+    oldAbort.abort()
+    expect(f.coordinator.isPrepared(1, fresh)).toBe(true)
+    expect(f.coordinator.seal(1, fresh)?.phase).toBe('ready')
+  })
+  it('a group ending while native preparation awaits cancels only the receipt that actually returned', async () => {
+    const f = fixture(),
+      gate = deferred<MarkdownNativeCloseReceipt>(),
+      entered = deferred<void>(),
+      receipt = await f.prepare(2)
+    const host = {
+      ...f.nativeHost(2, async () => 0),
+      prepare: vi.fn(async () => {
+        entered.done()
+        return gate.promise
+      }),
+    }
+    const later = runMarkdownNativeClose(host, { deferSeal: true, isCurrent: f.isCurrent })
+    await entered.promise
+    f.invalidate()
+    gate.done(receipt)
+    expect(await later).toBe(null)
+    expect(host.cancel).toHaveBeenCalledWith(receipt)
+  })
+})
+
+describe('Markdown native prompt automatic publication admission', () => {
+  it('blocks the actual blur/timer automatic marker before renderer prepare, while manual Save invalidates the pending choice', async () => {
+    const f = fixture(),
+      prompt = deferred<number>(),
+      entered = deferred<void>()
+    f.observe(2, { dirty: true })
+    const host = f.nativeHost(2, () => {
+        entered.done()
+        return prompt.promise
+      }),
+      pending = runMarkdownNativeClose(host, { deferSeal: true })
+    await entered.promise
+    expect(f.automatic.write(2, true)).toBeNull()
+    expect(host.prepare).not.toHaveBeenCalled()
+    const manual = f.automatic.write(2, false)!
+    expect(manual).toBeTypeOf('function')
+    prompt.done(0)
+    expect(await pending).toBeNull()
+    expect(host.prepare).not.toHaveBeenCalled()
+    expect(f.automatic.hold(2, 2)).toBeNull()
+    manual()
+    const retry = f.automatic.write(2, true)
+    expect(retry).toBeTypeOf('function')
+    retry?.()
+  })
+  it('resumes automatic publication after a real Cancel choice without retaining a renderer auto-expiry timer', async () => {
+    const f = fixture(),
+      prompt = deferred<number>(),
+      entered = deferred<void>()
+    f.observe(2, { dirty: true })
+    const host = f.nativeHost(2, () => {
+        entered.done()
+        return prompt.promise
+      }),
+      pending = runMarkdownNativeClose(host, { deferSeal: true })
+    await entered.promise
+    expect(f.automatic.write(2, true)).toBeNull()
+    prompt.done(2)
+    expect(await pending).toBeNull()
+    const retry = f.automatic.write(2, true)
+    expect(retry).toBeTypeOf('function')
+    retry?.()
+    expect(host.prepare).not.toHaveBeenCalled()
+  })
+})

@@ -17,8 +17,7 @@ const agentHarness = vi.hoisted(() => ({
 }))
 
 vi.mock('@vantage/agent-core', async () => {
-  const actual =
-    await vi.importActual<typeof import('@vantage/agent-core')>('@vantage/agent-core')
+  const actual = await vi.importActual<typeof import('@vantage/agent-core')>('@vantage/agent-core')
   return {
     ...actual,
     AgentLoop: class MockAgentLoop {
@@ -118,8 +117,10 @@ function installSlidesApi(): void {
     configurable: true,
     value: {
       aiGskStatus: vi.fn(async () => ({ loggedIn: true })),
-      beginHistoryBatch: vi.fn(async () => false),
-      endHistoryBatch: vi.fn(async () => null),
+      beginOwnedHistoryBatch: vi.fn(async () => ({
+        nonce: '12345678-1234-4234-8234-123456789abc',
+      })),
+      finishOwnedHistoryBatch: vi.fn(async () => null),
       aiLogRunFailure: vi.fn(async () => undefined),
     },
   })

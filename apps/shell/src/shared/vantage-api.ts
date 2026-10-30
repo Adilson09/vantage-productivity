@@ -1,4 +1,7 @@
+import type { RecoveryRuntimePublicState } from '../../../../packages/electron-utils/src/recovery-bootstrap'
 // Vantage Productivity addition: local document checks, recovery history and native mail handoff.
+import type { CalendarDesktopApi } from './calendar-api'
+import type { RetainedRecoveryApi } from './retained-recovery'
 export type AuditStatus = 'pass' | 'warning' | 'fail' | 'info'
 export type AuditedFormat = 'docx' | 'xlsx' | 'pptx' | 'pdf' | 'md' | 'html'
 
@@ -36,7 +39,35 @@ export interface VantageMailLaunchResult {
   error?: string
 }
 
-export interface VantageApi {
+export type PdfValidationProfile =
+  '1a' | '1b' | '2a' | '2b' | '2u' | '3a' | '3b' | '3u' | '4' | '4e' | '4f' | 'ua1' | 'ua2'
+export interface SpecialistPdfResult {
+  engine: string
+  filePath?: string
+  status: 'pass' | 'fail' | 'warning' | 'incomplete'
+  stdout: string
+  stderr: string
+  scope: string
+  sourceSha256?: string
+  sourceUnchanged?: boolean
+  conformance?: {
+    complete: boolean
+    requestedFlavour: string
+    reason: string
+    profiles: {
+      id: string
+      name: string
+      compliant: boolean
+      passedRules: number
+      failedRules: number
+      passedChecks: number
+      failedChecks: number
+    }[]
+  }
+}
+
+export interface VantageApi extends CalendarDesktopApi, RetainedRecoveryApi {
+  recoveryRuntimeStatus(): Promise<RecoveryRuntimePublicState>
   onSaveWarning(listener: (message: string) => void): () => void
   draftList(): Promise<DraftPreview[]>
   restoreDraft(id: string): Promise<string | null>
@@ -60,13 +91,10 @@ export interface VantageApi {
     sha256: string
     scope: string
   } | null>
-  checkSpecialistPdf(engine: 'qpdf' | 'verapdf'): Promise<{
-    engine: string
-    status: string
-    stdout: string
-    stderr: string
-    scope: string
-  } | null>
+  checkSpecialistPdf(
+    engine: 'qpdf' | 'verapdf',
+    flavour?: PdfValidationProfile,
+  ): Promise<SpecialistPdfResult | null>
   importCalendar(): Promise<CalendarPreview | null>
   importContacts(): Promise<ContactPreview | null>
   openDatabase(create: boolean): Promise<DatabasePreview | null>
@@ -89,8 +117,14 @@ export interface VantageApi {
 }
 
 export const VANTAGE_CHANNELS = {
+  recoveryRuntimeStatus: 'vantage:recovery-runtime-status',
   saveWarning: 'vantage:save-warning',
   draftList: 'vantage:draft-list',
+  retainedRecoveryList: 'vantage:retained-recovery-list',
+  recoverRetainedCopy: 'vantage:recover-retained-copy',
+  removeRetainedCopy: 'vantage:remove-retained-copy',
+  retryRetainedRecovery: 'vantage:retry-retained-recovery',
+  keepRetainedOutput: 'vantage:keep-retained-output',
   restoreDraft: 'vantage:restore-draft',
   discardDraft: 'vantage:discard-draft',
   exportRecoveryBackup: 'vantage:export-recovery-backup',

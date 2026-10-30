@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { consumePdfPendingEditor, registerPdfPendingEditor } from './pdf-draft'
+import { usePdfAuthoredState, readPdfAuthored, pdfAuthoredSource } from './pdf-authored'
 import type { ReactElement } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { MetadataInput } from '../shared/ipc'
@@ -54,21 +56,44 @@ export function PropertiesDialog({
   onApply: (meta: MetadataInput) => void
 }): ReactElement {
   const [info, setInfo] = useState<RawInfo | null>(null)
-  const [form, setForm] = useState<MetadataInput>({})
+  const [form, setForm] = usePdfAuthoredState<MetadataInput>(
+    'editor:properties-form',
+    () => consumePdfPendingEditor<MetadataInput>('properties-form', 'properties') ?? {},
+  )
+  const formRef = useRef(form)
+  formRef.current = form
+  const baselineRef = useRef<MetadataInput | null>(null)
+  useLayoutEffect(
+    () =>
+      registerPdfPendingEditor('properties-form', 'properties', () => {
+        const baseline = baselineRef.current
+        const current = readPdfAuthored<MetadataInput>('editor:properties-form', formRef.current)
+        return baseline && JSON.stringify(baseline) === JSON.stringify(current)
+          ? undefined
+          : Object.keys(current).length
+            ? current
+            : undefined
+      }),
+    [],
+  )
   const dialogRef = useModalDialog(onCancel)
 
   useEffect(() => {
     let cancelled = false
+    const source = pdfAuthoredSource()
     void doc.getMetadata().then(({ info: raw }) => {
-      if (cancelled) return
+      if (cancelled || source !== pdfAuthoredSource()) return
       const i = (raw ?? {}) as RawInfo
       setInfo(i)
-      setForm({
+      const baseline = {
         title: pending?.title ?? i.Title ?? '',
         author: pending?.author ?? i.Author ?? '',
         subject: pending?.subject ?? i.Subject ?? '',
         keywords: pending?.keywords ?? i.Keywords ?? '',
-      })
+      }
+      baselineRef.current = baseline
+      // Restored or newly typed values win over a late metadata baseline.
+      setForm((previous) => ({ ...baseline, ...previous }))
     })
     return () => {
       cancelled = true
@@ -82,7 +107,10 @@ export function PropertiesDialog({
         className="pdf-modal-input"
         value={form[key] ?? ''}
         disabled={readOnly}
-        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+        onChange={(e) => {
+          const value = e.target.value
+          setForm((previous) => ({ ...previous, [key]: value }))
+        }}
       />
     </label>
   )

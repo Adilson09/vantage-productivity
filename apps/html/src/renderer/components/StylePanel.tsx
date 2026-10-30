@@ -1,3 +1,4 @@
+import { mutateHtml } from '../close-lease'
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { useI18n } from '../i18n/locale'
@@ -7,8 +8,14 @@ import type { StyleEdit } from './FloatToolbar'
 import { ColorField } from './ColorField'
 import { backgroundPickStyles, backgroundSwatch } from '../document/background-style'
 import { IconLock } from './icons'
+import type { HtmlPanelRecoveryState } from '../document/html-recovery-snapshot'
 
 interface Props {
+  recoveryRef: MutableRefObject<(() => HtmlPanelRecoveryState) | null>
+  discardDraftsRef: MutableRefObject<(() => void) | null>
+  recoveryCss?: string
+  onDraftChange: () => void
+  onPendingChange: (dirty: boolean) => void
   tag: string
   computed: ComputedSnapshot
   /** current single text run, null when the element has none (or several) */
@@ -72,26 +79,58 @@ function PxInput({
  * selection change) or when the field unmounts: toolbar buttons swallow mousedown, so blur
  * alone is not enough. Idempotent so the several flush points write at most once.
  */
-function useDraft(base: string, write: (value: string) => void) {
-  const [value, setValue] = useState(base)
+function useDraft(
+  base: string,
+  write: (value: string) => void,
+  onChange: () => void,
+  initial = base,
+) {
+  const [value, updateValue] = useState(initial)
+  const setValue = (next: string) => {
+    mutateHtml(() => {
+      valueRef.current = next
+      updateValue(next)
+      onChange()
+    })
+  }
   const committedRef = useRef(base)
   const valueRef = useRef(value)
-  valueRef.current = value
   useEffect(() => {
-    // the frame re-reports what we just wrote; keep keystrokes typed since that commit
-    const untouched = valueRef.current === committedRef.current
-    committedRef.current = base
-    if (untouched) setValue(base)
+    // The authored draft remains canonical; a late React projection cannot bypass close.
+    mutateHtml(() => {
+      const untouched = valueRef.current === committedRef.current
+      committedRef.current = base
+      if (untouched) {
+        valueRef.current = base
+        updateValue(base)
+      }
+    })
   }, [base])
   const commitRef = useRef<() => void>(() => {})
   commitRef.current = () => {
-    if (value !== committedRef.current) {
-      committedRef.current = value
-      write(value)
+    if (valueRef.current !== committedRef.current) {
+      mutateHtml(() => {
+        committedRef.current = valueRef.current
+        write(valueRef.current)
+        onChange()
+      })
     }
   }
   const commit = () => commitRef.current()
-  return { value, setValue, commit, commitRef }
+  return {
+    value,
+    setValue,
+    commit,
+    commitRef,
+    peek: () => (valueRef.current !== committedRef.current ? valueRef.current : null),
+    discard: () => {
+      mutateHtml(() => {
+        committedRef.current = base
+        valueRef.current = base
+        updateValue(base)
+      })
+    },
+  }
 }
 
 const FITS = ['fill', 'contain', 'cover', 'none'] as const
@@ -103,7 +142,13 @@ const FIT_LABEL: Record<(typeof FITS)[number], StringKey> = {
 }
 
 /** <img>: alt text (attribute) and object-fit; typography has nothing to say about a replaced element */
-function ImageSection(p: Props & { altCommitRef: MutableRefObject<() => void> }) {
+function ImageSection(
+  p: Props & {
+    altCommitRef: MutableRefObject<() => void>
+    altPeekRef: MutableRefObject<() => string | null>
+    altDiscardRef: MutableRefObject<() => void>
+  },
+) {
   const { t } = useI18n()
   const image = p.computed.image
   const {
@@ -111,8 +156,13 @@ function ImageSection(p: Props & { altCommitRef: MutableRefObject<() => void> })
     setValue: setAlt,
     commit: commitAlt,
     commitRef,
-  } = useDraft(image?.alt ?? '', (v) => p.onAttr('alt', v))
+    peek,
+    discard,
+  } = useDraft(image?.alt ?? '', (v) => p.onAttr('alt', v), p.onDraftChange)
   p.altCommitRef.current = () => commitRef.current()
+  p.altPeekRef.current = peek
+  p.altDiscardRef.current = discard
+  useEffect(() => p.onPendingChange(p.recoveryRef.current?.().dirty ?? false), [alt, image?.alt])
   const fit = (FITS as readonly string[]).includes(p.computed.objectFit)
     ? p.computed.objectFit
     : 'fill'
@@ -179,18 +229,33 @@ export function StylePanel(p: Props) {
     setValue: setText,
     commit: commitText,
     commitRef: textCommitRef,
-  } = useDraft(p.textRun ?? '', (v) => {
-    if (p.textRun !== null) p.onText(v)
-  })
+    peek: peekText,
+    discard: discardText,
+  } = useDraft(
+    p.textRun ?? '',
+    (v) => {
+      if (p.textRun !== null) p.onText(v)
+    },
+    p.onDraftChange,
+  )
   const altCommitRef = useRef<() => void>(() => {})
+  const altPeekRef = useRef<() => string | null>(() => null)
+  const altDiscardRef = useRef<() => void>(() => {})
   const {
     value: css,
     setValue: setCss,
     commitRef: cssCommitRef,
-  } = useDraft('', (value) => {
-    const trimmed = value.trim()
-    if (trimmed) p.onCustomCss(trimmed)
-  })
+    peek: peekCss,
+    discard: discardCss,
+  } = useDraft(
+    '',
+    (value) => {
+      const trimmed = value.trim()
+      if (trimmed) p.onCustomCss(trimmed)
+    },
+    p.onDraftChange,
+    p.recoveryCss,
+  )
   const commitCss = () => {
     cssCommitRef.current()
     if (css.trim()) setCss('')
@@ -201,11 +266,40 @@ export function StylePanel(p: Props) {
     commitCss()
   }
   p.draftRef.current = flushDrafts
+  const discardDrafts = () => {
+    discardText()
+    altDiscardRef.current()
+    discardCss()
+    p.onPendingChange(false)
+  }
+  p.discardDraftsRef.current = discardDrafts
+  const readRecovery = () => {
+    const text = p.textRun === null ? null : peekText(),
+      alt = isImage ? altPeekRef.current() : null,
+      css = peekCss() ?? ''
+    return { text, alt, css, dirty: text !== null || alt !== null || css !== '' }
+  }
+  p.recoveryRef.current = readRecovery
+  const ownDiscardRef = useRef(discardDrafts)
+  ownDiscardRef.current = discardDrafts
+  const ownFlushRef = useRef(flushDrafts),
+    ownRecoveryRef = useRef(readRecovery)
+  ownFlushRef.current = flushDrafts
+  ownRecoveryRef.current = readRecovery
+  useEffect(
+    () => p.onPendingChange(p.recoveryRef.current?.().dirty ?? false),
+    [text, css, p.textRun],
+  )
   const draftRef = p.draftRef
   useEffect(
     () => () => {
-      draftRef.current?.()
-      draftRef.current = null
+      ownFlushRef.current()
+      if (p.discardDraftsRef.current === ownDiscardRef.current) p.discardDraftsRef.current = null
+      if (draftRef.current === ownFlushRef.current) draftRef.current = null
+      if (p.recoveryRef.current === ownRecoveryRef.current) {
+        p.recoveryRef.current = null
+        p.onPendingChange(false)
+      }
     },
     [draftRef],
   )
@@ -230,7 +324,12 @@ export function StylePanel(p: Props) {
       </div>
 
       {isImage ? (
-        <ImageSection {...p} altCommitRef={altCommitRef} />
+        <ImageSection
+          {...p}
+          altCommitRef={altCommitRef}
+          altPeekRef={altPeekRef}
+          altDiscardRef={altDiscardRef}
+        />
       ) : (
         <>
           <div className="hx-panel-section">{t('typography')}</div>

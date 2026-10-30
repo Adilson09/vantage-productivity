@@ -91,10 +91,13 @@ export interface EditSnapshot {
   metadata: MetadataInput | null
 }
 
-/** What a running save wrote, captured when the save starts. The post-save reload
-    subtracts exactly this instead of wiping all edit state, so anything the user did
-    while the write was in flight stays pending on the reloaded document. */
+/** What a running save wrote, captured when the save starts. The complete authored
+    fingerprint must still match before post-save subtraction/rebase. A newer
+    model remains whole on its exact prior base in a separate recovery workspace. */
 export interface SavedSnapshot {
+  /** Canonical complete authored content before publication, excluding status,
+      reading position and the publication's own path/fingerprint updates. */
+  authoredFingerprint?: string
   markupIds: Set<string>
   annotDeleteIds: Set<string>
   noteEditIds: Set<string>

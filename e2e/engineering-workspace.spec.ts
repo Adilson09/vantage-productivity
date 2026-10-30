@@ -23,13 +23,14 @@ test.describe('integrated local productivity tools', () => {
         .click()
       const panel = page.getByRole('dialog', { name: 'Tools and privacy', exact: true })
       await panel.getByRole('button', { name: 'Calendar and contacts', exact: true }).click()
+      await panel.getByText('Calendar files and contacts', { exact: true }).click()
       await panel.getByLabel('Event title', { exact: true }).fill('Local planning session')
       await panel
         .getByLabel('Starts at (your local time)', { exact: true })
         .fill('2026-11-02T10:00')
       await panel.getByLabel('Ends at (your local time)', { exact: true }).fill('2026-11-02T11:00')
       await panel.getByRole('button', { name: 'Save new calendar', exact: true }).click()
-      await expect(panel.getByRole('status')).toContainText('Calendar created:')
+      await expect(panel.getByRole('status').filter({ hasText: 'Calendar created:' })).toBeVisible()
       const bytes = await readFile(path, 'utf8')
       expect(bytes).toContain('BEGIN:VCALENDAR')
       expect(bytes).toContain('SUMMARY:Local planning session')
@@ -171,8 +172,11 @@ test.describe('integrated local productivity tools', () => {
         .click()
       const panel = page.getByRole('dialog', { name: 'Tools and privacy', exact: true })
       await panel.getByRole('button', { name: 'Calendar and contacts', exact: true }).click()
+      await panel.getByText('Calendar files and contacts', { exact: true }).click()
       await panel.getByRole('button', { name: 'Open calendar', exact: true }).click()
-      await expect(panel.getByRole('status')).toHaveText('3 calendar occurrences loaded.')
+      await expect(
+        panel.getByRole('status').filter({ hasText: '3 calendar occurrences loaded.' }),
+      ).toBeVisible()
       await expect(panel.getByText('Engine planning', { exact: true })).toHaveCount(3)
       expect(await readFile(path, 'utf8')).toBe(source)
     } finally {

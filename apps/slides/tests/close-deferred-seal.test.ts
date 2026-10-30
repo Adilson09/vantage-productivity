@@ -1,0 +1,418 @@
+import { NativeCloseAdmission } from '../../../packages/electron-utils/src/native-close-admission'
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  SlidesToolSaveBroker,
+  runSlidesNativeClose,
+  type SlidesClosePrepareOptions,
+} from '../src/main/slides-tool-save'
+import { CloseCleanupQueue } from '../../../packages/electron-utils/src/close-cleanup'
+import type {
+  SlidesNativeCloseReceipt,
+  SlidesToolSaveRequest,
+} from '../src/shared/slides-tool-save'
+function deferred<Value>() {
+  let done!: (value: Value) => void
+  const promise = new Promise<Value>((resolve) => {
+    done = resolve
+  })
+  return { promise, done }
+}
+const fixtures: Array<{ broker: SlidesToolSaveBroker }> = []
+function fixture() {
+  const automatic = new NativeCloseAdmission<object>()
+  const source = {},
+    states = new Map(
+      [1, 2].map((owner) => [
+        owner,
+        {
+          source,
+          identity: 'renderer:' + owner,
+          token: '12345678-1234-4234-8234-123456789ab' + owner,
+          revision: 'main:1',
+          dirty: false,
+          busy: false,
+        },
+      ]),
+    ),
+    sent = new Map<number, SlidesToolSaveRequest>(),
+    producers = new Map<
+      number,
+      {
+        token: string
+        documentPath: null
+        ready: Promise<void>
+        attest: () => null
+        cancel: () => void
+        removed: () => void
+        cleanup: (signal: AbortSignal) => Promise<void>
+      }
+    >()
+  let sequence = 0,
+    valid = true,
+    sealing = false
+  const held: Array<{ owner: number; receipt: SlidesNativeCloseReceipt }> = []
+  const queue = new CloseCleanupQueue({
+    persist: () => {},
+    prepare: async () => false,
+    purge: async () => {},
+    warning: () => {},
+  })
+  const host = {
+    state: (owner: number) => states.get(owner) ?? null,
+    send: (owner: number, channel: string, value: unknown) => {
+      if (channel === 'slides:tool-save-request') sent.set(owner, value as SlidesToolSaveRequest)
+    },
+    write: vi.fn(async (_owner: number, _source: object, path: string) => ({ ok: true, path })),
+    stage: (owner: number) => {
+      const producer = producers.get(owner)!
+      return {
+        producer,
+        admission: queue.begin({
+          id: 'cleanup-' + ++sequence,
+          module: 'slides',
+          ownerKey: String(owner),
+          source: 'source',
+          generation: sequence,
+          token: producer.token,
+          documentPath: null,
+          custody: {},
+          ready: producer.ready,
+          run: producer.cleanup,
+        }),
+      }
+    },
+  }
+  const broker = new SlidesToolSaveBroker(host)
+  for (const owner of [1, 2])
+    producers.set(owner, {
+      token: states.get(owner)!.token,
+      documentPath: null,
+      ready: Promise.resolve(),
+      attest: () => null,
+      cancel: vi.fn(),
+      removed: vi.fn(),
+      cleanup: vi.fn(async () => {}),
+    })
+  const isCurrent = () =>
+    valid && (sealing || held.every((item) => broker.isPrepared(item.owner, item.receipt)))
+  const final = (owner: number) => {
+    const request = sent.get(owner)!,
+      state = states.get(owner)!
+    return {
+      requestId: request.requestId,
+      sourceToken: state.token,
+      published: false,
+      current: true,
+      clean: true,
+      revision: state.revision,
+      stamp: { source: state.identity, revision: '1' },
+      throughSequence: 0,
+    }
+  }
+  const prepare = async (
+    owner: number,
+    options: SlidesClosePrepareOptions = { deferSeal: true, isCurrent },
+  ) => {
+    const pending = broker.request(owner, '/deck.pptx', true, true, 'save', undefined, options)
+    await broker.finish(owner, final(owner))
+    const receipt = await pending
+    if (receipt.phase !== 'prepared' && receipt.phase !== 'ready')
+      throw new Error('No phased authority')
+    return receipt as SlidesNativeCloseReceipt
+  }
+  const nativeHost = (
+    owner: number,
+    prompt: () => Promise<number>,
+    query = async () => ({
+      id: 'query',
+      stamp: { source: states.get(owner)!.identity, revision: '1' },
+      dirty: true,
+      pending: false,
+    }),
+  ) => ({
+    holdAutomaticSaves: () => automatic.hold(owner, states.get(owner)!.source),
+    alive: () => states.has(owner),
+    source: () => states.get(owner)?.source,
+    revision: () => states.get(owner)!.revision,
+    dirty: () => states.get(owner)!.dirty,
+    autoSave: () => false,
+    query: vi.fn(query),
+    prompt: vi.fn(prompt),
+    prepare: vi.fn(
+      async (
+        _source: object,
+        _intent: unknown,
+        _stamp: unknown,
+        options: SlidesClosePrepareOptions,
+      ) => prepare(owner, options),
+    ),
+    cancel: vi.fn(async (receipt: SlidesNativeCloseReceipt) =>
+      broker.cancelRequest(owner, receipt.requestId),
+    ),
+    warning: vi.fn(),
+  })
+  const result = {
+    automatic,
+    broker,
+    queue,
+    host,
+    states,
+    producers,
+    sent,
+    held,
+    isCurrent,
+    prepare,
+    final,
+    nativeHost,
+    invalidate: () => {
+      valid = false
+    },
+    sealing: () => {
+      sealing = true
+    },
+  }
+  fixtures.push(result)
+  return result
+}
+beforeEach(() => vi.useFakeTimers())
+afterEach(() => {
+  for (const f of fixtures.splice(0)) {
+    f.broker.destroy(1)
+    f.broker.destroy(2)
+  }
+  vi.useRealTimers()
+})
+describe('actual Slides deferred seal and native query/prompt flow', () => {
+  it('holds the first approval beyond5s while a later native prompt waits, then seals all without an await', async () => {
+    const f = fixture(),
+      first = await f.prepare(1)
+    f.held.push({ owner: 1, receipt: first })
+    const gate = deferred<number>(),
+      entered = deferred<void>(),
+      host = f.nativeHost(2, () => {
+        entered.done()
+        return gate.promise
+      }),
+      later = runSlidesNativeClose(host, { deferSeal: true, isCurrent: f.isCurrent })
+    await entered.promise
+    await vi.advanceTimersByTimeAsync(6_000)
+    expect(f.broker.isPrepared(1, first)).toBe(true)
+    expect(host.prepare).not.toHaveBeenCalled()
+    gate.done(0)
+    const second = await later
+    expect(second?.phase).toBe('prepared')
+    f.held.push({ owner: 2, receipt: second! })
+    expect(f.isCurrent()).toBe(true)
+    f.sealing()
+    const ready1 = f.broker.seal(1, first)!,
+      ready2 = f.broker.seal(2, second!)!,
+      remove = vi.fn(() => true)
+    expect(
+      f.broker.completeReceipt(1, ready1, () => f.broker.completeReceipt(2, ready2, remove)),
+    ).toBe(true)
+    expect(remove).toHaveBeenCalledOnce()
+    await Promise.all([f.queue.outcome(ready1.cleanupId!), f.queue.outcome(ready2.cleanupId!)])
+  })
+  it('refuses missing/forged ready phase and cannot consume prepared authority', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(1),
+      remove = vi.fn(() => true)
+    expect(f.broker.completeReceipt(1, { ...prepared, phase: 'ready' }, remove)).toBe(false)
+    expect(remove).not.toHaveBeenCalled()
+    expect(f.broker.isPrepared(1, prepared)).toBe(true)
+  })
+  it('starts ready5s at seal once, while preserving the original preparing120s', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(1)
+    await vi.advanceTimersByTimeAsync(119_000)
+    expect(f.broker.isPrepared(1, prepared)).toBe(true)
+    const ready = f.broker.seal(1, prepared)!
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(f.broker.completeReceipt(1, ready, () => true)).toBe(true)
+    await f.queue.outcome(ready.cleanupId!)
+  })
+  it('earlier expiry prevents Save after a later prompt without dispatching a new writer', async () => {
+    const f = fixture(),
+      first = await f.prepare(1)
+    f.held.push({ owner: 1, receipt: first })
+    const gate = deferred<number>(),
+      entered = deferred<void>(),
+      host = f.nativeHost(2, () => {
+        entered.done()
+        return gate.promise
+      }),
+      later = runSlidesNativeClose(host, { deferSeal: true, isCurrent: f.isCurrent })
+    await entered.promise
+    await vi.advanceTimersByTimeAsync(120_000)
+    gate.done(0)
+    expect(await later).toBe(null)
+    expect(host.prepare).not.toHaveBeenCalled()
+    expect(f.host.write).not.toHaveBeenCalled()
+  })
+  it('abort during a delayed source query prevents opening a prompt or starting Save', async () => {
+    const f = fixture(),
+      abort = new AbortController(),
+      query = deferred<Awaited<ReturnType<ReturnType<typeof f.nativeHost>['query']>>>(),
+      host = f.nativeHost(
+        2,
+        async () => 0,
+        () => query.promise,
+      ),
+      later = runSlidesNativeClose(host, {
+        deferSeal: true,
+        signal: abort.signal,
+        isCurrent: f.isCurrent,
+      })
+    abort.abort()
+    query.done({
+      id: 'query',
+      stamp: { source: 'renderer:2', revision: '1' },
+      dirty: true,
+      pending: false,
+    })
+    expect(await later).toBe(null)
+    expect(host.prompt).not.toHaveBeenCalled()
+    expect(host.prepare).not.toHaveBeenCalled()
+  })
+  it('abort after either native Save/Discard choice forbids delivery', async () => {
+    for (const choice of [0, 1]) {
+      const f = fixture(),
+        abort = new AbortController(),
+        gate = deferred<number>(),
+        entered = deferred<void>(),
+        host = f.nativeHost(2, () => {
+          entered.done()
+          return gate.promise
+        }),
+        later = runSlidesNativeClose(host, {
+          deferSeal: true,
+          signal: abort.signal,
+          isCurrent: f.isCurrent,
+        })
+      await entered.promise
+      abort.abort()
+      gate.done(choice)
+      expect(await later).toBe(null)
+      expect(host.prepare).not.toHaveBeenCalled()
+    }
+  })
+  it('local prepared checks do not invoke the recursive Root group predicate', async () => {
+    const f = fixture(),
+      permit = vi.fn(() => true),
+      prepared = await f.prepare(1, { deferSeal: true, isCurrent: permit }),
+      calls = permit.mock.calls.length
+    expect(f.broker.isPrepared(1, prepared)).toBe(true)
+    expect(permit).toHaveBeenCalledTimes(calls)
+  })
+  it('source switch during native query cannot save or prompt for its replacement', async () => {
+    const f = fixture(),
+      gate = deferred<Awaited<ReturnType<ReturnType<typeof f.nativeHost>['query']>>>(),
+      host = f.nativeHost(
+        2,
+        async () => 0,
+        () => gate.promise,
+      ),
+      later = runSlidesNativeClose(host, { deferSeal: true, isCurrent: f.isCurrent })
+    f.states.get(2)!.source = {}
+    gate.done({
+      id: 'query',
+      stamp: { source: 'renderer:2', revision: '1' },
+      dirty: true,
+      pending: false,
+    })
+    expect(await later).toBe(null)
+    expect(host.prompt).not.toHaveBeenCalled()
+    expect(host.prepare).not.toHaveBeenCalled()
+  })
+  it('an abort cannot free an actual custody drain/finalizer writer', async () => {
+    const f = fixture(),
+      gate = deferred<void>(),
+      abort = new AbortController()
+    f.producers.get(1)!.ready = gate.promise
+    const pending = f.broker.request(1, '/deck.pptx', true, true, 'save', undefined, {
+        deferSeal: true,
+        signal: abort.signal,
+        isCurrent: f.isCurrent,
+      }),
+      refused = expect(pending).rejects.toThrow(),
+      finishing = f.broker.finish(1, f.final(1))
+    await Promise.resolve()
+    abort.abort()
+    await refused
+    await expect(f.broker.request(1, '/again.pptx', true, true)).rejects.toThrow('finishing')
+    gate.done()
+    await finishing
+    expect(f.producers.get(1)!.cleanup).not.toHaveBeenCalled()
+  })
+  it('default individual close is ready and a second seal cannot renew it', async () => {
+    const f = fixture(),
+      ready = await f.prepare(1, { isCurrent: f.isCurrent })
+    expect(ready.phase).toBe('ready')
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(f.broker.seal(1, ready)).toBe(null)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(f.broker.completeReceipt(1, ready, () => true)).toBe(false)
+  })
+  it('an old signal cannot release a newly prepared request', async () => {
+    const f = fixture(),
+      abort = new AbortController(),
+      old = await f.prepare(1, { deferSeal: true, signal: abort.signal, isCurrent: f.isCurrent })
+    f.broker.cancelRequest(1, old.requestId)
+    const fresh = await f.prepare(1)
+    abort.abort()
+    expect(f.broker.isPrepared(1, fresh)).toBe(true)
+    expect(f.broker.seal(1, fresh)?.phase).toBe('ready')
+  })
+  it('main source/revision change invalidates a prepared receipt before seal', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(1)
+    f.states.get(1)!.revision = 'peer:2'
+    expect(f.broker.isPrepared(1, prepared)).toBe(false)
+    expect(f.broker.seal(1, prepared)).toBe(null)
+  })
+})
+
+describe('Slides native prompt automatic publication admission', () => {
+  it('blocks the actual blur/timer automatic marker before renderer prepare, while manual Save invalidates the pending choice', async () => {
+    const f = fixture(),
+      prompt = deferred<number>(),
+      entered = deferred<void>()
+    const host = f.nativeHost(2, () => {
+        entered.done()
+        return prompt.promise
+      }),
+      pending = runSlidesNativeClose(host, { deferSeal: true })
+    await entered.promise
+    expect(f.automatic.write(f.states.get(2)!.source, true)).toBeNull()
+    expect(host.prepare).not.toHaveBeenCalled()
+    const manual = f.automatic.write(f.states.get(2)!.source, false)!
+    expect(manual).toBeTypeOf('function')
+    prompt.done(0)
+    expect(await pending).toBeNull()
+    expect(host.prepare).not.toHaveBeenCalled()
+    expect(f.automatic.hold(2, f.states.get(2)!.source)).toBeNull()
+    manual()
+    const retry = f.automatic.write(f.states.get(2)!.source, true)
+    expect(retry).toBeTypeOf('function')
+    retry?.()
+  })
+  it('resumes automatic publication after a real Cancel choice without retaining a renderer auto-expiry timer', async () => {
+    const f = fixture(),
+      prompt = deferred<number>(),
+      entered = deferred<void>()
+    const host = f.nativeHost(2, () => {
+        entered.done()
+        return prompt.promise
+      }),
+      pending = runSlidesNativeClose(host, { deferSeal: true })
+    await entered.promise
+    expect(f.automatic.write(f.states.get(2)!.source, true)).toBeNull()
+    prompt.done(2)
+    expect(await pending).toBeNull()
+    const retry = f.automatic.write(f.states.get(2)!.source, true)
+    expect(retry).toBeTypeOf('function')
+    retry?.()
+    expect(host.prepare).not.toHaveBeenCalled()
+  })
+})

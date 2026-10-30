@@ -1,6 +1,9 @@
 import type { zh } from './zh'
 
 export const tr = {
+  recoveryFailed: 'Kurtarma kopyası güncellenemedi: {error}. Önceki kopya korundu.',
+  recoveryRetry: 'Yeniden dene',
+  recoveryRemote: 'Bu kopya hâlâ İnternet gerektirebilen {count} uzak kaynağa bağlı.',
   redactMenuLabel: "Seçimi AI'dan gizle",
   redactDialogDesc:
     'Sözcükler belgede ve dosyada kalır; model bunun yerine aşağıdaki yer tutucuyu görür. Modelin neyi temsil ettiğini bilmesi için bir ad verin.',

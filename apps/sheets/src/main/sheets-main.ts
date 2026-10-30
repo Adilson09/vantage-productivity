@@ -1,4 +1,87 @@
+import {
+  configureRecoveryProfile,
+  initializeStandaloneRecovery,
+  recoveryRuntimeState,
+} from '../../../../packages/electron-utils/src/recovery-bootstrap'
+import {
+  initializeStandaloneSheetsCloseRuntime,
+  type StandaloneSheetsCloseRuntime,
+} from './standalone-close-runtime'
+import { settleHeadlessSheetsCleanup } from './headless-sheets-cleanup'
+import { HeadlessSheetsOwnerWork } from './headless-sheets-owner-work'
+import { runInteractiveSheetsPrint } from './interactive-sheets-print'
+import {
+  captureSelectedSheetsOutput,
+  captureFreshSheetsOutput,
+  publishCapturedSheetsOutput,
+} from './sheets-selected-output'
+import { publishNewUserOutput } from '@vantage/electron-utils/user-output-publication'
 import { createHash, randomUUID } from 'node:crypto'
+import { AsyncResource } from 'node:async_hooks'
+import { assertWorkbookTargetUnchanged } from './workbook-source-expectation'
+import { atomicCopyFile, withAtomicSaveQueue } from '@vantage/electron-utils/atomic-write'
+import {
+  reserveFileMutation,
+  withAttestedFilePublication,
+  withFilePublication,
+  type FilePublicationScope,
+} from '@vantage/electron-utils/file-publication-exclusion'
+import {
+  WorkbookPublicationLifecycle,
+  type WorkbookPublicationDecision,
+} from './workbook-publication-lifecycle'
+import { SheetsRenameRefreshTransport } from './sheets-rename-refresh'
+import { moveWorkbookExclusively } from './workbook-exclusive-move'
+import { WorkbookDocumentRecovery, canonicalDocumentPayload } from './workbook-document-recovery'
+import { createSettledDocumentNativeClient } from './settled-document-native-client'
+import type { CapturedNativeCloseAuthority } from './workbook-document-recovery'
+import {
+  SheetsCloseCoordinator,
+  type SheetsCleanupAdmission,
+  type SheetsClosePrepareOptions,
+  type SheetsClosePromptHandle,
+} from './sheets-close-coordinator'
+import { SheetsCloseTransport, isSheetsCloseSource } from './sheets-close-transport'
+import {
+  SheetsPromptWriteGate,
+  parseWorkbookWriteContext,
+  type SheetsWorkbookWriteAdmission,
+} from './sheets-prompt-write-gate'
+import {
+  captureReaderDisplay,
+  rebindRecoveredReader,
+  recoveredReaderFile,
+  recoveredReaderSource,
+  sessionAfterPasswordPublication,
+  type ReaderDisplay,
+} from './reader-recovery'
+import {
+  SheetsSourceLineages,
+  type SheetsSourceOpen,
+  type SheetsSourceAdoption,
+} from './sheets-source-lineage'
+import {
+  isCloseLeaseStamp,
+  isCloseLeaseTicket,
+  type CloseLeaseStamp,
+  type CloseLeaseTicket,
+} from '../../../../packages/electron-utils/src/close-lease'
+import {
+  sameSheetsCloseSource,
+  type SheetsCloseReceipt,
+  type SheetsCloseSource,
+  type SheetsCloseState,
+} from '../shared/sheets-close'
+import type {
+  WorkbookCloseCheckpointBinding,
+  WorkbookPublicationAdoption,
+  WorkbookWriteContext,
+  WorkbookRenamedMetadata,
+} from '../shared/desktop-api'
+import { allocateSessionSnapshotDirectory } from './session-snapshot-directory'
+import { documentPayloadFromSave, validateDocumentPayload } from '../shared/document-checkpoint'
+import { writeDocumentSavePipeline } from './document-save-pipeline'
+import { writeWorkbookDocumentPackage, type DocumentWriteSession } from './workbook-document-writer'
 import {
   createReadStream,
   existsSync,
@@ -15,7 +98,7 @@ import {
   mkdtemp,
   open,
   readFile,
-  readdir,
+  rmdir,
   rm,
   stat,
   writeFile,
@@ -122,13 +205,11 @@ import {
   localMediaRoots,
 } from '@vantage/ai-search'
 import { parseFileToText } from '@vantage/file-parse'
-import type { CellEdit, SheetStructuralOps } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 import {
   readArchiveEntryText,
   saveWorkbookViaSidecar,
 } from '@vantage/xlsx-gateway/gateway/xlsx-package-io'
 import { parsePivotDefinition } from '@vantage/xlsx-gateway/gateway/xlsx-pivot'
-import type { SheetEditPlan } from '@vantage/xlsx-gateway/gateway/xlsx-sheets'
 import { readWorkbookRedactionPart } from './workbook-redactions'
 import type {
   AttachmentAddResult,
@@ -179,7 +260,7 @@ import { IPC_CHANNELS } from '../shared/ipc-channels'
 // Vantage Productivity modification: native workbook saves and CSV write-back participate in safe recovery.
 import { atomicWriteFile } from './atomic-write'
 import { withNativeSaveRecovery } from './save-recovery'
-import { closeGuardDecision, ShutdownLatch } from './close-guard'
+import { ShutdownLatch } from './close-guard'
 import { SaveEditsTransferStore } from './save-edits-transfer'
 import { exportPdf, printWorkbook } from './pdf-export'
 import { allowsAutomaticWorkbookRecovery } from './recovery-policy'
@@ -192,10 +273,20 @@ import {
   cleanupImportTempDirectory,
   cleanupSessionResources,
 } from './temp-files'
-import { XlsxSidecarClient } from './xlsx-sidecar-client'
+import {
+  XlsxSidecarClient,
+  subscribeNativeActualWork,
+  joinNativeActualWork,
+} from './xlsx-sidecar-client'
 import { editWorkbookId } from './xlsx-edit-session'
 import { editRecalcResultSchema, type EditSessionOpen } from './xlsx-edit-contract'
-import { sessionAfterRename } from './session-rename'
+import {
+  knownRelocationDigest,
+  matchesWorkbookRelocation,
+  sameWorkbookPath,
+  sessionAfterVerifiedRelocation,
+  verifyRelocatedWorkbook,
+} from './workbook-relocation'
 
 /**
  * Sheets main-process logic as an embeddable module: no top-level lifecycle.
@@ -1743,6 +1834,15 @@ interface SessionInfo {
   readonly password?: string
   /// Digest of the snapshot (== the file at open time).
   readonly sha256: string
+  /** Hash of the imported/decrypted pinned bytes; distinct from encrypted original bytes. */
+  readonly nativeSourceFingerprint: string
+  readonly readerDisplay?: ReaderDisplay
+  /** A physical move was reported but has not yet passed its known-byte proof. */
+  readonly relocationPending?: boolean
+  /** Trusted known original fingerprint for a newly detached relocation epoch. */
+  readonly recoveryOriginalFingerprint?: string | null
+  /// Known bytes published by this session, separate from its immutable base.
+  readonly publishedVersions?: ReadonlyMap<string, string>
   readonly sheetNames: ReadonlyMap<string, string>
   readonly automaticRecoveryDisabled: boolean
   /// Set when the session opened a converted copy (.xls import): the
@@ -1752,6 +1852,8 @@ interface SessionInfo {
   /// import the first Save is a Save As, but AutoSave and the recovery copy
   /// keep running (keyed on suggestSaveAs), and a quiet save writes in place.
   readonly unsavedNew?: boolean
+  /// The backing bytes contain work that still needs a user-visible save.
+  readonly pendingBase?: boolean
   /// The converted copy came from a CSV: the Save As dialog explains that
   /// formatting requires .xlsx (CSV keeps values only).
   readonly csvImport?: boolean
@@ -1762,6 +1864,9 @@ interface SessionInfo {
   /// Digest of the original .csv at open/save time — guards the write-back
   /// against external modification, like restoreTargetSha.
   readonly csvSourceSha?: string
+  /// Original imported file identity is separate from the Save As suggestion.
+  readonly recoverySourcePath?: string
+  readonly recoverySourceSha?: string
   /// App-owned directory containing the converted CSV/XLS copy. Removed only
   /// after the sidecar session and its independent snapshot are closed.
   readonly importTempDir?: string
@@ -1778,6 +1883,31 @@ interface SessionInfo {
   /// recovery copy, this session still needs its own crash-recovery copy,
   /// keyed by the original.
   readonly emptySource?: boolean
+}
+
+function expectedWorkbookDigest(
+  session: SessionInfo,
+  path: string,
+  openingDigest: string | undefined,
+): string | undefined {
+  return session.publishedVersions?.get(path) ?? openingDigest
+}
+
+function rememberWorkbookPublication(
+  sessions: Map<string, SessionInfo>,
+  sessionId: string,
+  path: string,
+  digest: string,
+): void {
+  const session = sessions.get(sessionId)
+  if (session)
+    sessions.set(sessionId, {
+      ...session,
+      publishedVersions: new Map<string, string>([
+        ...(session.publishedVersions ?? []),
+        [path, digest],
+      ]),
+    })
 }
 
 // ---- runtime configuration (paths differ when bundled into the shell) ----
@@ -1870,13 +2000,13 @@ async function createStandaloneSheetsDocument(
           new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } }),
       )
       const path = uniquePathIn(configuredDefaultSaveDir(app), `${title}.pdf`)
-      await writeFile(path, bytes)
-      openGeneratedFile(path)
+      await publishNewUserOutput(path, bytes, () => openGeneratedFile(path))
       return { ok: true, path }
     }
     const path = uniquePathIn(configuredDefaultSaveDir(app), `${title}.${request.type}`)
-    await writeFile(path, request.content, 'utf8')
-    openGeneratedFile(path)
+    await publishNewUserOutput(path, Buffer.from(request.content, 'utf8'), () =>
+      openGeneratedFile(path),
+    )
     return { ok: true, path }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -1929,6 +2059,764 @@ const sheetsTabs = new Map<number, SheetsTabSession>()
 // a stable identity across sidecar restarts, isolated from other tabs and from
 // later app launches until the recovery UI adopts the authority's saved edits.
 const editAuthorityNamespace = randomUUID()
+let documentRecoveryService: WorkbookDocumentRecovery | undefined
+let documentRecoveryClient: XlsxSidecarClient | undefined
+const documentCandidates = new Map<string, string>()
+const adoptedDocumentCandidates = new Map<string, string>()
+const materializedRecoveryDirectories = new Map<string, string>()
+const materializedRecoveryNames = new Map<string, string>()
+const adoptingDocumentCandidates = new Set<string>()
+const documentPublicationGates = new Map<string, Promise<void>>()
+export interface SheetsCloseRuntime {
+  stagePersistent(
+    owner: WebContents,
+    lineage: string,
+    authority: CapturedNativeCloseAuthority,
+  ): SheetsCleanupAdmission
+  stageMemory(
+    owner: WebContents,
+    lineage: string,
+    authority: CapturedNativeCloseAuthority,
+  ): SheetsCleanupAdmission
+  holdNativeUntilSettled(owner: WebContents, actual: Promise<void>): void
+  /** Root enables only after its authored-writer coverage audit is complete. */
+  coverageComplete(owner: WebContents): boolean
+}
+let sheetsCloseRuntime: SheetsCloseRuntime | undefined
+let standaloneCloseControl: StandaloneSheetsCloseRuntime | null = null
+export function setSheetsCloseRuntime(runtime: SheetsCloseRuntime): void {
+  sheetsCloseRuntime = runtime
+}
+const reportedCloseStates = new Map<number, { state: SheetsCloseState; coverage: boolean }>()
+const closeCapturedAuthorities = new Map<number, CapturedNativeCloseAuthority>()
+const closeCaptureTickets = new Map<number, CloseLeaseTicket>()
+const closeResultStamps = new Map<number, { ticket: CloseLeaseTicket; stamp: CloseLeaseStamp }>()
+const nativeClosePrompts = new Map<
+  number,
+  { ticket: CloseLeaseTicket; controller: AbortController }
+>()
+const actualCloseReservations = new Map<WebContents, Set<Promise<void>>>()
+type NativeAck = {
+  documentId: string
+  revision: number
+  sourceFingerprint: string
+  payloadSha256: string
+  dirty: boolean
+  binding?: WorkbookCloseCheckpointBinding
+}
+const nativeDocumentAcks = new Map<string, NativeAck>()
+interface SourceOffer {
+  id: string
+  owner: WebContents
+  source: SheetsCloseSource
+  previous: SheetsCloseSource | null
+  open?: SheetsSourceOpen
+  publication?: SheetsSourceAdoption
+  afterAdopt?: () => Promise<void>
+  onAdopted?: () => void
+  publicationDecision?: WorkbookPublicationDecision
+  afterPublicationSettled?: () => void
+}
+const sourceOffers = new Map<string, SourceOffer>()
+const activeWorkbookRenames = new Map<WebContents, Promise<void>>()
+const ownerCleanupByContents = new WeakMap<WebContents, Promise<void>>()
+const headlessOwnerWork = new WeakMap<WebContents, HeadlessSheetsOwnerWork>()
+/** Actual destroyed-owner finalizer; absence is not proof of completion. */
+export function sheetsOwnerCleanup(owner: WebContents): Promise<void> | undefined {
+  return ownerCleanupByContents.get(owner)
+}
+const mainPublicationLifecycles = new Map<WebContents, Set<WorkbookPublicationLifecycle>>()
+
+function runMainWorkbookPublication<T>(
+  owner: WebContents,
+  scope: FilePublicationScope,
+  actual: (lifecycle: WorkbookPublicationLifecycle) => Promise<T>,
+  otherTargets: readonly string[] = [],
+): Promise<T> {
+  if (!sheetsCloseRuntime)
+    return Promise.reject(
+      new Error('Main workbook publication requires its actual-settlement quit ledger.'),
+    )
+  const lifecycle = new WorkbookPublicationLifecycle()
+  const pending = mainPublicationLifecycles.get(owner) ?? new Set<WorkbookPublicationLifecycle>()
+  mainPublicationLifecycles.set(owner, pending)
+  pending.add(lifecycle)
+  void lifecycle.actualSettled.then(() => {
+    pending.delete(lifecycle)
+    if (!pending.size && mainPublicationLifecycles.get(owner) === pending)
+      mainPublicationLifecycles.delete(owner)
+  })
+  try {
+    sheetsCloseRuntime.holdNativeUntilSettled(owner, lifecycle.actualSettled)
+    const targets = [...new Set([scope.targetPath, ...otherTargets])]
+    const admit = (index: number): Promise<T> =>
+      withAttestedFilePublication({ ...scope, targetPath: targets[index]! }, () => {
+        let result: Promise<T>
+        try {
+          result =
+            index + 1 < targets.length ? admit(index + 1) : lifecycle.run(() => actual(lifecycle))
+        } catch (error) {
+          lifecycle.abandonBeforeStart()
+          result = Promise.reject(error)
+        }
+        return { result, actualSettled: lifecycle.actualSettled }
+      })
+    return admit(0)
+  } catch (error) {
+    lifecycle.abandonBeforeStart()
+    return Promise.reject(error)
+  }
+}
+const sourceOpenAdmissions = new Map<number, SheetsSourceOpen>()
+let sheetsCloseCoordinator: SheetsCloseCoordinator<WebContents>
+const sheetsSources = new SheetsSourceLineages<WebContents>((owner, reason) =>
+  sheetsCloseCoordinator?.invalidateSource(owner, reason),
+)
+function ownerPublicationTail(owner: WebContents): Promise<void> {
+  const tails = [...documentPublicationGates]
+    .filter(([key]) => key.startsWith(`${owner.id}:`))
+    .map(([, tail]) => tail)
+  return Promise.all(tails).then(() => undefined)
+}
+async function completeNativeCommand(
+  client: XlsxSidecarClient,
+  command: Readonly<Record<string, unknown>>,
+  timeoutMs?: number,
+): Promise<unknown> {
+  const native = client.requestAttested(command, timeoutMs)
+  void native.result.catch(() => undefined)
+  return native.completion
+}
+const sheetsCloseTransport = new SheetsCloseTransport<WebContents>({
+  send: (owner, request) => owner.send(IPC_CHANNELS.workbookPrepareClose, request),
+  alive: (owner) => !owner.isDestroyed(),
+  publicationTail: ownerPublicationTail,
+  report: (error) => console.warn('[sheets] Close transport:', error),
+})
+const sheetsRenameRefresh = new SheetsRenameRefreshTransport<WebContents>({
+  send: (owner, name, metadata) => owner.send(IPC_CHANNELS.workbookRenamed, name, metadata),
+  publicationTail: ownerPublicationTail,
+  validate: (owner, metadata, result) => {
+    const source = sheetsSources.current(owner),
+      entry = sheetsTabs.get(owner.id),
+      session = entry?.sessions.get(metadata.sessionId)
+    const ack = nativeDocumentAcks.get(documentOwnerKey(owner.id, metadata.sessionId))
+    return (
+      !owner.isDestroyed() &&
+      !!session &&
+      !!source &&
+      sameSheetsCloseSource(source, metadata.closeSource) &&
+      result.sessionId === metadata.sessionId &&
+      isSheetsCloseSource(result.source) &&
+      sameSheetsCloseSource(result.source, source) &&
+      !!ack &&
+      ack.documentId === result.documentId &&
+      ack.revision === result.revision &&
+      ack.payloadSha256 === result.payloadSha256 &&
+      ack.sourceFingerprint === session.nativeSourceFingerprint &&
+      documentRecoveryService?.isCurrentProducer(owner.id, metadata.sessionId, ack.documentId) ===
+        true
+    )
+  },
+})
+function priorNativeActualWork(): Promise<void> {
+  const pending: Promise<void>[] = []
+  const unsubscribe = subscribeNativeActualWork((actual) => {
+    pending.push(actual)
+  })
+  unsubscribe()
+  return Promise.all(pending).then(() => undefined)
+}
+const sheetsPromptWriteGate = new SheetsPromptWriteGate<WebContents>({
+  alive: (owner) => !owner.isDestroyed() && sheetsTabs.get(owner.id)?.webContents === owner,
+  currentClose: (owner) => sheetsCloseTransport.current(owner)?.ticket,
+  acceptsClose: (owner, ticket) => sheetsCloseTransport.accepts(owner, ticket),
+  assertTransportWriter: (owner, ticket) => sheetsCloseTransport.assertWriter(owner, ticket),
+  cancelExactClose: (owner, ticket, reason) => sheetsCloseCoordinator.cancel(owner, ticket, reason),
+  actualSettled: (owner) => {
+    // Capture before the new operation adds a publication gate. Neither an
+    // aborted native dialog nor a rejected result substitutes for actual I/O.
+    const publications = ownerPublicationTail(owner)
+    return Promise.all([publications, ...(actualCloseReservations.get(owner) ?? [])]).then(
+      () => undefined,
+    )
+  },
+})
+sheetsCloseCoordinator = new SheetsCloseCoordinator<WebContents>({
+  alive: (owner) => !owner.isDestroyed() && sheetsTabs.get(owner.id)?.webContents === owner,
+  current: (owner) => sheetsSources.current(owner),
+  sourceBusy: (owner) =>
+    activeWorkbookRenames.has(owner) ||
+    sheetsSources.busy(owner) ||
+    [...sourceOffers.values()].some((offer) => offer.owner === owner) ||
+    [...documentPublicationGates.keys()].some((key) => key.startsWith(`${owner.id}:`)),
+  coverageComplete: (owner) => {
+    const report = reportedCloseStates.get(owner.id),
+      source = sheetsSources.current(owner)
+    const final = closeResultStamps.get(owner.id)
+    return (
+      !!source &&
+      !!report &&
+      report.coverage &&
+      !report.state.busy &&
+      sameSheetsCloseSource(source, report.state.source) &&
+      (!final ||
+        (report.state.stamp.source === final.stamp.source &&
+          report.state.stamp.revision === final.stamp.revision)) &&
+      sheetsCloseRuntime?.coverageComplete(owner) === true
+    )
+  },
+  prepareRenderer: (owner, request) => sheetsCloseTransport.prepare(owner, request),
+  releaseRenderer: (owner, ticket, reason) => {
+    sheetsPromptWriteGate.releasePrompt(owner, ticket)
+    const prompt = nativeClosePrompts.get(owner.id)
+    if (prompt && sameCloseTicket(prompt.ticket, ticket)) {
+      nativeClosePrompts.delete(owner.id)
+      prompt.controller.abort(new Error(reason))
+    }
+    sheetsCloseTransport.release(owner, ticket, reason)
+    if (
+      closeCaptureTickets.get(owner.id) &&
+      sameCloseTicket(closeCaptureTickets.get(owner.id)!, ticket)
+    ) {
+      closeCapturedAuthorities.delete(owner.id)
+      closeCaptureTickets.delete(owner.id)
+    }
+    if (
+      closeResultStamps.get(owner.id) &&
+      sameCloseTicket(closeResultStamps.get(owner.id)!.ticket, ticket)
+    )
+      closeResultStamps.delete(owner.id)
+    if (!owner.isDestroyed()) owner.send(IPC_CHANNELS.workbookCloseRelease, ticket, reason)
+  },
+  capture: (owner, sessionId) => {
+    const authority = documentRecovery().captureNativeCloseAuthority(owner.id, sessionId)
+    if (authority) {
+      closeCapturedAuthorities.set(owner.id, authority)
+      const request = sheetsCloseTransport.current(owner)
+      if (request) closeCaptureTickets.set(owner.id, request.ticket)
+    }
+    return authority
+  },
+  verifyCapturedRevision: (owner, result, authority) => {
+    const envelope = result.closeLease,
+      proof = authority.attest()
+    if (!envelope || !proof) return false
+    const ack = nativeDocumentAcks.get(documentOwnerKey(owner.id, envelope.source.sessionId))
+    const binding = ack?.binding
+    return (
+      !!ack &&
+      !!binding &&
+      ack.documentId === authority.id &&
+      ack.revision === proof.revision &&
+      ack.sourceFingerprint === proof.sourceFingerprint &&
+      ack.payloadSha256 === proof.payloadSha256 &&
+      binding.requestId === envelope.ticket.id &&
+      sameCloseTicket(binding.ticket, envelope.ticket) &&
+      binding.stamp.source === envelope.stamp.source &&
+      binding.stamp.revision === envelope.stamp.revision &&
+      sameSheetsCloseSource(binding.source, envelope.source) &&
+      binding.payloadSha256 === envelope.payloadSha256
+    )
+  },
+  stagePersistent: (owner, lineage, authority) => {
+    if (!sheetsCloseRuntime) throw new Error('Native close custody is not registered.')
+    return sheetsCloseRuntime.stagePersistent(owner, lineage, authority)
+  },
+  stageMemory: (owner, lineage, authority) => {
+    if (!sheetsCloseRuntime) throw new Error('Protected close custody is not registered.')
+    return sheetsCloseRuntime.stageMemory(owner, lineage, authority)
+  },
+  holdNativeUntilSettled: (owner, actual) => {
+    const reservations = actualCloseReservations.get(owner) ?? new Set<Promise<void>>()
+    actualCloseReservations.set(owner, reservations)
+    reservations.add(actual)
+    const settled = () => {
+      reservations.delete(actual)
+      if (!reservations.size && actualCloseReservations.get(owner) === reservations)
+        actualCloseReservations.delete(owner)
+    }
+    void actual.then(settled, settled)
+    if (!sheetsCloseRuntime) throw new Error('The native close quit ledger is not registered.')
+    sheetsCloseRuntime.holdNativeUntilSettled(owner, actual)
+  },
+  report: (error) => console.warn('[sheets] Close preparation:', error),
+})
+function sameCloseTicket(a: CloseLeaseTicket, b: CloseLeaseTicket): boolean {
+  return a.id === b.id && a.sequence === b.sequence && a.source === b.source
+}
+function offeredSource(owner: WebContents, sessionId: string): SheetsCloseSource | null {
+  const current = sheetsSources.current(owner)
+  if (current?.sessionId === sessionId) return current
+  return (
+    [...sourceOffers.values()].find(
+      (offer) => offer.owner === owner && offer.source.sessionId === sessionId,
+    )?.source ?? null
+  )
+}
+function canAdoptSourceOffer(owner: WebContents, offer: SourceOffer): boolean {
+  if (
+    offer.owner !== owner ||
+    owner.isDestroyed() ||
+    !sheetsTabs.get(owner.id)?.sessions.has(offer.source.sessionId)
+  )
+    return false
+  if (offer.open) return sourceOpenAdmissions.get(owner.id) === offer.open
+  const current = sheetsSources.current(owner)
+  return (
+    !!current &&
+    !!offer.previous &&
+    !sheetsSources.busy(owner) &&
+    sameSheetsCloseSource(current, offer.previous)
+  )
+}
+function beginSourceOpen(owner: WebContents): SheetsSourceOpen {
+  const open = sheetsSources.beginOpen(owner)
+  sourceOpenAdmissions.set(owner.id, open)
+  return open
+}
+function offerOpenedSource(
+  owner: WebContents,
+  open: SheetsSourceOpen,
+  file: WorkbookFile,
+  onAdopted?: () => void,
+): WorkbookFile {
+  const source: SheetsCloseSource = {
+    lineage: open.lineage,
+    sessionId: file.sessionId,
+    openedSha256: file.sha256,
+    documentPath: sourceDocumentPath(owner, file),
+  }
+  const id = randomUUID()
+  sourceOffers.set(id, {
+    id,
+    owner,
+    source,
+    previous: sheetsSources.current(owner),
+    open,
+    ...(onAdopted ? { onAdopted } : {}),
+  })
+  return { ...file, closeSource: source, ownedOpen: { id, source } }
+}
+function offerSavedSource(
+  owner: WebContents,
+  previous: SheetsCloseSource,
+  file: WorkbookFile,
+  afterAdopt: () => Promise<void>,
+  lifecycle: WorkbookPublicationLifecycle,
+  afterPublicationSettled?: () => void,
+) {
+  const publication = sheetsSources.offerOwnedPublication(owner, previous, {
+    sessionId: file.sessionId,
+    openedSha256: file.sha256,
+    documentPath: sourceDocumentPath(owner, file),
+  })
+  const id = randomUUID(),
+    source = { ...publication.next }
+  sourceOffers.set(id, {
+    id,
+    owner,
+    source,
+    previous,
+    publication,
+    // Adoption arrives in a later IPC. Keep the original admitted W2 context
+    // for true finalizers, rather than borrowing a new publisher during a move.
+    afterAdopt: AsyncResource.bind(afterAdopt),
+    publicationDecision: lifecycle.retainOffer(),
+    ...(afterPublicationSettled
+      ? {
+          afterPublicationSettled: () => {
+            void lifecycle.actualSettled
+              .then(() => {
+                const current = sheetsSources.current(owner)
+                if (
+                  !owner.isDestroyed() &&
+                  current &&
+                  sameSheetsCloseSource(current, source) &&
+                  !sheetsSources.busy(owner) &&
+                  ![...sourceOffers.values()].some((offer) => offer.owner === owner)
+                )
+                  afterPublicationSettled()
+              })
+              .catch((error) =>
+                console.warn('[sheets] Settled publication host handoff failed:', error),
+              )
+          },
+        }
+      : {}),
+  })
+  return { id, source }
+}
+function sourceDocumentPath(owner: WebContents, file: WorkbookFile): string | null {
+  const session = sheetsTabs.get(owner.id)?.sessions.get(file.sessionId)
+  if (session?.unsavedNew) return null
+  return (
+    session?.restoreTarget ??
+    session?.recoverySourcePath ??
+    session?.csvSourcePath ??
+    file.path ??
+    null
+  )
+}
+async function releaseWorkbookReader(
+  owner: WebContents,
+  sessionId: string,
+  retire: boolean,
+  preserveImportDir?: string,
+): Promise<void> {
+  const entry = sheetsTabs.get(owner.id),
+    session = entry?.sessions.get(sessionId)
+  if (!entry || !session) return
+  if (retire) await retireDocumentSession(owner.id, sessionId, session)
+  else await documentRecoveryService?.releaseDocument(owner.id, sessionId)
+  nativeDocumentAcks.delete(documentOwnerKey(owner.id, sessionId))
+  await cleanupSessionResources({
+    tempRoot: app.getPath('temp'),
+    snapshotPath: session.snapshotPath,
+    importTempDir: session.importTempDir === preserveImportDir ? undefined : session.importTempDir,
+    closeSidecar: () => entry.client.closeSettled(sessionId),
+  })
+  await releasePreparedDocumentRecovery(session.path)
+  if (entry.sessions.get(sessionId) === session) entry.sessions.delete(sessionId)
+  entry.saveTransfers.discardSession(sessionId)
+}
+export function sheetsCloseState(contents: WebContents): SheetsCloseState | null {
+  const report = reportedCloseStates.get(contents.id),
+    current = sheetsSources.current(contents)
+  return report && current && sameSheetsCloseSource(report.state.source, current)
+    ? structuredClone(report.state)
+    : null
+}
+export function prepareSheetsClose(
+  contents: WebContents,
+  intent: 'save' | 'discard',
+  approvedStamp?: CloseLeaseStamp,
+  target?: { path?: string; overwrite?: boolean },
+  options: SheetsClosePrepareOptions = {},
+): Promise<SheetsCloseReceipt> {
+  return sheetsCloseCoordinator.prepare(contents, intent, approvedStamp, target, options)
+}
+export function isSheetsClosePrepared(contents: WebContents, receipt: SheetsCloseReceipt): boolean {
+  return sheetsCloseCoordinator.isPrepared(contents, receipt)
+}
+export function sealSheetsClose(
+  contents: WebContents,
+  receipt: SheetsCloseReceipt,
+): SheetsCloseReceipt | null {
+  return sheetsCloseCoordinator.seal(contents, receipt)
+}
+export function completeSheetsClose(
+  contents: WebContents,
+  receipt: SheetsCloseReceipt,
+  remove: () => boolean,
+): boolean {
+  return sheetsCloseCoordinator.complete(contents, receipt, remove)
+}
+export function cancelSheetsClose(
+  contents: WebContents,
+  receipt: SheetsCloseReceipt,
+  reason = 'close canceled',
+): void {
+  sheetsCloseCoordinator.cancel(contents, receipt.closeLease.ticket, reason)
+}
+const documentSnapshotResponseSchema = z
+  .object({
+    apiVersion: z.literal(1),
+    documentId: z.string().uuid(),
+    revision: z.number().int().nonnegative().safe(),
+    payload: z.unknown(),
+  })
+  .passthrough()
+
+function documentRecovery(): WorkbookDocumentRecovery {
+  if (!documentRecoveryService) {
+    documentRecoveryClient = new XlsxSidecarClient(resolveSidecarPath())
+    documentRecoveryService = new WorkbookDocumentRecovery({
+      privateRoot: join(app.getPath('userData'), 'sheets-document-recovery'),
+      nativeClient: createSettledDocumentNativeClient(documentRecoveryClient),
+      ...(recoveryRuntimeState().phase === 'disabled' ? { storage: 'volatile' as const } : {}),
+    })
+  }
+  return documentRecoveryService
+}
+
+function documentOwnerKey(ownerId: number, sessionId: string): string {
+  return `${ownerId}:${sessionId}`
+}
+
+function runDocumentPublication<T>(
+  ownerId: number,
+  sessionId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const key = documentOwnerKey(ownerId, sessionId)
+  const previous = documentPublicationGates.get(key) ?? Promise.resolve()
+  const pending = previous.then(task)
+  const settled = pending.then(
+    () => undefined,
+    () => undefined,
+  )
+  documentPublicationGates.set(key, settled)
+  void settled.then(() => {
+    if (documentPublicationGates.get(key) === settled) documentPublicationGates.delete(key)
+  })
+  return pending
+}
+
+async function checkpointDocumentForSession(
+  ownerId: number,
+  sessionId: string,
+  session: SessionInfo,
+  request: WorkbookSaveRequest,
+  context: {
+    dirty?: boolean
+    binding?: WorkbookCloseCheckpointBinding
+    closeTicket?: CloseLeaseTicket | undefined
+    writeAdmission: SheetsWorkbookWriteAdmission
+  },
+) {
+  if (sheetsTabs.get(ownerId)?.sessions.get(sessionId) !== session)
+    throw new Error('Unknown workbook session.')
+  const originalPath =
+    session.restoreTarget ??
+    session.recoverySourcePath ??
+    session.csvSourcePath ??
+    session.suggestSaveAs ??
+    session.path
+  const digest =
+    session.restoreTarget !== undefined
+      ? session.restoreTargetSha
+      : session.recoverySourcePath !== undefined
+        ? session.recoverySourceSha
+        : session.csvSourcePath !== undefined
+          ? session.csvSourceSha
+          : session.suggestSaveAs !== undefined
+            ? undefined
+            : session.sha256
+  const owner = sheetsTabs.get(ownerId)!.webContents
+  const payload = canonicalDocumentPayload(documentPayloadFromSave(request))
+  const payloadSha256 = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
+  sheetsPromptWriteGate.assert(owner, context.writeAdmission)
+  sheetsCloseTransport.assertWriter(owner, context?.binding?.ticket ?? context?.closeTicket)
+  if (context?.binding)
+    validateCloseCheckpointBinding(owner, sessionId, context.binding, payloadSha256)
+  const originalFingerprint =
+    session.recoveryOriginalFingerprint !== undefined
+      ? session.recoveryOriginalFingerprint
+      : digest === undefined
+        ? null
+        : `sha256:${digest}`
+  const receipt = await documentRecovery().checkpoint({
+    ownerId,
+    sessionId,
+    originalPath,
+    sourcePath: session.snapshotPath,
+    originalFingerprint,
+    sheets: [...session.sheetNames].map(([id, name]) => ({ id, name })),
+    payload,
+    encrypted: session.password !== undefined,
+    actor: 'desktop',
+  })
+  if (sheetsTabs.get(ownerId)?.sessions.get(sessionId) !== session) {
+    throw new Error(
+      'The workbook closed or changed while its document checkpoint was being committed.',
+    )
+  }
+  const key = documentOwnerKey(ownerId, sessionId)
+  // Memory-only protected documents also need explicit retirement on save,
+  // undo-to-clean and close; their document ID has no disk candidate.
+  const currentProducer = documentRecovery().isCurrentProducer(
+    ownerId,
+    sessionId,
+    receipt.documentId,
+  )
+  const captured = closeCapturedAuthorities.get(ownerId)
+  const capturedBinding =
+    !!context?.binding &&
+    captured?.id === receipt.documentId &&
+    sheetsCloseTransport.accepts(owner, context.binding.ticket)
+  if (!currentProducer && !capturedBinding)
+    throw new Error('An obsolete native checkpoint cannot replace the current recovery producer.')
+  if (currentProducer) documentCandidates.set(key, receipt.documentId)
+  nativeDocumentAcks.set(key, {
+    documentId: receipt.documentId,
+    revision: receipt.revision,
+    sourceFingerprint: session.nativeSourceFingerprint,
+    payloadSha256,
+    dirty: context?.dirty ?? true,
+    ...(context?.binding ? { binding: structuredClone(context.binding) } : {}),
+  })
+  return receipt
+}
+
+function validateCloseCheckpointBinding(
+  owner: WebContents,
+  sessionId: string,
+  binding: WorkbookCloseCheckpointBinding,
+  payloadSha256: string,
+): void {
+  const expected = offeredSource(owner, sessionId)
+  if (
+    !binding ||
+    binding.requestId !== binding.ticket?.id ||
+    !isCloseLeaseTicket(binding.ticket) ||
+    !isCloseLeaseStamp(binding.stamp) ||
+    !isSheetsCloseSource(binding.source) ||
+    !expected ||
+    !sameSheetsCloseSource(binding.source, expected) ||
+    binding.source.sessionId !== sessionId ||
+    binding.source.lineage !== binding.ticket.source ||
+    binding.payloadSha256 !== payloadSha256 ||
+    !sheetsCloseTransport.accepts(owner, binding.ticket)
+  )
+    throw new Error(
+      'The full checkpoint is not bound to the current sender, close ticket, source and authored revision.',
+    )
+}
+
+async function retireDocumentSession(
+  ownerId: number,
+  sessionId: string,
+  session?: SessionInfo,
+): Promise<void> {
+  const key = documentOwnerKey(ownerId, sessionId)
+  const candidate = documentCandidates.get(key)
+  const adopted = session && adoptedDocumentCandidates.get(session.path)
+  if (candidate) await documentRecovery().retire(candidate)
+  if (adopted && adopted !== candidate) await documentRecovery().retire(adopted)
+  documentCandidates.delete(key)
+  if (session) {
+    adoptedDocumentCandidates.delete(session.path)
+    const directory = materializedRecoveryDirectories.get(session.path)
+    if (directory) {
+      await rm(session.path, { force: true }).catch(() => undefined)
+      await rmdir(directory).catch(() => undefined)
+      materializedRecoveryDirectories.delete(session.path)
+      materializedRecoveryNames.delete(session.path)
+    }
+  }
+}
+
+async function nativeDocumentRecoveryForOpen(
+  client: XlsxSidecarClient,
+  originalPath: string,
+  contents?: WebContents,
+  parent?: BrowserWindow,
+  newWorkbookPath?: string,
+): Promise<{
+  handled: boolean
+  prepared?: {
+    openPath: string
+    restoreTarget?: string
+    suggestSaveAs?: string
+    recoverySourcePath?: string
+    recoverySourceSha?: string
+  }
+}> {
+  if (recoveryRuntimeState().phase === 'disabled' || (contents && headlessOwnerWork.has(contents)))
+    return { handled: false }
+  const candidates = await documentRecovery().listCandidates(originalPath)
+  const adopted = new Set(adoptedDocumentCandidates.values())
+  const candidate = candidates.find(
+    (item) => !adopted.has(item.id) && !adoptingDocumentCandidates.has(item.id),
+  )
+  if (!candidate) return { handled: false }
+  adoptingDocumentCandidates.add(candidate.id)
+  try {
+    const recovered = await documentRecovery().readCandidate(candidate.id, originalPath)
+    const promptPath = join(dirname(recovered.pinnedBasePath), 'manifest.json')
+    const choice =
+      contents && !contents.isDestroyed()
+        ? await promptRecoveryRestore(
+            contents,
+            originalPath,
+            promptPath,
+            newWorkbookPath === undefined,
+            recovered.sourceConflict,
+          )
+        : await promptRecoveryRestoreNative(
+            originalPath,
+            promptPath,
+            parent,
+            newWorkbookPath === undefined,
+            recovered.sourceConflict,
+          )
+    if (choice === 'discard') {
+      await documentRecovery().retire(candidate.id)
+      if (newWorkbookPath) forgetUnsavedNewRecovery(originalPath)
+      else clearWorkbookRecovery(originalPath)
+      return { handled: true }
+    }
+    if (choice !== 'restore') return { handled: true }
+    const payload = validateDocumentPayload(recovered.snapshot.payload)
+    await mkdir(recoveryDir(), { recursive: true, mode: 0o700 })
+    const directory = await mkdtemp(join(recoveryDir(), 'native-document-'))
+    const target = join(directory, 'recovered.bin')
+    try {
+      const source: SessionInfo = {
+        path: originalPath,
+        snapshotPath: recovered.pinnedBasePath,
+        sha256: recovered.snapshot.sourceFingerprint.replace(/^sha256:/, ''),
+        nativeSourceFingerprint: recovered.snapshot.sourceFingerprint,
+        sheetNames: new Map(recovered.snapshot.sheets.map((sheet) => [sheet.id, sheet.name])),
+        automaticRecoveryDisabled: false,
+      }
+      await writeWorkbookTo(
+        client,
+        source,
+        { ...payload, sessionId: randomUUID(), mode: 'save-as' },
+        target,
+      )
+      if (newWorkbookPath) {
+        await copyFile(target, newWorkbookPath)
+        await rm(target, { force: true })
+        await rmdir(directory)
+        adoptedDocumentCandidates.set(newWorkbookPath, candidate.id)
+        return { handled: true, prepared: { openPath: newWorkbookPath } }
+      }
+      materializedRecoveryDirectories.set(target, directory)
+      materializedRecoveryNames.set(target, originalPath)
+      adoptedDocumentCandidates.set(target, candidate.id)
+      // A changed original or a non-OOXML source always gets an explicit Save As.
+      const current = await sha256File(originalPath)
+        .then((digest) => `sha256:${digest}`)
+        .catch(() => null)
+      const changed = current !== null && current !== recovered.originalFingerprint
+      const officePackage = /\.(xlsx|xlsm)$/i.test(originalPath)
+      return {
+        handled: true,
+        prepared:
+          officePackage && !changed
+            ? {
+                openPath: target,
+                restoreTarget: originalPath,
+                recoverySourcePath: originalPath,
+                ...(recovered.originalFingerprint === null
+                  ? {}
+                  : {
+                      recoverySourceSha: recovered.originalFingerprint.replace(/^sha256:/, ''),
+                    }),
+              }
+            : {
+                openPath: target,
+                suggestSaveAs: officePackage
+                  ? originalPath
+                  : originalPath.replace(/\.[^.]+$/, '.xlsx'),
+                recoverySourcePath: originalPath,
+                ...(recovered.originalFingerprint === null
+                  ? {}
+                  : { recoverySourceSha: recovered.originalFingerprint.replace(/^sha256:/, '') }),
+              },
+      }
+    } catch (error) {
+      await rm(target, { force: true }).catch(() => undefined)
+      await rmdir(directory).catch(() => undefined)
+      throw error
+    }
+  } finally {
+    adoptingDocumentCandidates.delete(candidate.id)
+  }
+}
 let activeSheetsWebContents: WebContents | null = null
 let pastedTempCleanupStarted = false
 
@@ -2014,6 +2902,18 @@ function broadcastSidecarCrash(client: XlsxSidecarClient): void {
 }
 
 function registerSheetsSession(webContents: WebContents, client: XlsxSidecarClient): void {
+  if (ownerCleanupByContents.has(webContents))
+    throw new Error('The spreadsheet owner is already registered.')
+  let completeOwner!: () => void
+  let failOwner!: (error: unknown) => void
+  const actualOwnerCleanup = new Promise<void>((resolve, reject) => {
+    completeOwner = resolve
+    failOwner = reject
+  })
+  // Publish the genuine destruction finalizer before any registration effect.
+  // Only the full teardown below settles it; an interrupted handler stays pending.
+  ownerCleanupByContents.set(webContents, actualOwnerCleanup)
+  void actualOwnerCleanup.catch(() => {})
   startPastedTempCleanup()
   if (!crashNotifiedClients.has(client)) {
     crashNotifiedClients.add(client)
@@ -2029,13 +2929,56 @@ function registerSheetsSession(webContents: WebContents, client: XlsxSidecarClie
   activeSheetsWebContents = webContents
   webContents.once('destroyed', () => {
     const entry = sheetsTabs.get(webContents.id)
+    const publicationTail = ownerPublicationTail(webContents)
+    sheetsCloseCoordinator.destroy(webContents)
+    sheetsSources.destroy(webContents)
+    const actualTransport = sheetsCloseTransport.destroy(webContents)
     sheetsTabs.delete(webContents.id)
-    if (entry) {
-      // Free pending chunked-save uploads with the tab (the sweep timer's
-      // closure would otherwise keep them reachable until the idle expiry).
-      entry.saveTransfers.dispose()
-      void closeAllSessions(entry)
+    reportedCloseStates.delete(webContents.id)
+    const abandonedOffers = [...sourceOffers.values()].filter(
+      (offer) => offer.owner === webContents,
+    )
+    for (const offer of abandonedOffers) sourceOffers.delete(offer.id)
+    sourceOpenAdmissions.delete(webContents.id)
+    // Destruction proves renderer termination; accepted native publications
+    // still settle before handles/resources close. It never means discard.
+    const actualCleanup = Promise.all([publicationTail, actualTransport]).then(async () => {
+      await documentRecoveryService?.forgetOwner(webContents.id)
+      if (entry) {
+        const recoveryPaths = [...entry.sessions.values()].map((session) => session.path)
+        for (const [sessionId, session] of entry.sessions) {
+          documentCandidates.delete(documentOwnerKey(webContents.id, sessionId))
+          adoptedDocumentCandidates.delete(session.path)
+        }
+        // Free pending chunked-save uploads with the tab (the sweep timer's
+        // closure would otherwise keep them reachable until the idle expiry).
+        entry.saveTransfers.dispose()
+        await closeAllSessions(entry, headlessOwnerWork.has(webContents)).finally(() =>
+          Promise.all(recoveryPaths.map(releasePreparedDocumentRecovery)),
+        )
+      }
+    })
+    const renameActual = activeWorkbookRenames.get(webContents)
+    // The rename's verified-destruction path below waits the BASE cleanup.
+    // Only the exported outer join waits rename continuation too; making the
+    // captured publication lifecycle wait this outer join would self-deadlock.
+    const fullOwnerCleanup = renameActual
+      ? Promise.allSettled([actualCleanup, renameActual]).then((results) => {
+          for (const result of results) if (result.status === 'rejected') throw result.reason
+        })
+      : actualCleanup
+    void fullOwnerCleanup.then(completeOwner, failOwner)
+    // Include teardown even if adoption already removed its map entry while
+    // its finalizer was running. No offered lifecycle can escape on owner loss.
+    for (const lifecycle of mainPublicationLifecycles.get(webContents) ?? []) {
+      if (!lifecycle.isSettled()) lifecycle.hold(actualCleanup)
     }
+    for (const offer of abandonedOffers) offer.publicationDecision?.finishAfter(actualCleanup)
+    sheetsRenameRefresh.destroy(webContents, actualCleanup)
+    sheetsCloseRuntime?.holdNativeUntilSettled(webContents, fullOwnerCleanup)
+    void fullOwnerCleanup.catch((error) =>
+      console.warn('[sheets] Lost renderer session cleanup failed:', error),
+    )
     if (activeSheetsWebContents === webContents) activeSheetsWebContents = null
   })
 }
@@ -2057,40 +3000,113 @@ export function setActiveSheetsWebContents(wc: WebContents | null): void {
 /** Shell notification: an open view's file was renamed on disk (renamed in the
  *  Home list) — sync the matching session's path in that tab (later saves write
  *  the new file) and push the renderer to update the title-bar file name. */
-export function sheetsFileRenamed(wc: WebContents, oldPath: string, newPath: string): void {
-  // A user-chosen name always wins: the file no longer qualifies for auto-rename.
-  // A move that keeps the untitled name (folder tree), including the "(2)"
-  // suffix a keep-both move adds, does not count as choosing one.
-  const stem = (p: string) => basename(p).replace(/ \(\d+\)(?=\.[^.]+$)/, '')
-  if (untitledWorkbookPaths.delete(oldPath) && stem(newPath) === stem(oldPath)) {
-    untitledWorkbookPaths.add(newPath)
-  }
+export async function sheetsFileRenamed(
+  wc: WebContents,
+  oldPath: string,
+  newPath: string,
+  writeContext: WorkbookWriteContext = { origin: 'manual' },
+  notifyRefresh?: (name: string, metadata: WorkbookRenamedMetadata) => void,
+): Promise<void> {
   const entry = sheetsTabs.get(wc.id)
   if (!entry) return
-  let matched = false
-  for (const [id, session] of entry.sessions) {
-    // Converted copies (.csv / .xls / .tsv) and restored recovery copies keep
-    // the user's file in a side field, not in `path`; move those too, or the
-    // next Save recreates the file under the old name.
-    let renamed = sessionAfterRename(session, oldPath, newPath)
-    if (renamed === null) continue
-    // An unsaved new workbook's tab renames its hidden backing file; the name
-    // the user typed is what the first Save As should offer, and the crash copy
-    // is keyed on that name.
-    if (session.unsavedNew && session.path === oldPath && session.suggestSaveAs !== undefined) {
-      const suggested = join(dirname(session.suggestSaveAs), basename(newPath))
+  if (!isAbsolute(oldPath) || !isAbsolute(newPath))
+    throw new Error('A workbook relocation requires absolute owned paths.')
+  if (sameWorkbookPath(oldPath, newPath)) return
+  const source = sheetsSources.current(wc)
+  const matched = [...entry.sessions]
+    .filter(([, session]) => matchesWorkbookRelocation(session, oldPath))
+    .map(([id, session]) => ({
+      id,
+      session,
+      expected: knownRelocationDigest(session, oldPath),
+      blocked: { ...session, relocationPending: true } as SessionInfo,
+    }))
+  if (!matched.length) return
+  // Caller MUST await this exported promise after its physical move. Blocking
+  // in-place publication immediately prevents recreating an unverified old path.
+  const writeAdmission = sheetsPromptWriteGate.admit(wc, writeContext)
+  for (const item of matched) entry.sessions.set(item.id, item.blocked)
+  // ready was captured before our publication registration; never wait for
+  // ownerPublicationTail from inside the operation it would include.
+  await writeAdmission.ready
+  const active = matched.find((item) => item.id === source?.sessionId)
+  return runDocumentPublication(wc.id, active?.id ?? matched[0]!.id, async () => {
+    sheetsPromptWriteGate.assert(wc, writeAdmission)
+    sheetsCloseTransport.assertWriter(wc)
+    if (
+      wc.isDestroyed() ||
+      sheetsTabs.get(wc.id) !== entry ||
+      matched.some((item) => entry.sessions.get(item.id) !== item.blocked) ||
+      sheetsSources.busy(wc) ||
+      [...sourceOffers.values()].some((offer) => offer.owner === wc)
+    )
+      throw new Error('The workbook changed before its relocated path could be verified.')
+    for (const expected of new Set(matched.map((item) => item.expected)))
+      await verifyRelocatedWorkbook(newPath, expected)
+    sheetsPromptWriteGate.assert(wc, writeAdmission)
+    const changes = matched.map((item) => ({
+      ...item,
+      next: sessionAfterVerifiedRelocation(item.session, oldPath, newPath, item.expected!),
+    }))
+    for (const { session, next } of changes) {
       if (
-        suggested !== session.suggestSaveAs &&
-        !existsSync(suggested) &&
-        !sheetsSuggestedPathTaken(suggested) &&
-        retargetUnsavedNewRecovery(session.suggestSaveAs, suggested)
+        session.unsavedNew &&
+        session.suggestSaveAs &&
+        next.suggestSaveAs !== session.suggestSaveAs &&
+        pendingUnsavedNewRecoveryFor(session.suggestSaveAs) &&
+        !retargetUnsavedNewRecovery(session.suggestSaveAs, next.suggestSaveAs!)
       )
-        renamed = { ...renamed, suggestSaveAs: suggested }
+        throw new Error('The previous unsaved recovery name could not be safely relocated.')
     }
-    entry.sessions.set(id, renamed)
-    matched = true
-  }
-  if (matched) wc.send(IPC_CHANNELS.workbookRenamed, basename(newPath))
+    let nextSource = source
+    if (active && source) {
+      nextSource = sheetsSources.relocateOwnedPath(
+        wc,
+        source,
+        source.documentPath !== null && sameWorkbookPath(source.documentPath, oldPath)
+          ? newPath
+          : source.documentPath,
+      )
+      if (!nextSource)
+        throw new Error('The active source changed before its owned path relocation.')
+    }
+    for (const { id, next } of changes) entry.sessions.set(id, next)
+    // Detach every old producer synchronously before awaiting close. Its exact
+    // candidate survives; the renderer must acknowledge full state in a fresh epoch.
+    const releases = changes.map(({ id }) => {
+      nativeDocumentAcks.delete(documentOwnerKey(wc.id, id))
+      documentCandidates.delete(documentOwnerKey(wc.id, id))
+      return documentRecoveryService?.releaseDocument(wc.id, id) ?? Promise.resolve()
+    })
+    const released = await Promise.allSettled(releases)
+    for (const result of released)
+      if (result.status === 'rejected')
+        console.warn(
+          '[sheets] Relocated source old recovery-handle cleanup incomplete:',
+          result.reason,
+        )
+    const stem = (path: string) => basename(path).replace(/ \(\d+\)(?=\.[^.]+$)/, '')
+    if (untitledWorkbookPaths.delete(oldPath) && stem(newPath) === stem(oldPath))
+      untitledWorkbookPaths.add(newPath)
+    if (active && nextSource) {
+      const moved = changes.find((item) => item.id === active.id)!.next
+      const metadata: WorkbookRenamedMetadata = {
+        sessionId: active.id,
+        ...(moved.readerDisplay?.path ? { path: moved.readerDisplay.path } : {}),
+        ...(moved.csvSourcePath ? { csvPath: moved.csvSourcePath } : {}),
+        closeSource: nextSource,
+        requiresCheckpoint: true,
+        writeContext,
+      }
+      if (notifyRefresh) notifyRefresh(moved.readerDisplay?.name ?? basename(newPath), metadata)
+      else
+        wc.send(
+          IPC_CHANNELS.workbookRenamed,
+          moved.readerDisplay?.name ?? basename(newPath),
+          metadata,
+        )
+    }
+  })
 }
 
 /**
@@ -2200,6 +3216,7 @@ const recoveryPathFor = (filePath: string) =>
   join(recoveryDir(), `${createHash('sha1').update(filePath).digest('hex').slice(0, 16)}.xlsx`)
 
 function clearWorkbookRecovery(filePath: string): void {
+  if (recoveryRuntimeState().phase === 'disabled') return
   try {
     unlinkSync(recoveryPathFor(filePath))
   } catch {
@@ -2213,11 +3230,13 @@ function clearWorkbookRecovery(filePath: string): void {
 const unsavedNewIndexPath = () => join(recoveryDir(), 'unsaved-new.json')
 
 function readUnsavedNewIndex(): string[] {
+  if (recoveryRuntimeState().phase === 'disabled') return []
   const list = readJson<unknown>(unsavedNewIndexPath(), [])
   return Array.isArray(list) ? list.filter((p): p is string => typeof p === 'string') : []
 }
 
 function writeUnsavedNewIndex(list: string[]): void {
+  if (recoveryRuntimeState().phase === 'disabled') return
   try {
     mkdirSync(recoveryDir(), { recursive: true })
     writeFileSync(unsavedNewIndexPath(), JSON.stringify(list))
@@ -2238,10 +3257,22 @@ function forgetUnsavedNewRecovery(suggestSaveAs: string): void {
 }
 
 /** shell, at launch: would-be paths of new workbooks whose recovery copy survived a crash */
-export function pendingUnsavedNewRecoveries(): string[] {
+export async function pendingUnsavedNewRecoveries(): Promise<string[]> {
+  if (recoveryRuntimeState().phase === 'disabled') return []
   const live = readUnsavedNewIndex().filter((p) => existsSync(recoveryPathFor(p)))
   writeUnsavedNewIndex(live)
-  return live
+  const native = await documentRecovery().listAllCandidates()
+  return [
+    ...new Set([
+      ...live,
+      ...native
+        .filter(
+          (candidate) =>
+            /\.(xlsx|xlsm)$/i.test(candidate.originalPath) && !existsSync(candidate.originalPath),
+        )
+        .map((candidate) => candidate.originalPath),
+    ]),
+  ]
 }
 
 /** the would-be name changed: the crash copy keyed on it follows (false = copy stays under the old key) */
@@ -2259,6 +3290,7 @@ function retargetUnsavedNewRecovery(from: string, to: string): boolean {
 }
 
 function pendingUnsavedNewRecoveryFor(suggestSaveAs: string): string | null {
+  if (recoveryRuntimeState().phase === 'disabled') return null
   const copy = recoveryPathFor(suggestSaveAs)
   return readUnsavedNewIndex().includes(suggestSaveAs) && existsSync(copy) ? copy : null
 }
@@ -2277,6 +3309,7 @@ function promptRecoveryRestore(
   filePath: string,
   recoveryPath: string,
   onDisk = true,
+  sourceConflict = false,
 ): Promise<RecoveryChoice> {
   return new Promise((resolve) => {
     let savedAtMs = Date.now()
@@ -2295,7 +3328,9 @@ function promptRecoveryRestore(
     contents.once('destroyed', onDestroyed)
     contents.send(IPC_CHANNELS.recoveryPrompt, {
       title: tm('autosaveFoundTitle'),
-      body: recoveryPromptBody(filePath, recoveryPath, onDisk),
+      body:
+        recoveryPromptBody(filePath, recoveryPath, onDisk) +
+        (sourceConflict ? `\n\n${tm('errDiskChanged')}` : ''),
       restoreLabel: tm('autosaveRestore'),
       discardLabel: tm('autosaveDiscard'),
       fileName: basename(filePath),
@@ -2310,6 +3345,7 @@ async function promptRecoveryRestoreNative(
   recoveryPath: string,
   parent?: BrowserWindow | undefined,
   onDisk = true,
+  sourceConflict = false,
 ): Promise<RecoveryChoice> {
   const options = {
     type: 'question' as const,
@@ -2317,7 +3353,9 @@ async function promptRecoveryRestoreNative(
     defaultId: 0,
     cancelId: 1,
     message: tm('autosaveFoundTitle'),
-    detail: recoveryPromptBody(filePath, recoveryPath, onDisk),
+    detail:
+      recoveryPromptBody(filePath, recoveryPath, onDisk) +
+      (sourceConflict ? `\n\n${tm('errDiskChanged')}` : ''),
   }
   const answer = parent
     ? await dialog.showMessageBox(parent, options)
@@ -2328,6 +3366,7 @@ async function promptRecoveryRestoreNative(
 /** Recovery copy left by a lost session. A newer original does not discard it (the copy
  * may hold the only pre-crash edits): the prompt just says the disk file is newer. */
 function pendingRecoveryFor(filePath: string): string | null {
+  if (recoveryRuntimeState().phase === 'disabled') return null
   const copy = recoveryPathFor(filePath)
   try {
     return existsSync(copy) ? copy : null
@@ -2490,16 +3529,23 @@ export async function createSheetsWindow(
   }
   window.once('ready-to-show', () => window.show())
   window.on('close', (event) => {
-    if (sheetsPendingEditCount(window.webContents.id) === 0) return
     event.preventDefault()
-    void requestSheetsClose(window.webContents, window).then((proceed) => {
-      // destroy() skips this handler on the way out (close() would re-enter
-      // with the count possibly still non-zero after a discard).
-      if (proceed && !window.isDestroyed()) window.destroy()
-      // not proceeding vetoes any quit that was in flight: go back to
-      // prompting on later closes (see resetSheetsShuttingDown)
-      else resetSheetsShuttingDown()
+    void requestSheetsClose(window.webContents, window, () => {
+      if (window.isDestroyed()) return false
+      window.destroy()
+      return window.isDestroyed()
     })
+      .then((proceed) => {
+        // not proceeding vetoes any quit that was in flight: go back to
+        // prompting on later closes (see resetSheetsShuttingDown)
+        if (!proceed) cancelStandaloneSheetsQuit()
+      })
+      .catch(() => {
+        cancelStandaloneSheetsQuit()
+        warnStandaloneSheets(
+          'Spreadsheet close preparation failed. The application will remain open.',
+        )
+      })
   })
   window.on('closed', () => {
     mainWindow = null
@@ -2540,45 +3586,116 @@ export async function exportSheetsPdfHeadless(
 ): Promise<void> {
   const client = sidecar ?? new XlsxSidecarClient(resolveSidecarPath())
   sidecar = client
-  client.start()
-  const win = new BrowserWindow({
-    show: false,
-    width: 1440,
-    height: 900,
-    webPreferences: {
-      preload: runtime.preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      backgroundThrottling: false,
-    },
-  })
-  registerSheetsIpc()
-  registerSheetsSession(win.webContents, client)
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  win.webContents.on('will-navigate', (event) => event.preventDefault())
-  const wcId = win.webContents.id
-  queueWorkbookForView(win.webContents, input)
-  headlessExportTargets.set(wcId, outPath)
+  let win: BrowserWindow | undefined
+  let contents: WebContents | undefined
+  let wcId: number | undefined
+  let registrationAttempted = false
+  let actualOwnerCleanup: Promise<void> | undefined
+  const ownerWork = new HeadlessSheetsOwnerWork()
+  const stoppedClients = new Map<XlsxSidecarClient, Promise<void>>()
+  const stopNative = async (): Promise<void> => {
+    // Re-evaluate the document client after teardown continuations, not just
+    // the clients that happened to exist when a grace stop first began.
+    const clients = new Set([client, ...(documentRecoveryClient ? [documentRecoveryClient] : [])])
+    const results = await Promise.allSettled(
+      [...clients].map((native) => {
+        let actual = stoppedClients.get(native)
+        if (!actual) {
+          try {
+            actual = native.stopSettled()
+          } catch (error) {
+            actual = Promise.reject(error)
+          }
+          stoppedClients.set(native, actual)
+        }
+        return actual
+      }),
+    )
+    for (const result of results) if (result.status === 'rejected') throw result.reason
+  }
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    client.start()
+    win = new BrowserWindow({
+      show: false,
+      width: 1440,
+      height: 900,
+      webPreferences: {
+        preload: runtime.preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        backgroundThrottling: false,
+      },
+    })
+    const owner = win.webContents
+    contents = owner
+    headlessOwnerWork.set(owner, ownerWork)
+    registerSheetsIpc()
+    registrationAttempted = true
+    registerSheetsSession(owner, client)
+    actualOwnerCleanup = sheetsOwnerCleanup(owner)
+    owner.setWindowOpenHandler(() => ({ action: 'deny' }))
+    owner.on('will-navigate', (event) => event.preventDefault())
+    const id = owner.id
+    wcId = id
+    queueWorkbookForView(owner, input)
+    headlessExportTargets.set(id, outPath)
     const report = await new Promise<HeadlessSheetsReport>((resolve) => {
-      headlessExportWaiters.set(wcId, resolve)
-      win.webContents.on('render-process-gone', (_event, details) =>
+      headlessExportWaiters.set(id, resolve)
+      owner.on('render-process-gone', (_event, details) =>
         resolve({ ok: false, error: `sheets renderer stopped (${details.reason})` }),
       )
       timer = setTimeout(
         () => resolve({ ok: false, error: `sheets export timed out after ${timeoutMs}ms` }),
         timeoutMs,
       )
-      void win.webContents.loadURL(rendererUrl(runtime.rendererUrl, 'sheets'))
+      void owner
+        .loadURL(rendererUrl(runtime.rendererUrl, 'sheets'))
+        .catch(() =>
+          resolve({ ok: false, error: 'The headless spreadsheet renderer could not load.' }),
+        )
     })
     if (!report.ok) throw new Error(report.error ?? 'sheets export failed')
   } finally {
     if (timer) clearTimeout(timer)
-    headlessExportWaiters.delete(wcId)
-    headlessExportTargets.delete(wcId)
-    if (!win.isDestroyed()) win.destroy()
+    // Close producer admission before removing targets or destroying the owner;
+    // queued IPC cannot sneak another export into the teardown snapshot.
+    ownerWork.closeAdmission()
+    if (wcId !== undefined) {
+      headlessExportWaiters.delete(wcId)
+      headlessExportTargets.delete(wcId)
+    }
+    let destroyFailed = false
+    let destroyFailure: unknown
+    try {
+      if (win && !win.isDestroyed()) win.destroy()
+    } catch (error) {
+      destroyFailed = true
+      destroyFailure = error
+    }
+    // Saved at registration, before owner destruction. A late getter can only
+    // recover that same genuine bridge, never manufacture a resolved fallback.
+    actualOwnerCleanup ??= contents ? sheetsOwnerCleanup(contents) : undefined
+    try {
+      await settleHeadlessSheetsCleanup({
+        ownerCleanup: actualOwnerCleanup ? ownerWork.joinOwner(actualOwnerCleanup) : undefined,
+        setupOnly: !registrationAttempted,
+        onMissingOwner: () =>
+          console.warn('[sheets] Headless cleanup is waiting for its registered owner finalizer.'),
+        joinNative: joinNativeActualWork,
+        stopNative,
+      })
+      if (destroyFailed) throw destroyFailure
+    } finally {
+      // Keep this closed owner membership until WebContents is collected;
+      // an already-queued late IPC must never fall back to GUI admission.
+      if (sidecar === client && stoppedClients.has(client)) sidecar = null
+      if (documentRecoveryClient && stoppedClients.has(documentRecoveryClient)) {
+        documentRecoveryClient = undefined
+        documentRecoveryService = undefined
+      }
+    }
   }
 }
 
@@ -2757,7 +3874,6 @@ async function extractAttachmentText(filePath: string): Promise<string> {
 // Close guard: the renderer mirrors its pending-save count here, used to show a
 // save confirmation before closing the window/tab.
 const pendingEditCounts = new Map<number, number>()
-const closeSaveWaiters = new Map<number, (ok: boolean) => void>()
 const trackedEditSenders = new Set<number>()
 
 export function sheetsPendingEditCount(webContentsId: number): number {
@@ -2793,62 +3909,106 @@ export function resetSheetsShuttingDown(): void {
   shutdownLatch.reset()
 }
 
-app.on('before-quit', markSheetsShuttingDown)
+app.on('will-quit', markSheetsShuttingDown)
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    shutdownLatch.mark()
-    app.quit()
+    app.quit() // the common/native close path must still collect permission
   })
+}
+
+export async function prepareSheetsNativeClose(
+  contents: WebContents,
+  parent?: BrowserWindow | null,
+  options: SheetsClosePrepareOptions = {},
+): Promise<SheetsCloseReceipt | null> {
+  const operationCurrent = (): boolean => {
+    if (contents.isDestroyed() || options.signal?.aborted) return false
+    try {
+      return options.isCurrent?.() !== false
+    } catch {
+      return false
+    }
+  }
+  if (!operationCurrent()) return null
+  const state = sheetsCloseState(contents)
+  if (!state) return null
+  let prompt: SheetsClosePromptHandle | undefined
+  let success = false
+  const controller = new AbortController()
+  try {
+    // The original120s clock starts before dialog.showMessageBox can await.
+    prompt = sheetsCloseCoordinator.beginPrompt(contents, options)
+    sheetsPromptWriteGate.beginPrompt(contents, prompt.ticket)
+    nativeClosePrompts.set(contents.id, { ticket: prompt.ticket, controller })
+    if (!operationCurrent() || !sheetsCloseCoordinator.isPromptCurrent(contents, prompt))
+      return null
+    let intent: 'save' | 'discard' = 'discard'
+    const approvedStamp = { ...state.stamp }
+    const count = pendingEditCounts.get(contents.id) ?? (state.dirty ? 1 : 0)
+    if (state.dirty) {
+      const options = {
+        // On macOS 'warning' shows the system warning triangle + app-icon badge
+        type: 'warning' as const,
+        message: tm('closeUnsavedMsg', { count }),
+        detail: tm('closeUnsavedDetail'),
+        buttons: [tm('menuSave'), tm('btnDontSave'), tm('btnCancel')],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+        // Installed Electron MessageBoxOptions supports AbortSignal. Matching
+        // broker release aborts only this dialog; a later prompt is untouched.
+        signal: controller.signal,
+      }
+      const { response } =
+        parent && !parent.isDestroyed()
+          ? await dialog.showMessageBox(parent, options)
+          : await dialog.showMessageBox(options)
+      if (!operationCurrent() || !sheetsCloseCoordinator.isPromptCurrent(contents, prompt))
+        return null
+      if (response === 2) return null
+      intent = response === 0 ? 'save' : 'discard'
+    }
+    if (!operationCurrent() || !sheetsCloseCoordinator.isPromptCurrent(contents, prompt))
+      return null
+    const receipt = await sheetsCloseCoordinator.prepareReserved(
+      contents,
+      prompt,
+      intent,
+      intent === 'discard' ? approvedStamp : undefined,
+    )
+    if (!operationCurrent()) {
+      cancelSheetsClose(contents, receipt, 'native operation no longer current')
+      return null
+    }
+    success = true
+    return receipt
+  } catch (error) {
+    console.warn('[sheets] Close preparation refused; workbook/recovery retained:', error)
+    return null
+  } finally {
+    if (prompt) {
+      sheetsPromptWriteGate.releasePrompt(contents, prompt.ticket)
+      if (nativeClosePrompts.get(contents.id)?.controller === controller)
+        nativeClosePrompts.delete(contents.id)
+      sheetsCloseCoordinator.endPrompt(contents, prompt, success)
+    }
+  }
 }
 
 export async function requestSheetsClose(
   contents: WebContents,
   parent?: BrowserWindow | null,
+  remove?: () => boolean,
 ): Promise<boolean> {
-  // A quiet AutoSave leaves an unsaved new workbook's journal empty, but its
-  // work still sits on no user-visible path: closing it is discarding it.
-  const autosavedNew = [...(sheetsTabs.get(contents.id)?.sessions.values() ?? [])].filter(
-    (s) =>
-      s.unsavedNew &&
-      s.suggestSaveAs !== undefined &&
-      pendingUnsavedNewRecoveryFor(s.suggestSaveAs),
-  ).length
-  const count = (pendingEditCounts.get(contents.id) ?? 0) + autosavedNew
-  const decision = closeGuardDecision({
-    pendingEdits: count,
-    destroyed: contents.isDestroyed(),
-    shuttingDown: shutdownLatch.active,
-  })
-  if (decision === 'proceed') return true
-  const options = {
-    // On macOS 'warning' shows the system warning triangle + app-icon badge
-    type: 'warning' as const,
-    message: tm('closeUnsavedMsg', { count }),
-    detail: tm('closeUnsavedDetail'),
-    buttons: [tm('menuSave'), tm('btnDontSave'), tm('btnCancel')],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
+  // Legacy Boolean-only callers cannot carry permission through actual removal.
+  if (!remove || contents.isDestroyed()) return false
+  const receipt = await prepareSheetsNativeClose(contents, parent)
+  if (!receipt) return false
+  try {
+    return completeSheetsClose(contents, receipt, remove)
+  } finally {
+    cancelSheetsClose(contents, receipt, 'native close attempt finished')
   }
-  const { response } =
-    parent && !parent.isDestroyed()
-      ? await dialog.showMessageBox(parent, options)
-      : await dialog.showMessageBox(options)
-  if (response === 2) return false
-  if (response === 1) return true
-  // The window went away (or a quit started) while the prompt was up: don't save
-  if (shutdownLatch.active || contents.isDestroyed()) return true
-  return await new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => {
-      closeSaveWaiters.delete(contents.id)
-      resolve(false)
-    }, 120_000)
-    closeSaveWaiters.set(contents.id, (ok) => {
-      clearTimeout(timer)
-      resolve(ok)
-    })
-    contents.send(IPC_CHANNELS.closeSaveRequest)
-  })
 }
 
 let coreIpcRegistered = false
@@ -2856,6 +4016,290 @@ let coreIpcRegistered = false
 export function registerSheetsIpc(): void {
   if (coreIpcRegistered) return
   coreIpcRegistered = true
+
+  const trustedCloseSender = (sender: WebContents): boolean =>
+    sheetsTabs.get(sender.id)?.webContents === sender && !sender.isDestroyed()
+  ipcMain.on(IPC_CHANNELS.workbookRenameRefreshResult, (event, id: unknown, result: unknown) => {
+    if (trustedCloseSender(event.sender))
+      sheetsRenameRefresh.receiveResult(event.sender, id, result)
+  })
+  ipcMain.on(IPC_CHANNELS.workbookRenameRefreshActualSettled, (event, id: unknown) => {
+    if (trustedCloseSender(event.sender)) sheetsRenameRefresh.receiveActualSettled(event.sender, id)
+  })
+  ipcMain.handle(IPC_CHANNELS.workbookCloseSource, (event, id: unknown) => {
+    sessionFor(event)
+    return typeof id === 'string' ? offeredSource(event.sender, id) : null
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.recoverWorkbookReader,
+    async (event, rawId: unknown, rawWriteContext: unknown) => {
+      const sessionId = z.string().uuid().parse(rawId)
+      const entry = sessionFor(event),
+        previous = sheetsSources.current(event.sender)
+      const old = entry.sessions.get(sessionId)
+      if (!old || !previous || previous.sessionId !== sessionId) return null
+      // Admission revokes close permission before it can await any bytes. A
+      // still-running actual close writer/capture is not assumed canceled.
+      const writeAdmission = sheetsPromptWriteGate.admit(
+        event.sender,
+        parseWorkbookWriteContext(rawWriteContext),
+      )
+      await writeAdmission.ready
+      sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+      sheetsCloseCoordinator.invalidateSource(event.sender, 'immutable reader recovery admitted')
+      if (
+        sheetsSources.busy(event.sender) ||
+        [...sourceOffers.values()].some((offer) => offer.owner === event.sender)
+      )
+        throw new Error('A source replacement is already pending.')
+      return runDocumentPublication(event.sender.id, sessionId, async () => {
+        sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+        const stillCurrent = () =>
+          !event.sender.isDestroyed() &&
+          sheetsTabs.get(event.sender.id) === entry &&
+          entry.sessions.get(sessionId) === old &&
+          !!sheetsSources.current(event.sender) &&
+          sameSheetsCloseSource(sheetsSources.current(event.sender)!, previous) &&
+          !sheetsSources.busy(event.sender) &&
+          ![...sourceOffers.values()].some((offer) => offer.owner === event.sender)
+        sheetsCloseTransport.assertWriter(event.sender)
+        if (!stillCurrent())
+          throw new Error('The workbook changed before reader recovery could begin.')
+        let fresh: WorkbookFile | undefined
+        let freshSnapshot: string | undefined
+        try {
+          // This is the ONLY source argument. Never session.path/current disk,
+          // never explicit reopen/recovery prompts, and never decrypt again.
+          fresh = await openWorkbookSession(entry.client, old.snapshotPath, entry.sessions, {
+            retainExistingBaseOnFailure: true,
+            preserveExistingReaderIds: true,
+          })
+          const freshSession = entry.sessions.get(fresh.sessionId)
+          if (!freshSession)
+            throw new Error('The replacement reader did not register its own snapshot.')
+          freshSnapshot = freshSession.snapshotPath
+          sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+          if (!stillCurrent())
+            throw new Error('A newer source operation superseded reader recovery.')
+          if (fresh.sessionId === sessionId)
+            throw new Error('Reader recovery did not allocate a distinct native reader.')
+          const rebound = rebindRecoveredReader(old, freshSession)
+          entry.sessions.set(fresh.sessionId, rebound)
+          const file = recoveredReaderFile(old, fresh)
+          const nextSource = recoveredReaderSource(previous, file.sessionId)
+          const publication = sheetsSources.offerOwnedPublication(
+            event.sender,
+            previous,
+            nextSource,
+          )
+          const offer = { id: randomUUID(), source: { ...publication.next } }
+          sourceOffers.set(offer.id, {
+            id: offer.id,
+            owner: event.sender,
+            source: offer.source,
+            previous,
+            publication,
+            afterAdopt: () =>
+              releaseWorkbookReader(event.sender, sessionId, false, old.importTempDir),
+          })
+          return { ...file, closeSource: offer.source, ownedOpen: offer }
+        } catch (error) {
+          // Refusal affects only the new native reader and its distinct snapshot.
+          // All old source guards, pinned bytes, import directories and ACKs stay.
+          if (fresh && fresh.sessionId !== sessionId) {
+            entry.sessions.delete(fresh.sessionId)
+            if (freshSnapshot && freshSnapshot !== old.snapshotPath)
+              await cleanupSessionResources({
+                tempRoot: app.getPath('temp'),
+                snapshotPath: freshSnapshot,
+                closeSidecar: () => entry.client.close(fresh!.sessionId),
+              }).catch((cleanupError) =>
+                console.warn('[sheets] Refused reader recovery cleanup failed:', cleanupError),
+              )
+            else await entry.client.close(fresh.sessionId).catch(() => undefined)
+          }
+          throw error
+        }
+      })
+    },
+  )
+  ipcMain.on(IPC_CHANNELS.workbookCloseState, (event, state: unknown, coverage: unknown) => {
+    if (
+      !trustedCloseSender(event.sender) ||
+      typeof coverage !== 'boolean' ||
+      !state ||
+      typeof state !== 'object'
+    )
+      return
+    const value = state as SheetsCloseState
+    if (
+      !isSheetsCloseSource(value.source) ||
+      !isCloseLeaseStamp(value.stamp) ||
+      typeof value.dirty !== 'boolean' ||
+      typeof value.busy !== 'boolean' ||
+      typeof value.protectedMemoryOnly !== 'boolean'
+    )
+      return
+    const source = offeredSource(event.sender, value.source.sessionId)
+    if (!source || !sameSheetsCloseSource(source, value.source)) return
+    const session = sheetsTabs.get(event.sender.id)?.sessions.get(value.source.sessionId)
+    if (!session || value.protectedMemoryOnly !== (session.password !== undefined)) return
+    reportedCloseStates.set(event.sender.id, { state: structuredClone(value), coverage })
+  })
+  ipcMain.handle(IPC_CHANNELS.workbookCloseClaim, (event, ticket: unknown) => {
+    sessionFor(event)
+    if (!isCloseLeaseTicket(ticket) || !sheetsCloseCoordinator.claim(event.sender, ticket))
+      return false
+    if (sheetsCloseTransport.claim(event.sender, ticket)) return true
+    sheetsCloseCoordinator.cancel(event.sender, ticket, 'renderer transport claim refused')
+    return false
+  })
+  ipcMain.handle(IPC_CHANNELS.workbookCloseCancel, (event, ticket: unknown, reason: unknown) => {
+    sessionFor(event)
+    if (!isCloseLeaseTicket(ticket)) throw new Error('Invalid workbook close ticket.')
+    sheetsCloseCoordinator.cancel(
+      event.sender,
+      ticket,
+      typeof reason === 'string' ? reason.slice(0, 1024) : 'renderer canceled close',
+    )
+  })
+  ipcMain.on(IPC_CHANNELS.workbookCloseResult, (event, id: unknown, result: unknown) => {
+    if (
+      trustedCloseSender(event.sender) &&
+      sheetsCloseTransport.receiveResult(event.sender, id, result)
+    ) {
+      const envelope = (result as import('../shared/sheets-close').SheetsPrepareCloseResult)
+        .closeLease
+      if (envelope)
+        closeResultStamps.set(event.sender.id, { ticket: envelope.ticket, stamp: envelope.stamp })
+    }
+  })
+  ipcMain.on(IPC_CHANNELS.workbookCloseActualSettled, (event, id: unknown) => {
+    if (trustedCloseSender(event.sender))
+      sheetsCloseTransport.receiveActualSettled(event.sender, id)
+  })
+  ipcMain.handle(IPC_CHANNELS.workbookPublicationCanAdopt, (event, id: unknown) => {
+    sessionFor(event)
+    const offer = typeof id === 'string' ? sourceOffers.get(id) : undefined
+    return !!offer && canAdoptSourceOffer(event.sender, offer)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.workbookPublicationAdopt,
+    async (event, id: unknown, raw: unknown) => {
+      const entry = sessionFor(event),
+        offer = typeof id === 'string' ? sourceOffers.get(id) : undefined
+      if (!offer || !canAdoptSourceOffer(event.sender, offer) || !raw || typeof raw !== 'object')
+        return false
+      const adoption = raw as WorkbookPublicationAdoption
+      if (
+        !isSheetsCloseSource(adoption.source) ||
+        !isCloseLeaseStamp(adoption.stamp) ||
+        !sameSheetsCloseSource(adoption.source, offer.source) ||
+        !/^[a-f0-9]{64}$/.test(adoption.payloadSha256)
+      )
+        return false
+      const ack = nativeDocumentAcks.get(documentOwnerKey(event.sender.id, offer.source.sessionId))
+      if (
+        !ack ||
+        ack.payloadSha256 !== adoption.payloadSha256 ||
+        !documentRecovery().isCurrentProducer(
+          event.sender.id,
+          offer.source.sessionId,
+          ack.documentId,
+        )
+      )
+        return false
+      let actualAdoption!: Promise<boolean>
+      actualAdoption = runDocumentPublication(event.sender.id, offer.source.sessionId, async () => {
+        if (!canAdoptSourceOffer(event.sender, offer)) return false
+        const latest = nativeDocumentAcks.get(
+          documentOwnerKey(event.sender.id, offer.source.sessionId),
+        )
+        if (
+          !latest ||
+          latest.documentId !== ack.documentId ||
+          latest.revision !== ack.revision ||
+          latest.payloadSha256 !== adoption.payloadSha256 ||
+          !documentRecovery().isCurrentProducer(
+            event.sender.id,
+            offer.source.sessionId,
+            latest.documentId,
+          )
+        )
+          return false
+        sheetsCloseTransport.assertWriter(event.sender, latest.binding?.ticket)
+        const accepted = offer.open
+          ? sheetsSources.commitOpen(event.sender, offer.open, offer.source)
+          : !!offer.publication &&
+            sheetsSources.adoptOwnedPublication(event.sender, offer.publication) !== null
+        if (!accepted) return false
+        // Bind before any source-map/metadata/finalizer continuation can fail.
+        offer.publicationDecision?.finishAfter(actualAdoption)
+        if (offer.open && sourceOpenAdmissions.get(event.sender.id) === offer.open)
+          sourceOpenAdmissions.delete(event.sender.id)
+        sourceOffers.delete(offer.id)
+        const session = entry.sessions.get(offer.source.sessionId)!
+        reportedCloseStates.set(event.sender.id, {
+          coverage: reportedCloseStates.get(event.sender.id)?.coverage ?? false,
+          state: {
+            source: offer.source,
+            stamp: adoption.stamp,
+            dirty: ack.dirty,
+            busy: false,
+            protectedMemoryOnly: session.password !== undefined,
+          },
+        })
+        // Adoption is committed. Resource cleanup cannot roll it back or erase its accepted new checkpoint.
+        try {
+          if (offer.afterAdopt) await offer.afterAdopt()
+          else if (offer.previous && offer.previous.sessionId !== offer.source.sessionId)
+            await releaseWorkbookReader(
+              event.sender,
+              offer.previous.sessionId,
+              false,
+              session.importTempDir,
+            )
+          offer.onAdopted?.()
+        } catch (error) {
+          console.warn('[sheets] Adopted source previous-reader cleanup failed:', error)
+        }
+        // Host callbacks may initiate a file move of this output. They run after
+        // the lifecycle releases; awaiting them inside it would wait on ourselves.
+        offer.afterPublicationSettled?.()
+        return true
+      })
+      return actualAdoption
+    },
+  )
+  ipcMain.handle(IPC_CHANNELS.workbookPublicationReject, async (event, id: unknown) => {
+    const entry = sessionFor(event)
+    const offer = typeof id === 'string' ? sourceOffers.get(id) : undefined
+    if (!offer || offer.owner !== event.sender) return
+    const actualRejection = runDocumentPublication(
+      event.sender.id,
+      offer.source.sessionId,
+      async () => {
+        // A preceding queued adoption may already have consumed this exact offer.
+        // Its reader must never be closed by a later stale rejection.
+        if (sourceOffers.get(offer.id) !== offer) return
+        sourceOffers.delete(offer.id)
+        if (offer.open) {
+          sheetsSources.cancelOpen(event.sender, offer.open)
+          if (sourceOpenAdmissions.get(event.sender.id) === offer.open)
+            sourceOpenAdmissions.delete(event.sender.id)
+        }
+        if (offer.publication) sheetsSources.rejectOwnedPublication(offer.publication)
+        await releaseWorkbookReader(
+          event.sender,
+          offer.source.sessionId,
+          false,
+          offer.previous ? entry.sessions.get(offer.previous.sessionId)?.importTempDir : undefined,
+        )
+      },
+    )
+    offer.publicationDecision?.finishAfter(actualRejection)
+    await actualRejection
+  })
 
   ipcMain.handle(IPC_CHANNELS.userDisplayName, (event): string => {
     sessionFor(event)
@@ -2891,18 +4335,11 @@ export function registerSheetsIpc(): void {
       event.sender.once('destroyed', () => {
         trackedEditSenders.delete(senderId)
         pendingEditCounts.delete(senderId)
-        closeSaveWaiters.get(senderId)?.(false)
-        closeSaveWaiters.delete(senderId)
       })
     }
   })
 
-  ipcMain.on(IPC_CHANNELS.closeSaveResult, (event, ok: unknown) => {
-    const waiter = closeSaveWaiters.get(event.sender.id)
-    if (!waiter) return
-    closeSaveWaiters.delete(event.sender.id)
-    waiter(ok === true)
-  })
+  // Legacy Boolean replies never grant a close lease.
 
   // shared with the other editor modules — last (identical) registration wins
   ipcMain.removeHandler('app:get-language')
@@ -2950,91 +4387,139 @@ export function registerSheetsIpc(): void {
   /// (prepareWorkbookForOpen + openWorkbookSession + the opened hook) as a
   /// user-picked or shell-queued open, so a recovered workbook is a normal
   /// session rather than a merge source.
-  const openSelectedWorkbook = async (
+  const openSelectedWorkbookActual = async (
     event: IpcMainInvokeEvent,
     explicitPath?: string,
     password?: string,
   ) => {
     const entry = sessionFor(event)
-    let path = explicitPath ?? queuedWorkbookPaths.get(event.sender.id) ?? forcedWorkbookPath
-    // consume immediately (before the slow session open) so the shell's
-    // retry loop stops re-sending 'open' for the same file
-    queuedWorkbookPaths.delete(event.sender.id)
-    if (!path) {
-      const selection = await openFileDialog(event, {
-        properties: ['openFile'],
-        filters: [{ name: tm('filterSpreadsheets'), extensions: WORKBOOK_FILTER_EXTENSIONS }],
-      })
-      if (selection.canceled || !selection.filePaths[0]) return null
-      path = selection.filePaths[0]
-    }
-    // Password first, recovery prompt second: the prompt's Restore/Discard
-    // choice is consumed by prepareWorkbookForOpen, so asking for the
-    // password (or rejecting a wrong one) must happen before it runs.
-    if (await isCfbWorkbookFile(path)) {
-      const bytes = await readFile(path)
-      if (isEncryptedOoxml(bytes)) {
-        if (password === undefined) return { passwordRequired: true as const, path }
-        await decryptOoxml(bytes, password)
-      }
-    }
-    const prepared = await prepareWorkbookForOpen(
-      entry.client,
-      path,
-      event.sender,
-      dialogParent(event),
-    )
-    // a declined import (an .ods the user chose not to convert) opens nothing
-    if (!prepared) return null
-    // The recovery prompt (or the file dialog / import conversion) can outlive
-    // the tab: once the renderer is destroyed, its 'destroyed' handler has
-    // already run closeAllSessions and dropped the tab entry, so a session
-    // opened now would never be closed and its snapshot would leak.
-    if (event.sender.isDestroyed()) {
-      await discardPreparedOpen(prepared)
-      return null
-    }
-    let result: WorkbookFile
+    const sourceOpen = beginSourceOpen(event.sender)
+    let offerReturned = false
     try {
-      result = await openWorkbookSession(entry.client, prepared.openPath, entry.sessions, {
-        suggestSaveAs: prepared.suggestSaveAs,
-        csvImport: prepared.csvImport,
-        csvSourcePath: prepared.csvSourcePath,
-        emptyCsv: prepared.emptyCsv,
-        importTempDir: prepared.importTempDir,
-        restoreTarget: prepared.restoreTarget,
-        emptySource: prepared.emptySource,
-        unsavedNew: prepared.unsavedNew,
-        password,
-      })
-    } catch (error) {
-      await discardPreparedOpen(prepared)
-      const message = error instanceof Error ? error.message : String(error)
-      if (message.includes('PASSWORD_REQUIRED') && password === undefined) {
-        return { passwordRequired: true as const, path }
-      }
-      throw error
-    }
-    // The sidecar open itself can also outlive the tab after the pre-open
-    // check. Close the newly registered session instead of stranding it in
-    // the detached entry map.
-    if (event.sender.isDestroyed()) {
-      const session = entry.sessions.get(result.sessionId)
-      entry.sessions.delete(result.sessionId)
-      if (session !== undefined) {
-        await cleanupSessionResources({
-          tempRoot: app.getPath('temp'),
-          snapshotPath: session.snapshotPath,
-          importTempDir: session.importTempDir,
-          closeSidecar: () => entry.client.close(result.sessionId),
+      let path = explicitPath ?? queuedWorkbookPaths.get(event.sender.id) ?? forcedWorkbookPath
+      // consume immediately (before the slow session open) so the shell's
+      // retry loop stops re-sending 'open' for the same file
+      queuedWorkbookPaths.delete(event.sender.id)
+      if (!path) {
+        const selection = await openFileDialog(event, {
+          properties: ['openFile'],
+          filters: [{ name: tm('filterSpreadsheets'), extensions: WORKBOOK_FILTER_EXTENSIONS }],
         })
+        if (selection.canceled || !selection.filePaths[0]) return null
+        path = selection.filePaths[0]
       }
-      return null
+      // Password first, recovery prompt second: the prompt's Restore/Discard
+      // choice is consumed by prepareWorkbookForOpen, so asking for the
+      // password (or rejecting a wrong one) must happen before it runs.
+      if (await isCfbWorkbookFile(path)) {
+        const bytes = await readFile(path)
+        if (isEncryptedOoxml(bytes)) {
+          if (password === undefined) return { passwordRequired: true as const, path }
+          await decryptOoxml(bytes, password)
+        }
+      }
+      const prepared = await prepareWorkbookForOpen(
+        entry.client,
+        path,
+        event.sender,
+        dialogParent(event),
+      )
+      // a declined import (an .ods the user chose not to convert) opens nothing
+      if (!prepared) return null
+      // The recovery prompt (or the file dialog / import conversion) can outlive
+      // the tab: once the renderer is destroyed, its 'destroyed' handler has
+      // already run closeAllSessions and dropped the tab entry, so a session
+      // opened now would never be closed and its snapshot would leak.
+      if (event.sender.isDestroyed()) {
+        await discardPreparedOpen(prepared)
+        return null
+      }
+      let result: WorkbookFile
+      try {
+        result = await openWorkbookSession(entry.client, prepared.openPath, entry.sessions, {
+          suggestSaveAs: prepared.suggestSaveAs,
+          csvImport: prepared.csvImport,
+          csvSourcePath: prepared.csvSourcePath,
+          recoverySourcePath: prepared.recoverySourcePath,
+          recoverySourceSha: prepared.recoverySourceSha,
+          emptyCsv: prepared.emptyCsv,
+          importTempDir: prepared.importTempDir,
+          restoreTarget: prepared.restoreTarget,
+          emptySource: prepared.emptySource,
+          unsavedNew: prepared.unsavedNew,
+          requireExitOnCloseFailure: headlessOwnerWork.has(event.sender),
+          password,
+        })
+      } catch (error) {
+        await discardPreparedOpen(prepared)
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('PASSWORD_REQUIRED') && password === undefined) {
+          return { passwordRequired: true as const, path }
+        }
+        throw error
+      }
+      // The sidecar open itself can also outlive the tab after the pre-open
+      // check. Close the newly registered session instead of stranding it in
+      // the detached entry map.
+      if (event.sender.isDestroyed()) {
+        const session = entry.sessions.get(result.sessionId)
+        entry.sessions.delete(result.sessionId)
+        if (session !== undefined) {
+          await cleanupSessionResources({
+            tempRoot: app.getPath('temp'),
+            snapshotPath: session.snapshotPath,
+            importTempDir: session.importTempDir,
+            closeSidecar: async () => {
+              if (!headlessOwnerWork.has(event.sender)) return entry.client.close(result.sessionId)
+              try {
+                await entry.client.closeSettled(result.sessionId)
+              } catch (error) {
+                // Temp cleanup swallows close errors. A headless late open may
+                // release its staging only after its reader has truly exited.
+                await entry.client.stopSettled()
+                throw error
+              }
+            },
+          })
+          await releasePreparedDocumentRecovery(session.path)
+        }
+        return null
+      }
+      // an unsaved new workbook's tab already shows the untitled name; its temp
+      // backing path must not become a recent file
+      const adoptedPath = path
+      const offered = offerOpenedSource(
+        event.sender,
+        sourceOpen,
+        result,
+        prepared.unsavedNew ? undefined : () => workbookOpenedHook?.(event.sender, adoptedPath),
+      )
+      offerReturned = true
+      return offered
+    } finally {
+      if (!offerReturned) {
+        sheetsSources.cancelOpen(event.sender, sourceOpen)
+        if (sourceOpenAdmissions.get(event.sender.id) === sourceOpen)
+          sourceOpenAdmissions.delete(event.sender.id)
+      }
     }
-    // an unsaved new workbook's tab already shows the untitled name; its temp
-    // backing path must not become a recent file
-    if (!prepared.unsavedNew) workbookOpenedHook?.(event.sender, path)
-    return result
+  }
+
+  const openSelectedWorkbook = (
+    event: IpcMainInvokeEvent,
+    explicitPath?: string,
+    password?: string,
+  ) => {
+    const open = () => openSelectedWorkbookActual(event, explicitPath, password)
+    const headless = headlessOwnerWork.get(event.sender)
+    // Reserve the entire open continuation before it can create a snapshot or
+    // native reader. Owner teardown must join late-open staging cleanup too.
+    if (headless) {
+      if (event.sender.isDestroyed())
+        return Promise.reject(new Error('The headless spreadsheet owner is closing.'))
+      return headless.run(open)
+    }
+    return open()
   }
 
   ipcMain.handle(IPC_CHANNELS.selectWorkbook, async (event) => {
@@ -3072,21 +4557,98 @@ export function registerSheetsIpc(): void {
     const entry = sessionFor(event)
     const session = entry.sessions.get(sessionId)
     if (!session) throw new Error('Unknown workbook session.')
-    if (session.password === undefined) {
-      throw new Error('This workbook is not protected by an open password.')
-    }
+    const source = sheetsSources.current(event.sender)
+    if (!source || source.sessionId !== sessionId)
+      throw new Error('The password action does not own the active reader.')
+    // This endpoint is an explicit password action, never a timer/AI save.
+    const writeAdmission = sheetsPromptWriteGate.admit(event.sender, { origin: 'manual' })
+    await writeAdmission.ready
+    if (
+      sheetsSources.busy(event.sender) ||
+      [...sourceOffers.values()].some((offer) => offer.owner === event.sender)
+    )
+      throw new Error('A source replacement is already pending.')
+    return runDocumentPublication(event.sender.id, sessionId, () =>
+      runMainWorkbookPublication(
+        event.sender,
+        { targetPath: session.path, sourcePaths: [session.snapshotPath] },
+        async () =>
+          withAtomicSaveQueue(session.path, async () => {
+            sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+            const stillCurrent = () =>
+              !event.sender.isDestroyed() &&
+              sheetsTabs.get(event.sender.id) === entry &&
+              entry.sessions.get(sessionId) === session &&
+              !!sheetsSources.current(event.sender) &&
+              sameSheetsCloseSource(sheetsSources.current(event.sender)!, source) &&
+              !sheetsSources.busy(event.sender)
+            if (!stillCurrent())
+              throw new Error('The workbook changed before password publication.')
+            if (session.password === undefined) {
+              throw new Error('This workbook is not protected by an open password.')
+            }
 
-    const currentSha = await sha256File(session.path).catch(() => undefined)
-    if (currentSha !== undefined && currentSha !== session.sha256) {
-      throw new Error(tm('errDiskChanged'))
-    }
-
-    const encryptedBytes = encryptOoxml(await readFile(session.snapshotPath), newPassword)
-    await atomicWriteFile(session.path, encryptedBytes)
-    const sha256 = createHash('sha256').update(encryptedBytes).digest('hex')
-    entry.sessions.set(sessionId, { ...session, password: newPassword, sha256 })
-    clearWorkbookRecovery(session.path)
-    return { sha256, fileBytes: encryptedBytes.byteLength, passwordProtected: true as const }
+            const expectedCiphertext = expectedWorkbookDigest(session, session.path, session.sha256)
+            await assertWorkbookTargetUnchanged(
+              session.path,
+              expectedCiphertext,
+              tm('errDiskChanged'),
+              sha256File,
+            )
+            const pinnedBase = await readFile(session.snapshotPath)
+            if (
+              `sha256:${createHash('sha256').update(pinnedBase).digest('hex')}` !==
+              session.nativeSourceFingerprint
+            )
+              throw new Error(
+                'The immutable loaded workbook base changed before password publication.',
+              )
+            const encryptedBytes = encryptOoxml(pinnedBase, newPassword)
+            sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+            if (!stillCurrent())
+              throw new Error('The workbook changed before its password could be published.')
+            await assertWorkbookTargetUnchanged(
+              session.path,
+              expectedCiphertext,
+              tm('errDiskChanged'),
+              sha256File,
+            )
+            sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+            await atomicWriteFile(session.path, encryptedBytes)
+            const sha256 = createHash('sha256').update(encryptedBytes).digest('hex')
+            const published = sessionAfterPasswordPublication(
+              session,
+              newPassword,
+              sha256,
+              encryptedBytes.byteLength,
+            )
+            entry.sessions.set(sessionId, published)
+            // The old producer captured the previous original ciphertext fingerprint.
+            // Detach it after our publication; retain its candidate and exact base.
+            nativeDocumentAcks.delete(documentOwnerKey(event.sender.id, sessionId))
+            documentCandidates.delete(documentOwnerKey(event.sender.id, sessionId))
+            let recoveryWarning: string | undefined
+            try {
+              await documentRecoveryService?.releaseDocument(event.sender.id, sessionId)
+            } catch (error) {
+              recoveryWarning =
+                'The new password was published; previous recovery-handle cleanup remains incomplete.'
+              console.warn(
+                '[sheets] Password publication old recovery handle cleanup failed:',
+                error,
+              )
+            }
+            clearWorkbookRecovery(session.path)
+            return {
+              sha256,
+              fileBytes: encryptedBytes.byteLength,
+              passwordProtected: true as const,
+              closeSource: source,
+              ...(recoveryWarning ? { recoveryWarning } : {}),
+            }
+          }),
+      ),
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.reopenWorkbook, async (event, path: unknown) => {
@@ -3149,6 +4711,8 @@ export function registerSheetsIpc(): void {
           suggestSaveAs: prepared.suggestSaveAs,
           csvImport: prepared.csvImport,
           csvSourcePath: prepared.csvSourcePath,
+          recoverySourcePath: prepared.recoverySourcePath,
+          recoverySourceSha: prepared.recoverySourceSha,
           importTempDir: prepared.importTempDir,
           restoreTarget: prepared.restoreTarget,
           emptySource: prepared.emptySource,
@@ -3273,6 +4837,15 @@ export function registerSheetsIpc(): void {
     )
     const idsByName = new Map([...session.sheetNames].map(([id, name]) => [name, id]))
     return workbookRecalcResultSchema.parse({
+      ...(result.cacheWritebackAllowed === undefined
+        ? {}
+        : { cacheWritebackAllowed: result.cacheWritebackAllowed }),
+      ...(result.calculationCompleteness === undefined
+        ? {}
+        : { calculationCompleteness: result.calculationCompleteness }),
+      ...(result.cacheWritebackReasons === undefined
+        ? {}
+        : { cacheWritebackReasons: result.cacheWritebackReasons }),
       cells: result.cells.flatMap((cell) => {
         const sheetId = idsByName.get(cell.sheet)
         if (sheetId === undefined) return []
@@ -3282,6 +4855,7 @@ export function registerSheetsIpc(): void {
             row: cell.row,
             column: cell.column,
             formatted: cell.formatted,
+            ...(cell.value === undefined ? {} : { value: cell.value }),
             ...(cell.number === undefined ? {} : { number: cell.number }),
             ...(cell.isError ? { isError: true } : {}),
             isFormula: cell.isFormula,
@@ -3436,14 +5010,32 @@ export function registerSheetsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.exportPdf, async (event, input: unknown) => {
     sessionFor(event)
     const request = workbookExportPdfRequestSchema.parse(input)
-    const result = await exportPdf(event, request)
-    if (!result.canceled && result.path) openGeneratedFile(result.path)
-    return result
+    const write = async () => {
+      const result = await exportPdf(event, request)
+      if (!result.canceled && result.path) openGeneratedFile(result.path)
+      return result
+    }
+    const headless = headlessOwnerWork.get(event.sender)
+    // run() records the actual JS lifetime before invoking the first export
+    // effect. Closed headless owners cannot admit a queued late print/write.
+    if (headless) {
+      if (event.sender.isDestroyed()) throw new Error('The headless spreadsheet owner is closing.')
+      return headless.run(write)
+    }
+    return write()
   })
 
   ipcMain.handle(IPC_CHANNELS.printWorkbook, async (event, input: unknown) => {
-    sessionFor(event)
-    return printWorkbook(event, workbookExportPdfRequestSchema.parse(input))
+    return runInteractiveSheetsPrint(
+      {
+        recoveryDisabled: recoveryRuntimeState().phase === 'disabled',
+        headlessOwner: headlessOwnerWork.has(event.sender),
+      },
+      () => {
+        sessionFor(event)
+        return printWorkbook(event, workbookExportPdfRequestSchema.parse(input))
+      },
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.listPrinters, async (event) => {
@@ -3457,59 +5049,108 @@ export function registerSheetsIpc(): void {
     )
   })
 
-  ipcMain.handle(IPC_CHANNELS.exportCsv, async (event, input: unknown) => {
-    const entry = sessionFor(event)
-    const request = workbookExportCsvRequestSchema.parse(input)
-    const parent = dialogParent(event)
-    if (request.hasFormulas) {
-      // Excel's CSV warning flow: offer keeping the formulas via .xlsx first.
-      const options = {
-        type: 'warning' as const,
-        message: tm('csvFormulaLossMsg'),
-        detail: tm('csvFormulaLossDetail'),
-        buttons: [tm('csvKeepXlsxBtn'), tm('csvContinueBtn'), tm('btnCancel')],
-        defaultId: 0,
-        cancelId: 2,
-        noLink: true,
-      }
-      const { response } = parent
-        ? await dialog.showMessageBox(parent, options)
-        : await dialog.showMessageBox(options)
-      if (response === 0) return { canceled: true, saveAsXlsxInstead: true }
-      if (response === 2) return { canceled: true }
-    }
-    let pickedPath = request.targetPath
-    if (pickedPath === undefined) {
-      const selection = await saveFileDialog(event, {
-        defaultPath: request.fileName,
-        filters: [{ name: tm('filterCsv'), extensions: ['csv'] }],
-        ...(request.activeSheetName
-          ? {
-              title: tm('csvActiveSheetOnlyNotice', { name: request.activeSheetName }),
-              message: tm('csvActiveSheetOnlyNotice', { name: request.activeSheetName }),
+  ipcMain.handle(
+    IPC_CHANNELS.exportCsv,
+    async (event, input: unknown, rawWriteContext: unknown, rawCloseTicket: unknown) => {
+      const entry = sessionFor(event)
+      const request = workbookExportCsvRequestSchema.parse(input)
+      const closeTicket =
+        rawCloseTicket === undefined
+          ? undefined
+          : isCloseLeaseTicket(rawCloseTicket)
+            ? rawCloseTicket
+            : null
+      if (closeTicket === null) throw new Error('Invalid CSV close save ticket.')
+      const writeAdmission = sheetsPromptWriteGate.admit(
+        event.sender,
+        parseWorkbookWriteContext(rawWriteContext),
+        closeTicket,
+      )
+      await writeAdmission.ready
+      const source = sheetsSources.current(event.sender)
+      // Demo/in-memory grids also export CSV. This synthetic queue key grants no
+      // source/close authority; it only accounts for their exact owner's I/O.
+      return runDocumentPublication(
+        event.sender.id,
+        source?.sessionId ?? 'csv-export',
+        async () => {
+          const assertExport = () => {
+            sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+            const current = sheetsSources.current(event.sender)
+            if (
+              sheetsTabs.get(event.sender.id) !== entry ||
+              sheetsSources.busy(event.sender) ||
+              (source ? !current || !sameSheetsCloseSource(current, source) : current !== null)
+            )
+              throw new Error('The CSV source changed before publication.')
+          }
+          assertExport()
+          const parent = dialogParent(event)
+          if (request.hasFormulas) {
+            // Excel's CSV warning flow: offer keeping the formulas via .xlsx first.
+            const options = {
+              type: 'warning' as const,
+              message: tm('csvFormulaLossMsg'),
+              detail: tm('csvFormulaLossDetail'),
+              buttons: [tm('csvKeepXlsxBtn'), tm('csvContinueBtn'), tm('btnCancel')],
+              defaultId: 0,
+              cancelId: 2,
+              noLink: true,
             }
-          : {}),
-      })
-      if (selection.canceled || !selection.filePath) return { canceled: true }
-      pickedPath = selection.filePath
-    }
-    const targetPath = pickedPath.toLowerCase().endsWith('.csv') ? pickedPath : `${pickedPath}.csv`
-    // UTF-8 BOM so Excel decodes the reopened file correctly. Written beside
-    // the destination and renamed into place: a plain writeFile creates the
-    // (empty) file before the data lands, and anything watching for the
-    // export — the e2e retry loop included — can read zero bytes in that
-    // window.
-    const csvBytes = Buffer.concat([
-      Buffer.from([0xef, 0xbb, 0xbf]),
-      Buffer.from(request.content, 'utf8'),
-    ])
-    await atomicWriteFile(targetPath, csvBytes)
-    // An export can land on a CSV session's own source file; refresh the
-    // digest so the next Save does not read this write as an external change.
-    const writtenSha = await sha256File(targetPath).catch(() => undefined)
-    if (writtenSha !== undefined) refreshCsvDigest(entry.sessions, targetPath, writtenSha)
-    return { canceled: false, path: targetPath }
-  })
+            const { response } = parent
+              ? await dialog.showMessageBox(parent, options)
+              : await dialog.showMessageBox(options)
+            assertExport()
+            if (response === 0) return { canceled: true, saveAsXlsxInstead: true }
+            if (response === 2) return { canceled: true }
+          }
+          let pickedPath = request.targetPath
+          if (pickedPath === undefined) {
+            const selection = await saveFileDialog(event, {
+              defaultPath: request.fileName,
+              filters: [{ name: tm('filterCsv'), extensions: ['csv'] }],
+              ...(request.activeSheetName
+                ? {
+                    title: tm('csvActiveSheetOnlyNotice', { name: request.activeSheetName }),
+                    message: tm('csvActiveSheetOnlyNotice', { name: request.activeSheetName }),
+                  }
+                : {}),
+            })
+            assertExport()
+            if (selection.canceled || !selection.filePath) return { canceled: true }
+            pickedPath = selection.filePath
+          }
+          const targetPath = pickedPath.toLowerCase().endsWith('.csv')
+            ? pickedPath
+            : `${pickedPath}.csv`
+          // Pin the main-observed chooser version before admitting preparation.
+          // The renderer supplies content, never destination version authority.
+          const selectedOutput = await captureSelectedSheetsOutput(targetPath, assertExport)
+          await publishCapturedSheetsOutput(
+            selectedOutput,
+            {
+              sourcePaths: source?.documentPath ? [source.documentPath] : [],
+              assertCurrent: assertExport,
+              prepare: async () =>
+                Buffer.concat([
+                  Buffer.from([0xef, 0xbb, 0xbf]),
+                  Buffer.from(request.content, 'utf8'),
+                ]),
+              afterPublished: async () => {
+                // A CSV export may replace its own source; keep subsequent Save's
+                // main-owned digest aligned with the completed publication.
+                const writtenSha = await sha256File(targetPath).catch(() => undefined)
+                if (writtenSha !== undefined)
+                  refreshCsvDigest(entry.sessions, targetPath, writtenSha)
+              },
+            },
+            (scope, actual) => runMainWorkbookPublication(event.sender, scope, actual),
+          )
+          return { canceled: false, path: targetPath }
+        },
+      )
+    },
+  )
 
   // AI create_document: dialog-free — the file lands in the default save
   // folder under a unique sanitized name and opens in a new tab. xlsx/csv
@@ -3519,30 +5160,59 @@ export function registerSheetsIpc(): void {
   ipcMain.handle(
     IPC_CHANNELS.createDocument,
     async (event, input: unknown): Promise<WorkbookCreateDocumentResult> => {
-      sessionFor(event)
+      const entry = sessionFor(event)
       const request = workbookCreateDocumentRequestSchema.parse(input)
+      const source = sheetsSources.current(event.sender)
+      const assertGeneratedSource = () => {
+        const current = sheetsSources.current(event.sender)
+        if (
+          event.sender.isDestroyed() ||
+          sheetsTabs.get(event.sender.id) !== entry ||
+          sheetsSources.busy(event.sender) ||
+          (source ? !current || !sameSheetsCloseSource(current, source) : current !== null)
+        )
+          throw new Error('The spreadsheet source changed before generated output publication.')
+      }
+      const generatedSourcePaths = source?.documentPath ? [source.documentPath] : []
       try {
         if (request.type === 'csv') {
           const filePath = uniquePathIn(
             configuredDefaultSaveDir(app),
             `${sanitizeGeneratedFileBase(request.title)}.csv`,
           )
-          // UTF-8 BOM so Excel decodes the reopened file correctly (same as exportCsv)
-          await atomicWriteFile(
-            filePath,
-            Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(request.content, 'utf8')]),
+          // uniquePathIn is main-owned naming; a peer winning this fresh path
+          // must conflict with the explicit absence expectation, never replace it.
+          await publishCapturedSheetsOutput(
+            captureFreshSheetsOutput(filePath),
+            {
+              sourcePaths: generatedSourcePaths,
+              assertCurrent: assertGeneratedSource,
+              prepare: async () =>
+                Buffer.concat([
+                  Buffer.from([0xef, 0xbb, 0xbf]),
+                  Buffer.from(request.content, 'utf8'),
+                ]),
+              afterPublished: () => openGeneratedFile(filePath),
+            },
+            (scope, actual) => runMainWorkbookPublication(event.sender, scope, actual),
           )
-          openGeneratedFile(filePath)
           return { ok: true, path: filePath }
         }
         if (request.type === 'xlsx') {
-          const buffer = await sheetCsvToXlsxBuffer(request.content, request.sheetName ?? 'Sheet1')
           const filePath = uniquePathIn(
             configuredDefaultSaveDir(app),
             `${sanitizeGeneratedFileBase(request.title)}.xlsx`,
           )
-          await atomicWriteFile(filePath, buffer)
-          openGeneratedFile(filePath)
+          await publishCapturedSheetsOutput(
+            captureFreshSheetsOutput(filePath),
+            {
+              sourcePaths: generatedSourcePaths,
+              assertCurrent: assertGeneratedSource,
+              prepare: () => sheetCsvToXlsxBuffer(request.content, request.sheetName ?? 'Sheet1'),
+              afterPublished: () => openGeneratedFile(filePath),
+            },
+            (scope, actual) => runMainWorkbookPublication(event.sender, scope, actual),
+          )
           return { ok: true, path: filePath }
         }
         const create = runtime.createDocument
@@ -3556,204 +5226,441 @@ export function registerSheetsIpc(): void {
 
   // First Save of a CSV session: Excel's "keep this format?" question. The
   // renderer remembers the answer for the file, so it is asked once.
-  ipcMain.handle(IPC_CHANNELS.csvSaveConfirm, async (event) => {
-    sessionFor(event)
-    const options = {
-      type: 'warning' as const,
-      message: tm('csvKeepFormatMsg'),
-      detail: tm('csvKeepFormatDetail'),
-      buttons: [tm('csvContinueBtn'), tm('csvKeepXlsxBtn'), tm('btnCancel')],
-      defaultId: 0,
-      cancelId: 2,
-      noLink: true,
-    }
-    const parent = dialogParent(event)
-    const { response } = parent
-      ? await dialog.showMessageBox(parent, options)
-      : await dialog.showMessageBox(options)
-    return response === 0 ? 'csv' : response === 1 ? 'xlsx' : 'cancel'
-  })
-
-  ipcMain.handle(IPC_CHANNELS.saveWorkbook, async (event, input: unknown) => {
-    const entry = sessionFor(event)
-    const client = entry.client
-    const request = resolveTransferredEdits(entry, workbookSaveRequestSchema.parse(input))
-    const session = entry.sessions.get(request.sessionId)
-    if (!session) throw new Error('Unknown workbook session.')
-
-    // A CSV session's plain Save keeps the CSV identity: the xlsx save lands
-    // on the temp copy and the serialized csvContent is written back to the
-    // original .csv afterwards.
-    const csvInPlace = request.mode === 'save' && session.csvSourcePath !== undefined
-    let targetPath = session.path
-    // MCP explicit-path save (planning/mcp-server.md): dialog-free Save As to
-    // an exact path with a clobber guard — docs:save-to parity. Only the xlsx
-    // pipeline is reachable this way (.xlsm/.csv need their interactive flows).
-    if (request.targetPath !== undefined) {
-      if (request.mode !== 'save-as') throw new Error('An explicit save path needs Save As.')
-      if (!isAbsolute(request.targetPath)) throw new Error('Save path must be absolute.')
-      targetPath = /\.xlsx$/i.test(request.targetPath)
-        ? request.targetPath
-        : `${request.targetPath}.xlsx`
-      // only a target the MCP layer resolved for this tab may be written without a dialog
-      if (!canMcpSheetWrite(event.sender.id, targetPath)) {
-        throw new Error('save target was not authorized')
-      }
-      if (existsSync(targetPath) && request.overwrite !== true) {
-        throw new Error(`file already exists: ${targetPath}`)
-      }
-    } else if (request.mode === 'save' && request.quiet && session.unsavedNew) {
-      // AutoSave / AI-run autosave of a workbook the user has not named yet:
-      // no dialog mid-flow, the edits land in the backing temp file and the
-      // session stays an unsaved new one (Ctrl+S still asks where to save)
-      targetPath = session.path
-    } else if (request.mode === 'save-as' || session.suggestSaveAs !== undefined) {
-      // .xlsm keeps its extension: untouched archive entries (vbaProject.bin,
-      // the macro-enabled content type) round-trip verbatim through the save.
-      const macroEnabled = /\.xlsm$/i.test(
-        session.suggestSaveAs ?? session.restoreTarget ?? session.path,
+  ipcMain.handle(
+    IPC_CHANNELS.csvSaveConfirm,
+    async (event, rawWriteContext: unknown, rawCloseTicket: unknown) => {
+      sessionFor(event)
+      const closeTicket =
+        rawCloseTicket === undefined
+          ? undefined
+          : isCloseLeaseTicket(rawCloseTicket)
+            ? rawCloseTicket
+            : null
+      if (closeTicket === null) throw new Error('Invalid CSV close save ticket.')
+      const writeAdmission = sheetsPromptWriteGate.admit(
+        event.sender,
+        parseWorkbookWriteContext(rawWriteContext),
+        closeTicket,
       )
-      const ext = macroEnabled ? 'xlsm' : 'xlsx'
-      // A name the model proposed for the reader's own request prefills the
-      // dialog rather than replacing it: the reader still chooses where the
-      // file goes, and cancelling still cancels. Without one, the dialog opens
-      // on the name the save would have offered anyway.
-      const fallbackPath =
-        session.suggestSaveAs ??
-        session.csvSourcePath?.replace(/\.[^.]+$/, '.xlsx') ??
-        session.restoreTarget ??
-        session.path
-      const proposed = request.defaultName ? sanitizeAutoRenameBase(request.defaultName) : null
-      const selection = await saveFileDialog(event, {
-        defaultPath: proposed ? join(dirname(fallbackPath), `${proposed}.${ext}`) : fallbackPath,
-        filters: macroEnabled
-          ? [{ name: tm('filterXlsm'), extensions: ['xlsm'] }]
-          : [
-              { name: tm('filterXlsx'), extensions: ['xlsx'] },
-              { name: tm('filterCsv'), extensions: ['csv'] },
-            ],
-        // CSV import: explain why the save goes through .xlsx (CSV keeps values only)
-        ...(session.csvImport
-          ? { title: tm('csvSaveAsNotice'), message: tm('csvSaveAsNotice') }
-          : {}),
-      })
-      if (selection.canceled || !selection.filePath) return { canceled: true }
-      // A CSV pick can't ride the xlsx pipeline: hand the path back so the
-      // renderer serializes the active sheet through the CSV export channel.
-      if (!macroEnabled && selection.filePath.toLowerCase().endsWith('.csv')) {
-        return { canceled: true, csvSaveAsPath: selection.filePath }
+      await writeAdmission.ready
+      sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+      const options = {
+        type: 'warning' as const,
+        message: tm('csvKeepFormatMsg'),
+        detail: tm('csvKeepFormatDetail'),
+        buttons: [tm('csvContinueBtn'), tm('csvKeepXlsxBtn'), tm('btnCancel')],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
       }
-      targetPath = selection.filePath.toLowerCase().endsWith(`.${ext}`)
-        ? selection.filePath
-        : `${selection.filePath}.${ext}`
-    } else if (session.restoreTarget !== undefined) {
-      // Restored crash-recovery copy: the restore prompt was the confirmation,
-      // so Save writes straight back to the original — unless someone else
-      // changed it since the restore.
-      const currentSha = await sha256File(session.restoreTarget).catch(() => undefined)
-      if (currentSha !== undefined && currentSha !== session.restoreTargetSha) {
-        throw new Error(tm('errDiskChanged'))
-      }
-      targetPath = session.restoreTarget
-    } else {
-      // Plain in-place save: refuse to silently overwrite a file some other
-      // program changed after this session opened it. Save As (above) skips
-      // this guard on purpose — it patches the session snapshot, not the live
-      // file, and writes to a path the user just confirmed, so it stays
-      // usable as the escape hatch this error message points to. A file that
-      // was deleted on disk is fine: saving recreates it.
-      const currentSha = await sha256File(session.path).catch(() => undefined)
-      if (currentSha !== undefined && currentSha !== session.sha256) {
-        throw new Error(tm('errDiskChanged'))
-      }
-    }
-    // The CSV write-back gets the same external-change guard as restoreTarget;
-    // a deleted .csv is fine — the write recreates it.
-    if (csvInPlace && session.csvSourcePath !== undefined) {
-      const csvSha = await sha256File(session.csvSourcePath).catch(() => undefined)
-      if (csvSha !== undefined && csvSha !== session.csvSourceSha) {
-        throw new Error(tm('errDiskChanged'))
-      }
-    }
+      const parent = dialogParent(event)
+      const { response } = parent
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options)
+      sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+      return response === 0 ? 'csv' : response === 1 ? 'xlsx' : 'cancel'
+    },
+  )
 
-    const mutation = await writeWorkbookTo(client, session, request, targetPath)
-
-    if (csvInPlace && session.csvSourcePath !== undefined && request.csvContent !== undefined) {
-      // The temp copy already holds the saved bytes: refresh the session's
-      // guard digest first, so a failed CSV write-back below leaves a
-      // retryable session instead of stranding the next Save on
-      // errDiskChanged against its own write.
-      const savedSha = await sha256File(session.path).catch(() => undefined)
-      if (savedSha !== undefined && entry.sessions.has(request.sessionId)) {
-        entry.sessions.set(request.sessionId, { ...session, sha256: savedSha })
-      }
-      // UTF-8 BOM so Excel decodes the reopened file correctly.
-      await atomicWriteFile(
-        session.csvSourcePath,
-        Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(request.csvContent, 'utf8')]),
+  ipcMain.handle(
+    IPC_CHANNELS.saveWorkbook,
+    async (event, input: unknown, rawCloseTicket: unknown, rawWriteContext: unknown) => {
+      const validatedRequest = workbookSaveRequestSchema.parse(input)
+      if (!sessionFor(event).sessions.has(validatedRequest.sessionId))
+        throw new Error('Unknown workbook session.')
+      const closeTicket =
+        rawCloseTicket === undefined
+          ? undefined
+          : isCloseLeaseTicket(rawCloseTicket)
+            ? rawCloseTicket
+            : null
+      if (closeTicket === null) throw new Error('Invalid workbook close save ticket.')
+      const writeAdmission = sheetsPromptWriteGate.admit(
+        event.sender,
+        parseWorkbookWriteContext(rawWriteContext),
+        closeTicket,
       )
-    }
+      await writeAdmission.ready
+      return runDocumentPublication(event.sender.id, validatedRequest.sessionId, async () => {
+        sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+        const entry = sessionFor(event)
+        const client = entry.client
+        let request = resolveTransferredEdits(entry, validatedRequest)
+        const session = entry.sessions.get(request.sessionId)
+        if (!session) throw new Error('Unknown workbook session.')
+        if (
+          session.relocationPending &&
+          request.mode === 'save' &&
+          request.targetPath === undefined
+        )
+          throw new Error(
+            'The moved workbook path is not verified yet. Retry its relocation or use Save As.',
+          )
+        sheetsCloseTransport.assertWriter(event.sender, closeTicket)
+        const previousSource = sheetsSources.current(event.sender)
+        if (
+          !previousSource ||
+          previousSource.sessionId !== request.sessionId ||
+          sheetsSources.busy(event.sender) ||
+          [...sourceOffers.values()].some((offer) => offer.owner === event.sender)
+        )
+          throw new Error('The active source is not ready for another publication.')
 
-    // The sidecar session still streams the pre-save bytes; swap it for a
-    // fresh session over the saved file so future reads match the disk state.
-    const quietUnsavedNew = targetPath === session.path && session.unsavedNew === true
-    entry.sessions.delete(request.sessionId)
-    await cleanupSessionResources({
-      tempRoot: app.getPath('temp'),
-      snapshotPath: session.snapshotPath,
-      // A CSV in-place save keeps saving into the temp copy, and a quiet save of
-      // an unsaved new workbook just wrote its backing file — the directory
-      // must survive the session swap.
-      importTempDir: csvInPlace || quietUnsavedNew ? undefined : session.importTempDir,
-      closeSidecar: () => client.close(request.sessionId),
-    })
-    const file = await openWorkbookSession(client, targetPath, entry.sessions, {
-      ...(csvInPlace
-        ? {
-            csvImport: true,
-            csvSourcePath: session.csvSourcePath,
-            importTempDir: session.importTempDir,
+        // A CSV session's plain Save keeps the CSV identity: the xlsx save lands
+        // on the temp copy and the serialized csvContent is written back to the
+        // original .csv afterwards.
+        const csvInPlace = request.mode === 'save' && session.csvSourcePath !== undefined
+        let targetPath = session.path
+        let checkLoadedSource: (() => Promise<void>) | undefined
+        // MCP explicit-path save (planning/mcp-server.md): dialog-free Save As to
+        // an exact path with a clobber guard — docs:save-to parity. Only the xlsx
+        // pipeline is reachable this way (.xlsm/.csv need their interactive flows).
+        if (request.targetPath !== undefined) {
+          if (request.mode !== 'save-as') throw new Error('An explicit save path needs Save As.')
+          if (!isAbsolute(request.targetPath)) throw new Error('Save path must be absolute.')
+          targetPath = /\.xlsx$/i.test(request.targetPath)
+            ? request.targetPath
+            : `${request.targetPath}.xlsx`
+          // only a target the MCP layer resolved for this tab may be written without a dialog
+          if (!canMcpSheetWrite(event.sender.id, targetPath)) {
+            throw new Error('save target was not authorized')
           }
-        : quietUnsavedNew
-          ? {
-              suggestSaveAs: session.suggestSaveAs,
-              importTempDir: session.importTempDir,
-              unsavedNew: true,
+          if (existsSync(targetPath) && request.overwrite !== true) {
+            throw new Error(`file already exists: ${targetPath}`)
+          }
+        } else if (request.mode === 'save' && request.quiet && session.unsavedNew) {
+          // AutoSave / AI-run autosave of a workbook the user has not named yet:
+          // no dialog mid-flow, the edits land in the backing temp file and the
+          // session stays an unsaved new one (Ctrl+S still asks where to save)
+          targetPath = session.path
+        } else if (request.mode === 'save-as' || session.suggestSaveAs !== undefined) {
+          // .xlsm keeps its extension: untouched archive entries (vbaProject.bin,
+          // the macro-enabled content type) round-trip verbatim through the save.
+          const macroEnabled = /\.xlsm$/i.test(
+            session.suggestSaveAs ?? session.restoreTarget ?? session.path,
+          )
+          const ext = macroEnabled ? 'xlsm' : 'xlsx'
+          // A name the model proposed for the reader's own request prefills the
+          // dialog rather than replacing it: the reader still chooses where the
+          // file goes, and cancelling still cancels. Without one, the dialog opens
+          // on the name the save would have offered anyway.
+          const fallbackPath =
+            session.suggestSaveAs ??
+            session.csvSourcePath?.replace(/\.[^.]+$/, '.xlsx') ??
+            session.restoreTarget ??
+            session.path
+          const proposed = request.defaultName ? sanitizeAutoRenameBase(request.defaultName) : null
+          const selection = await saveFileDialog(event, {
+            defaultPath: proposed
+              ? join(dirname(fallbackPath), `${proposed}.${ext}`)
+              : fallbackPath,
+            filters: macroEnabled
+              ? [{ name: tm('filterXlsm'), extensions: ['xlsm'] }]
+              : [
+                  { name: tm('filterXlsx'), extensions: ['xlsx'] },
+                  { name: tm('filterCsv'), extensions: ['csv'] },
+                ],
+            // CSV import: explain why the save goes through .xlsx (CSV keeps values only)
+            ...(session.csvImport
+              ? { title: tm('csvSaveAsNotice'), message: tm('csvSaveAsNotice') }
+              : {}),
+          })
+          if (selection.canceled || !selection.filePath) return { canceled: true }
+          // A CSV pick can't ride the xlsx pipeline: hand the path back so the
+          // renderer serializes the active sheet through the CSV export channel.
+          if (!macroEnabled && selection.filePath.toLowerCase().endsWith('.csv')) {
+            return { canceled: true, csvSaveAsPath: selection.filePath }
+          }
+          targetPath = selection.filePath.toLowerCase().endsWith(`.${ext}`)
+            ? selection.filePath
+            : `${selection.filePath}.${ext}`
+        } else if (session.restoreTarget !== undefined) {
+          // Restored crash-recovery copy: the restore prompt was the confirmation,
+          // so Save writes straight back to the original — unless someone else
+          // changed it since the restore.
+          targetPath = session.restoreTarget
+          checkLoadedSource = async () => {
+            const currentSha = await sha256File(session.restoreTarget!).catch(() => undefined)
+            if (
+              currentSha !== undefined &&
+              currentSha !==
+                expectedWorkbookDigest(session, session.restoreTarget!, session.restoreTargetSha)
+            )
+              throw new Error(tm('errDiskChanged'))
+          }
+        } else {
+          // Plain in-place save: refuse to silently overwrite a file some other
+          // program changed after this session opened it. Save As (above) skips
+          // this guard on purpose — it patches the session snapshot, not the live
+          // file, and writes to a path the user just confirmed, so it stays
+          // usable as the escape hatch this error message points to. A file that
+          // was deleted on disk is fine: saving recreates it.
+          checkLoadedSource = async () => {
+            const currentSha = await sha256File(session.path).catch(() => undefined)
+            if (
+              currentSha !== undefined &&
+              currentSha !== expectedWorkbookDigest(session, session.path, session.sha256)
+            )
+              throw new Error(tm('errDiskChanged'))
+          }
+        }
+        const quietUnsavedNew = targetPath === session.path && session.unsavedNew === true
+        const otherPhysicalOutputs = [
+          ...(csvInPlace && session.csvSourcePath !== undefined && request.csvContent !== undefined
+            ? [session.csvSourcePath]
+            : []),
+          ...(quietUnsavedNew && session.suggestSaveAs !== undefined
+            ? [recoveryPathFor(session.suggestSaveAs)]
+            : []),
+        ]
+        return runMainWorkbookPublication(
+          event.sender,
+          {
+            targetPath,
+            sourcePaths: [
+              session.snapshotPath,
+              ...(csvInPlace && session.csvSourcePath !== undefined ? [session.csvSourcePath] : []),
+              ...(materializedRecoveryDirectories.has(session.path) ? [session.path] : []),
+            ],
+          },
+          async (lifecycle) => {
+            await checkLoadedSource?.()
+            // The CSV write-back gets the same external-change guard as restoreTarget;
+            // a deleted .csv is fine — the write recreates it.
+            if (csvInPlace && session.csvSourcePath !== undefined) {
+              const csvSha = await sha256File(session.csvSourcePath).catch(() => undefined)
+              if (
+                csvSha !== undefined &&
+                csvSha !==
+                  expectedWorkbookDigest(session, session.csvSourcePath, session.csvSourceSha)
+              ) {
+                throw new Error(tm('errDiskChanged'))
+              }
             }
-          : {}),
-      ...(session.password === undefined ? {} : { password: session.password }),
-    })
-    if (quietUnsavedNew && session.suggestSaveAs !== undefined) {
-      // the temp path must not reach the title or recents; the recovery copy
-      // is what a crash restores from, so it tracks the saved bytes
-      try {
-        await mkdir(recoveryDir(), { recursive: true })
-        await copyFile(targetPath, recoveryPathFor(session.suggestSaveAs))
-        rememberUnsavedNewRecovery(session.suggestSaveAs)
-      } catch (error) {
-        console.warn('[sheets] recovery copy of an unsaved new workbook failed:', error)
-      }
-      return { canceled: false, file, touchedEntries: mutation.touchedEntries }
-    }
-    // Notify shell (if running) so it can update the tab title and record the
-    // saved path in recent files (mirrors the open hook; covers Save As + first
-    // save after converting an .xls/.csv import). A CSV session's user-visible
-    // file is the original .csv, not the temp copy the xlsx save landed on.
-    workbookOpenedHook?.(
-      event.sender,
-      (csvInPlace ? session.csvSourcePath : undefined) ?? targetPath,
-    )
-    // The file on disk now carries these edits
-    clearWorkbookRecovery(targetPath)
-    if (session.suggestSaveAs !== undefined) {
-      if (session.unsavedNew) forgetUnsavedNewRecovery(session.suggestSaveAs)
-      else clearWorkbookRecovery(session.suggestSaveAs)
-    }
-    // Restored session saved (possibly Save As elsewhere): the unsaved work is
-    // persisted, so the original's recovery copy must not re-offer it.
-    if (session.restoreTarget !== undefined) clearWorkbookRecovery(session.restoreTarget)
-    return { canceled: false, file, touchedEntries: mutation.touchedEntries }
-  })
+
+            // The I/O adapter consumes the exact immutable revision acknowledged by
+            // Rust, rather than a second independently interpreted renderer payload.
+            const acknowledged = await checkpointDocumentForSession(
+              event.sender.id,
+              request.sessionId,
+              session,
+              request,
+              { closeTicket, writeAdmission },
+            )
+            const pinned = documentSnapshotResponseSchema.parse(
+              await completeNativeCommand(
+                documentRecoveryClient!,
+                {
+                  command: 'document_snapshot',
+                  apiVersion: 1,
+                  documentId: acknowledged.documentId,
+                  revision: acknowledged.revision,
+                },
+                180_000,
+              ),
+            )
+            if (
+              pinned.documentId !== acknowledged.documentId ||
+              pinned.revision !== acknowledged.revision
+            ) {
+              throw new Error(
+                'The native document snapshot does not match the acknowledged save revision.',
+              )
+            }
+            const { editsTransferId: _consumedTransfer, ...saveOptions } = request
+            request = { ...saveOptions, ...validateDocumentPayload(pinned.payload) }
+            const beforePublish = async () => {
+              sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+              if (sheetsTabs.get(event.sender.id)?.sessions.get(request.sessionId) !== session) {
+                throw new Error(
+                  'The workbook closed or changed before its save could be published.',
+                )
+              }
+              const activeSource = sheetsSources.current(event.sender)
+              if (
+                !activeSource ||
+                sheetsSources.busy(event.sender) ||
+                !sameSheetsCloseSource(activeSource, previousSource)
+              )
+                throw new Error('A newer source-open operation superseded this publication.')
+              const latest = documentSnapshotResponseSchema.parse(
+                await completeNativeCommand(
+                  documentRecoveryClient!,
+                  {
+                    command: 'document_snapshot',
+                    apiVersion: 1,
+                    documentId: acknowledged.documentId,
+                  },
+                  180_000,
+                ),
+              )
+              if (
+                latest.documentId !== acknowledged.documentId ||
+                latest.revision !== acknowledged.revision
+              ) {
+                throw new Error(
+                  'The document advanced while saving. Retry Save to include its latest changes.',
+                )
+              }
+              if (
+                request.mode === 'save' &&
+                request.targetPath === undefined &&
+                session.suggestSaveAs === undefined
+              ) {
+                const guardedPath = session.restoreTarget ?? session.path
+                const expected = expectedWorkbookDigest(
+                  session,
+                  guardedPath,
+                  session.restoreTarget !== undefined ? session.restoreTargetSha : session.sha256,
+                )
+                await assertWorkbookTargetUnchanged(
+                  guardedPath,
+                  expected,
+                  tm('errDiskChanged'),
+                  sha256File,
+                )
+              }
+              sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+            }
+            const mutation = await writeWorkbookTo(
+              client,
+              session,
+              request,
+              targetPath,
+              beforePublish,
+            )
+            rememberWorkbookPublication(
+              entry.sessions,
+              request.sessionId,
+              targetPath,
+              mutation.publishedSha256,
+            )
+
+            if (
+              csvInPlace &&
+              session.csvSourcePath !== undefined &&
+              request.csvContent !== undefined
+            ) {
+              // The temp copy already holds the saved bytes: refresh the session's
+              // guard digest first, so a failed CSV write-back below leaves a
+              // retryable session instead of stranding the next Save on
+              // errDiskChanged against its own write.
+              // UTF-8 BOM so Excel decodes the reopened file correctly.
+              const currentCsvSha = await sha256File(session.csvSourcePath).catch(() => undefined)
+              if (
+                currentCsvSha !== undefined &&
+                currentCsvSha !==
+                  expectedWorkbookDigest(session, session.csvSourcePath, session.csvSourceSha)
+              ) {
+                throw new Error(tm('errDiskChanged'))
+              }
+              const csvBytes = Buffer.concat([
+                Buffer.from([0xef, 0xbb, 0xbf]),
+                Buffer.from(request.csvContent, 'utf8'),
+              ])
+              sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+              await atomicWriteFile(session.csvSourcePath, csvBytes)
+              rememberWorkbookPublication(
+                entry.sessions,
+                request.sessionId,
+                session.csvSourcePath,
+                createHash('sha256').update(csvBytes).digest('hex'),
+              )
+            }
+
+            // The sidecar session still streams the pre-save bytes; swap it for a
+            // fresh session over the saved file so future reads match the disk state.
+            const file = await openWorkbookSession(client, targetPath, entry.sessions, {
+              retainExistingBaseOnFailure: true,
+              ...(csvInPlace
+                ? {
+                    csvImport: true,
+                    csvSourcePath: session.csvSourcePath,
+                    importTempDir: session.importTempDir,
+                  }
+                : quietUnsavedNew
+                  ? {
+                      suggestSaveAs: session.suggestSaveAs,
+                      importTempDir: session.importTempDir,
+                      unsavedNew: true,
+                      pendingBase: true,
+                    }
+                  : {}),
+              ...(session.password === undefined ? {} : { password: session.password }),
+            }).catch((error: unknown) => {
+              throw new Error(
+                `The workbook was saved to "${targetPath}", but its replacement view could not be opened. Your edits remain available; retry Save or reopen the saved file. ${error instanceof Error ? error.message : String(error)}`,
+                { cause: error },
+              )
+            })
+            // Keep the previous reader and checkpoint usable until a replacement has
+            // opened successfully. Cleanup after publication cannot turn a saved file
+            // into a failed save or strand the renderer on a deleted session.
+            const ownedPublication = offerSavedSource(
+              event.sender,
+              previousSource,
+              file,
+              async () => {
+                await releaseWorkbookReader(
+                  event.sender,
+                  request.sessionId,
+                  true,
+                  csvInPlace || quietUnsavedNew ? session.importTempDir : undefined,
+                )
+                if (
+                  quietUnsavedNew &&
+                  session.suggestSaveAs !== undefined &&
+                  recoveryRuntimeState().phase !== 'disabled' &&
+                  !headlessOwnerWork.has(event.sender)
+                ) {
+                  // Keep the newly saved backing file under a fresh durable authority.
+                  // Its base already includes the saved changes, so do not replay the old
+                  // structural operations when recording its recovery checkpoint.
+                  // The replacement full checkpoint was acknowledged before adoption.
+                  // Never replay or manufacture an independent empty state here.
+                  // the temp path must not reach the title or recents; the recovery copy
+                  // is what a crash restores from, so it tracks the saved bytes
+                  try {
+                    await mkdir(recoveryDir(), { recursive: true })
+                    await copyFile(targetPath, recoveryPathFor(session.suggestSaveAs))
+                    rememberUnsavedNewRecovery(session.suggestSaveAs)
+                  } catch (error) {
+                    console.warn('[sheets] recovery copy of an unsaved new workbook failed:', error)
+                  }
+                  return
+                }
+                // The file on disk now carries these edits
+                clearWorkbookRecovery(targetPath)
+                if (session.suggestSaveAs !== undefined) {
+                  if (session.unsavedNew) forgetUnsavedNewRecovery(session.suggestSaveAs)
+                  else clearWorkbookRecovery(session.suggestSaveAs)
+                }
+                // Restored session saved (possibly Save As elsewhere): the unsaved work is
+                // persisted, so the original's recovery copy must not re-offer it.
+                if (session.restoreTarget !== undefined)
+                  clearWorkbookRecovery(session.restoreTarget)
+              },
+              lifecycle,
+              quietUnsavedNew
+                ? undefined
+                : () =>
+                    workbookOpenedHook?.(
+                      event.sender,
+                      (csvInPlace ? session.csvSourcePath : undefined) ?? targetPath,
+                    ),
+            )
+            return {
+              canceled: false,
+              file: { ...file, closeSource: ownedPublication.source },
+              touchedEntries: mutation.touchedEntries,
+              ownedPublication,
+            }
+          },
+          otherPhysicalOutputs,
+        )
+      })
+    },
+  )
 
   // Chunked upload for edit sets too large to inline in one save request:
   // the renderer opens a transfer, streams ordered slices, then references
@@ -3788,54 +5695,139 @@ export function registerSheetsIpc(): void {
 
   // Crash-recovery copy of a dirty workbook: the same save pipeline with a
   // userData target, no session swap and no dialogs — best-effort, silent on failure.
-  ipcMain.handle(IPC_CHANNELS.writeWorkbookRecovery, async (event, input: unknown) => {
-    const entry = sessionFor(event)
-    const request = resolveTransferredEdits(entry, workbookSaveRequestSchema.parse(input))
-    const session = entry.sessions.get(request.sessionId)
-    // A converted import has no original file to recover into (and a CSV
-    // session's original can't hold the workbook bytes); a restored recovery
-    // session is backed by the recovery copy itself — writing over the file
-    // the sidecar streams from would corrupt the open session.
-    if (
-      !session ||
-      (session.suggestSaveAs !== undefined && !session.unsavedNew) ||
-      session.csvSourcePath !== undefined ||
-      (session.restoreTarget !== undefined && !session.emptySource)
-    )
-      return { ok: false }
-    if (session.automaticRecoveryDisabled) return { ok: false }
-    // an unsaved new workbook recovers under the name its first save would get;
-    // an empty original's session runs on a temp blank and recovers into the file the user opened
-    const recoveryKey = session.unsavedNew
-      ? session.suggestSaveAs!
-      : session.emptySource
-        ? (session.restoreTarget ?? session.path)
-        : session.path
-    try {
-      await mkdir(recoveryDir(), { recursive: true })
-      await writeWorkbookTo(entry.client, session, request, recoveryPathFor(recoveryKey))
-      if (session.unsavedNew) rememberUnsavedNewRecovery(recoveryKey)
-      return { ok: true }
-    } catch (error) {
-      console.warn('[sheets] recovery copy failed:', error)
-      return { ok: false }
-    }
-  })
+  ipcMain.handle(
+    IPC_CHANNELS.checkpointWorkbookDocument,
+    async (
+      event,
+      input: unknown,
+      dirty: unknown,
+      rawBinding: unknown,
+      rawWriteContext: unknown,
+    ) => {
+      if (typeof dirty !== 'boolean') throw new Error('Invalid document checkpoint state.')
+      const validatedRequest = workbookSaveRequestSchema.parse(input)
+      if (!sessionFor(event).sessions.has(validatedRequest.sessionId))
+        throw new Error('Unknown workbook session.')
+      const binding =
+        rawBinding === undefined ? undefined : (rawBinding as WorkbookCloseCheckpointBinding)
+      if (rawBinding !== undefined && (!rawBinding || typeof rawBinding !== 'object'))
+        throw new Error('Invalid close checkpoint binding.')
+      const writeAdmission = sheetsPromptWriteGate.admit(
+        event.sender,
+        parseWorkbookWriteContext(rawWriteContext),
+        binding?.ticket,
+      )
+      await writeAdmission.ready
+      return runDocumentPublication(event.sender.id, validatedRequest.sessionId, async () => {
+        sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+        const entry = sessionFor(event)
+        const request = resolveTransferredEdits(entry, validatedRequest)
+        const session = entry.sessions.get(request.sessionId)
+        if (!session) throw new Error('Unknown workbook session.')
+        if (!offeredSource(event.sender, request.sessionId))
+          throw new Error('The checkpoint reader is not an active or offered source.')
+        if (
+          [...sourceOffers.values()].some(
+            (offer) =>
+              offer.owner === event.sender && offer.previous?.sessionId === request.sessionId,
+          )
+        )
+          throw new Error(
+            'The previous reader cannot accept another checkpoint while its replacement is offered.',
+          )
+        const receipt = await checkpointDocumentForSession(
+          event.sender.id,
+          request.sessionId,
+          session,
+          request,
+          { dirty, writeAdmission, ...(binding ? { binding } : {}) },
+        )
+        const offered = [...sourceOffers.values()].some(
+          (offer) => offer.owner === event.sender && offer.source.sessionId === request.sessionId,
+        )
+        if (
+          !dirty &&
+          !binding &&
+          !offered &&
+          !session.pendingBase &&
+          session.restoreTarget === undefined &&
+          !adoptedDocumentCandidates.has(session.path)
+        ) {
+          await retireDocumentSession(event.sender.id, request.sessionId, session)
+          return { ...receipt, candidateId: null }
+        }
+        return receipt
+      })
+    },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.writeWorkbookRecovery,
+    async (event, input: unknown, rawWriteContext: unknown) => {
+      const entry = sessionFor(event)
+      if (headlessOwnerWork.has(event.sender) || recoveryRuntimeState().phase === 'disabled')
+        return { ok: false }
+      const request = resolveTransferredEdits(entry, workbookSaveRequestSchema.parse(input))
+      if (!entry.sessions.has(request.sessionId)) return { ok: false }
+      const writeAdmission = sheetsPromptWriteGate.admit(
+        event.sender,
+        parseWorkbookWriteContext(rawWriteContext),
+      )
+      await writeAdmission.ready
+      return runDocumentPublication(event.sender.id, request.sessionId, async () => {
+        sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+        const session = entry.sessions.get(request.sessionId)
+        // A converted import has no original file to recover into (and a CSV
+        // session's original can't hold the workbook bytes); a restored recovery
+        // session is backed by the recovery copy itself — writing over the file
+        // the sidecar streams from would corrupt the open session.
+        if (
+          !session ||
+          (session.suggestSaveAs !== undefined && !session.unsavedNew) ||
+          session.csvSourcePath !== undefined ||
+          (session.restoreTarget !== undefined && !session.emptySource)
+        )
+          return { ok: false }
+        if (session.automaticRecoveryDisabled) return { ok: false }
+        // an unsaved new workbook recovers under the name its first save would get;
+        // an empty original's session runs on a temp blank and recovers into the file the user opened
+        const recoveryKey = session.unsavedNew
+          ? session.suggestSaveAs!
+          : session.emptySource
+            ? (session.restoreTarget ?? session.path)
+            : session.path
+        try {
+          await mkdir(recoveryDir(), { recursive: true })
+          sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+          await writeWorkbookTo(
+            entry.client,
+            session,
+            request,
+            recoveryPathFor(recoveryKey),
+            async () => {
+              sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+            },
+          )
+          if (session.unsavedNew) rememberUnsavedNewRecovery(recoveryKey)
+          return { ok: true }
+        } catch (error) {
+          console.warn('[sheets] recovery copy failed:', error)
+          return { ok: false }
+        }
+      })
+    },
+  )
 
   ipcMain.handle(IPC_CHANNELS.closeWorkbook, async (event, sessionId: unknown) => {
-    const entry = sessionFor(event)
     const validatedSessionId = z.string().uuid().parse(sessionId)
-    entry.saveTransfers.discardSession(validatedSessionId)
-    const session = entry.sessions.get(validatedSessionId)
-    if (!entry.sessions.delete(validatedSessionId)) return
-    if (session === undefined) return
-    if (session.unsavedNew && session.suggestSaveAs !== undefined)
-      forgetUnsavedNewRecovery(session.suggestSaveAs)
-    await cleanupSessionResources({
-      tempRoot: app.getPath('temp'),
-      snapshotPath: session.snapshotPath,
-      importTempDir: session.importTempDir,
-      closeSidecar: () => entry.client.close(validatedSessionId),
+    sessionFor(event)
+    return runDocumentPublication(event.sender.id, validatedSessionId, async () => {
+      // Reader lifetime is not an explicit discard/close receipt. Preserve ACKs.
+      if (sheetsSources.current(event.sender)?.sessionId === validatedSessionId) {
+        sheetsSources.destroy(event.sender)
+        reportedCloseStates.delete(event.sender.id)
+      }
+      await releaseWorkbookReader(event.sender, validatedSessionId, false)
     })
   })
 
@@ -3844,50 +5836,199 @@ export function registerSheetsIpc(): void {
   // is renamed only while it still carries the shell's auto-created untitled name.
   ipcMain.handle(
     IPC_CHANNELS.autoRenameWorkbook,
-    (event, sessionId: unknown, baseName: unknown) => {
+    async (event, sessionId: unknown, baseName: unknown, rawWriteContext: unknown) => {
       const entry = sessionFor(event)
       const validatedSessionId = z.string().uuid().parse(sessionId)
       const session = entry.sessions.get(validatedSessionId)
       if (!session || !untitledWorkbookPaths.has(session.path)) return { renamed: false }
       const base = sanitizeAutoRenameBase(z.string().min(1).max(100).parse(baseName))
       if (!base) return { renamed: false }
-      // An unsaved new workbook has no user-visible file to rename — it sits in
-      // a temp directory that closing the tab discards. Retarget the suggested
-      // Save As name instead, so the AI-derived name is what the first save
-      // offers, and leave the mark in place for a later run. No rename on disk
-      // and no open hook: the temp path must not reach the title or recents.
-      if (session.suggestSaveAs !== undefined) {
-        const suggestDir = dirname(session.suggestSaveAs)
-        let suggested = join(suggestDir, `${base}.xlsx`)
-        const taken = (p: string) =>
-          p !== session.suggestSaveAs && (existsSync(p) || sheetsSuggestedPathTaken(p))
-        for (let i = 2; taken(suggested) && i < 100; i++) {
-          suggested = join(suggestDir, `${base}-${i}.xlsx`)
-        }
-        if (suggested === session.suggestSaveAs || taken(suggested)) return { renamed: false }
-        // a failed move leaves the copy valid under the old name; a crash can still restore it
-        if (session.unsavedNew && !retargetUnsavedNewRecovery(session.suggestSaveAs, suggested))
-          return { renamed: false }
-        entry.sessions.set(validatedSessionId, { ...session, suggestSaveAs: suggested })
-        event.sender.send(IPC_CHANNELS.workbookRenamed, basename(suggested))
-        return { renamed: true, name: basename(suggested) }
+      const source = sheetsSources.current(event.sender)
+      if (!source || source.sessionId !== validatedSessionId) return { renamed: false }
+      // Old callers of the AI naming endpoint are conservative automatic work,
+      // never an implicit manual escape from a native close question.
+      const writeContext = parseWorkbookWriteContext(rawWriteContext) ?? {
+        origin: 'automatic' as const,
       }
-      const dir = dirname(session.path)
-      let target = join(dir, `${base}.xlsx`)
-      for (let i = 2; existsSync(target) && i < 100; i++) target = join(dir, `${base}-${i}.xlsx`)
-      if (existsSync(target) || target === session.path) return { renamed: false }
-      try {
-        renameSync(session.path, target)
-      } catch (err) {
-        console.warn('[sheets] auto-rename failed:', err)
+      const writeAdmission = sheetsPromptWriteGate.admit(event.sender, writeContext)
+      const expected = knownRelocationDigest(session, session.path)
+      const originalSuggestion = session.suggestSaveAs
+      await writeAdmission.ready
+      sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+      if (activeWorkbookRenames.has(event.sender)) return { renamed: false }
+      if (!sheetsCloseRuntime)
+        throw new Error('Automatic naming requires its actual-settlement quit ledger.')
+      const current = () =>
+        !event.sender.isDestroyed() &&
+        entry.sessions.get(validatedSessionId) === session &&
+        !sheetsSources.busy(event.sender) &&
+        ![...sourceOffers.values()].some((offer) => offer.owner === event.sender) &&
+        !!sheetsSources.current(event.sender) &&
+        sameSheetsCloseSource(sheetsSources.current(event.sender)!, source)
+      const priorPublications = ownerPublicationTail(event.sender)
+      const priorNative = priorNativeActualWork()
+      sheetsCloseCoordinator.invalidateSource(event.sender, 'owned workbook naming admitted')
+      let target =
+        session.suggestSaveAs === undefined
+          ? join(dirname(session.path), `${base}.xlsx`)
+          : join(dirname(session.suggestSaveAs), `${base}.xlsx`)
+      const taken = (path: string) => existsSync(path) || sheetsSuggestedPathTaken(path)
+      for (let i = 2; taken(target) && i < 100; i++)
+        target = join(dirname(target), `${base}-${i}.xlsx`)
+      if (taken(target) || target === (session.suggestSaveAs ?? session.path))
         return { renamed: false }
+      const mutation =
+        session.suggestSaveAs === undefined
+          ? reserveFileMutation([
+              { path: session.path, kind: 'file' },
+              { path: target, kind: 'file' },
+            ])
+          : undefined
+      let moved = false,
+        changed = false,
+        ledgerHeld = false
+      let refreshedSource: SheetsCloseSource | undefined
+      const actual = Promise.resolve().then(async () => {
+        if (!ledgerHeld) throw new Error('The rename actual-work hold was not registered.')
+        const moveAndRefresh = async () => {
+          await Promise.all([priorPublications, priorNative])
+          sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+          if (!current()) return { renamed: false }
+          let refresh: ReturnType<typeof sheetsRenameRefresh.begin> | undefined
+          // An unsaved new workbook has no user-visible file to rename — it sits in
+          // a temp directory that closing the tab discards. Retarget the suggested
+          // Save As name instead, so the AI-derived name is what the first save
+          // offers, and leave the mark in place for a later run. No rename on disk
+          // and no open hook: the temp path must not reach the title or recents.
+          if (originalSuggestion !== undefined) {
+            const suggested = target
+            await runDocumentPublication(event.sender.id, validatedSessionId, async () => {
+              if (!current() || taken(suggested))
+                throw new Error('The proposed workbook name changed before admission.')
+              // a failed move leaves the copy valid under the old name; a crash can still restore it
+              if (
+                session.unsavedNew &&
+                pendingUnsavedNewRecoveryFor(originalSuggestion) &&
+                !retargetUnsavedNewRecovery(originalSuggestion, suggested)
+              )
+                throw new Error('The previous unsaved recovery name could not be retained safely.')
+              entry.sessions.set(validatedSessionId, {
+                ...session,
+                suggestSaveAs: suggested,
+                relocationPending: false,
+                ...(!session.restoreTarget && !session.recoverySourcePath && !session.csvSourcePath
+                  ? { recoveryOriginalFingerprint: null }
+                  : {}),
+                readerDisplay: {
+                  ...(session.readerDisplay ?? { path: session.path, readOnly: false }),
+                  name: basename(suggested),
+                },
+              })
+              nativeDocumentAcks.delete(documentOwnerKey(event.sender.id, validatedSessionId))
+              documentCandidates.delete(documentOwnerKey(event.sender.id, validatedSessionId))
+              try {
+                await documentRecoveryService?.releaseDocument(event.sender.id, validatedSessionId)
+              } catch (error) {
+                console.warn(
+                  '[sheets] Named workbook old recovery handle cleanup incomplete:',
+                  error,
+                )
+              }
+              changed = true
+              const metadata: WorkbookRenamedMetadata = {
+                sessionId: validatedSessionId,
+                ...(session.readerDisplay?.path ? { path: session.readerDisplay.path } : {}),
+                ...(session.csvSourcePath ? { csvPath: session.csvSourcePath } : {}),
+                closeSource: source,
+                requiresCheckpoint: true,
+                writeContext,
+              }
+              refreshedSource = metadata.closeSource
+              refresh = sheetsRenameRefresh.begin(event.sender, basename(suggested), metadata)
+            })
+          } else {
+            if (!expected)
+              throw new Error(
+                'The loaded workbook has no trusted source version for a physical move.',
+              )
+            await moveWorkbookExclusively(session.path, target, expected)
+            moved = true
+            await sheetsFileRenamed(
+              event.sender,
+              session.path,
+              target,
+              writeContext,
+              (name, metadata) => {
+                refreshedSource = metadata.closeSource
+                refresh = sheetsRenameRefresh.begin(event.sender, name, metadata)
+              },
+            )
+            changed = true
+          }
+          // This wait is OUTSIDE both metadata publication queues. The renderer's
+          // full checkpoint can therefore enter the same session queue and finish.
+          if (!refresh)
+            throw new Error('The renamed workbook no longer has its original renderer owner.')
+          await refresh.completion
+          await refresh.actualSettled
+          return {
+            renamed: true,
+            name: basename(target),
+            path: moved ? target : undefined,
+            refreshComplete: true,
+          }
+        }
+        try {
+          return mutation ? await mutation.run(moveAndRefresh) : await moveAndRefresh()
+        } catch (error) {
+          const currentSession = entry.sessions.get(validatedSessionId)
+          if ((moved || changed) && currentSession)
+            entry.sessions.set(validatedSessionId, { ...currentSession, relocationPending: true })
+          return {
+            renamed: moved || changed,
+            ...(moved || changed ? { name: basename(target) } : {}),
+            path: target,
+            refreshComplete: false,
+            error: moved
+              ? `The file was moved to "${target}", but its complete checkpoint refresh failed. The new path was retained; use Save As or reopen it.`
+              : String(error),
+          }
+        }
+      })
+      const actualSettled = actual.then(
+        () => undefined,
+        () => undefined,
+      )
+      activeWorkbookRenames.set(event.sender, actualSettled)
+      try {
+        sheetsCloseRuntime.holdNativeUntilSettled(event.sender, actualSettled)
+        ledgerHeld = true
+      } catch (error) {
+        mutation?.cancelPending()
+        activeWorkbookRenames.delete(event.sender)
+        throw error
       }
-      untitledWorkbookPaths.delete(session.path)
-      entry.sessions.set(validatedSessionId, { ...session, path: target })
-      event.sender.send(IPC_CHANNELS.workbookRenamed, basename(target))
-      // Same contract as open/save: shell updates the tab title and recents
-      workbookOpenedHook?.(event.sender, target)
-      return { renamed: true, name: basename(target) }
+      const finish = () => {
+        if (activeWorkbookRenames.get(event.sender) === actualSettled)
+          activeWorkbookRenames.delete(event.sender)
+      }
+      void actualSettled.then(finish)
+      const result = await actual
+      await actualSettled
+      if (
+        moved &&
+        'refreshComplete' in result &&
+        result.refreshComplete &&
+        refreshedSource &&
+        !event.sender.isDestroyed() &&
+        !sheetsSources.busy(event.sender) &&
+        ![...sourceOffers.values()].some((offer) => offer.owner === event.sender) &&
+        sheetsSources.current(event.sender) &&
+        sameSheetsCloseSource(sheetsSources.current(event.sender)!, refreshedSource)
+      ) {
+        workbookOpenedHook?.(event.sender, target)
+      }
+      return result
     },
   )
 
@@ -3993,7 +6134,7 @@ let aiIpcRegistered = false
 export function registerSheetsAiIpc(): void {
   if (aiIpcRegistered) return
   aiIpcRegistered = true
-  app.once('before-quit', shutdownCodexAppServers)
+  app.once('will-quit', shutdownCodexAppServers)
 
   // Node fetch (undici) direct connections get reset under VPN/tun setups; retry over Chromium's stack
   setRescueFetch((url, init) => net.fetch(url, init))
@@ -4380,362 +6521,147 @@ async function writeWorkbookTo(
   session: SessionInfo,
   request: WorkbookSaveRequest,
   targetPath: string,
-): Promise<Awaited<ReturnType<typeof saveWorkbookViaSidecar>>> {
-  // Sheet ops resolve first: added sheets have Univer ids the session map
-  // doesn't know, so cell edits into them resolve through the op's name.
-  const addedSheetNames = new Map<string, string>()
-  // Added sheet id → file name of the sheet whose part seeds the new part.
-  const duplicateSources = new Map<string, string>()
-  const renames: { sheetName: string; newName: string }[] = []
-  const removals: string[] = []
-  const hiddenChanges: { sheetName: string; hidden: boolean }[] = []
-  const tabColorStates: { sheetName: string; color: string | null }[] = []
-  let orderChanged = false
-  for (const op of request.sheetOps) {
-    if (op.kind === 'add-sheet') {
-      addedSheetNames.set(op.sheetId, op.name)
-      continue
-    }
-    if (op.kind === 'duplicate-sheet') {
-      // The renderer resolves duplicate chains to a sheet the file knows,
-      // so the source must be in the session map.
-      const sourceName = session.sheetNames.get(op.sourceSheetId)
-      if (!sourceName) throw new Error(`Unknown duplicate source ${op.sourceSheetId}.`)
-      addedSheetNames.set(op.sheetId, op.name)
-      duplicateSources.set(op.sheetId, sourceName)
-      continue
-    }
-    if (op.kind === 'reorder-sheets') {
-      orderChanged = true
-      continue
-    }
-    const sheetName = addedSheetNames.get(op.sheetId) ?? session.sheetNames.get(op.sheetId)
-    if (!sheetName) throw new Error(`Unknown worksheet ${op.sheetId}.`)
-    if (op.kind === 'rename-sheet') renames.push({ sheetName, newName: op.newName })
-    else if (op.kind === 'set-sheet-hidden') {
-      hiddenChanges.push({ sheetName, hidden: op.hidden })
-    } else if (op.kind === 'set-sheet-tab-color') {
-      tabColorStates.push({ sheetName, color: op.color })
-    } else removals.push(sheetName)
-  }
-  const renameByOriginal = new Map(renames.map((rename) => [rename.sheetName, rename.newName]))
-  const resolveSheetName = (sheetId: string): string => {
-    const sheetName = addedSheetNames.get(sheetId) ?? session.sheetNames.get(sheetId)
-    if (!sheetName) throw new Error(`Unknown worksheet ${sheetId}.`)
-    return sheetName
-  }
-  let sheetPlan: SheetEditPlan | undefined
-  if (request.sheetOps.some((op) => op.kind !== 'set-sheet-tab-color')) {
-    sheetPlan = {
-      renames,
-      additions: [...addedSheetNames].map(([sheetId, name]) => ({
-        name,
-        sourceSheetName: duplicateSources.get(sheetId),
-      })),
-      removals,
-      hiddenChanges,
-      orderChanged,
-      order: request.sheetOrder.map((sheetId) => {
-        const original = resolveSheetName(sheetId)
-        return addedSheetNames.has(sheetId)
-          ? original
-          : (renameByOriginal.get(original) ?? original)
-      }),
-    }
-  }
-
-  const edits: CellEdit[] = request.edits.map((edit) => ({
-    sheetName: resolveSheetName(edit.sheetId),
-    row: edit.row,
-    column: edit.column,
-    writeValue: edit.writeValue,
-    cell: { value: edit.value, formula: edit.formula },
-    style: edit.style,
-    rich: edit.rich,
-    styleReset: edit.styleReset,
-  }))
-  const bulkConstantFills = (request.bulkConstantFills ?? []).map(({ sheetId, ...fill }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...fill,
-  }))
-  const opsBySheet = new Map<string, SheetStructuralOps['ops'][number][]>()
-  for (const op of request.structuralOps) {
-    const sheetName = resolveSheetName(op.sheetId)
-    const sheetOps = opsBySheet.get(sheetName) ?? []
-    if ('range' in op) {
-      sheetOps.push({ kind: op.kind, range: op.range })
-    } else if ('size' in op) {
-      sheetOps.push({ kind: op.kind, start: op.start, end: op.end, size: op.size })
-    } else if ('level' in op) {
-      sheetOps.push({
-        kind: op.kind,
-        start: op.start,
-        end: op.end,
-        level: op.level,
-        ...(op.collapsed === undefined ? {} : { collapsed: op.collapsed }),
-      })
-    } else if ('summaryBelow' in op) {
-      sheetOps.push({
-        kind: op.kind,
-        summaryBelow: op.summaryBelow,
-        summaryRight: op.summaryRight,
-      })
-    } else if ('hidden' in op) {
-      sheetOps.push({ kind: op.kind, start: op.start, end: op.end, hidden: op.hidden })
-    } else if ('style' in op) {
-      sheetOps.push({ kind: op.kind, start: op.start, end: op.end, style: op.style })
-    } else if ('before' in op) {
-      sheetOps.push({ kind: op.kind, index: op.index, count: op.count, before: op.before })
-    } else {
-      sheetOps.push({ kind: op.kind, index: op.index, count: op.count })
-    }
-    opsBySheet.set(sheetName, sheetOps)
-  }
-  const structuralOps: SheetStructuralOps[] = [...opsBySheet].map(([sheetName, ops]) => ({
-    sheetName,
-    ops,
-  }))
-  const filterStates = request.filterStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    filter: state.filter,
-    hiddenRows: state.hiddenRows,
-    visibilityRange: state.visibilityRange,
-  }))
-  const linksBySheet = new Map<string, { row: number; column: number; target: string | null }[]>()
-  for (const link of request.hyperlinkEdits) {
-    const sheetName = resolveSheetName(link.sheetId)
-    const sheetLinks = linksBySheet.get(sheetName) ?? []
-    sheetLinks.push({ row: link.row, column: link.column, target: link.target })
-    linksBySheet.set(sheetName, sheetLinks)
-  }
-  const hyperlinkEdits = [...linksBySheet].map(([sheetName, links]) => ({
-    sheetName,
-    edits: links,
-  }))
-  const cfStates = request.cfStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    rules: state.rules,
-  }))
-  const dvStates = request.dvStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    rules: state.rules,
-  }))
-  const sheetProtections = request.sheetProtections.map(({ sheetId, ...state }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...state,
-  }))
-  const protectedRangeStates = request.protectedRangeStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    ranges: state.ranges,
-  }))
-  const pageSetupStates = request.pageSetupStates.map(({ sheetId, ...state }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...state,
-  }))
-  const noteStates = request.noteStates.map(({ sheetId, notes }) => ({
-    sheetName: resolveSheetName(sheetId),
-    notes,
-  }))
-  const visualAdditions = request.visualAdditions.map((addition) => ({
-    sheetName: resolveSheetName(addition.sheetId),
-    anchor: addition.anchor,
-    chart: addition.chart,
-    shape: addition.shape,
-    image: addition.image,
-  }))
-  const cellImageAdditions = (request.cellImageAdditions ?? []).map(({ sheetId, ...addition }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...addition,
-  }))
-  const tableAdditions = request.tableAdditions.map((table) => ({
-    sheetName: resolveSheetName(table.sheetId),
-    area: table.area,
-    name: table.name,
-    columnNames: table.columnNames,
-    style: table.style,
-    bandedRows: table.bandedRows,
-    options: {
-      headerRow: table.headerRow,
-      totalsRow: table.totalsRow,
-      firstColumn: table.firstColumn,
-      lastColumn: table.lastColumn,
-      bandedColumns: table.bandedColumns,
-      filterButton: table.filterButton,
-    },
-  }))
-  const tableEdits = (request.tableEdits ?? []).map(({ sheetId, ...edit }) => ({
-    ...edit,
-    sheetName: resolveSheetName(sheetId),
-  }))
-  const pivotAdditions = request.pivotAdditions.map((pivot) => ({
-    sheetName: resolveSheetName(pivot.sheetId),
-    sourceSheetName: resolveSheetName(pivot.sourceSheetId),
-    sourceArea: pivot.sourceArea,
-    location: pivot.location,
-    name: pivot.name,
-    fieldNames: pivot.fieldNames,
-    rowFieldIndices: pivot.rowFieldIndices,
-    columnFieldIndex: pivot.columnFieldIndex,
-    pageFieldIndices: pivot.pageFieldIndices,
-    pageLevelItems: pivot.pageLevelItems,
-    pageItems: pivot.pageItems,
-    rowItems: pivot.rowItems,
-    rowLevelItems: pivot.rowLevelItems,
-    rowLines: pivot.rowLines,
-    columnItems: pivot.columnItems,
-    columnFieldIndices: pivot.columnFieldIndices,
-    colLevelItems: pivot.colLevelItems,
-    colLines: pivot.colLines,
-    groupings: pivot.groupings,
-    filters: pivot.filters,
-    rowHiddenItems: pivot.rowHiddenItems,
-    colHiddenItems: pivot.colHiddenItems,
-    values: pivot.values,
-  }))
-  const sparklineAdditions = request.sparklineAdditions.map(({ sheetId, ...group }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...group,
-  }))
-  // Recalculated formula values: sheetId → file sheet name, the same
-  // resolution the cell edits use.
-  const formulaValuesBySheet = new Map<
-    string,
-    { row: number; column: number; value: string | number | boolean | null | { error: string } }[]
-  >()
-  for (const cell of request.formulaValues) {
-    const sheetName = resolveSheetName(cell.sheetId)
-    const list = formulaValuesBySheet.get(sheetName) ?? []
-    list.push({ row: cell.row, column: cell.column, value: cell.value })
-    formulaValuesBySheet.set(sheetName, list)
-  }
-  const formulaValues = [...formulaValuesBySheet].map(([sheetName, cells]) => ({
-    sheetName,
-    cells,
-  }))
-  // The redaction part is keyed by sheet NAME, so there is nothing to resolve
-  // here: the marks arrive under the names the session loaded, which is what
-  // the gateway's re-keying against this save's renames and removals expects.
-  const redactionStates =
-    (request.redactionStates ?? null)?.map((state) => ({
-      sheetName: state.sheetName,
-      marks: state.marks.map((mark) => ({
-        startRow: mark.startRow,
-        endRow: mark.endRow,
-        startColumn: mark.startColumn,
-        endColumn: mark.endColumn,
-        label: mark.label,
-        // Carried through, not rebuilt from the known fields: this mapping is
-        // the third place a mark passes through (the zod schema, the preload's
-        // hand-rolled check, and here), and only the zod one refuses an unknown
-        // key. The other two drop it silently, which is how a field added to the
-        // mark can vanish between the renderer and the file with nothing failing.
-        // Omitted when absent so an older part's bytes stay identical.
-        ...('previousFill' in mark ? { previousFill: mark.previousFill ?? null } : {}),
-      })),
-    })) ?? null
-  const encryptedSaveTempDir = session.password
-    ? await mkdtemp(join(app.getPath('temp'), 'vantage-encrypted-save-'))
-    : undefined
-  const plainTargetPath = encryptedSaveTempDir
-    ? join(encryptedSaveTempDir, 'workbook.xlsx')
-    : targetPath
-  let mutation: Awaited<ReturnType<typeof saveWorkbookViaSidecar>>
-  try {
-    const writePlainWorkbook = () =>
-      saveWorkbookViaSidecar({
-        client,
-        // The snapshot, not the live path: the save base must be the bytes this
-        // session's pending edits were made against, regardless of what other
-        // programs did to the file since.
-        sourcePath: session.snapshotPath,
-        targetPath: plainTargetPath,
-        edits,
-        bulkConstantFills,
-        structuralOps,
-        chartEdits: request.chartEdits,
-        // Located by package-absolute drawingPath, so no sheet-name mapping.
-        visualEdits: request.visualEdits,
-        sheetPlan,
-        filterStates,
-        hyperlinkEdits,
-        cfStates,
-        dvStates,
-        sheetProtections,
-        tabColorStates,
-        definedNamesState: request.definedNamesState,
-        themeState: request.themeState,
-        workbookProtectionState: request.workbookProtectionState,
-        protectedRangeStates,
-        visualAdditions,
-        cellImageAdditions,
-        pageSetupStates,
-        noteStates,
-        tableAdditions,
-        tableEdits,
-        pivotAdditions,
-        sparklineAdditions,
-        formulaValues,
-        pivotCacheRefreshPaths: request.pivotCacheRefreshPaths,
-        // Output-area expansion from layout growth: sheetId → sheet name; the part
-        // path is resolved by the gateway.
-        pivotRefreshUpdates: request.pivotRefreshUpdates.map((update) => ({
-          cachePath: update.cachePath,
-          sheetName: resolveSheetName(update.sheetId),
-          newOutputRef: update.newOutputRef,
-          ...(update.relayout === undefined
-            ? {}
-            : {
-                relayout: (({ sheetId: _sheetId, sourceSheetId, ...rest }) => ({
-                  ...rest,
-                  sourceSheetName: resolveSheetName(sourceSheetId),
-                }))(update.relayout),
-              }),
-        })),
-        redactionStates,
-      })
-    mutation = session.password
-      ? await writePlainWorkbook()
-      : await withNativeSaveRecovery(targetPath, writePlainWorkbook)
-    if (session.password) {
-      const encryptedBytes = encryptOoxml(await readFile(plainTargetPath), session.password)
-      await atomicWriteFile(targetPath, encryptedBytes)
-    }
-  } finally {
-    if (encryptedSaveTempDir) {
-      await rm(encryptedSaveTempDir, { recursive: true, force: true }).catch(() => undefined)
-    }
-  }
-  return mutation
+  beforePublish?: () => Promise<void>,
+): Promise<Awaited<ReturnType<typeof saveWorkbookViaSidecar>> & { publishedSha256: string }> {
+  type PhaseSession = DocumentWriteSession & { nativeSessionId?: string }
+  return withAtomicSaveQueue(targetPath, () =>
+    withFilePublication({ targetPath, sourcePaths: [session.snapshotPath] }, async () => {
+      const privateRoot = await getSessionSnapshotDirectory()
+      const readyDirectory = await mkdtemp(join(privateRoot, 'document-publish-'))
+      const readyPath = join(readyDirectory, 'complete.bin')
+      let readyStarted = false
+      try {
+        return await withFilePublication(
+          { targetPath: readyPath, sourcePaths: [session.snapshotPath] },
+          async () => {
+            readyStarted = true
+            try {
+              const mutation = await writeDocumentSavePipeline<
+                PhaseSession,
+                Awaited<ReturnType<typeof saveWorkbookViaSidecar>>
+              >({
+                sheetNames: (phase) => phase.sheetNames,
+                session,
+                request,
+                targetPath: readyPath,
+                write: (base, payload, target) =>
+                  writeWorkbookDocumentPackage({
+                    client,
+                    session: { ...base, password: undefined },
+                    request: payload,
+                    targetPath: target,
+                    tempRoot: privateRoot,
+                    verifyPreservation: false,
+                    encryptOoxml,
+                    atomicWriteFile,
+                    withNativeSaveRecovery,
+                  }),
+                allocatePhase: async () => {
+                  const directory = await mkdtemp(join(privateRoot, 'document-phase-'))
+                  const path = join(directory, 'phase.bin')
+                  return {
+                    path,
+                    cleanup: async () => {
+                      await rm(path, { force: true })
+                      await rmdir(directory)
+                    },
+                  }
+                },
+                openPhase: async (path) => {
+                  const opened = sidecarOpenResultSchema.parse(
+                    await completeNativeCommand(client, {
+                      command: 'open',
+                      path,
+                      locale: getUiLang(),
+                      shortDateFormat: systemShortDate(),
+                    }),
+                  )
+                  return {
+                    snapshotPath: path,
+                    sheetNames: new Map(opened.sheets.map((sheet) => [sheet.id, sheet.name])),
+                    nativeSessionId: opened.sessionId,
+                  }
+                },
+                closePhase: async (phase) => {
+                  if (phase.nativeSessionId) await client.closeSettled(phase.nativeSessionId)
+                },
+                combineResults: (first, last) => ({
+                  ...last,
+                  touchedEntries: [...new Set([...first.touchedEntries, ...last.touchedEntries])],
+                  addedEntries: [...new Set([...first.addedEntries, ...last.addedEntries])],
+                  removedEntries: [...new Set([...first.removedEntries, ...last.removedEntries])],
+                }),
+              })
+              const report = (await completeNativeCommand(
+                client,
+                {
+                  command: 'audit_preservation',
+                  sourcePath: session.snapshotPath,
+                  targetPath: readyPath,
+                  allowedChangedEntries: [
+                    ...new Set([
+                      ...mutation.touchedEntries,
+                      ...mutation.addedEntries,
+                      ...mutation.removedEntries,
+                    ]),
+                  ],
+                },
+                180_000,
+              )) as { preserved?: unknown; violations?: readonly { message?: string }[] }
+              if (
+                report?.preserved !== true ||
+                !Array.isArray(report.violations) ||
+                report.violations.length !== 0
+              )
+                throw new Error(
+                  report?.violations
+                    ?.map((item) => item.message)
+                    .filter(Boolean)
+                    .join(' ') || 'Workbook package preservation verification failed.',
+                )
+              // Encode first, then recheck the input revision and file version just
+              // before publishing. A bad plan can never reach the user's destination.
+              const encrypted =
+                session.password === undefined
+                  ? undefined
+                  : encryptOoxml(await readFile(readyPath), session.password)
+              const publishedSha256 =
+                encrypted === undefined
+                  ? await sha256File(readyPath)
+                  : createHash('sha256').update(encrypted).digest('hex')
+              await beforePublish?.()
+              // Reserve the physical output and actual copy input across the final
+              // version check, recovery wrapper and complete JS filesystem publisher.
+              // Shared atomic writers may nest under this same-target reservation.
+              await withFilePublication({ targetPath, sourcePaths: [readyPath] }, () =>
+                withNativeSaveRecovery(targetPath, async () => {
+                  await beforePublish?.()
+                  if (encrypted !== undefined) await atomicWriteFile(targetPath, encrypted)
+                  else await atomicCopyFile(readyPath, targetPath)
+                }),
+              )
+              return { ...mutation, publishedSha256 }
+            } finally {
+              await rm(readyPath, { force: true }).catch(() => undefined)
+              await rmdir(readyDirectory).catch(() => undefined)
+            }
+          },
+        )
+      } catch (error) {
+        // No native/package body began if the private-output reservation refused.
+        // Remove only our still-empty new directory; never guess at file ownership.
+        if (!readyStarted) await rmdir(readyDirectory).catch(() => undefined)
+        throw error
+      }
+    }),
+  )
 }
 
 let sessionSnapshotDirectoryPromise: Promise<string> | undefined
 
 /** Create a private per-process snapshot directory and sweep abandoned sessions. */
 async function createSessionSnapshotDirectory(): Promise<string> {
-  const root = join(app.getPath('temp'), 'vantage-sheets-sessions')
-  await mkdir(root, { recursive: true, mode: 0o700 })
-  const directory = join(root, `${process.pid}-${randomUUID()}`)
-  await mkdir(directory, { mode: 0o700 })
-
-  const previousDirectories = await readdir(root, { withFileTypes: true })
-  await Promise.all(
-    previousDirectories.map(async (entry) => {
-      if (!entry.isDirectory() || entry.name === directory.slice(root.length + 1)) return
-      const match = /^(\d+)-/.exec(entry.name)
-      if (!match) return
-      const pid = Number(match[1])
-      if (pid !== process.pid) {
-        try {
-          process.kill(pid, 0)
-          return
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return
-        }
-      }
-      await rm(join(root, entry.name), { recursive: true, force: true }).catch(() => undefined)
-    }),
-  )
-  return directory
+  return allocateSessionSnapshotDirectory(app.getPath('temp'))
 }
 
 async function getSessionSnapshotDirectory(): Promise<string> {
@@ -4788,8 +6714,23 @@ async function discardPreparedOpen(prepared: {
   importTempDir?: string | undefined
 }): Promise<void> {
   unsavedNewWorkbooks.delete(prepared.openPath)
+  await releasePreparedDocumentRecovery(prepared.openPath)
   if (prepared.importTempDir !== undefined)
     await cleanupImportTempDirectory(app.getPath('temp'), prepared.importTempDir)
+}
+
+/** Release an unused materialized view; the durable recovery candidate survives. */
+async function releasePreparedDocumentRecovery(path: string): Promise<void> {
+  adoptedDocumentCandidates.delete(path)
+  const directory = materializedRecoveryDirectories.get(path)
+  materializedRecoveryDirectories.delete(path)
+  materializedRecoveryNames.delete(path)
+  if (directory) {
+    await rm(path, { force: true }).catch((error) =>
+      console.warn('[sheets] Recovery view cleanup failed:', error),
+    )
+    await rmdir(directory).catch(() => undefined)
+  }
 }
 
 async function openWorkbookSession(
@@ -4800,24 +6741,39 @@ async function openWorkbookSession(
     suggestSaveAs?: string | undefined
     csvImport?: boolean | undefined
     csvSourcePath?: string | undefined
+    recoverySourcePath?: string | undefined
+    recoverySourceSha?: string | undefined
     emptyCsv?: boolean | undefined
     importTempDir?: string | undefined
     restoreTarget?: string | undefined
     emptySource?: boolean | undefined
     unsavedNew?: boolean | undefined
+    pendingBase?: boolean | undefined
     password?: string | undefined
+    /** A save replacement shares the existing session's backing resources. */
+    retainExistingBaseOnFailure?: boolean | undefined
+    /** Recovery refusal must not overwrite or close an existing reader UUID. */
+    preserveExistingReaderIds?: boolean | undefined
+    /** Headless staging may be removed only after a failed reader close has actual exit proof. */
+    requireExitOnCloseFailure?: boolean | undefined
   },
 ): Promise<WorkbookFile> {
   const {
     suggestSaveAs,
     csvImport,
     csvSourcePath,
+    recoverySourcePath,
+    recoverySourceSha,
     emptyCsv,
     importTempDir,
     restoreTarget,
     emptySource,
     unsavedNew,
+    pendingBase,
     password,
+    retainExistingBaseOnFailure,
+    preserveExistingReaderIds,
+    requireExitOnCloseFailure,
   } = options ?? {}
   // Only a CFB container (the encrypted wrapper) is read into memory; a plain
   // zip package keeps the streamed copy + file digest so large workbooks do
@@ -4834,26 +6790,63 @@ async function openWorkbookSession(
   // from the same bytes, even if the file on disk changes right after the
   // copy. The digest also describes exactly those bytes.
   const snapshotPath = await snapshotWorkbook(path, snapshotBytes)
+  let openedSessionId: string | undefined
+  let conflictingReaderId = false
   try {
-    const [rawOpened, digest, fileBytes, restoreTargetSha, csvSourceSha] = await Promise.all([
-      client.open(snapshotPath, getUiLang(), systemShortDate()),
-      sourceBytes
-        ? createHash('sha256').update(sourceBytes).digest('hex')
-        : sha256File(snapshotPath),
+    const snapshotDigest = sha256File(snapshotPath)
+    const [digest, fileBytes, restoreTargetSha, csvSourceSha, nativeDigest] = await Promise.all([
+      sourceBytes ? createHash('sha256').update(sourceBytes).digest('hex') : snapshotDigest,
       sourceBytes ? sourceBytes.byteLength : stat(snapshotPath).then((s) => s.size),
       // Missing original (deleted since the crash) is fine: the write-back recreates it.
       restoreTarget === undefined
         ? Promise.resolve(undefined)
-        : sha256File(restoreTarget).catch(() => undefined),
+        : sha256File(restoreTarget)
+            .catch(() => undefined)
+            .then((value) => {
+              if (
+                recoverySourcePath === restoreTarget &&
+                value !== undefined &&
+                value !== recoverySourceSha
+              ) {
+                throw new Error(tm('errDiskChanged'))
+              }
+              return recoverySourcePath === restoreTarget ? recoverySourceSha : value
+            }),
       csvSourcePath === undefined
         ? Promise.resolve(undefined)
-        : sha256File(csvSourcePath).catch(() => undefined),
+        : sha256File(csvSourcePath).then((value) => {
+            if (
+              recoverySourcePath === csvSourcePath &&
+              recoverySourceSha !== undefined &&
+              value !== recoverySourceSha
+            ) {
+              throw new Error(tm('errDiskChanged'))
+            }
+            return value
+          }),
+      snapshotDigest,
     ])
+    const rawOpened = await completeNativeCommand(client, {
+      command: 'open',
+      path: snapshotPath,
+      locale: getUiLang(),
+      shortDateFormat: systemShortDate(),
+    })
+    const openingIdentity = z.object({ sessionId: z.string().uuid() }).safeParse(rawOpened)
+    if (openingIdentity.success) openedSessionId = openingIdentity.data.sessionId
     const opened = sidecarOpenResultSchema.parse(rawOpened)
+    openedSessionId = opened.sessionId
+    if (preserveExistingReaderIds && sessions.has(opened.sessionId)) {
+      conflictingReaderId = true
+      throw new Error(
+        'Reader recovery refused a reused native reader UUID; the previous source was retained.',
+      )
+    }
     sessions.set(opened.sessionId, {
       path,
       snapshotPath,
       sha256: digest,
+      nativeSourceFingerprint: `sha256:${nativeDigest}`,
       sheetNames: new Map(opened.sheets.map((sheet) => [sheet.id, sheet.name])),
       automaticRecoveryDisabled: !allowsAutomaticWorkbookRecovery(opened.sheets),
       ...(encrypted ? { password: password! } : {}),
@@ -4861,18 +6854,24 @@ async function openWorkbookSession(
       ...(csvImport ? { csvImport } : {}),
       ...(csvSourcePath === undefined ? {} : { csvSourcePath }),
       ...(csvSourceSha === undefined ? {} : { csvSourceSha }),
+      ...(recoverySourcePath === undefined ? {} : { recoverySourcePath }),
+      ...(recoverySourceSha === undefined ? {} : { recoverySourceSha }),
       ...(importTempDir === undefined ? {} : { importTempDir }),
       ...(restoreTarget === undefined ? {} : { restoreTarget }),
       ...(restoreTargetSha === undefined ? {} : { restoreTargetSha }),
       ...(emptySource ? { emptySource } : {}),
       ...(unsavedNew ? { unsavedNew } : {}),
+      ...(pendingBase ? { pendingBase } : {}),
     })
     unsavedNewWorkbooks.delete(path)
-    return workbookFileSchema.parse({
+    const file = workbookFileSchema.parse({
       ...opened,
       // The renderer-facing path is what the user opened: for a restored
       // recovery copy that is the original file, not the copy under userData.
-      path: restoreTarget ?? path,
+      path: restoreTarget ?? materializedRecoveryNames.get(path) ?? path,
+      ...(materializedRecoveryNames.has(path)
+        ? { name: basename(materializedRecoveryNames.get(path)!) }
+        : {}),
       sha256: digest,
       fileBytes,
       readOnly: false,
@@ -4881,13 +6880,24 @@ async function openWorkbookSession(
       ...(unsavedNew ? { unsavedNew: true } : {}),
       ...(csvSourcePath === undefined ? {} : { csvPath: csvSourcePath }),
       ...(emptyCsv ? { emptyCsv: true } : {}),
-      restoredFromRecovery: restoreTarget !== undefined,
+      restoredFromRecovery:
+        restoreTarget !== undefined || pendingBase === true || adoptedDocumentCandidates.has(path),
       automaticRecoveryDisabled: !allowsAutomaticWorkbookRecovery(opened.sheets),
     })
+    const session = sessions.get(opened.sessionId)!
+    sessions.set(opened.sessionId, { ...session, readerDisplay: captureReaderDisplay(file) })
+    return file
   } catch (error) {
+    if (openedSessionId !== undefined && !conflictingReaderId) {
+      sessions.delete(openedSessionId)
+      await client.closeSettled(openedSessionId).catch(async () => {
+        if (requireExitOnCloseFailure) await client.stopSettled()
+      })
+    }
     await rm(snapshotPath, { force: true }).catch(() => undefined)
+    if (!retainExistingBaseOnFailure) await releasePreparedDocumentRecovery(path)
     unsavedNewWorkbooks.delete(path)
-    if (importTempDir !== undefined) {
+    if (importTempDir !== undefined && !retainExistingBaseOnFailure) {
       await cleanupImportTempDirectory(app.getPath('temp'), importTempDir)
     }
     throw error
@@ -4966,6 +6976,8 @@ async function prepareWorkbookForOpen(
   suggestSaveAs?: string
   csvImport?: boolean
   csvSourcePath?: string
+  recoverySourcePath?: string
+  recoverySourceSha?: string
   emptyCsv?: boolean
   importTempDir?: string
   restoreTarget?: string
@@ -4978,15 +6990,28 @@ async function prepareWorkbookForOpen(
   // openWorkbookSession) so the name stays reserved through the open and a
   // reopened path is a normal file.
   const unsavedNew = unsavedNewWorkbooks.get(path)
+  const nativeRecovery: Awaited<ReturnType<typeof nativeDocumentRecoveryForOpen>> =
+    options?.skipRecoveryPrompt
+      ? { handled: false }
+      : await nativeDocumentRecoveryForOpen(
+          client,
+          unsavedNew?.suggestSaveAs ?? path,
+          contents,
+          parent,
+          unsavedNew ? path : undefined,
+        )
   if (unsavedNew !== undefined) {
     const base = {
       suggestSaveAs: unsavedNew.suggestSaveAs,
       importTempDir: unsavedNew.tempDir,
       unsavedNew: true,
     }
+    if (nativeRecovery.prepared) return { ...nativeRecovery.prepared, ...base }
     // a crash left work under this would-be name: offer it like a file's
     // recovery copy, opening the copy itself as the (still unsaved) workbook
-    const recovery = pendingUnsavedNewRecoveryFor(unsavedNew.suggestSaveAs)
+    const recovery = nativeRecovery.handled
+      ? null
+      : pendingUnsavedNewRecoveryFor(unsavedNew.suggestSaveAs)
     if (recovery) {
       const choice =
         contents && !contents.isDestroyed()
@@ -5006,6 +7031,7 @@ async function prepareWorkbookForOpen(
     return { openPath: path, ...base }
   }
   const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  if (nativeRecovery.prepared) return nativeRecovery.prepared
   // ODF has no editable representation here at all (.ots is the same package
   // with a -template mimetype): the user confirms the lossy .xlsx copy first,
   // and declining leaves the file unopened and unwritten.
@@ -5020,7 +7046,8 @@ async function prepareWorkbookForOpen(
     // prompt (which spells out the overwrite) was the confirmation.
     // Merge sources are read-only picks: never surface (or worse, discard)
     // another workbook's crash recovery from here.
-    const recovery = options?.skipRecoveryPrompt ? undefined : pendingRecoveryFor(path)
+    const recovery =
+      options?.skipRecoveryPrompt || nativeRecovery.handled ? undefined : pendingRecoveryFor(path)
     if (recovery) {
       const choice =
         contents && !contents.isDestroyed()
@@ -5033,6 +7060,7 @@ async function prepareWorkbookForOpen(
     return { openPath: path }
   }
   const stem = basename(path).replace(/\.[^.]+$/, '')
+  const recoverySourceSha = await sha256File(path)
   const directory = join(app.getPath('temp'), 'vantage-imports', randomUUID())
   await mkdir(directory, { recursive: true })
   const openPath = join(directory, `${stem}.xlsx`)
@@ -5057,6 +7085,7 @@ async function prepareWorkbookForOpen(
     } else {
       await client.convertWorkbook({ path, targetPath: openPath })
     }
+    if ((await sha256File(path)) !== recoverySourceSha) throw new Error(tm('errDiskChanged'))
   } catch (error) {
     await cleanupImportTempDirectory(app.getPath('temp'), directory)
     throw error
@@ -5071,9 +7100,17 @@ async function prepareWorkbookForOpen(
         importTempDir: directory,
         csvImport: true,
         csvSourcePath: path,
+        recoverySourcePath: path,
+        recoverySourceSha,
         ...(emptyCsv ? { emptyCsv: true } : {}),
       }
-    : { openPath, importTempDir: directory, suggestSaveAs: path.replace(/\.[^.]+$/, '.xlsx') }
+    : {
+        openPath,
+        importTempDir: directory,
+        suggestSaveAs: path.replace(/\.[^.]+$/, '.xlsx'),
+        recoverySourcePath: path,
+        recoverySourceSha,
+      }
 }
 
 /** shell-injected items appended to the File menu (e.g. Back to Home) */
@@ -5246,10 +7283,16 @@ async function applyMainProcessProxy(): Promise<void> {
   }
 }
 
+function cancelStandaloneSheetsQuit(): void {
+  if (standaloneCloseControl) standaloneCloseControl.cancel()
+  else resetSheetsShuttingDown()
+}
+
+function warnStandaloneSheets(message: string): void {
+  void dialog.showMessageBox({ type: 'warning', message }).catch(() => {})
+}
+
 export function startSheetsStandalone(): void {
-  registerRendererScheme()
-  installNavigationGuard(app)
-  installContextMenu(app, () => contextMenuLabels(getUiLang()))
   // VANTAGE_USER_DATA: test drivers point this at a scratch dir so automated
   // instances get their own userData AND single-instance lock (the lock is scoped
   // to userData), allowing parallel instances alongside a normal dev run.
@@ -5257,23 +7300,91 @@ export function startSheetsStandalone(): void {
   if (!app.isPackaged && process.env.VANTAGE_USER_DATA) {
     app.setPath('userData', process.env.VANTAGE_USER_DATA)
   }
-  void applyMainProcessProxy()
-  app.whenReady().then(() => {
-    installRendererProtocol({ sheets: join(__dirname, '../renderer') })
-    setUiLang(normalizeLang(process.env.VANTAGE_LANG ?? app.getLocale()))
-    app.setAccessibilitySupportEnabled(true)
-    installApplicationMenu()
-    startCaptureServer()
-    return createSheetsWindow()
+  const standaloneRecoveryProfile = configureRecoveryProfile({
+    app,
+    mode: 'gui',
+    guiProfile: app.getPath('userData'),
   })
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
-  })
-  app.on('before-quit', () => {
-    stopSheetsSidecar()
-  })
-  app.on('activate', () => {
-    if (!mainWindow) void createSheetsWindow()
+  const lockAcquired = app.requestSingleInstanceLock()
+  if (!lockAcquired) {
+    app.quit()
+    return
+  }
+  standaloneCloseControl = initializeStandaloneSheetsCloseRuntime({
+    mode: 'gui',
+    lockAcquired,
+    app,
+    setRuntime: setSheetsCloseRuntime,
+    closeState: sheetsCloseState,
+    initializeShared: () => {
+      initializeStandaloneRecovery({
+        app,
+        ...standaloneRecoveryProfile,
+        lockAcquired: true,
+        warning: warnStandaloneSheets,
+        terminal: (cleanup) => {
+          app.once('will-quit', cleanup)
+        },
+      })
+    },
+    resetShutdown: resetSheetsShuttingDown,
+    warning: warnStandaloneSheets,
+    onBlocked: (retry) => {
+      void dialog
+        .showMessageBox({
+          type: 'warning',
+          message: 'Spreadsheet cleanup is incomplete. Keep the application open.',
+          buttons: ['Retry cleanup', 'Keep open'],
+          defaultId: 1,
+          cancelId: 1,
+        })
+        .then(async (result) => {
+          if (result.response !== 0) return
+          try {
+            await retry()
+          } catch {
+            warnStandaloneSheets(
+              'Spreadsheet cleanup is still incomplete. Keep the application open.',
+            )
+          }
+        })
+        .catch(() =>
+          warnStandaloneSheets('Spreadsheet cleanup is incomplete. Keep the application open.'),
+        )
+    },
+    startEditors: () => {
+      registerRendererScheme()
+      installNavigationGuard(app)
+      installContextMenu(app, () => contextMenuLabels(getUiLang()))
+      void applyMainProcessProxy()
+      void app
+        .whenReady()
+        .then(() => {
+          installRendererProtocol({ sheets: join(__dirname, '../renderer') })
+          setUiLang(normalizeLang(process.env.VANTAGE_LANG ?? app.getLocale()))
+          app.setAccessibilitySupportEnabled(true)
+          installApplicationMenu()
+          startCaptureServer()
+          return createSheetsWindow()
+        })
+        .catch(() => {
+          cancelStandaloneSheetsQuit()
+          warnStandaloneSheets('Spreadsheet startup did not complete. Keep the application open.')
+        })
+      app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin') app.quit()
+      })
+      app.on('will-quit', () => {
+        stopSheetsSidecar()
+      })
+      app.on('activate', () => {
+        if (!mainWindow)
+          void createSheetsWindow().catch(() => {
+            cancelStandaloneSheetsQuit()
+            warnStandaloneSheets('Spreadsheet startup did not complete. Keep the application open.')
+          })
+      })
+    },
   })
 }
 
@@ -5295,10 +7406,13 @@ async function sha256File(path: string): Promise<string> {
   })
 }
 
-async function closeAllSessions(entry: {
-  client: XlsxSidecarClient
-  sessions: Map<string, SessionInfo>
-}): Promise<void> {
+async function closeAllSessions(
+  entry: {
+    client: XlsxSidecarClient
+    sessions: Map<string, SessionInfo>
+  },
+  requireExitOnCloseFailure = false,
+): Promise<void> {
   const sessions = [...entry.sessions.entries()]
   entry.sessions.clear()
   await Promise.allSettled(
@@ -5307,7 +7421,16 @@ async function closeAllSessions(entry: {
         tempRoot: app.getPath('temp'),
         snapshotPath: session.snapshotPath,
         importTempDir: session.importTempDir,
-        closeSidecar: () => entry.client.close(sessionId),
+        closeSidecar: async () => {
+          try {
+            await entry.client.closeSettled(sessionId)
+          } catch (error) {
+            // Temp cleanup swallows close rejection. Headless staging cannot
+            // be removed until even a refused/failed close has actual exit proof.
+            if (requireExitOnCloseFailure) await entry.client.stopSettled()
+            throw error
+          }
+        },
       })
     }),
   )

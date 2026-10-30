@@ -1,3 +1,4 @@
+import { slidesActionApi, slidesActionWait, slidesActionWork } from './slides-action-ownership'
 /**
  * Withholding content from the model, for the two things a reader can withhold.
  *
@@ -39,13 +40,15 @@ function pictureAt(ctx: ActionCtx, sourceId: string): PictureRenderNode | null {
  * be a second string for a locale set that must not grow.
  */
 export async function toggleElementRedaction(ctx: ActionCtx, sourceId: string): Promise<void> {
-  const pic = pictureAt(ctx, sourceId)
-  if (!pic) return
-  if (mediaLabelOf({ redact: pic.redact }) !== null) {
-    await applyElementRedaction(ctx, sourceId, null)
-    return
-  }
-  ctx.setRedactDialog({ sourceId, run: false, seed: pic.name ?? '' })
+  return slidesActionWork(ctx, async () => {
+    const pic = pictureAt(ctx, sourceId)
+    if (!pic) return
+    if (mediaLabelOf({ redact: pic.redact }) !== null) {
+      await slidesActionWait(ctx, applyElementRedaction(ctx, sourceId, null))
+      return
+    }
+    ctx.setRedactDialog({ sourceId, run: false, seed: pic.name ?? '' })
+  })
 }
 
 /**
@@ -65,19 +68,21 @@ export function openTextRedaction(ctx: ActionCtx): void {
 
 /** Confirm (or clear) from the dialog, then hand the result to whichever path is open. */
 export async function applyRedaction(ctx: ActionCtx, label: string | null): Promise<void> {
-  const target = ctx.redactDialog
-  if (!target) return
-  const clean = label === null ? null : sanitizeLabel(label)
-  if (target.run) {
-    // Applied to the DOM, not committed here: the overlay commits the whole edit the
-    // next time focus leaves it, exactly as it does for any other change.
-    applySelectionRedaction(clean)
+  return slidesActionWork(ctx, async () => {
+    const target = ctx.redactDialog
+    if (!target) return
+    const clean = label === null ? null : sanitizeLabel(label)
+    if (target.run) {
+      // Applied to the DOM, not committed here: the overlay commits the whole edit the
+      // next time focus leaves it, exactly as it does for any other change.
+      applySelectionRedaction(clean)
+      ctx.setRedactDialog(null)
+      return
+    }
     ctx.setRedactDialog(null)
-    return
-  }
-  ctx.setRedactDialog(null)
-  if (!target.sourceId) return
-  await applyElementRedaction(ctx, target.sourceId, clean)
+    if (!target.sourceId) return
+    await slidesActionWait(ctx, applyElementRedaction(ctx, target.sourceId, clean))
+  })
 }
 
 /** Withhold a picture/video/audio shape through the op surface, or clear it with null. */
@@ -86,19 +91,24 @@ async function applyElementRedaction(
   sourceId: string,
   label: string | null,
 ): Promise<void> {
-  const result = await window.slidesApi.applyTxn({
-    ops: [{ op: 'setRedaction', target: { slide: ctx.current, el: sourceId }, label }],
+  return slidesActionWork(ctx, async () => {
+    const result = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).applyTxn({
+        ops: [{ op: 'setRedaction', target: { slide: ctx.current, el: sourceId }, label }],
+      }),
+    )
+    if (!result?.applied) {
+      // the op layer's own guided wording; a refusal it explains is the useful message
+      const reason = result?.failures?.[0]?.error
+      if (reason) ctx.setStatus(reason)
+      return
+    }
+    // the transaction may touch any slide, so the rebuilt deck replaces the old one
+    if (result.slides) {
+      ctx.applyDeck(result.slides, Math.max(0, Math.min(ctx.current, result.slides.length - 1)))
+    }
   })
-  if (!result?.applied) {
-    // the op layer's own guided wording; a refusal it explains is the useful message
-    const reason = result?.failures?.[0]?.error
-    if (reason) ctx.setStatus(reason)
-    return
-  }
-  // the transaction may touch any slide, so the rebuilt deck replaces the old one
-  if (result.slides) {
-    ctx.applyDeck(result.slides, Math.max(0, Math.min(ctx.current, result.slides.length - 1)))
-  }
 }
 
 /** The text the editor selection covers, as the dialog's starting label. */

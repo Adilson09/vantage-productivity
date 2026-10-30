@@ -1,3 +1,52 @@
+import {
+  selectCurrentSlidesOutput,
+  SlidesExportAdmission,
+  SlidesHeadlessExportLifecycle,
+} from './export-output-lifecycle'
+import {
+  publishSelectedUserOutputs,
+  publishSelectedUserOutput,
+  UserOutputSelections,
+  type UserOutputSourceProof,
+} from '@vantage/electron-utils/user-output-publication'
+import { publishSlidesDocument } from './slides-publication'
+import {
+  DocumentPublication,
+  readPublicationFile,
+  observePublicationTarget,
+  absentPublicationTarget,
+  type PublicationSelection,
+} from '../../../../packages/electron-utils/src/document-publication'
+import { NativeCloseAdmission } from '../../../../packages/electron-utils/src/native-close-admission'
+import {
+  configureRecoveryProfile,
+  initializeStandaloneRecovery,
+  requireRecoveryRuntime,
+  queueRecoveryWarning,
+} from '../../../../packages/electron-utils/src/recovery-bootstrap'
+import { captureSlidesSave, adoptSlidesSave } from './slides-save-snapshot'
+import { slidesOwnedHandle, configureSlidesOwnedInvokes } from './slides-owned-ipc'
+import { SlidesSessionOwnership, configureSlidesMutationGuard } from './slides-session-ownership'
+import { SlidesHistoryBatches } from './slides-history-batches'
+import { beginCloseCleanup } from '../../../../packages/electron-utils/src/close-cleanup-runtime'
+import type {
+  SlidesCloseQuery,
+  SlidesToolSaveCompletion,
+  SlidesNativeCloseReceipt,
+  SlidesCloseIntent,
+} from '../shared/slides-tool-save'
+import {
+  isCloseLeaseStamp,
+  type CloseLeaseTicket,
+  type CloseLeaseStamp,
+} from '../../../../packages/electron-utils/src/close-lease'
+import {
+  SlidesToolSaveBroker,
+  runSlidesNativeClose,
+  slidesClosePermit,
+  type SlidesClosePrepareOptions,
+} from './slides-tool-save'
+import type { SlidesToolSaveIdentity } from '../shared/slides-tool-save'
 /**
  * Vantage Slides main process — pptx parsing/render-tree building/edit application/saving all live
  * here (Node side). The renderer only gets plain-data RenderSlide; edit intents are sent back
@@ -146,7 +195,14 @@ import {
 } from '@vantage/pptx-render'
 // From its own electron-utils subpath rather than the package barrel: the
 // barrel drags Electron-only modules into headless bundles.
-import { atomicWriteFile, atomicWriteVia } from '@vantage/electron-utils/atomic-write'
+import { atomicWriteFile } from '@vantage/electron-utils/atomic-write'
+import { SlidesDraftController } from './slides-draft-controller'
+import {
+  freezeSlidesDraft,
+  serializeSlidesDraft,
+  slidesDraftRevision,
+} from './slides-draft-package'
+import { notesPartIndex, writeNotesPart } from '../shared/notes-target'
 import { DEFAULT_PICTURE_DPI, pictureFrame } from './picture-frame'
 import { refineComplexWidths, shapedMetricsReady } from './shaped-metrics'
 import { cfbKind, isCfbHeader } from './cfb-sniff'
@@ -267,7 +323,7 @@ import {
   buildSlideUpdate,
   carryHistoryForReplacement,
   dialogParent,
-  endHistoryBatch,
+  endCapturedHistoryBatch,
   getFontMetrics,
   hostWindowFor,
   resetFontMetrics,
@@ -287,6 +343,7 @@ import {
   scheduleHistoryNotify,
   setActiveSlidesWebContents,
   sessions,
+  viewerWcIds,
   showChrome,
   takeSnapshot,
   windowRefs,
@@ -425,6 +482,22 @@ async function handleRendererFreeze(wc: WebContents): Promise<void> {
 
 function trackSlidesWebContents(wc: WebContents): void {
   windowRefs.activeWebContents = wc
+  slidesDraftOwners.add(wc.id)
+  wc.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+    if (!isMainFrame) return
+    void historyBatches.retireFrames(wc).catch(reportHistoryBatchFailure)
+    toolSaves.cancel(wc.id, 'Renderer navigation retired the prior source.')
+    rendererSources.delete(wc.id)
+    slidesDrafts.retire(wc.id)
+    slidesPendingEdits.delete(wc.id)
+  })
+  wc.on('render-process-gone', () => {
+    void historyBatches.retireFrames(wc).catch(reportHistoryBatchFailure)
+    toolSaves.destroy(wc.id)
+    slidesCrashedViews.add(wc.id)
+    slidesDrafts.retire(wc.id)
+    slidesPendingEdits.delete(wc.id)
+  })
   wc.on('unresponsive', () => void handleRendererFreeze(wc))
   // The AI panel opens links via window.open; route them to the system
   // browser instead of spawning an in-app window with remote content.
@@ -434,15 +507,33 @@ function trackSlidesWebContents(wc: WebContents): void {
     return { action: 'deny' }
   })
   wc.once('destroyed', () => {
-    // Untitled recovery draft: cleaned up on a clean close, kept when the session died dirty
-    const s = sessions.get(wc.id)
-    if (s && !sessionDirty(s)) dropUntitledRecovery(wc.id)
-    else untitledRecovery.delete(wc.id)
+    void historyBatches.destroy(wc).catch(reportHistoryBatchFailure)
+    slidesOutputSelections.forget(wc)
+    headlessOutputSelectionIds.delete(wc.id)
+    toolSaves.destroy(wc.id)
+    slidesDrafts.retire(wc.id)
+    slidesDraftOwners.delete(wc.id)
+    slidesCrashedViews.delete(wc.id)
+    slidesPendingEdits.delete(wc.id)
+    rendererSources.delete(wc.id)
+    const candidate = sourceCandidates.get(wc.id)
+    if (candidate) {
+      clearTimeout(candidate.timer)
+      sourceCandidates.delete(wc.id)
+    }
+    const query = nativeQueries.get(wc.id)
+    if (query) {
+      clearTimeout(query.timer)
+      nativeQueries.delete(wc.id)
+      query.reject(new Error('The presentation renderer was destroyed.'))
+    }
     sessions.delete(wc.id)
     pendingByWc.delete(wc.id)
     lastSlidePaste.delete(wc.id)
     closeSaveWaiters.get(wc.id)?.(false)
     closeSaveWaiters.delete(wc.id)
+    closeFlushWaiters.get(wc.id)?.(false)
+    closeFlushWaiters.delete(wc.id)
     autoSavePrefByWc.delete(wc.id)
     if (windowRefs.activeWebContents === wc) windowRefs.activeWebContents = null
   })
@@ -492,8 +583,6 @@ function syncAttachedPaths(session: Session, path: string): void {
  * the app killed, power lost — leaves the previous deck on disk, not a
  * cut-off one. The password path already gets this from atomicWriteFile.
  */
-const writeDeckFile = (opened: OpenedPptx, filePath: string) =>
-  atomicWriteVia(filePath, (tmp) => savePptxToFile(opened, tmp))
 
 /**
  * MCP save: write a visible session's deck to an explicit path with no dialogs
@@ -501,20 +590,429 @@ const writeDeckFile = (opened: OpenedPptx, filePath: string) =>
  * caller's (the MCP tool layer guards clobbering); this commits the save side
  * effects: session path, recents, attached-surface titles, dirty-flag reset.
  */
-export async function saveSessionDeckTo(session: Session, filePath: string): Promise<void> {
-  // the caller supplies an arbitrary absolute path, so its parent may not exist
-  // yet (the dialog-driven paths always land in an existing folder)
-  await mkdir(dirname(filePath), { recursive: true })
-  const metaRevAtSave = session.metaRev ?? 0
-  await writeDeckFile(session.opened, filePath)
-  session.path = filePath
-  autosaveBackoff.delete(filePath)
-  // mirror slides:save-as: a saved deck is no longer an unsaved untitled draft
-  for (const id of attachedIds(session)) dropUntitledRecovery(id)
-  await pushRecent(filePath)
-  syncAttachedPaths(session, filePath)
-  commitSaved(session.opened)
-  if ((session.metaRev ?? 0) === metaRevAtSave) session.metaDirty = false
+const publicationBySession = new WeakMap<Session, DocumentPublication>()
+function publicationForSession(session: Session): DocumentPublication {
+  let publication = publicationBySession.get(session)
+  if (!publication) {
+    if (session.path)
+      throw new Error(
+        'The presentation has no verified loaded file version. Reload or Save As a separate copy; unsaved work is retained.',
+      )
+    publication = new DocumentPublication()
+    publicationBySession.set(session, publication)
+  }
+  return publication
+}
+const sessionSaveTails = new WeakMap<Session, Promise<unknown>>()
+export async function saveSessionDeckTo(
+  session: Session,
+  filePath: string,
+  selection?: PublicationSelection,
+): Promise<void> {
+  const publication = publicationForSession(session),
+    callSource = selection?.source ?? publication.snapshot()
+  const prior = sessionSaveTails.get(session)
+  const write = (async () => {
+    if (prior) await prior.catch(() => {})
+    const loaded = callSource
+    const target =
+      selection?.target ??
+      (loaded.path === filePath ? undefined : absentPublicationTarget(filePath))
+    await mkdir(dirname(filePath), { recursive: true })
+    const revision = mainCloseRevision(session)
+    // Capture before the first serializer await; fonts/XML/saveSnapshot mutate only this inert package.
+    const frozen = await publishSlidesDocument(
+      publication,
+      filePath,
+      { source: loaded, target },
+      () => captureSlidesSave(session.opened),
+      (snapshot, temporary) => savePptxToFile(snapshot, temporary),
+    )
+    // Publication remains valid even if the editor was replaced while writing.
+    if (!attachedIds(session).length) return
+    const previousPath = session.path || null
+    session.path = filePath
+    slidesDrafts.rename(session, previousPath, filePath)
+    if (adoptSlidesSave(session.opened, frozen, revision, mainCloseRevision(session)))
+      session.metaDirty = false
+    await pushRecent(filePath)
+    if (session.path === filePath) syncAttachedPaths(session, filePath)
+  })()
+  sessionSaveTails.set(session, write)
+  try {
+    await write
+  } finally {
+    if (sessionSaveTails.get(session) === write) sessionSaveTails.delete(session)
+  }
+}
+
+const rendererSources = new Map<number, string>()
+const nativeCloseAdmission = new NativeCloseAdmission<Session>()
+const ownership = new SlidesSessionOwnership<Session>({
+  source: (owner) => sessions.get(owner),
+  identity: (owner) => currentSourceIdentity(owner),
+  batch: (source) => source.historyBatch,
+  changed: (session) => invalidateToolCloseForSession(session),
+})
+function reportHistoryBatchFailure(_error: unknown): void {
+  queueRecoveryWarning(
+    'slides-history-batch',
+    'Presentation history cleanup is still pending. Keep this presentation open and retry after its operation finishes.',
+  )
+}
+type OwnedHistoryBatch = NonNullable<Session['historyBatch']>
+const historyBatches = new SlidesHistoryBatches<WebContents, Session, OwnedHistoryBatch>({
+  source: (owner) => sessions.get(owner.id),
+  begin: (source) => {
+    beginHistoryBatch(source)
+    const batch = source.historyBatch
+    if (!batch) throw new Error('History batch creation did not complete.')
+    return batch
+  },
+  carriers: (batch, origin, owner) =>
+    [...new Set([sessions.get(owner.id), ...sessions.values(), origin])].filter(
+      (source): source is Session => !!source && source.historyBatch === batch,
+    ),
+  sameBatch: (source, batch) => source.historyBatch === batch,
+  actualBatchSources: (batch) => ownership.actualBatchSources(batch),
+  closed: (batch) => batch.depth <= 0,
+  hold: (source) => ownership.holdBatch(source),
+  pause: (source) => ownership.pauseOrdinary(source),
+  waitActual: (source) => ownership.waitActual(source),
+  actualIdle: (source) => ownership.actualIdle(source),
+  finish: (source, batch, carriers) =>
+    ownership.finishBatch(source, () => {
+      const before = endCapturedHistoryBatch(source, batch, carriers)
+      return before ? registerAiSnapshot(source, before) : null
+    }),
+  report: reportHistoryBatchFailure,
+})
+const historyBatchFrames = new WeakMap<object, string>()
+function historyBatchFrame(event: Electron.IpcMainInvokeEvent): string {
+  const frame = event.senderFrame,
+    current = event.sender.mainFrame
+  if (event.sender.isDestroyed() || !frame || frame !== current)
+    throw new Error('History batches require the exact main renderer frame.')
+  let identity = historyBatchFrames.get(frame)
+  if (!identity) {
+    identity = randomUUID()
+    historyBatchFrames.set(frame, identity)
+  }
+  return identity
+}
+configureSlidesMutationGuard((source) => ownership.assert(source as Session))
+configureSlidesOwnedInvokes((channel, event, args, handler) => {
+  const envelope = args.at(-1) as { __slidesAuthoredSource?: unknown } | undefined
+  const expected = rendererSources.get(event.sender.id)
+  if (envelope && typeof envelope === 'object' && '__slidesAuthoredSource' in envelope) {
+    args = args.slice(0, -1)
+    if (
+      channel !== 'slides:draft-activate' &&
+      envelope.__slidesAuthoredSource !== expected &&
+      !(expected === undefined && envelope.__slidesAuthoredSource === '')
+    )
+      throw new Error('This operation belongs to a retired presentation renderer source.')
+  } else if (expected && channel !== 'slides:draft-activate')
+    throw new Error('A presentation operation is missing its source identity.')
+  const pure =
+    channel === 'slides:draft-activate' ||
+    channel === 'slides:source-confirm' ||
+    channel.startsWith('slides:tool-save-') ||
+    channel.startsWith('slides:close-') ||
+    channel.startsWith('slides:draft-') ||
+    channel.startsWith('slides:get-') ||
+    channel.startsWith('slides:font-') ||
+    channel === 'slides:is-dirty' ||
+    channel === 'slides:recent' ||
+    channel === 'slides:media-data' ||
+    channel === 'slides:model3d-data' ||
+    [
+      'ai:get-settings',
+      'ai:gsk-status',
+      'ai:gsk-login',
+      'ai:stream',
+      'ai:stream-cancel',
+      'ai:web-search',
+      'ai:image-search',
+      'ai:generate-image',
+      'ai:analyze-media',
+      'ai:list-style-templates',
+      'ai:load-style-template',
+    ].includes(channel)
+  if (channel === 'slides:save') {
+    const source = sessions.get(event.sender.id),
+      release = source ? nativeCloseAdmission.write(source, args[0] === true) : undefined
+    if (release === null) return { ok: true, deferred: true }
+    try {
+      return Promise.resolve(
+        ownership.run(event.sender.id, () => handler(event, ...args), pure),
+      ).finally(() => release?.())
+    } catch (error) {
+      release?.()
+      throw error
+    }
+  }
+  return ownership.run(event.sender.id, () => handler(event, ...args), pure)
+})
+
+function currentSourceIdentity(owner: number): string {
+  return rendererSources.get(owner) ?? ''
+}
+function mainCloseRevision(session: Session): string {
+  return draftRevision(session) + ':' + ownership.revision(session)
+}
+const toolSaves: SlidesToolSaveBroker = new SlidesToolSaveBroker({
+  state: (owner) => {
+    const source = sessions.get(owner),
+      contents = webContents.fromId(owner)
+    return source
+      ? {
+          source,
+          identity: currentSourceIdentity(owner),
+          token: slidesDrafts.tokenFor(owner),
+          revision: mainCloseRevision(source),
+          dirty: slidesIsDirty(owner),
+          busy:
+            ownership.busy(source) ||
+            !!source.historyBatch ||
+            (!!contents && historyBatches.busy(contents)),
+        }
+      : null
+  },
+  send: (owner, channel, value) => {
+    const contents = webContents.fromId(owner)
+    if (contents && !contents.isDestroyed()) contents.send(channel, value)
+  },
+  write: async (owner, source, path, overwrite, publicationSelection) => {
+    const session = source as Session
+    if (sessions.get(owner) !== session)
+      throw new Error('The presentation source changed before saving.')
+    const target = path || session.path || pickDraftPath(getDraftsDir(), tm('untitledDeck'))
+    if (!overwrite && existsSync(target))
+      return { ok: false, path: target, error: 'The destination already exists.' }
+    await saveSessionDeckTo(session, target, publicationSelection)
+    return {
+      ok: true,
+      path: target,
+      dirty: sessionDirty(session),
+      slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
+    }
+  },
+  stage: (owner, through) => {
+    const producer: ReturnType<SlidesDraftController['stageClose']> = slidesDrafts.stageClose(
+      owner,
+      through,
+    )
+    const source = sessions.get(owner),
+      id = randomUUID()
+    let admission: ReturnType<typeof beginCloseCleanup>
+    try {
+      admission = beginCloseCleanup({
+        id,
+        module: 'slides',
+        ownerKey: String(owner),
+        source: currentSourceIdentity(owner),
+        generation: through,
+        token: producer.token,
+        documentPath: source?.path || null,
+        ready: producer.ready,
+        custody: {
+          recoveryRoot: join(app.getPath('userData'), 'recovery'),
+          draftId: producer.token,
+          attest: producer.attest,
+        },
+        run: (signal) => producer.cleanup(signal),
+      })
+    } catch (error) {
+      producer.cancel()
+      throw error
+    }
+    return { producer, admission }
+  },
+})
+export async function requestSlidesToolSave(
+  wcId: number,
+  path: string,
+  overwrite: boolean,
+  options?: { requireClean?: boolean },
+) {
+  const session = sessions.get(wcId)
+  if (!session) throw new Error('The presentation is not open.')
+  const publication = publicationForSession(session),
+    source = publication.snapshot(),
+    target =
+      path && (overwrite || path !== source.path) ? await observePublicationTarget(path) : undefined
+  if (path === source.path && target && !target.version)
+    throw new Error(
+      'The original presentation was moved or deleted. Use Save As a separate copy; current work is retained.',
+    )
+  if (sessions.get(wcId) !== session || publication.snapshot() !== source)
+    throw new Error(
+      'The presentation source changed while its explicit destination was being checked.',
+    )
+  return toolSaves.request(
+    wcId,
+    path,
+    overwrite,
+    options?.requireClean === true,
+    'save',
+    undefined,
+    {},
+    { source, target },
+  )
+}
+export function cancelSlidesToolSave(wcId: number, requestId: string): void {
+  toolSaves.cancelRequest(wcId, requestId)
+}
+export function completeSlidesToolClose(
+  wcId: number,
+  requestId: string,
+  close: () => boolean,
+): boolean {
+  return toolSaves.completeClose(wcId, requestId, close)
+}
+function invalidateToolCloseForSession(session: Session): void {
+  for (const id of attachedIds(session)) toolSaves.invalidateReady(id)
+}
+export async function prepareSlidesClose(
+  contents: WebContents,
+  filePath?: string,
+  intent: SlidesCloseIntent = 'save',
+  approvedStamp?: CloseLeaseStamp,
+  options: SlidesClosePrepareOptions = {},
+): Promise<SlidesNativeCloseReceipt> {
+  if (!slidesClosePermit(options)) throw new Error('The close operation is no longer current.')
+  const session = sessions.get(contents.id)
+  if (!session) throw new Error('The presentation is no longer open.')
+  const publication = publicationForSession(session),
+    source = publication.snapshot(),
+    target =
+      intent === 'save' && filePath && filePath !== source.path
+        ? await observePublicationTarget(filePath)
+        : undefined
+  if (
+    sessions.get(contents.id) !== session ||
+    publication.snapshot() !== source ||
+    !slidesClosePermit(options)
+  )
+    throw new Error(
+      'The presentation source or close operation changed while its destination was being checked.',
+    )
+  const receipt = await toolSaves.request(
+    contents.id,
+    filePath ?? session.path ?? '',
+    true,
+    true,
+    intent,
+    approvedStamp,
+    options,
+    { source, target },
+  )
+  if (!slidesClosePermit(options) || (receipt.phase !== 'prepared' && receipt.phase !== 'ready')) {
+    toolSaves.cancelRequest(contents.id, receipt.requestId)
+    throw new Error('The document could not be confirmed ready to close.')
+  }
+  return receipt as SlidesNativeCloseReceipt
+}
+export function isSlidesClosePrepared(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+): boolean {
+  return !contents.isDestroyed() && toolSaves.isPrepared(contents.id, receipt)
+}
+export function sealSlidesClose(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+): SlidesNativeCloseReceipt | null {
+  return contents.isDestroyed() ? null : toolSaves.seal(contents.id, receipt)
+}
+export function completeSlidesClose(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+  removeSync: () => boolean,
+): boolean {
+  return toolSaves.completeReceipt(contents.id, receipt, removeSync)
+}
+export async function cancelSlidesClose(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+  reason?: string,
+): Promise<void> {
+  toolSaves.cancelRequest(contents.id, receipt.requestId)
+}
+const nativeQueries = new Map<
+  number,
+  {
+    id: string
+    resolve(value: SlidesCloseQuery): void
+    reject(error: Error): void
+    timer: ReturnType<typeof setTimeout>
+  }
+>()
+function querySlidesClose(contents: WebContents): Promise<SlidesCloseQuery> {
+  if (nativeQueries.has(contents.id))
+    return Promise.reject(new Error('A presentation close query is still pending.'))
+  return new Promise((resolve, reject) => {
+    const id = randomUUID(),
+      timer = setTimeout(() => {
+        nativeQueries.delete(contents.id)
+        reject(
+          new Error(
+            'The renderer did not certify its current pending editors; recovery is retained.',
+          ),
+        )
+      }, 5_000)
+    nativeQueries.set(contents.id, { id, resolve, reject, timer })
+    contents.send('slides:close-query', id)
+  })
+}
+export async function prepareSlidesNativeClose(
+  contents: WebContents,
+  parent?: BrowserWindow | null,
+  options: SlidesClosePrepareOptions = {},
+): Promise<SlidesNativeCloseReceipt | null> {
+  if (contents.isDestroyed() || slidesCrashedViews.has(contents.id))
+    throw new Error(
+      'An unresponsive presentation cannot certify Save/Discard close. Recovery is retained.',
+    )
+  return runSlidesNativeClose(
+    {
+      holdAutomaticSaves: () => {
+        const source = sessions.get(contents.id)
+        return source && !ownership.busy(source)
+          ? nativeCloseAdmission.hold(contents.id, source)
+          : null
+      },
+      alive: () => !contents.isDestroyed(),
+      source: () => sessions.get(contents.id),
+      revision: (source) => mainCloseRevision(source),
+      dirty: () => slidesIsDirty(contents.id),
+      autoSave: (source) => !!autoSavePrefByWc.get(contents.id) && !!source.path,
+      query: () => querySlidesClose(contents),
+      prompt: async () => {
+        const promptOptions = {
+          type: 'warning' as const,
+          message: tm('closeUnsavedMsg'),
+          detail: tm('closeUnsavedDetail'),
+          buttons: [tm('menuSave'), tm('btnDontSave'), tm('btnCancel')],
+          defaultId: 0,
+          cancelId: 2,
+          noLink: true,
+        }
+        const { response } =
+          parent && !parent.isDestroyed()
+            ? await dialog.showMessageBox(parent, promptOptions)
+            : await dialog.showMessageBox(promptOptions)
+        return response
+      },
+      prepare: (source, intent, approved, permit) =>
+        prepareSlidesClose(contents, source.path || undefined, intent, approved, permit),
+      cancel: (receipt) =>
+        cancelSlidesClose(contents, receipt, 'The native close group ended after preparation.'),
+      warning: (error) => warnSlidesDraft(contents.id, error),
+    },
+    options,
+  )
 }
 
 const RECENT_PATH = () => join(app.getPath('userData'), 'slides-recent.json')
@@ -573,10 +1071,39 @@ export async function replaceSlidesRecentFile(oldPath: string, newPath: string):
 
 /** Shell notification: an open view's file was renamed — sync the session path (subsequent
  *  saves write the new file) and push to the renderer to update the editor title bar. */
-export function slidesFileRenamed(wc: WebContents, oldPath: string, newPath: string): void {
+const publicationRenameTails = new WeakMap<Session, Promise<void>>()
+export async function slidesFileRenamed(
+  wc: WebContents,
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
   const session = sessions.get(wc.id)
-  if (session && session.path === oldPath) session.path = newPath
-  wc.send('slides:renamed', newPath)
+  if (!session) return
+  const prior = publicationRenameTails.get(session)
+  if (prior) await prior
+  if (session.path === newPath) {
+    if (!wc.isDestroyed()) wc.send('slides:renamed', newPath)
+    return
+  }
+  if (session.path !== oldPath) return
+  ownership.assert(session)
+  invalidateToolCloseForSession(session)
+  const refresh = (async () => {
+    await publicationForSession(session).rebindMoved(
+      oldPath,
+      newPath,
+      () => sessions.get(wc.id) === session && session.path === oldPath,
+    )
+    session.path = newPath
+    slidesDrafts.rename(session, oldPath, newPath)
+  })()
+  publicationRenameTails.set(session, refresh)
+  try {
+    await refresh
+    if (!wc.isDestroyed()) wc.send('slides:renamed', newPath)
+  } finally {
+    if (publicationRenameTails.get(session) === refresh) publicationRenameTails.delete(session)
+  }
 }
 
 // ── Autosave (crash recovery): dirty sessions write a recovery copy every 30s; a normal save cleans it up ──
@@ -588,77 +1115,72 @@ function sessionDirty(session: Session): boolean {
   return (
     !!session.metaDirty ||
     session.opened.deck.slides.some(
-      (s) => s.structureDirty || s.elements.some((el) => el.dirty || el.dirtyTransform),
+      (s) =>
+        s.structureDirty ||
+        s.elements.some(
+          (el) =>
+            el.dirty ||
+            el.dirtyTransform ||
+            el.dirtyFill ||
+            el.dirtyStroke ||
+            el.dirtySrcRect ||
+            el.dirtyPPr,
+        ),
     )
   )
 }
 
-/**
- * Ticks to skip after a failed recovery copy, per deck. Retrying every 30s just
- * repeats an expensive failure, but disabling the safety net for the rest of the
- * session was worse: on a heavy deck one slow serialization used to remove crash
- * recovery permanently and silently. Back off instead, and keep the
- * skip count so a deck that always fails only pays for it every ~5 minutes.
- */
-const autosaveBackoff = new Map<string, number>()
-const AUTOSAVE_BACKOFF_TICKS = 10
-let autosaveRunning = false
-
-/**
- * Recovery drafts for never-saved decks (wcId → visible path in <Documents>/Vantage):
- * the sha1-keyed recovery copy needs session.path, so before the first save a freeze or
- * crash used to lose everything. Removed on save, explicit discard, or clean close.
- */
-const untitledRecovery = new Map<number, string>()
-
-function dropUntitledRecovery(wcId: number): void {
-  const draft = untitledRecovery.get(wcId)
-  if (draft) void rm(draft, { force: true }).catch(() => {})
-  untitledRecovery.delete(wcId)
+const slidesDraftOwners = new Set<number>()
+const slidesCrashedViews = new Set<number>()
+const slidesPendingEdits = new Map<number, boolean>()
+const slidesDrafts: SlidesDraftController = new SlidesDraftController({
+  revisionFor: (owner) => {
+    const session = sessions.get(owner)
+    return session ? draftRevision(session) : null
+  },
+  recoveryRoot: () => join(app.getPath('userData'), 'recovery'),
+  sourceFor: (owner) => sessions.get(owner),
+  isLive: (owner) =>
+    slidesDraftOwners.has(owner) &&
+    !viewerWcIds.has(owner) &&
+    webContents.fromId(owner)?.isDestroyed() === false,
+  retaining: (owner): boolean => toolSaves.retaining(owner),
+  capture: (owner, pending) => {
+    const session = sessions.get(owner)
+    if (!session) throw new Error('This presentation is no longer open.')
+    const frozen = freezeSlidesDraft(session, pending)
+    return () => serializeSlidesDraft(frozen)
+  },
+})
+const draftRevision = slidesDraftRevision
+function warnSlidesDraft(owner: number, error: unknown): void {
+  const contents = webContents.fromId(owner)
+  if (contents && !contents.isDestroyed()) contents.send('slides:draft-warning', String(error))
 }
-
-setInterval(() => {
-  if (autosaveRunning) return
-  autosaveRunning = true
-  void (async () => {
-    const seen = new Set<Session>() // aliased entries share the session; save it once
-    for (const [wcId, session] of sessions.entries()) {
-      if (seen.has(session)) continue
-      seen.add(session)
-      if (session.masterEdit || !sessionDirty(session)) continue
-      let target: string
-      if (session.path) {
-        target = autosavePathFor(session.path)
-      } else {
-        let draft = untitledRecovery.get(wcId)
-        if (!draft) {
-          draft = join(getDraftsDir(), newDraftFilename())
-          untitledRecovery.set(wcId, draft)
-        }
-        target = draft
-      }
-      const backoffKey = session.path ?? target
-      const skip = autosaveBackoff.get(backoffKey) ?? 0
-      if (skip > 0) {
-        autosaveBackoff.set(backoffKey, skip - 1)
-        continue
-      }
-      try {
-        await mkdir(dirname(target), { recursive: true })
-        await writeDeckFile(session.opened, target)
-        autosaveBackoff.delete(backoffKey)
-      } catch (error) {
-        autosaveBackoff.set(backoffKey, AUTOSAVE_BACKOFF_TICKS)
-        console.warn('[slides] autosave failed, retrying in ~5 min:', error)
-      }
-    }
-  })().finally(() => {
-    autosaveRunning = false
-  })
-}, 30_000)
+export async function discardActiveSlidesDraft(id: string): Promise<boolean> {
+  for (const owner of slidesDraftOwners) {
+    if (!slidesDrafts.ownsToken(owner, id)) continue
+    toolSaves.cancel(
+      owner,
+      'An explicit recovery deletion canceled the pending close; its retained custody remains separately reviewable.',
+    )
+    const session = sessions.get(owner)
+    const discarded = slidesDrafts.discardCurrent(owner)
+    const contents = webContents.fromId(owner)
+    if (contents && !contents.isDestroyed())
+      contents.send('slides:draft-discarded', {
+        token: id,
+        revision: session ? draftRevision(session) : '',
+      })
+    await discarded
+    return true
+  }
+  return false
+}
 
 // ── Close guard (aligned with sheets/pdf): dirty sessions prompt Save/Don't Save/Cancel before closing a tab/window ──
 const closeSaveWaiters = new Map<number, (ok: boolean) => void>()
+const closeFlushWaiters = new Map<number, (ok: boolean) => void>()
 /** Autosave toggle mirrored from the renderer: files with it on save silently on close and proceed, no dialog */
 const autoSavePrefByWc = new Map<number, boolean>()
 
@@ -672,6 +1194,25 @@ ipcMain.on('slides:close-save-result', (event, ok: unknown) => {
   closeSaveWaiters.delete(event.sender.id)
   waiter(ok === true)
 })
+ipcMain.on('slides:close-flush-result', (event, ok: unknown) => {
+  const waiter = closeFlushWaiters.get(event.sender.id)
+  if (!waiter) return
+  closeFlushWaiters.delete(event.sender.id)
+  waiter(ok === true)
+})
+function requestRendererFlush(contents: WebContents): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      closeFlushWaiters.delete(contents.id)
+      resolve(false)
+    }, 120000)
+    closeFlushWaiters.set(contents.id, (ok) => {
+      clearTimeout(timer)
+      resolve(ok)
+    })
+    contents.send('slides:close-flush-request')
+  })
+}
 
 /** Ask the renderer to run the full save flow and await the result (failure/timeout = false). */
 function requestRendererSave(contents: WebContents): Promise<boolean> {
@@ -690,7 +1231,7 @@ function requestRendererSave(contents: WebContents): Promise<boolean> {
 
 export function slidesIsDirty(webContentsId: number): boolean {
   const session = sessions.get(webContentsId)
-  return !!session && sessionDirty(session)
+  return !!session && (sessionDirty(session) || slidesPendingEdits.get(webContentsId) === true)
 }
 
 /**
@@ -700,41 +1241,12 @@ export function slidesIsDirty(webContentsId: number): boolean {
  * awaits the result; on failure/timeout stay open.
  */
 export async function requestSlidesClose(
-  contents: WebContents,
-  parent?: BrowserWindow | null,
+  _contents: WebContents,
+  _parent?: BrowserWindow | null,
 ): Promise<boolean> {
-  if (!slidesIsDirty(contents.id) || contents.isDestroyed()) return true
-  // A shared session stays alive in another EDITOR window; this window can leave
-  // without a save prompt — the changes are not being discarded. View-only
-  // attachments (presenter audience) don't count: they cannot save.
-  const shared = sessions.get(contents.id)
-  if (shared && editorAttachedIds(shared).length > 1) return true
-  // Autosave on and a path exists: save silently and proceed without bothering the user; only a failed save falls through to the dialog
-  if (autoSavePrefByWc.get(contents.id) && sessions.get(contents.id)?.path) {
-    if (await requestRendererSave(contents)) return true
-  }
-  const options = {
-    type: 'warning' as const,
-    message: tm('closeUnsavedMsg'),
-    detail: tm('closeUnsavedDetail'),
-    buttons: [tm('menuSave'), tm('btnDontSave'), tm('btnCancel')],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
-  }
-  const { response } =
-    parent && !parent.isDestroyed()
-      ? await dialog.showMessageBox(parent, options)
-      : await dialog.showMessageBox(options)
-  if (response === 2) return false
-  if (response === 1) {
-    // User explicitly discarded changes: also delete the recovery copy, so the next open does not show a pointless recovery prompt
-    const session = sessions.get(contents.id)
-    if (session?.path) void rm(autosavePathFor(session.path), { force: true }).catch(() => {})
-    dropUntitledRecovery(contents.id)
-    return true
-  }
-  return requestRendererSave(contents)
+  throw new Error(
+    'Use prepareSlidesNativeClose + completeSlidesClose around the actual synchronous removal; a boolean cannot retain close authority.',
+  )
 }
 
 /**
@@ -744,10 +1256,17 @@ export async function requestSlidesClose(
  * start). Without this the autosave copy survives, and the next open offers to
  * restore edits the caller explicitly discarded.
  */
-export function discardSlidesRecovery(contents: WebContents): void {
+export async function discardSlidesRecovery(contents: WebContents): Promise<void> {
   const session = sessions.get(contents.id)
+  const token = slidesDrafts.tokenFor(contents.id)
+  const discarded = slidesDrafts.discardCurrent(contents.id)
+  if (token && !contents.isDestroyed())
+    contents.send('slides:draft-discarded', {
+      token,
+      revision: session ? draftRevision(session) : '',
+    })
+  await discarded
   if (session?.path) void rm(autosavePathFor(session.path), { force: true }).catch(() => {})
-  dropUntitledRecovery(contents.id)
 }
 
 /** On open, if a recovery copy exists, ask whether to restore (still points at the original path; only save persists it).
@@ -822,10 +1341,14 @@ async function preparePresentationForOpen(filePath: string): Promise<string | nu
   )
   if (r.canceled || !r.filePath) return null
   try {
-    const result = await convertOdpToPptx(new Uint8Array(await readFile(filePath)))
-    // atomic like the Docs and shell copies: a plain write leaves a truncated
-    // .pptx where the user expects a deck if the process dies mid-write
-    await atomicWriteFile(r.filePath, Buffer.from(result.pptx))
+    await publishSelectedUserOutput(
+      r.filePath,
+      async () => {
+        const result = await convertOdpToPptx(new Uint8Array(await readFile(filePath)))
+        return Buffer.from(result.pptx)
+      },
+      { sourcePaths: [filePath] },
+    )
   } catch {
     const errorOptions = {
       type: 'error' as const,
@@ -900,59 +1423,124 @@ function adoptEmbeddedFonts(opened: OpenedPptx): void {
   }
 }
 
+interface SourceCandidate {
+  carryHistory: boolean
+  id: string
+  previous: Session | undefined
+  candidate: Session
+  result: OpenResult
+  timer: ReturnType<typeof setTimeout>
+}
+const sourceCandidates = new Map<number, SourceCandidate>()
+function prepareSourceCandidate(
+  contents: WebContents,
+  candidate: Session,
+  result: OpenResult,
+  carryHistory = false,
+): OpenResult {
+  const prior = sourceCandidates.get(contents.id)
+  if (prior) clearTimeout(prior.timer)
+  if (!prior && sourceCandidates.size >= 16)
+    throw new Error('Too many presentation sources are being prepared.')
+  const id = randomUUID(),
+    entry: SourceCandidate = {
+      carryHistory,
+      id,
+      previous: sessions.get(contents.id),
+      candidate,
+      result,
+      timer: setTimeout(() => {
+        if (sourceCandidates.get(contents.id)?.id === id) sourceCandidates.delete(contents.id)
+      }, 120_000),
+    }
+  sourceCandidates.set(contents.id, entry)
+  return { ...result, sourceCandidateId: id }
+}
+async function confirmSourceCandidate(contents: WebContents, id: string): Promise<boolean> {
+  const entry = sourceCandidates.get(contents.id)
+  if (!entry || entry.id !== id || sessions.get(contents.id) !== entry.previous)
+    throw new Error('The prepared presentation was superseded; the current editor was retained.')
+  const receipt = entry.previous
+    ? await prepareSlidesNativeClose(contents, hostWindowFor(contents))
+    : null
+  if (entry.previous && !receipt) return false
+  try {
+    const adopt = () =>
+      ownership.run(
+        contents.id,
+        () => {
+          if (
+            sourceCandidates.get(contents.id) !== entry ||
+            sessions.get(contents.id) !== entry.previous
+          )
+            return false
+          if (entry.carryHistory) carryHistoryForReplacement(entry.previous, entry.candidate)
+          ownership.adopt(contents.id, entry.candidate)
+          slidesDrafts.retire(contents.id)
+          sessions.set(contents.id, entry.candidate)
+          rendererSources.delete(contents.id)
+          slidesPendingEdits.delete(contents.id)
+          sourceCandidates.delete(contents.id)
+          clearTimeout(entry.timer)
+          scheduleHistoryNotify(entry.candidate)
+          return true
+        },
+        true,
+      )
+    const adopted = receipt ? completeSlidesClose(contents, receipt, adopt) : adopt()
+    if (adopted) {
+      contents.send('slides:source-adopted', entry.result)
+      if (entry.candidate.path) {
+        slidesOpenedHook?.(contents, entry.candidate.path)
+        void pushRecent(entry.candidate.path)
+      }
+    }
+    return adopted
+  } finally {
+    if (receipt) await cancelSlidesClose(contents, receipt)
+  }
+}
 async function openAndBuild(
   wc: WebContents,
   path: string,
   fitWidthPx: number,
 ): Promise<OpenResult> {
-  // Same file already open in another window: attach to that session instead of
-  // opening an independent copy (which would silently lose the loser's edits on
-  // save). Both windows then see the same live deck; edits propagate via
-  // scheduleDeckBroadcast. Untitled sessions have path '' and never alias.
   const wanted = resolve(path)
   for (const [id, existing] of sessions) {
     if (id === wc.id || !existing.path || resolve(existing.path) !== wanted) continue
-    sessions.set(wc.id, existing)
-    scheduleHistoryNotify(existing)
-    await pushRecent(path)
-    slidesOpenedHook?.(wc, path)
-    return {
+    return prepareSourceCandidate(wc, existing, {
       path: existing.path,
       slides: buildAllRenderSlides(existing.opened, fitWidthPx),
       size: { cx: existing.opened.deck.size.cx, cy: existing.opened.deck.size.cy },
       defaultFont: deckDefaultFont(existing.opened),
-    }
+    })
   }
-  const raw = await readFile(path)
-  // a 0-byte .pptx is an empty deck, not a corrupt one: open the blank template
-  // under the file's own path so Save writes back to it
+  const loaded = await readPublicationFile(path, () => readFile(path)),
+    raw = Buffer.from(loaded.bytes)
   const { bytes, recovered } = await maybeRecoverBytes(
     path,
     raw.length === 0 ? await createBlankPptx() : new Uint8Array(raw),
   )
-  await shapedMetricsReady() // Lay out only after complex-script shaped metrics are ready, avoiding an init race falling back to estimation
+  await shapedMetricsReady()
   const opened = await openPptx(bytes)
   adoptEmbeddedFonts(opened)
-  sessions.set(wc.id, {
+  const candidate: Session = {
     path,
     opened,
     fitWidthPx,
     undoStack: [],
     redoStack: [],
     ...(recovered ? { metaDirty: true } : {}),
-  })
-  scheduleHistoryNotify(sessions.get(wc.id)!)
-  await pushRecent(path)
-  slidesOpenedHook?.(wc, path)
+  }
+  publicationBySession.set(candidate, new DocumentPublication(loaded.binding))
   let slides = buildAllRenderSlides(opened, fitWidthPx)
-  // If the first layout pass had complex-script misses (Arabic/Thai etc.), re-lay out once with renderer-measured widths
   if (await refineComplexWidths(wc)) slides = buildAllRenderSlides(opened, fitWidthPx)
-  return {
+  return prepareSourceCandidate(wc, candidate, {
     path,
     slides,
     size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
     defaultFont: deckDefaultFont(opened),
-  }
+  })
 }
 
 /** Directory where AI-generated drafts are saved: the configurable default save folder (falls back to <Documents>/Vantage) */
@@ -1023,8 +1611,22 @@ async function saveDraftAfterGenerate(
       draftPath = pickDraftPath(draftsDir, deckName)
     }
 
-    await writeFile(draftPath, Buffer.from(bytes))
+    const publication = publicationForSession(session),
+      loaded = publication.snapshot(),
+      ticket = publication.pin(
+        draftPath,
+        loaded.path === draftPath ? undefined : absentPublicationTarget(draftPath),
+        loaded,
+      )
+    await publication.publishBytes(ticket, () => bytes)
+    if (sessions.get(wc.id) !== session && attachedIds(session).length)
+      throw new Error(
+        'The source changed during generated publication; its bytes were retained without adopting an obsolete path.',
+      )
+    const previousPath = session.path || null
     session.path = draftPath
+    slidesDrafts.rename(session, previousPath, draftPath)
+    syncAttachedPaths(session, draftPath)
     await pushRecent(draftPath)
     slidesOpenedHook?.(wc, draftPath)
   } catch (err) {
@@ -1061,6 +1663,7 @@ function journaledTxn(
   source: Exclude<OpLogEntry['source'], 'reset'>,
   req: TxnRequest,
 ): TxnResult {
+  invalidateToolCloseForSession(session)
   const r = runTxn(session.opened, req)
   if (r.applied) {
     journalOps(session, source, r.records ?? [])
@@ -1357,7 +1960,112 @@ let ipcRegistered = false
 export function registerSlidesIpc(): void {
   if (ipcRegistered) return
   ipcRegistered = true
-
+  slidesOwnedHandle('slides:source-confirm', (event, id: string) =>
+    confirmSourceCandidate(event.sender, id),
+  )
+  slidesOwnedHandle('slides:close-claim', (event, ticket: CloseLeaseTicket) =>
+    toolSaves.claim(event.sender.id, ticket),
+  )
+  slidesOwnedHandle('slides:close-cancel', (event, ticket: CloseLeaseTicket, reason: string) => {
+    toolSaves.cancelRequest(event.sender.id, ticket?.id)
+  })
+  ipcMain.on('slides:close-query-result', (event, value: SlidesCloseQuery) => {
+    const pending = nativeQueries.get(event.sender.id)
+    if (
+      !pending ||
+      value?.id !== pending.id ||
+      typeof value.dirty !== 'boolean' ||
+      typeof value.pending !== 'boolean' ||
+      !isCloseLeaseStamp(value.stamp) ||
+      value.stamp.source !== currentSourceIdentity(event.sender.id) ||
+      (value.unsupported !== undefined &&
+        (typeof value.unsupported !== 'string' || value.unsupported.length > 2000))
+    )
+      return
+    nativeQueries.delete(event.sender.id)
+    clearTimeout(pending.timer)
+    pending.resolve(value)
+  })
+  slidesOwnedHandle('slides:tool-save-probe', (event, identity: SlidesToolSaveIdentity) =>
+    toolSaves.probe(event.sender.id, identity),
+  )
+  slidesOwnedHandle('slides:tool-save-write', (event, identity: SlidesToolSaveIdentity) =>
+    toolSaves.publish(event.sender.id, identity),
+  )
+  ipcMain.on('slides:tool-save-result', (event, value: unknown) => {
+    void toolSaves.finish(event.sender.id, value)
+  })
+  slidesOwnedHandle('slides:tool-save-cancel', (event, requestId: unknown) =>
+    toolSaves.cancelRequest(event.sender.id, requestId),
+  )
+  slidesOwnedHandle('slides:draft-activate', (event, path: unknown, identity: unknown) => {
+    try {
+      if (
+        typeof identity !== 'string' ||
+        identity.length > 1024 ||
+        !/^[-a-f0-9]{36}:\d+$/.test(identity)
+      )
+        throw new Error('Presentation activation needs its renderer document generation.')
+      const prior = rendererSources.get(event.sender.id)
+      if (prior && prior !== identity)
+        toolSaves.cancel(event.sender.id, 'A new presentation source retired the pending close.')
+      // Ordinary source authority remains usable even if optional recovery activation refuses.
+      rendererSources.set(event.sender.id, identity)
+      slidesPendingEdits.delete(event.sender.id)
+      slidesCrashedViews.delete(event.sender.id)
+      requireRecoveryRuntime('Presentation automatic recovery activation')
+      const token = slidesDrafts.activate(event.sender.id, path)
+      return { ok: true, token }
+    } catch (error) {
+      return { ok: false, error: String(error) }
+    }
+  })
+  slidesOwnedHandle('slides:draft-write', async (event, request: unknown) => {
+    try {
+      requireRecoveryRuntime('Presentation automatic recovery capture')
+      return { ok: true, skipped: !(await slidesDrafts.snapshot(event.sender.id, request)) }
+    } catch (error) {
+      return { ok: false, error: String(error) }
+    }
+  })
+  slidesOwnedHandle('slides:draft-saved', async (event, request: unknown) => {
+    try {
+      const value = request as { clean?: unknown } | null
+      const source = sessions.get(event.sender.id)
+      const guarded =
+        value && typeof value.clean === 'boolean'
+          ? {
+              ...value,
+              clean:
+                value.clean &&
+                !!source &&
+                !sessionDirty(source) &&
+                !slidesPendingEdits.get(event.sender.id),
+            }
+          : request
+      await slidesDrafts.acknowledgeSaved(event.sender.id, guarded)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: String(error) }
+    }
+  })
+  slidesOwnedHandle('slides:draft-state', (event) => {
+    const session = sessions.get(event.sender.id)
+    return session ? { revision: draftRevision(session), dirty: sessionDirty(session) } : null
+  })
+  ipcMain.on('slides:draft-pending', (event, value: unknown) => {
+    const request = value as { token?: unknown; dirty?: unknown } | null
+    if (
+      request &&
+      typeof request.token === 'string' &&
+      typeof request.dirty === 'boolean' &&
+      slidesDrafts.tokenFor(event.sender.id) === request.token
+    ) {
+      slidesPendingEdits.set(event.sender.id, request.dirty)
+      const session = sessions.get(event.sender.id)
+      if (request.dirty && session) ownership.assert(session)
+    }
+  })
   // AI-generated slide pages land in app-owned temp directories; sweep
   // expired ones at startup (never at land time — markers can be redeemed
   // more than once), mirroring the sheets pasted-file cleanup.
@@ -1365,7 +2073,7 @@ export function registerSlidesIpc(): void {
 
   // shared with the other editor modules — last (identical) registration wins
   ipcMain.removeHandler('app:get-language')
-  ipcMain.handle('app:get-language', () => getUiLang())
+  slidesOwnedHandle('app:get-language', () => getUiLang())
 
   // Screen recording: source dispatch for the renderer's navigator.mediaDevices.getDisplayMedia.
   // macOS prefers the system picker (with its permission flow), falling back to the first screen.
@@ -1400,8 +2108,8 @@ export function registerSlidesIpc(): void {
     }
   })
 
-  ipcMain.handle('slides:private-font-faces', () => listPrivateFontFaces())
-  ipcMain.handle('slides:private-font-data', (_e, id: string) => getPrivateFontData(id))
+  slidesOwnedHandle('slides:private-font-faces', () => listPrivateFontFaces())
+  slidesOwnedHandle('slides:private-font-data', (_e, id: string) => getPrivateFontData(id))
 
   initFontStore()
   // Fonts changed (download or local install): rebuild every open session with a fresh
@@ -1422,8 +2130,8 @@ export function registerSlidesIpc(): void {
     }
     for (const wc of webContents.getAllWebContents()) wc.send('slides:fonts-changed')
   }
-  ipcMain.handle('slides:font-catalog', () => listFontCatalog())
-  ipcMain.handle('slides:font-download', async (_e, family: string) => {
+  slidesOwnedHandle('slides:font-catalog', () => listFontCatalog())
+  slidesOwnedHandle('slides:font-download', async (_e, family: string) => {
     try {
       await downloadFontFamily(family)
       afterFontsChanged()
@@ -1432,7 +2140,7 @@ export function registerSlidesIpc(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
-  ipcMain.handle('slides:font-install-local', async () => {
+  slidesOwnedHandle('slides:font-install-local', async () => {
     const r = await showOpenDialogWithMemory(dialog, dialogParent(), {
       properties: ['openFile', 'multiSelections'],
       filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'ttc', 'otc'] }],
@@ -1442,7 +2150,7 @@ export function registerSlidesIpc(): void {
     if (families.length) afterFontsChanged()
     return { families }
   })
-  ipcMain.handle('slides:font-missing', (e) => {
+  slidesOwnedHandle('slides:font-missing', (e) => {
     const session = sessions.get(e.sender.id)
     return session ? missingCatalogFonts(session.opened) : []
   })
@@ -1472,7 +2180,7 @@ export function registerSlidesIpc(): void {
     return r
   }
 
-  ipcMain.handle('slides:open', async (e, fitWidthPx: number) => {
+  slidesOwnedHandle('slides:open', async (e, fitWidthPx: number) => {
     const parent = dialogParent()
     const options = {
       properties: ['openFile' as const],
@@ -1486,7 +2194,7 @@ export function registerSlidesIpc(): void {
     return openAndBuild(e.sender, prepared, fitWidthPx)
   })
 
-  ipcMain.handle('slides:open-path', async (e, path: string, fitWidthPx: number) => {
+  slidesOwnedHandle('slides:open-path', async (e, path: string, fitWidthPx: number) => {
     if (!path || !existsSync(path)) return null
     const prepared = await preparePresentationForOpen(path)
     if (!prepared) return null
@@ -1494,7 +2202,7 @@ export function registerSlidesIpc(): void {
     return openAndBuild(e.sender, prepared, fitWidthPx)
   })
 
-  ipcMain.handle('slides:consume-pending-open', async (e, fitWidthPx: number) => {
+  slidesOwnedHandle('slides:consume-pending-open', async (e, fitWidthPx: number) => {
     // renderer app just mounted: safe to reveal the vibrancy material behind
     // the (now painted) page without flashing raw desktop during load
     vibFlip.get(e.sender.id)?.('#00000000')
@@ -1535,7 +2243,7 @@ export function registerSlidesIpc(): void {
 
   // Shim over the canonical setText op (rich-text rebuild, link rels, resource cleanup,
   // level rematerialization live in the op); autofit is a render concern and stays here.
-  ipcMain.handle('slides:edit-text', (e, op: EditTextOp) => {
+  slidesOwnedHandle('slides:edit-text', (e, op: EditTextOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     pushHistory(session)
@@ -1567,7 +2275,7 @@ export function registerSlidesIpc(): void {
   // Shim over the canonical setFont op: one per_op transaction covers the whole
   // selection (non-text elements fail their own op and are skipped, matching the
   // legacy "changed if any succeeded" semantics).
-  ipcMain.handle('slides:set-element-font', (e, op: SetElementFontOp) => {
+  slidesOwnedHandle('slides:set-element-font', (e, op: SetElementFontOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const font = {
@@ -1603,7 +2311,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Shim over the canonical setParagraphFormat op (same per_op selection semantics as setFont).
-  ipcMain.handle('slides:set-element-paragraph-format', (e, op: SetElementParagraphFormatOp) => {
+  slidesOwnedHandle('slides:set-element-paragraph-format', (e, op: SetElementParagraphFormatOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const format = {
@@ -1698,7 +2406,7 @@ export function registerSlidesIpc(): void {
 
   // Shim over the canonical setTransform op. Preview-gesture undo bookkeeping is a
   // surface concern and stays here.
-  ipcMain.handle('slides:edit-transform', (e, op: EditTransformOp) => {
+  slidesOwnedHandle('slides:edit-transform', (e, op: EditTransformOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const payload = transformPayload(session, op.slideIndex, op.fitWidthPx, op)
@@ -1748,7 +2456,7 @@ export function registerSlidesIpc(): void {
 
   // Escape mid-resize: the preview frames live in the model and their undo snapshot is the
   // pre-gesture state, so restoring that snapshot and dropping it leaves no trace of the gesture
-  ipcMain.handle('slides:cancel-transform-preview', (e, op: { slideIndex: number }) => {
+  slidesOwnedHandle('slides:cancel-transform-preview', (e, op: { slideIndex: number }) => {
     const session = sessions.get(e.sender.id)
     if (!session || !session.transformPreview) return null
     session.transformPreview = false
@@ -1763,7 +2471,7 @@ export function registerSlidesIpc(): void {
 
   // A multi-selection nudge/rotate: every item commits exactly like edit-transform,
   // the whole batch is one undo step (PowerPoint undoes the action, not each shape).
-  ipcMain.handle('slides:edit-transform-multi', (e, op: EditTransformMultiOp) => {
+  slidesOwnedHandle('slides:edit-transform-multi', (e, op: EditTransformMultiOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const ops: NonNullable<ReturnType<typeof transformPayload>>[] = []
@@ -1779,7 +2487,7 @@ export function registerSlidesIpc(): void {
 
   // Connector endpoint drag: box+flip re-derived from the two endpoints;
   // attach/detach writes a:stCxn/a:endCxn so the connector follows later shape moves
-  ipcMain.handle('slides:edit-connector-endpoints', (e, op: EditConnectorEndpointsOp) => {
+  slidesOwnedHandle('slides:edit-connector-endpoints', (e, op: EditConnectorEndpointsOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
@@ -1801,7 +2509,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Read-only: RenderSlide for every page of the current session (E2E driver/debug use, no state change)
-  ipcMain.handle('slides:get-render-slides', (e) => {
+  slidesOwnedHandle('slides:get-render-slides', (e) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     return session.opened.deck.slides.map((_, i) => rebuildSlide(session, i))
@@ -1809,7 +2517,7 @@ export function registerSlidesIpc(): void {
 
   // Shim: the whole selection is one atomic transaction of setTransform ops — the
   // executor's plan step reproduces the legacy "every element must exist" gate.
-  ipcMain.handle('slides:batch-edit-transform', (e, op: BatchEditTransformOp) => {
+  slidesOwnedHandle('slides:batch-edit-transform', (e, op: BatchEditTransformOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
@@ -1830,7 +2538,7 @@ export function registerSlidesIpc(): void {
   // AI batch surface: raw ops arrive as one transaction — the shared core in
   // applySessionTxn (validation, atomicity/rollback/journal, autofit render pass)
   // is the same code the shell's MCP slides bridge drives.
-  ipcMain.handle('slides:apply-txn', (e, req: ApplyTxnOp): ApplyTxnResult | null => {
+  slidesOwnedHandle('slides:apply-txn', (e, req: ApplyTxnOp): ApplyTxnResult | null => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     return applySessionTxn(session, req)
@@ -1840,7 +2548,7 @@ export function registerSlidesIpc(): void {
   // single IPC, compile to ops (script-map), and apply atomically — the executor
   // owns validation, rollback and the journal. Autofit is a render concern and
   // stays here, mirroring the per-op shims the script used to fan out to.
-  ipcMain.handle('slides:apply-edit-script', (e, op: ApplyEditScriptOp) => {
+  slidesOwnedHandle('slides:apply-edit-script', (e, op: ApplyEditScriptOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const ops = mapScriptOps(session.opened, op)
@@ -1876,7 +2584,7 @@ export function registerSlidesIpc(): void {
   // ── Single-page generation: a JSON slide spec written by the renderer's LLM call is built
   // directly into a one-slide pptx with pptx-engine primitives. Returns a marker that
   // slides:land-generated-pages redeems for the bytes.
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:local-page-generate',
     async (
       _e,
@@ -1932,7 +2640,7 @@ export function registerSlidesIpc(): void {
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:land-generated-pages',
     async (
       e,
@@ -2019,13 +2727,17 @@ export function registerSlidesIpc(): void {
           }
           existing.fitWidthPx = fitWidthPx
           // Save the draft: persist the current complete deck
-          const bytes = await savePptx(opened)
+          const generationRevision = mainCloseRevision(existing)
+          const bytes = await savePptx({
+            deck: structuredClone(opened.deck),
+            archive: opened.archive.clone(),
+          })
           await saveDraftAfterGenerate(e.sender, existing, bytes, 'append', deckName)
           // Draft now matches memory: reopen from the output bytes to clear dirty (same as
           // slides:save) — otherwise pure AI generation (per-page append merges mark
           // structureDirty) would trigger the close confirmation even without edits
-          if (existing.path) {
-            existing.opened = await openPptx(bytes)
+          if (existing.path && mainCloseRevision(existing) === generationRevision) {
+            commitSaved(existing.opened)
             existing.metaDirty = false
           }
           return {
@@ -2071,10 +2783,14 @@ export function registerSlidesIpc(): void {
             return { error: r.failures?.[0]?.error ?? tm('errReplaceFailed') }
           }
           existing.fitWidthPx = fitWidthPx
-          const bytes = await savePptx(opened)
+          const generationRevision = mainCloseRevision(existing)
+          const bytes = await savePptx({
+            deck: structuredClone(opened.deck),
+            archive: opened.archive.clone(),
+          })
           await saveDraftAfterGenerate(e.sender, existing, bytes, 'append', deckName)
-          if (existing.path) {
-            existing.opened = await openPptx(bytes)
+          if (existing.path && mainCloseRevision(existing) === generationRevision) {
+            commitSaved(existing.opened)
             existing.metaDirty = false
           }
           return {
@@ -2117,10 +2833,14 @@ export function registerSlidesIpc(): void {
             return { error: r.failures?.[0]?.error ?? tm('errInsertFailed') }
           }
           existing.fitWidthPx = fitWidthPx
-          const bytes = await savePptx(opened)
+          const generationRevision = mainCloseRevision(existing)
+          const bytes = await savePptx({
+            deck: structuredClone(opened.deck),
+            archive: opened.archive.clone(),
+          })
           await saveDraftAfterGenerate(e.sender, existing, bytes, 'append', deckName)
-          if (existing.path) {
-            existing.opened = await openPptx(bytes)
+          if (existing.path && mainCloseRevision(existing) === generationRevision) {
+            commitSaved(existing.opened)
             existing.metaDirty = false
           }
           return {
@@ -2143,26 +2863,31 @@ export function registerSlidesIpc(): void {
           redoStack: [],
         }
         const old = sessions.get(e.sender.id)
-        carryHistoryForReplacement(old, replaceSession)
-        sessions.set(e.sender.id, replaceSession)
-        // Re-point windows that shared the old session, or they diverge onto a dead deck
-        if (old) for (const id of attachedIds(old)) sessions.set(id, replaceSession)
-        // Save the draft: await completion so the real path is returned; on failure degrade silently (session.path stays '')
+        if (old && editorAttachedIds(old).length > 1)
+          throw new Error(
+            'Close the other presentation editing views before replacing the entire shared deck; their pending input was preserved.',
+          )
         await saveDraftAfterGenerate(e.sender, replaceSession, bytes, 'replace', deckName)
-        scheduleDeckBroadcast(replaceSession)
-        return {
-          path: replaceSession.path,
-          slides: buildAllRenderSlides(opened, fitWidthPx),
-          size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
-          defaultFont: deckDefaultFont(opened),
-        }
+        const result = prepareSourceCandidate(
+          e.sender,
+          replaceSession,
+          {
+            path: replaceSession.path,
+            slides: buildAllRenderSlides(opened, fitWidthPx),
+            size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
+            defaultFont: deckDefaultFont(opened),
+          },
+          true,
+        )
+        e.sender.send('slides:opened', result)
+        return result
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) }
       }
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:new-blank',
     async (e, fitWidthPx: number, size?: unknown): Promise<OpenResult> => {
       const opened = await openPptx(await createBlankPptx())
@@ -2171,18 +2896,21 @@ export function registerSlidesIpc(): void {
         typeof v === 'number' && Number.isInteger(v) && v >= 914400 && v <= 51206400
       const s = size as { cx?: unknown; cy?: unknown } | undefined
       if (s && side(s.cx) && side(s.cy)) setSlideSize(opened, s.cx, s.cy)
-      sessions.set(e.sender.id, { path: '', opened, fitWidthPx, undoStack: [], redoStack: [] })
-      scheduleHistoryNotify(sessions.get(e.sender.id)!)
-      return {
-        path: '',
-        slides: buildAllRenderSlides(opened, fitWidthPx),
-        size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
-        defaultFont: deckDefaultFont(opened),
-      }
+      toolSaves.cancel(e.sender.id)
+      return prepareSourceCandidate(
+        e.sender,
+        { path: '', opened, fitWidthPx, undoStack: [], redoStack: [] },
+        {
+          path: '',
+          slides: buildAllRenderSlides(opened, fitWidthPx),
+          size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
+          defaultFont: deckDefaultFont(opened),
+        },
+      )
     },
   )
 
-  ipcMain.handle('slides:add-element', (e, op: AddElementOp) => {
+  slidesOwnedHandle('slides:add-element', (e, op: AddElementOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
@@ -2221,7 +2949,7 @@ export function registerSlidesIpc(): void {
 
   // Shim over the canonical op (see @vantage/pptx-ops): the op owns validation/mutation/journal;
   // the shim keeps session lookup, undo bookkeeping, and RenderSlide rebuilding.
-  ipcMain.handle('slides:delete-element', (e, op: DeleteElementOp) => {
+  slidesOwnedHandle('slides:delete-element', (e, op: DeleteElementOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     pushHistory(session)
@@ -2237,7 +2965,7 @@ export function registerSlidesIpc(): void {
 
   // Whole-selection delete as one undo step. per_op mirrors the old per-element
   // loop: an id that already vanished is skipped instead of aborting the rest.
-  ipcMain.handle('slides:delete-elements', (e, op: DeleteElementsOp) => {
+  slidesOwnedHandle('slides:delete-elements', (e, op: DeleteElementsOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !op.sourceIds.length) return null
     const r = sessionTxn(session, {
@@ -2252,7 +2980,7 @@ export function registerSlidesIpc(): void {
 
   // Shim over the canonical setStroke op: pt→EMU/angle conversion is surface translation
   // and stays here; validation/mutation/journal live in the op.
-  ipcMain.handle('slides:edit-stroke', (e, op: EditStrokeOp) => {
+  slidesOwnedHandle('slides:edit-stroke', (e, op: EditStrokeOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const patch = op.stroke
@@ -2293,7 +3021,7 @@ export function registerSlidesIpc(): void {
 
   // Mirror elements across their own axis: flipH/flipV is the only way to
   // point an arrow the other way — rotation cannot express a single-axis mirror
-  ipcMain.handle('slides:flip-elements', (e, op: FlipElementOp) => {
+  slidesOwnedHandle('slides:flip-elements', (e, op: FlipElementOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -2310,7 +3038,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:edit-picture-src-rect', (e, op: EditPictureSrcRectOp) => {
+  slidesOwnedHandle('slides:edit-picture-src-rect', (e, op: EditPictureSrcRectOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     let box: { x: number; y: number; cx: number; cy: number } | undefined
@@ -2338,7 +3066,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:group-elements', (e, op: GroupElementsOp) => {
+  slidesOwnedHandle('slides:group-elements', (e, op: GroupElementsOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -2349,7 +3077,7 @@ export function registerSlidesIpc(): void {
     return renderSlide ? { slide: renderSlide, groupId: r.records![0]!.created![0]! } : null
   })
 
-  ipcMain.handle('slides:ungroup-element', (e, op: UngroupElementOp) => {
+  slidesOwnedHandle('slides:ungroup-element', (e, op: UngroupElementOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -2360,7 +3088,7 @@ export function registerSlidesIpc(): void {
 
   // Shim over the canonical setBackground op (one slide per op; apply-to-all fans out;
   // the full-bleed backdrop repaint lives in the op). File dialogs stay here.
-  ipcMain.handle('slides:edit-background', async (e, op: EditBackgroundOp) => {
+  slidesOwnedHandle('slides:edit-background', async (e, op: EditBackgroundOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slides = session.opened.deck.slides
@@ -2454,7 +3182,7 @@ export function registerSlidesIpc(): void {
     )
   })
 
-  ipcMain.handle('slides:edit-image-fill', async (e, op: EditFillImageOp) => {
+  slidesOwnedHandle('slides:edit-image-fill', async (e, op: EditFillImageOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -2511,7 +3239,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Replace picture: the renderer swaps the bytes in place through replacePictureBytes
-  ipcMain.handle('slides:pick-picture-file', async () => {
+  slidesOwnedHandle('slides:pick-picture-file', async () => {
     const r = await showOpenDialogWithMemory(dialog, dialogParent(), {
       title: tm('dlgReplacePicture'),
       properties: ['openFile' as const],
@@ -2529,7 +3257,7 @@ export function registerSlidesIpc(): void {
       ext: filePath.split('.').pop()!.toLowerCase(),
     }
   })
-  ipcMain.handle('slides:insert-image', async (e, slideIndex: number, fitWidthPx: number) => {
+  slidesOwnedHandle('slides:insert-image', async (e, slideIndex: number, fitWidthPx: number) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[slideIndex]
@@ -2586,7 +3314,7 @@ export function registerSlidesIpc(): void {
 
   // Shim over the canonical setFill op: gradient normalization is surface translation
   // and stays here; validation/mutation/journal live in the op.
-  ipcMain.handle('slides:edit-fill', (e, op: EditFillOp) => {
+  slidesOwnedHandle('slides:edit-fill', (e, op: EditFillOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const fill =
@@ -2622,7 +3350,7 @@ export function registerSlidesIpc(): void {
     return rebuildSlide(session, op.slideIndex)
   })
 
-  ipcMain.handle('slides:add-slide', (e, op: AddSlideOp) => {
+  slidesOwnedHandle('slides:add-slide', (e, op: AddSlideOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -2645,7 +3373,7 @@ export function registerSlidesIpc(): void {
   })
 
   // App-wide, so a slide copied in one tab can be pasted into another deck.
-  ipcMain.handle('slides:copy-slides', (e, op: CopySlidesOp) => {
+  slidesOwnedHandle('slides:copy-slides', (e, op: CopySlidesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !op.slideIndexes.length) return false
     const bundles: SlideBundle[] = []
@@ -2661,7 +3389,7 @@ export function registerSlidesIpc(): void {
     return true
   })
 
-  ipcMain.handle('slides:has-slide-clipboard', () => slideClipboard !== null)
+  slidesOwnedHandle('slides:has-slide-clipboard', () => slideClipboard !== null)
 
   // Several copied slides paste in order; 'picture' mode stacks every bitmap on the anchor slide.
   const performSlidePaste = (
@@ -2702,7 +3430,7 @@ export function registerSlidesIpc(): void {
     }
   }
 
-  ipcMain.handle('slides:paste-slide', (e, op: PasteSlideOp) => {
+  slidesOwnedHandle('slides:paste-slide', (e, op: PasteSlideOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !slideClipboard) return null
     pushHistory(session)
@@ -2721,7 +3449,7 @@ export function registerSlidesIpc(): void {
 
   // Paste-options floater: undo the just-completed paste and redo it with another
   // mode. Refused when anything (edits, ⌘Z) touched the deck in between.
-  ipcMain.handle('slides:repaste-slide', (e, op: RepasteSlideOp) => {
+  slidesOwnedHandle('slides:repaste-slide', (e, op: RepasteSlideOp) => {
     const session = sessions.get(e.sender.id)
     const rec = lastSlidePaste.get(e.sender.id)
     if (!session || !slideClipboard || !rec) return null
@@ -2750,7 +3478,7 @@ export function registerSlidesIpc(): void {
     return r
   })
 
-  ipcMain.handle('slides:add-blank-slide', (e, op: AddBlankSlideOp) => {
+  slidesOwnedHandle('slides:add-blank-slide', (e, op: AddBlankSlideOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -2787,7 +3515,7 @@ export function registerSlidesIpc(): void {
     )
   }
 
-  ipcMain.handle('slides:add-slide-with-layout', (e, op: AddSlideWithLayoutOp) => {
+  slidesOwnedHandle('slides:add-slide-with-layout', (e, op: AddSlideWithLayoutOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -2812,7 +3540,7 @@ export function registerSlidesIpc(): void {
     }
   })
 
-  ipcMain.handle('slides:get-layouts', (e) => {
+  slidesOwnedHandle('slides:get-layouts', (e) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const layouts = listSlideLayouts(session.opened.archive)
@@ -2854,7 +3582,7 @@ export function registerSlidesIpc(): void {
     return buildMasterRenderSlide(session)
   }
 
-  ipcMain.handle('slides:master-enter', (e, fitWidthPx: number): MasterEnterResult | null => {
+  slidesOwnedHandle('slides:master-enter', (e, fitWidthPx: number): MasterEnterResult | null => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     session.fitWidthPx = fitWidthPx
@@ -2873,7 +3601,7 @@ export function registerSlidesIpc(): void {
     return items.length ? { items } : null
   })
 
-  ipcMain.handle('slides:master-open', (e, partPath: string) => {
+  slidesOwnedHandle('slides:master-open', (e, partPath: string) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = parseMasterPart(session.opened.archive, partPath)
@@ -2882,7 +3610,7 @@ export function registerSlidesIpc(): void {
     return buildMasterRenderSlide(session)
   })
 
-  ipcMain.handle('slides:master-close', (e) => {
+  slidesOwnedHandle('slides:master-close', (e) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     session.masterEdit = null
@@ -2890,7 +3618,7 @@ export function registerSlidesIpc(): void {
     return buildAllRenderSlides(session.opened, session.fitWidthPx)
   })
 
-  ipcMain.handle('slides:master-edit-text', (e, op: MasterEditTextOp) => {
+  slidesOwnedHandle('slides:master-edit-text', (e, op: MasterEditTextOp) => {
     const session = sessions.get(e.sender.id)
     const me = session?.masterEdit
     if (!session || !me) return null
@@ -2903,7 +3631,7 @@ export function registerSlidesIpc(): void {
     return masterEditDone(session)
   })
 
-  ipcMain.handle('slides:master-edit-transform', (e, op: MasterEditTransformOp) => {
+  slidesOwnedHandle('slides:master-edit-transform', (e, op: MasterEditTransformOp) => {
     const session = sessions.get(e.sender.id)
     const me = session?.masterEdit
     if (!session || !me) return null
@@ -2946,7 +3674,7 @@ export function registerSlidesIpc(): void {
     return masterEditDone(session)
   })
 
-  ipcMain.handle('slides:master-edit-fill', (e, op: MasterEditFillOp) => {
+  slidesOwnedHandle('slides:master-edit-fill', (e, op: MasterEditFillOp) => {
     const session = sessions.get(e.sender.id)
     const me = session?.masterEdit
     if (!session || !me) return null
@@ -2974,7 +3702,7 @@ export function registerSlidesIpc(): void {
     return masterEditDone(session)
   })
 
-  ipcMain.handle('slides:master-edit-stroke', (e, op: MasterEditStrokeOp) => {
+  slidesOwnedHandle('slides:master-edit-stroke', (e, op: MasterEditStrokeOp) => {
     const session = sessions.get(e.sender.id)
     const me = session?.masterEdit
     if (!session || !me) return null
@@ -2989,7 +3717,7 @@ export function registerSlidesIpc(): void {
     return masterEditDone(session)
   })
 
-  ipcMain.handle('slides:master-delete-element', (e, op: MasterDeleteElementOp) => {
+  slidesOwnedHandle('slides:master-delete-element', (e, op: MasterDeleteElementOp) => {
     const session = sessions.get(e.sender.id)
     const me = session?.masterEdit
     if (!session || !me) return null
@@ -3005,7 +3733,7 @@ export function registerSlidesIpc(): void {
   // part. Pixel geometry converts like slides:add-element; the op is the same
   // part-addressed addElement the slide path runs, so undo/journal/save all
   // behave like the other master edits.
-  ipcMain.handle('slides:master-add-element', (e, op: MasterAddElementOp) => {
+  slidesOwnedHandle('slides:master-add-element', (e, op: MasterAddElementOp) => {
     const session = sessions.get(e.sender.id)
     const me = session?.masterEdit
     if (!session || !me) return null
@@ -3034,7 +3762,7 @@ export function registerSlidesIpc(): void {
     return { slide: masterEditDone(session), sourceId }
   })
 
-  ipcMain.handle('slides:edit-picture-opacity', (e, op: EditPictureOpacityOp) => {
+  slidesOwnedHandle('slides:edit-picture-opacity', (e, op: EditPictureOpacityOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -3049,7 +3777,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:set-slide-size', (e, op: SetSlideSizeOp) => {
+  slidesOwnedHandle('slides:set-slide-size', (e, op: SetSlideSizeOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, { ops: [{ op: 'setSlideSize', cx: op.cx, cy: op.cy }] })
@@ -3058,12 +3786,12 @@ export function registerSlidesIpc(): void {
     return buildAllRenderSlides(session.opened, session.fitWidthPx)
   })
 
-  ipcMain.handle('slides:get-slide-size', (e) => {
+  slidesOwnedHandle('slides:get-slide-size', (e) => {
     const session = sessions.get(e.sender.id)
     return session ? { ...session.opened.deck.size } : null
   })
 
-  ipcMain.handle('slides:set-slide-layout', (e, op: SetSlideLayoutOp) => {
+  slidesOwnedHandle('slides:set-slide-layout', (e, op: SetSlideLayoutOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     pushHistory(session)
@@ -3088,7 +3816,7 @@ export function registerSlidesIpc(): void {
     return rebuildSlide(session, op.slideIndex)
   })
 
-  ipcMain.handle('slides:find-replace', (e, op: FindReplaceOp) => {
+  slidesOwnedHandle('slides:find-replace', (e, op: FindReplaceOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -3113,7 +3841,7 @@ export function registerSlidesIpc(): void {
     return { count, update: buildSlideUpdate(session, before, changedSlides) }
   })
 
-  ipcMain.handle('slides:delete-slide', (e, slideIndex: number) => {
+  slidesOwnedHandle('slides:delete-slide', (e, slideIndex: number) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -3125,7 +3853,7 @@ export function registerSlidesIpc(): void {
 
   // Highest index first: every op is validated against the pre-transaction deck
   // and applied in sequence, so the remaining indexes stay valid.
-  ipcMain.handle('slides:delete-slides', (e, op: DeleteSlidesOp) => {
+  slidesOwnedHandle('slides:delete-slides', (e, op: DeleteSlidesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -3139,7 +3867,7 @@ export function registerSlidesIpc(): void {
     return buildSlideUpdate(session, before)
   })
 
-  ipcMain.handle('slides:duplicate-slides', (e, op: DuplicateSlidesOp) => {
+  slidesOwnedHandle('slides:duplicate-slides', (e, op: DuplicateSlidesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const steps = planSlideDuplicates(op.slideIndexes)
@@ -3163,7 +3891,7 @@ export function registerSlidesIpc(): void {
     }
   })
 
-  ipcMain.handle('slides:set-slides-hidden', (e, op: SetSlidesHiddenOp) => {
+  slidesOwnedHandle('slides:set-slides-hidden', (e, op: SetSlidesHiddenOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !op.slideIndexes.length) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -3177,7 +3905,7 @@ export function registerSlidesIpc(): void {
     return r ? buildSlideUpdate(session, before, op.slideIndexes) : null
   })
 
-  ipcMain.handle('slides:edit-table-cell', (e, op: EditTableCellOp) => {
+  slidesOwnedHandle('slides:edit-table-cell', (e, op: EditTableCellOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -3194,7 +3922,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:table-merge', (e, op: TableMergeIpcOp) => {
+  slidesOwnedHandle('slides:table-merge', (e, op: TableMergeIpcOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -3215,7 +3943,7 @@ export function registerSlidesIpc(): void {
       : null
   })
 
-  ipcMain.handle('slides:table-structure', (e, op: TableStructureIpcOp) => {
+  slidesOwnedHandle('slides:table-structure', (e, op: TableStructureIpcOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -3236,7 +3964,7 @@ export function registerSlidesIpc(): void {
       : null
   })
 
-  ipcMain.handle('slides:set-table-row-height', (e, op: SetTableRowHeightOp) => {
+  slidesOwnedHandle('slides:set-table-row-height', (e, op: SetTableRowHeightOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
@@ -3254,7 +3982,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:set-table-cell-anchor', (e, op: SetTableCellAnchorOp) => {
+  slidesOwnedHandle('slides:set-table-cell-anchor', (e, op: SetTableCellAnchorOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -3271,7 +3999,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:set-table-col-width', (e, op: SetTableColWidthOp) => {
+  slidesOwnedHandle('slides:set-table-col-width', (e, op: SetTableColWidthOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
@@ -3289,7 +4017,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:edit-table-style', (e, op: EditTableStyleOp) => {
+  slidesOwnedHandle('slides:edit-table-style', (e, op: EditTableStyleOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -3312,7 +4040,7 @@ export function registerSlidesIpc(): void {
     return { slide: rebuilt, sourceId: newId }
   })
 
-  ipcMain.handle('slides:edit-chart', async (e, op: EditChartOp) => {
+  slidesOwnedHandle('slides:edit-chart', async (e, op: EditChartOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -3370,12 +4098,12 @@ export function registerSlidesIpc(): void {
     return { slide: rebuilt, sourceId: newId }
   })
 
-  ipcMain.handle('slides:chart-color-schemes', (e) => {
+  slidesOwnedHandle('slides:chart-color-schemes', (e) => {
     const session = sessions.get(e.sender.id)
     return session ? chartColorSchemes(session.opened) : null
   })
 
-  ipcMain.handle('slides:get-chart-data', (e, slideIndex: number, sourceId: string) => {
+  slidesOwnedHandle('slides:get-chart-data', (e, slideIndex: number, sourceId: string) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[slideIndex]
@@ -3383,7 +4111,7 @@ export function registerSlidesIpc(): void {
     return getChartElementData(slide, sourceId)
   })
 
-  ipcMain.handle('slides:reorder-element', (e, op: ReorderElementOp) => {
+  slidesOwnedHandle('slides:reorder-element', (e, op: ReorderElementOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -3394,7 +4122,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:change-shape',
     (e, op: { slideIndex: number; sourceId: string; prst: string; groupId?: string }) => {
       const session = sessions.get(e.sender.id)
@@ -3413,7 +4141,7 @@ export function registerSlidesIpc(): void {
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:set-shape-adjust',
     (
       e,
@@ -3464,7 +4192,7 @@ export function registerSlidesIpc(): void {
   )
 
   // Edit Points: same gesture-undo contract as set-shape-adjust (one drag = one undo step)
-  ipcMain.handle('slides:set-shape-geometry', (e, op: SetShapeGeometryOp) => {
+  slidesOwnedHandle('slides:set-shape-geometry', (e, op: SetShapeGeometryOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const scale = op.fitWidthPx / (session.opened.deck.size.cx / EMU_PER_PX_96)
@@ -3504,7 +4232,7 @@ export function registerSlidesIpc(): void {
     return rebuildSlide(session, op.slideIndex)
   })
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:set-text-anchor',
     (e, op: { slideIndex: number; sourceId: string; anchor: 'top' | 'middle' | 'bottom' }) => {
       const session = sessions.get(e.sender.id)
@@ -3522,7 +4250,7 @@ export function registerSlidesIpc(): void {
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:set-text-body-props',
     (
       e,
@@ -3563,7 +4291,7 @@ export function registerSlidesIpc(): void {
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:set-effects',
     (e, op: { slideIndex: number; sourceId: string; effects: SetEffectsPatch }) => {
       const session = sessions.get(e.sender.id)
@@ -3591,7 +4319,7 @@ export function registerSlidesIpc(): void {
     }
   }
 
-  ipcMain.handle('slides:clipboard-external', () => {
+  slidesOwnedHandle('slides:clipboard-external', () => {
     if (slideClipboard && clipboardMarker('io.vantage.slides.slide')) return { kind: 'slide' }
     if (elementClipboard && elementClipboardMarkerMatches(elementClipboard.token))
       return { kind: 'internal' }
@@ -3603,14 +4331,14 @@ export function registerSlidesIpc(): void {
   })
 
   // Menu-enable probe: is there anything a paste would act on? (no image decode)
-  ipcMain.handle('slides:clipboard-probe', () => {
+  slidesOwnedHandle('slides:clipboard-probe', () => {
     if (slideClipboard && clipboardMarker('io.vantage.slides.slide')) return true
     if (elementClipboard && elementClipboardMarkerMatches(elementClipboard.token)) return true
     if (clipboard.availableFormats().some((f) => f.startsWith('image/'))) return true
     return clipboard.readText().trim().length > 0
   })
 
-  ipcMain.handle('slides:copy-elements', (e, op: CopyElementsOp) => {
+  slidesOwnedHandle('slides:copy-elements', (e, op: CopyElementsOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return 0
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -3633,12 +4361,16 @@ export function registerSlidesIpc(): void {
     return items.length
   })
 
-  ipcMain.handle('slides:copy-elements-image', (e, clipboardToken: string, pngBase64: string) => {
-    if (!canWriteElementClipboardImage(elementClipboard, e.sender.id, clipboardToken)) return false
-    return writeElementClipboardImage(clipboardToken, pngBase64)
-  })
+  slidesOwnedHandle(
+    'slides:copy-elements-image',
+    (e, clipboardToken: string, pngBase64: string) => {
+      if (!canWriteElementClipboardImage(elementClipboard, e.sender.id, clipboardToken))
+        return false
+      return writeElementClipboardImage(clipboardToken, pngBase64)
+    },
+  )
 
-  ipcMain.handle('slides:paste-elements', (e, op: PasteElementsOp) => {
+  slidesOwnedHandle('slides:paste-elements', (e, op: PasteElementsOp) => {
     const session = sessions.get(e.sender.id)
     const clip = elementClipboard
     if (!session || !clip?.items.length) return null
@@ -3670,7 +4402,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Duplicate in place (⌘D / Option+drag copy): does not touch the app clipboard; the caller supplies the offset
-  ipcMain.handle('slides:duplicate-elements', (e, op: DuplicateElementsOp) => {
+  slidesOwnedHandle('slides:duplicate-elements', (e, op: DuplicateElementsOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -3700,7 +4432,7 @@ export function registerSlidesIpc(): void {
     return rebuilt ? { slide: rebuilt, sourceIds: r.records![0]!.created! } : null
   })
 
-  ipcMain.handle('slides:add-table', (e, op: AddTableOp) => {
+  slidesOwnedHandle('slides:add-table', (e, op: AddTableOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     if (!session.opened.deck.slides[op.slideIndex]) return null
@@ -3734,7 +4466,7 @@ export function registerSlidesIpc(): void {
   // Freehand ink stroke commit: one transparent PNG picture element per stroke (cNvPr name has
   // the aislides-ink prefix, descr stores the vector points as JSON); undo/save/thumbnails all
   // go through the existing picture-element pipeline.
-  ipcMain.handle('slides:add-ink', (e, op: AddInkOp) => {
+  slidesOwnedHandle('slides:add-ink', (e, op: AddInkOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -3768,7 +4500,7 @@ export function registerSlidesIpc(): void {
 
   // ── New insert capabilities: charts / SmartArt / icon bitmaps / audio-video / 3D / links / header-footer ──
 
-  ipcMain.handle('slides:add-chart', (e, op: AddChartOp) => {
+  slidesOwnedHandle('slides:add-chart', (e, op: AddChartOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !session.opened.deck.slides[op.slideIndex]) return null
     const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
@@ -3794,7 +4526,7 @@ export function registerSlidesIpc(): void {
     return rebuilt ? { slide: rebuilt, sourceId: r.records![0]!.created![0]! } : null
   })
 
-  ipcMain.handle('slides:add-smartart', (e, op: AddSmartArtOp) => {
+  slidesOwnedHandle('slides:add-smartart', (e, op: AddSmartArtOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !session.opened.deck.slides[op.slideIndex]) return null
     const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
@@ -3817,7 +4549,7 @@ export function registerSlidesIpc(): void {
     return rebuilt ? { slide: rebuilt, sourceId: r.records![0]!.created![0]! } : null
   })
 
-  ipcMain.handle('slides:add-image-bytes', (e, op: AddImageBytesOp) => {
+  slidesOwnedHandle('slides:add-image-bytes', (e, op: AddImageBytesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -3865,7 +4597,7 @@ export function registerSlidesIpc(): void {
     return rebuilt ? { slide: rebuilt, sourceId: r.records![0]!.created![0]! } : null
   })
 
-  ipcMain.handle('slides:replace-picture-bytes', (e, op: ReplacePictureBytesOp) => {
+  slidesOwnedHandle('slides:replace-picture-bytes', (e, op: ReplacePictureBytesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slide = session.opened.deck.slides[op.slideIndex]
@@ -3951,7 +4683,7 @@ export function registerSlidesIpc(): void {
   }
 
   // Show a dialog to pick video/audio and embed it.
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:insert-media',
     async (e, slideIndex: number, kind: 'video' | 'audio', fitWidthPx: number) => {
       const session = sessions.get(e.sender.id)
@@ -4009,7 +4741,7 @@ export function registerSlidesIpc(): void {
     aac: 'audio/aac',
     ogg: 'audio/ogg',
   }
-  ipcMain.handle('slides:media-data', (e, slideIndex: number, sourceId: string) => {
+  slidesOwnedHandle('slides:media-data', (e, slideIndex: number, sourceId: string) => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[slideIndex]
     if (!session || !slide) return null
@@ -4031,7 +4763,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Media recorded by the renderer (screen-recording webm) or dropped on the canvas: placed like an inserted file
-  ipcMain.handle('slides:add-media-bytes', async (e, op: AddMediaBytesOp) => {
+  slidesOwnedHandle('slides:add-media-bytes', async (e, op: AddMediaBytesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !session.opened.deck.slides[op.slideIndex]) return null
     let bytes: Uint8Array
@@ -4055,7 +4787,7 @@ export function registerSlidesIpc(): void {
   })
 
   // 3D model (simplified): glb embed + poster placeholder image
-  ipcMain.handle('slides:pick-model3d', async () => {
+  slidesOwnedHandle('slides:pick-model3d', async () => {
     const r = await showOpenDialogWithMemory(dialog, dialogParent(), {
       title: tm('dlgInsert3d'),
       properties: ['openFile' as const],
@@ -4066,7 +4798,7 @@ export function registerSlidesIpc(): void {
     return { name: baseName(r.filePaths[0]), bytes: new Uint8Array(bytes) }
   })
 
-  ipcMain.handle('slides:add-model3d', (e, op: AddModel3dOp) => {
+  slidesOwnedHandle('slides:add-model3d', (e, op: AddModel3dOp) => {
     const session = sessions.get(e.sender.id)
     if (!session || !session.opened.deck.slides[op.slideIndex]) return null
     const deckSize = session.opened.deck.size
@@ -4103,7 +4835,7 @@ export function registerSlidesIpc(): void {
     return rebuilt ? { slide: rebuilt, sourceId: txn.records![0]!.created![0]! } : null
   })
 
-  ipcMain.handle('slides:model3d-data', (e, slideIndex: number, sourceId: string) => {
+  slidesOwnedHandle('slides:model3d-data', (e, slideIndex: number, sourceId: string) => {
     const session = sessions.get(e.sender.id)
     const el = session?.opened.deck.slides[slideIndex]?.elements.find((x) => x.id === sourceId)
     const target = el?.type === 'picture' ? el.model3d?.target : undefined
@@ -4111,7 +4843,7 @@ export function registerSlidesIpc(): void {
     return bytes ? new Uint8Array(bytes) : null
   })
 
-  ipcMain.handle('slides:set-model3d-view', (e, op: SetModel3dViewOp) => {
+  slidesOwnedHandle('slides:set-model3d-view', (e, op: SetModel3dViewOp) => {
     const session = sessions.get(e.sender.id)
     if (!session?.opened.deck.slides[op.slideIndex]) return null
     const r = sessionTxn(session, {
@@ -4127,7 +4859,7 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:set-link', (e, op: SetLinkOp) => {
+  slidesOwnedHandle('slides:set-link', (e, op: SetLinkOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     // A javascript:/file: target must never be saved into the package.
@@ -4143,13 +4875,13 @@ export function registerSlidesIpc(): void {
     return r ? rebuildSlide(session, op.slideIndex) : null
   })
 
-  ipcMain.handle('slides:get-link', (e, slideIndex: number, sourceId: string) => {
+  slidesOwnedHandle('slides:get-link', (e, slideIndex: number, sourceId: string) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     return getElementLink(session.opened, slideIndex, sourceId)
   })
 
-  ipcMain.handle('slides:get-slide-links', (e, slideIndex: number) => {
+  slidesOwnedHandle('slides:get-slide-links', (e, slideIndex: number) => {
     const session = sessions.get(e.sender.id)
     if (!session) return []
     return getSlideLinks(session.opened, slideIndex).map(({ elementId, target }) => ({
@@ -4158,7 +4890,7 @@ export function registerSlidesIpc(): void {
     }))
   })
 
-  ipcMain.handle('slides:get-run-links', (e, slideIndex: number) => {
+  slidesOwnedHandle('slides:get-run-links', (e, slideIndex: number) => {
     const session = sessions.get(e.sender.id)
     if (!session) return []
     return getRunLinks(session.opened, slideIndex).map(({ elementId, ...rest }) => ({
@@ -4167,7 +4899,7 @@ export function registerSlidesIpc(): void {
     }))
   })
 
-  ipcMain.handle('slides:apply-header-footer', (e, op: HeaderFooterOp) => {
+  slidesOwnedHandle('slides:apply-header-footer', (e, op: HeaderFooterOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -4188,7 +4920,7 @@ export function registerSlidesIpc(): void {
     return buildAllRenderSlides(session.opened, op.fitWidthPx)
   })
 
-  ipcMain.handle('slides:get-header-footer', (e, slideIndex: number) => {
+  slidesOwnedHandle('slides:get-header-footer', (e, slideIndex: number) => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[slideIndex]
     return slide ? readHeaderFooter(slide) : { footer: null, slideNum: false, date: null }
@@ -4199,7 +4931,7 @@ export function registerSlidesIpc(): void {
   // (real-world decks have almost entirely explicit colors, so swapping only the theme changes
   // nothing visually). Element resolved colors come from the parse-time inheritance chain, so
   // after the surgery the deck reparses in memory; undo snapshots roll back as usual.
-  ipcMain.handle('slides:apply-theme', (e, op: ApplyThemeOp) => {
+  slidesOwnedHandle('slides:apply-theme', (e, op: ApplyThemeOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const payload = {
@@ -4234,7 +4966,7 @@ export function registerSlidesIpc(): void {
     return buildAllRenderSlides(session.opened, op.fitWidthPx)
   })
 
-  ipcMain.handle('slides:set-transition', (e, op: SetTransitionOp) => {
+  slidesOwnedHandle('slides:set-transition', (e, op: SetTransitionOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return false
     const slides = session.opened.deck.slides
@@ -4247,13 +4979,13 @@ export function registerSlidesIpc(): void {
     return r !== null
   })
 
-  ipcMain.handle('slides:get-transition', (e, slideIndex: number) => {
+  slidesOwnedHandle('slides:get-transition', (e, slideIndex: number) => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[slideIndex]
     return slide ? getSlideTransition(slide) : 'none'
   })
 
-  ipcMain.handle('slides:get-show-timing', (e, slideIndex: number): ShowTiming => {
+  slidesOwnedHandle('slides:get-show-timing', (e, slideIndex: number): ShowTiming => {
     const slide = sessions.get(e.sender.id)?.opened.deck.slides[slideIndex]
     if (!slide) return { advanceMs: null, narrationIds: [] }
     const narration = new Set(narrationSpids(slide))
@@ -4266,7 +4998,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Rehearsal timing save: batch-write each page's auto-advance time (<p:transition advTm>, ms)
-  ipcMain.handle('slides:set-advance-times', (e, op: SetAdvanceTimesOp) => {
+  slidesOwnedHandle('slides:set-advance-times', (e, op: SetAdvanceTimesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return false
     const slides = session.opened.deck.slides
@@ -4283,7 +5015,7 @@ export function registerSlidesIpc(): void {
   })
 
   // ── Slide Show > Record: narration per slide plus its advance time, one undo step ──
-  ipcMain.handle('slides:save-recording', (e, op: SaveRecordingOp) => {
+  slidesOwnedHandle('slides:save-recording', (e, op: SaveRecordingOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slides = session.opened.deck.slides
@@ -4304,7 +5036,7 @@ export function registerSlidesIpc(): void {
     return r ? slides.map((_, i) => rebuildSlide(session, i)) : null
   })
 
-  ipcMain.handle('slides:clear-narration', (e, slideIndexes: number[]) => {
+  slidesOwnedHandle('slides:clear-narration', (e, slideIndexes: number[]) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slides = session.opened.deck.slides
@@ -4316,14 +5048,14 @@ export function registerSlidesIpc(): void {
     return r ? slides.map((_, i) => rebuildSlide(session, i)) : null
   })
 
-  ipcMain.handle('slides:microphone-access', async () => {
+  slidesOwnedHandle('slides:microphone-access', async () => {
     if (process.platform !== 'darwin') return true
     if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true
     return systemPreferences.askForMediaAccess('microphone')
   })
 
   // ── Shape animations (<p:timing>; the spid <-> temporary element id mapping happens here) ──
-  ipcMain.handle('slides:get-animations', (e, slideIndex: number): AnimationItem[] => {
+  slidesOwnedHandle('slides:get-animations', (e, slideIndex: number): AnimationItem[] => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[slideIndex]
     if (!slide) return []
@@ -4363,7 +5095,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Pairing keys for Morph transitions: sourceId changes on every reparse, so match across pages by cNvPr id/name
-  ipcMain.handle('slides:get-shape-keys', (e, slideIndex: number): ShapeKey[] => {
+  slidesOwnedHandle('slides:get-shape-keys', (e, slideIndex: number): ShapeKey[] => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[slideIndex]
     if (!slide) return []
@@ -4374,7 +5106,7 @@ export function registerSlidesIpc(): void {
     }))
   })
 
-  ipcMain.handle('slides:set-animations', (e, op: SetAnimationsOp) => {
+  slidesOwnedHandle('slides:set-animations', (e, op: SetAnimationsOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return false
     const r = sessionTxn(session, {
@@ -4383,7 +5115,7 @@ export function registerSlidesIpc(): void {
     return r !== null
   })
 
-  ipcMain.handle('slides:set-hidden', (e, op: SetSlideHiddenOp) => {
+  slidesOwnedHandle('slides:set-hidden', (e, op: SetSlideHiddenOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const r = sessionTxn(session, {
@@ -4393,7 +5125,7 @@ export function registerSlidesIpc(): void {
   })
 
   // ── Section management: presentation.xml surgery, riding on snapshot undo and savePptx ──
-  ipcMain.handle('slides:get-sections', (e) => {
+  slidesOwnedHandle('slides:get-sections', (e) => {
     const session = sessions.get(e.sender.id)
     return session ? getSections(session.opened) : []
   })
@@ -4408,28 +5140,28 @@ export function registerSlidesIpc(): void {
     return r.records![0]!.after
   }
 
-  ipcMain.handle('slides:set-sections', (e, sections: SectionInfo[]) => {
+  slidesOwnedHandle('slides:set-sections', (e, sections: SectionInfo[]) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     if (!sectionShim(e, { op: 'setSections', sections })) return null
     return getSections(session.opened)
   })
 
-  ipcMain.handle('slides:add-section', (e, op: AddSectionOp) =>
+  slidesOwnedHandle('slides:add-section', (e, op: AddSectionOp) =>
     sectionShim(e, { op: 'addSection', atSlideIndex: op.atSlideIndex, name: op.name }),
   )
 
-  ipcMain.handle('slides:rename-section', (e, op: RenameSectionOp) =>
+  slidesOwnedHandle('slides:rename-section', (e, op: RenameSectionOp) =>
     sectionShim(e, { op: 'renameSection', id: op.id, name: op.name }),
   )
 
-  ipcMain.handle('slides:remove-section', (e, op: RemoveSectionOp) =>
+  slidesOwnedHandle('slides:remove-section', (e, op: RemoveSectionOp) =>
     sectionShim(e, { op: 'removeSection', id: op.id }),
   )
 
   // Section header + its slides in one undo step. Slides go highest index first so the
   // numeric targets stay valid as the deck shrinks; the deck keeps at least one slide.
-  ipcMain.handle('slides:remove-section-slides', (e, op: RemoveSectionSlidesOp) => {
+  slidesOwnedHandle('slides:remove-section-slides', (e, op: RemoveSectionSlidesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -4452,7 +5184,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Drag to reorder slides (sldIdLst + deck.slides + section membership)
-  ipcMain.handle('slides:move-slide', (e, op: MoveSlideOp) => {
+  slidesOwnedHandle('slides:move-slide', (e, op: MoveSlideOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -4467,7 +5199,7 @@ export function registerSlidesIpc(): void {
     }
   })
 
-  ipcMain.handle('slides:move-slides', (e, op: MoveSlidesOp) => {
+  slidesOwnedHandle('slides:move-slides', (e, op: MoveSlidesOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -4485,7 +5217,7 @@ export function registerSlidesIpc(): void {
   })
 
   // Moving a whole section changes slide order (sldIdLst + deck.slides)
-  ipcMain.handle('slides:move-section', (e, op: MoveSectionOp) => {
+  slidesOwnedHandle('slides:move-section', (e, op: MoveSectionOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const before = session.opened.deck.slides.map((s) => s.path)
@@ -4498,29 +5230,34 @@ export function registerSlidesIpc(): void {
   })
 
   // ── Speaker notes / comments (archive surgery, riding on snapshot undo and savePptx) ────
-  ipcMain.handle('slides:get-notes', (e, slideIndex: number) => {
+  slidesOwnedHandle('slides:get-notes', (e, slideIndex: number, partPath?: string) => {
     const session = sessions.get(e.sender.id)
-    const slide = session?.opened.deck.slides[slideIndex]
+    const index = session ? notesPartIndex(session.opened.deck.slides, slideIndex, partPath) : -1
+    if (partPath !== undefined && index < 0)
+      throw new Error('The requested speaker notes part is unavailable; its text was not replaced.')
+    const slide = session?.opened.deck.slides[index]
     return session && slide ? getSlideNotes(session.opened.archive, slide.path) : ''
   })
 
-  ipcMain.handle('slides:set-notes', (e, op: SetNotesOp) => {
+  slidesOwnedHandle('slides:set-notes', (e, op: SetNotesOp) => {
     const session = sessions.get(e.sender.id)
-    if (!session) return false
-    const r = sessionTxn(session, {
-      ops: [{ op: 'setNotes', target: { slide: op.slideIndex }, text: op.text }],
+    if (!session || !op || typeof op.text !== 'string') return false
+    return writeNotesPart(session.opened.deck.slides, op, (index) => {
+      const r = sessionTxn(session, {
+        ops: [{ op: 'setNotes', target: { slide: index }, text: op.text }],
+      })
+      if (r) markMetaDirty(session)
+      return r !== null
     })
-    if (r) markMetaDirty(session)
-    return r !== null
   })
 
-  ipcMain.handle('slides:get-comments', (e, slideIndex: number) => {
+  slidesOwnedHandle('slides:get-comments', (e, slideIndex: number) => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[slideIndex]
     return session && slide ? getSlideComments(session.opened.archive, slide.path) : []
   })
 
-  ipcMain.handle('slides:add-comment', (e, op: AddCommentOp) => {
+  slidesOwnedHandle('slides:add-comment', (e, op: AddCommentOp) => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[op.slideIndex]
     if (!session || !slide) return null
@@ -4539,7 +5276,7 @@ export function registerSlidesIpc(): void {
     return getSlideComments(session.opened.archive, slide.path)
   })
 
-  ipcMain.handle('slides:delete-comment', (e, op: DeleteCommentOp) => {
+  slidesOwnedHandle('slides:delete-comment', (e, op: DeleteCommentOp) => {
     const session = sessions.get(e.sender.id)
     const slide = session?.opened.deck.slides[op.slideIndex]
     if (!session || !slide) return null
@@ -4559,158 +5296,175 @@ export function registerSlidesIpc(): void {
   })
 
   // System clipboard while text-editing (menu commands are echoed back by the renderer per context)
-  ipcMain.handle('slides:native-clipboard', (e, op: 'cut' | 'copy' | 'paste') => {
+  slidesOwnedHandle('slides:native-clipboard', (e, op: 'cut' | 'copy' | 'paste') => {
     if (op === 'cut') e.sender.cut()
     else if (op === 'copy') e.sender.copy()
     else e.sender.paste()
   })
 
-  ipcMain.handle('slides:history-batch-begin', (e) => {
-    const session = sessions.get(e.sender.id)
-    if (!session) return false
-    beginHistoryBatch(session)
-    return true
-  })
+  slidesOwnedHandle('slides:history-batch-begin', (event) =>
+    historyBatches.begin(event.sender, historyBatchFrame(event)),
+  )
+  // Capability-only continuation. The broker validates nonce+owner+frame and
+  // joins actual running invokes before its exact synchronous collapse. This
+  // endpoint grants no ordinary mutation/source-envelope bypass.
+  ipcMain.handle('slides:history-batch-owned-finish', (event, ticket: unknown) =>
+    historyBatches.finish(event.sender, historyBatchFrame(event), ticket),
+  )
 
-  ipcMain.handle('slides:history-batch-end', (e) => {
-    const session = sessions.get(e.sender.id)
-    if (!session) return null
-    const before = endHistoryBatch(session)
-    return before ? registerAiSnapshot(session, before) : null
-  })
-
-  ipcMain.handle('slides:ai-snapshot-restore', (e, id: number) => {
+  slidesOwnedHandle('slides:ai-snapshot-restore', (e, id: number) => {
     const session = sessions.get(e.sender.id)
     if (!session || session.masterEdit || session.historyBatch) return null
+    invalidateToolCloseForSession(session)
     if (!restoreAiSnapshot(session, id)) return null
     scheduleDeckBroadcast(session)
     return buildAllRenderSlides(session.opened, session.fitWidthPx)
   })
 
-  ipcMain.handle('slides:undo', (e) => {
+  slidesOwnedHandle('slides:undo', (e) => {
     const session = sessions.get(e.sender.id)
     // Undo disabled in master view: the masterEdit.slide model cannot roll back with snapshots (v1 trade-off; undoable after exiting)
     if (!session || session.masterEdit) return null
+    historyBatches.assertReplayAllowed(session.historyBatch)
     settleStaleHistoryBatch(session)
     if (session.undoStack.length === 0) return null
     session.redoStack.push(takeSnapshot(session))
+    invalidateToolCloseForSession(session)
     restoreSnapshot(session, session.undoStack.pop()!)
     scheduleHistoryNotify(session)
     scheduleDeckBroadcast(session)
     return buildAllRenderSlides(session.opened, session.fitWidthPx)
   })
 
-  ipcMain.handle('slides:redo', (e) => {
+  slidesOwnedHandle('slides:redo', (e) => {
     const session = sessions.get(e.sender.id)
     if (!session || session.masterEdit) return null
+    historyBatches.assertReplayAllowed(session.historyBatch)
     settleStaleHistoryBatch(session)
     if (session.redoStack.length === 0) return null
     session.undoStack.push(takeSnapshot(session))
+    invalidateToolCloseForSession(session)
     restoreSnapshot(session, session.redoStack.pop()!)
     scheduleHistoryNotify(session)
     scheduleDeckBroadcast(session)
     return buildAllRenderSlides(session.opened, session.fitWidthPx)
   })
 
-  ipcMain.handle('slides:is-dirty', (e) => {
+  slidesOwnedHandle('slides:is-dirty', (e) => {
     const session = sessions.get(e.sender.id)
     if (!session) return false
-    return (
-      !!session.metaDirty ||
-      session.opened.deck.slides.some(
-        (s) => s.structureDirty || s.elements.some((el) => el.dirty || el.dirtyTransform),
-      )
-    )
+    return slidesIsDirty(e.sender.id)
   })
 
-  ipcMain.handle('slides:save', async (e) => {
+  slidesOwnedHandle('slides:save', async (e) => {
     const session = sessions.get(e.sender.id)
     if (!session) return { ok: false, error: 'no file open' }
-    // Untitled (new blank file): the first save lands silently in the drafts folder (Save As keeps its dialog)
-    if (!session.path) {
-      const draftsDir = getDraftsDir()
-      if (!existsSync(draftsDir)) mkdirSync(draftsDir, { recursive: true })
-      session.path = pickDraftPath(draftsDir, tm('untitledDeck'))
-      await pushRecent(session.path)
-      slidesOpenedHook?.(e.sender, session.path)
-    }
+    const filePath = session.path || pickDraftPath(getDraftsDir(), tm('untitledDeck'))
     try {
-      const metaRevAtSave = session.metaRev ?? 0
-      await writeDeckFile(session.opened, session.path)
-      autosaveBackoff.delete(session.path)
-      void rm(autosavePathFor(session.path), { force: true }).catch(() => {})
-      dropUntitledRecovery(e.sender.id)
-      // Bake the saved patches back into the in-memory model (clears dirty, syncs
-      // anchor.originalXml with disk) — a full reopen would re-read and unzip the
-      // whole package, doubling save latency on large decks. Element ids survive,
-      // but the renderer still expects the render tree in the response.
-      commitSaved(session.opened)
-      if ((session.metaRev ?? 0) === metaRevAtSave) session.metaDirty = false
+      await saveSessionDeckTo(session, filePath)
       return {
         ok: true,
-        path: session.path,
+        path: filePath,
+        dirty: sessionDirty(session),
         slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
       }
-    } catch (err) {
-      return { ok: false, error: String(err) }
+    } catch (error) {
+      return { ok: false, error: String(error) }
     }
   })
-
-  ipcMain.handle('slides:save-as', async (e, defaultName: string) => {
+  slidesOwnedHandle('slides:save-as', async (e, defaultName: string) => {
     const session = sessions.get(e.sender.id)
     if (!session) return { ok: false, error: 'no file open' }
-    const parent = dialogParent()
-    const options = {
-      defaultPath: saveAsSuggestion(session.path, defaultName),
-      filters: [{ name: 'PowerPoint', extensions: ['pptx'] }],
-    }
-    const r = await showSaveDialogWithMemory(dialog, parent, options, getDraftsDir())
+    const publication = publicationForSession(session),
+      source = publication.snapshot()
+    const r = await showSaveDialogWithMemory(
+      dialog,
+      dialogParent(),
+      {
+        defaultPath: saveAsSuggestion(session.path, defaultName),
+        filters: [{ name: 'PowerPoint', extensions: ['pptx'] }],
+      },
+      getDraftsDir(),
+    )
     if (r.canceled || !r.filePath) return { ok: false }
+    if (sessions.get(e.sender.id) !== session || publication.snapshot() !== source)
+      return { ok: false, error: 'The presentation changed while Save As was open.' }
     try {
-      const metaRevAtSave = session.metaRev ?? 0
-      await writeDeckFile(session.opened, r.filePath)
-      session.path = r.filePath
-      autosaveBackoff.delete(r.filePath)
-      dropUntitledRecovery(e.sender.id)
-      await pushRecent(r.filePath)
-      syncAttachedPaths(session, r.filePath)
-      commitSaved(session.opened)
-      if ((session.metaRev ?? 0) === metaRevAtSave) session.metaDirty = false
+      const target = await observePublicationTarget(r.filePath)
+      if (target.version) {
+        const parent = dialogParent(),
+          choice = {
+            type: 'warning' as const,
+            message: 'Replace the selected file?',
+            detail:
+              r.filePath +
+              '\nThe exact version now on disk will be replaced. A later change will stop this save.',
+            buttons: ['Replace', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true,
+          }
+        const answer =
+          parent && !parent.isDestroyed()
+            ? await dialog.showMessageBox(parent, choice)
+            : await dialog.showMessageBox(choice)
+        if (answer.response !== 0) return { ok: false }
+      }
+      if (sessions.get(e.sender.id) !== session || publication.snapshot() !== source)
+        return { ok: false, error: 'The presentation changed before the selected write.' }
+      await saveSessionDeckTo(session, r.filePath, { source, target })
       return {
         ok: true,
         path: r.filePath,
+        dirty: sessionDirty(session),
         slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
       }
-    } catch (err) {
-      return { ok: false, error: String(err) }
+    } catch (error) {
+      return { ok: false, error: String(error) }
     }
   })
 
   // ── Export (PDF / images): the renderer renders hi-res PNGs with offscreen Konva; the main process handles dialogs/writing ──
 
-  ipcMain.handle('slides:pick-export-dir', async () => {
-    const parent = dialogParent()
-    const options = {
-      title: tm('dlgPickExportDir'),
-      buttonLabel: tm('btnExport'),
-      properties: ['openDirectory' as const, 'createDirectory' as const],
-    }
-    const r = await showOpenDialogWithMemory(dialog, parent, options)
-    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
-  })
+  slidesOwnedHandle(
+    'slides:pick-export-dir',
+    async (event, plan: { baseName: string; count: number }) => {
+      return selectCurrentSlidesOutput({
+        captureProof: () => slidesExportSourceProof(event.sender),
+        pick: async () => {
+          const parent = dialogParent()
+          const options = {
+            title: tm('dlgPickExportDir'),
+            buttonLabel: tm('btnExport'),
+            properties: ['openDirectory' as const, 'createDirectory' as const],
+          }
+          const r = await showOpenDialogWithMemory(dialog, parent, options)
+          if (r.canceled || !r.filePaths[0]) return null
+          return r.filePaths[0]
+        },
+        pin: async (dir, proof) => {
+          const paths = selectedSlidesImagePaths(dir, plan?.baseName, plan?.count)
+          const selectionId = await slidesOutputSelections.capture(event.sender, paths, proof)
+          return { path: dir, selectionId }
+        },
+      })
+    },
+  )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:export-images',
     async (_e, op: ExportImagesOp): Promise<ExportImagesResult> => {
       try {
-        // Zero-padding width follows the total page count (3 digits for ≥100 pages)
-        const pad = op.pngsBase64.length >= 100 ? 3 : 2
-        const paths: string[] = []
-        for (let i = 0; i < op.pngsBase64.length; i++) {
-          const p = join(op.dir, `${op.baseName}-${String(i + 1).padStart(pad, '0')}.png`)
-          await writeFile(p, Buffer.from(op.pngsBase64[i], 'base64'))
-          paths.push(p)
-        }
+        const paths = selectedSlidesImagePaths(op.dir, op.baseName, op.pngsBase64.length)
+        const selected = slidesOutputSelections.claim(_e.sender, op.selectionId, paths)
+        await publishSelectedUserOutputs(
+          paths.map((path, index) => ({
+            path,
+            expectedVersion: selected.versions[index]!,
+            prepare: async () => Buffer.from(op.pngsBase64[index]!, 'base64'),
+          })),
+          selected.proof,
+        )
         return { ok: true, paths }
       } catch (err) {
         return { ok: false, error: String(err) }
@@ -4718,18 +5472,28 @@ export function registerSlidesIpc(): void {
     },
   )
 
-  ipcMain.handle('slides:pick-export-pdf-path', async (_e, defaultName: string) => {
-    const parent = dialogParent()
-    const options = {
-      title: tm('dlgExportPdf'),
-      defaultPath: defaultName,
-      filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    }
-    const r = await showSaveDialogWithMemory(dialog, parent, options, getDraftsDir())
-    return r.canceled || !r.filePath ? null : r.filePath
+  slidesOwnedHandle('slides:pick-export-pdf-path', async (_e, defaultName: string) => {
+    return selectCurrentSlidesOutput({
+      captureProof: () => slidesExportSourceProof(_e.sender),
+      pick: async () => {
+        const parent = dialogParent()
+        const options = {
+          title: tm('dlgExportPdf'),
+          defaultPath: defaultName,
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        }
+        const r = await showSaveDialogWithMemory(dialog, parent, options, getDraftsDir())
+        if (r.canceled || !r.filePath) return null
+        return r.filePath
+      },
+      pin: async (path, proof) => {
+        const selectionId = await slidesOutputSelections.capture(_e.sender, [path], proof)
+        return { path, selectionId }
+      },
+    })
   })
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:save-picture',
     async (_e, op: SavePictureOp): Promise<SavePictureResult> => {
       const options = {
@@ -4740,7 +5504,7 @@ export function registerSlidesIpc(): void {
       const r = await showSaveDialogWithMemory(dialog, dialogParent(), options, getDraftsDir())
       if (r.canceled || !r.filePath) return { ok: false }
       try {
-        await writeFile(r.filePath, Buffer.from(op.pngBase64, 'base64'))
+        await publishSelectedUserOutput(r.filePath, async () => Buffer.from(op.pngBase64, 'base64'))
         return { ok: true, path: r.filePath }
       } catch (err) {
         return { ok: false, error: String(err) }
@@ -4748,21 +5512,32 @@ export function registerSlidesIpc(): void {
     },
   )
 
-  ipcMain.handle('slides:export-pdf', async (_e, op: ExportPdfOp): Promise<ExportPdfResult> => {
-    return exportSlidesPdf({
-      ...op,
-      // hidden window: without this, throttled timers/rAF stall the
-      // PRINT_READY_SCRIPT settle wait (same as the headless export window)
-      createWindow: () =>
-        new BrowserWindow({
-          show: false,
-          webPreferences: { sandbox: true, backgroundThrottling: false },
-        }),
-      openExportedPdf,
-    })
+  slidesOwnedHandle('slides:export-pdf', async (_e, op: ExportPdfOp): Promise<ExportPdfResult> => {
+    const actual = async () => {
+      const selected = slidesOutputSelections.claim(
+        _e.sender,
+        op.selectionId ?? headlessOutputSelectionIds.get(_e.sender.id),
+        [op.filePath],
+      )
+      return exportSlidesPdf({
+        ...op,
+        selectedVersion: selected.versions[0]!,
+        sourceProof: selected.proof,
+        // hidden window: without this, throttled timers/rAF stall the
+        // PRINT_READY_SCRIPT settle wait (same as the headless export window)
+        createWindow: () =>
+          new BrowserWindow({
+            show: false,
+            webPreferences: { sandbox: true, backgroundThrottling: false },
+          }),
+        openExportedPdf,
+      })
+    }
+    const admission = headlessExportAdmissions.get(_e.sender.id)
+    return admission ? admission.run(actual) : actual()
   })
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'slides:print',
     async (e, op: PrintSlidesOp): Promise<{ ok: boolean; error?: string }> => {
       // Page assembly is shared with the renderer's print-preview pane (print-html.ts)
@@ -4793,11 +5568,11 @@ export function registerSlidesIpc(): void {
     },
   )
 
-  ipcMain.handle('slides:recent', () => readRecent())
+  slidesOwnedHandle('slides:recent', () => readRecent())
 
   // ---- headless export mode (--headless-export) ----
 
-  ipcMain.handle('slides:consume-headless-export', (e): string | null => {
+  slidesOwnedHandle('slides:consume-headless-export', (e): string | null => {
     const target = headlessExportTargets.get(e.sender.id) ?? null
     headlessExportTargets.delete(e.sender.id)
     return target
@@ -4825,7 +5600,7 @@ export function registerSlidesIpc(): void {
   // presenter→show handoffs flip off→on within a tick, and honoring the off
   // immediately makes the window visibly bounce. ──
   let showFsRelease: ReturnType<typeof setTimeout> | null = null
-  ipcMain.handle('slides:show-fullscreen', (e, on: boolean) => {
+  slidesOwnedHandle('slides:show-fullscreen', (e, on: boolean) => {
     // a detached editor window fullscreens itself, never the shell behind it
     const win = hostWindowFor(e.sender)
     if (!win || win.isDestroyed()) return
@@ -4888,7 +5663,7 @@ export function registerProjectIpc(): void {
   if (slidesProjectIpcRegistered) return
   slidesProjectIpcRegistered = true
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'project:resolveChat',
     (_event, args: { filePath: string | null; tempChatId?: string }) => {
       const store = getSlidesProjectStore()
@@ -4900,7 +5675,7 @@ export function registerProjectIpc(): void {
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'project:appendChat',
     (
       _event,
@@ -4942,14 +5717,14 @@ export function registerProjectIpc(): void {
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'project:loadChat',
     (_event, args: { projectId: string; chatId: string; limit?: number }) => {
       return getSlidesProjectStore().loadChat(args.projectId, args.chatId, args.limit ?? 200)
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'project:rebindChat',
     (
       _event,
@@ -4966,6 +5741,44 @@ export function registerProjectIpc(): void {
 }
 
 /** hidden export windows: webContents id -> the PDF path the renderer must write */
+const slidesOutputSelections = new UserOutputSelections<WebContents>()
+const headlessOutputSelectionIds = new Map<number, string>()
+const headlessExportAdmissions = new Map<number, SlidesExportAdmission>()
+function slidesExportSourceProof(owner: WebContents): UserOutputSourceProof {
+  const session = sessions.get(owner.id)
+  if (!session) throw new Error('The presentation source is unavailable.')
+  const sourcePath = session.path,
+    revision = draftRevision(session)
+  return {
+    sourcePaths: sourcePath ? [sourcePath] : [],
+    assertCurrent: () => {
+      if (
+        owner.isDestroyed() ||
+        sessions.get(owner.id) !== session ||
+        session.path !== sourcePath ||
+        draftRevision(session) !== revision
+      )
+        throw new Error('The presentation changed while its export destination was selected.')
+    },
+  }
+}
+function selectedSlidesImagePaths(dir: string, baseName: string, count: number): string[] {
+  if (
+    typeof baseName !== 'string' ||
+    baseName.length > 200 ||
+    !Number.isSafeInteger(count) ||
+    count < 1 ||
+    count > 4096
+  )
+    throw new Error('Invalid image export target plan.')
+  const pad = count >= 100 ? 3 : 2
+  const paths = Array.from({ length: count }, (_, index) =>
+    join(dir, `${baseName}-${String(index + 1).padStart(pad, '0')}.png`),
+  )
+  if (paths.some((path) => resolve(dirname(path)) !== resolve(dir)))
+    throw new Error('Image export targets must remain inside the selected directory.')
+  return paths
+}
 const headlessExportTargets = new Map<number, string>()
 /** settled by 'slides:headless-export-done' (or by the renderer dying) */
 const headlessExportWaiters = new Map<number, (result: HeadlessSlidesReport) => void>()
@@ -4986,6 +5799,7 @@ export async function exportSlidesPdfHeadless(
   outPath: string,
   timeoutMs = 300_000,
 ): Promise<void> {
+  const startedAt = Date.now()
   registerSlidesIpc()
   const win = new BrowserWindow({
     show: false,
@@ -5003,26 +5817,46 @@ export async function exportSlidesPdfHeadless(
   trackSlidesWebContents(win.webContents)
   pendingByWc.set(wcId, input)
   headlessExportTargets.set(wcId, outPath)
-  let timer: ReturnType<typeof setTimeout> | undefined
+  const lifecycle = new SlidesHeadlessExportLifecycle(timeoutMs, startedAt)
+  const admission = lifecycle.admission
+  headlessExportAdmissions.set(wcId, admission)
+  // Register terminal ownership before metadata capture can yield.
+  const terminal = (value: HeadlessSlidesReport) => lifecycle.terminal(value)
+  headlessExportWaiters.set(wcId, terminal)
+  win.webContents.on('render-process-gone', (_event, details) =>
+    terminal({ ok: false, error: `slides renderer stopped (${details.reason})` }),
+  )
   try {
-    const report = await new Promise<HeadlessSlidesReport>((resolve) => {
-      headlessExportWaiters.set(wcId, resolve)
-      win.webContents.on('render-process-gone', (_event, details) =>
-        resolve({ ok: false, error: `slides renderer stopped (${details.reason})` }),
-      )
-      timer = setTimeout(
-        () => resolve({ ok: false, error: `slides export timed out after ${timeoutMs}ms` }),
-        timeoutMs,
-      )
-      void win.webContents.loadURL(rendererUrl(runtime.rendererDevUrl, 'slides'))
-    })
+    const selectionId = await lifecycle.pin(() =>
+      slidesOutputSelections.capture(win.webContents, [outPath], {
+        sourcePaths: [input],
+        assertCurrent: () => {
+          lifecycle.assertActive()
+          if (win.isDestroyed()) throw new Error('The registered headless export ended.')
+        },
+      }),
+    )
+    lifecycle.assertActive()
+    headlessOutputSelectionIds.set(wcId, selectionId)
+    void win.webContents
+      .loadURL(rendererUrl(runtime.rendererDevUrl, 'slides'))
+      .catch((error) => terminal({ ok: false, error: String(error) }))
+    const report = await lifecycle.report
     if (!report.ok) throw new Error(report.error ?? 'slides export failed')
   } finally {
-    if (timer) clearTimeout(timer)
-    headlessExportWaiters.delete(wcId)
-    headlessExportTargets.delete(wcId)
-    pendingByWc.delete(wcId)
-    if (!win.isDestroyed()) win.destroy()
+    terminal({ ok: false, error: 'The registered headless export ended.' })
+    try {
+      await admission.drain()
+    } finally {
+      headlessExportAdmissions.delete(wcId)
+      headlessOutputSelectionIds.delete(wcId)
+      slidesOutputSelections.forget(win.webContents)
+      lifecycle.dispose()
+      headlessExportWaiters.delete(wcId)
+      headlessExportTargets.delete(wcId)
+      pendingByWc.delete(wcId)
+      if (!win.isDestroyed()) win.destroy()
+    }
   }
 }
 
@@ -5059,12 +5893,21 @@ export function createSlidesWindow(openPath?: string | null): BrowserWindow {
   win.on('page-title-updated', (event) => event.preventDefault())
   // Close guard for standalone-window mode (tab mode runs the same flow via the shell's tab-manager/window-close path)
   win.on('close', (event) => {
-    if (!slidesIsDirty(win.webContents.id)) return
     event.preventDefault()
-    void requestSlidesClose(win.webContents, win).then((proceed) => {
-      // destroy() exits bypassing this handler (close() would re-enter the guard)
-      if (proceed && !win.isDestroyed()) win.destroy()
-    })
+    void prepareSlidesNativeClose(win.webContents, win)
+      .then((receipt) => {
+        if (!receipt) return
+        try {
+          completeSlidesClose(win.webContents, receipt, () => {
+            if (win.isDestroyed()) return false
+            win.destroy()
+            return true
+          })
+        } finally {
+          void cancelSlidesClose(win.webContents, receipt)
+        }
+      })
+      .catch((error) => warnSlidesDraft(win.webContents.id, error))
   })
 
   void win.loadURL(rendererUrl(runtime.rendererDevUrl, 'slides'))
@@ -5297,10 +6140,26 @@ export function startSlidesStandalone(): void {
   // variables, so fall back to Electron session.resolveProxy() reading the system proxy
   // settings.
   void applyMainProcessProxy()
+  const standaloneRecoveryProfile = configureRecoveryProfile({
+    app,
+    mode: 'gui',
+    guiProfile: app.getPath('userData'),
+  })
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return
   }
+  initializeStandaloneRecovery({
+    app,
+    ...standaloneRecoveryProfile,
+    lockAcquired: true,
+    warning: (message) => {
+      void dialog.showMessageBox({ type: 'warning', message }).catch(() => {})
+    },
+    terminal: (cleanup) => {
+      app.once('will-quit', cleanup)
+    },
+  })
 
   app.on('open-file', (event, path) => {
     event.preventDefault()
@@ -5319,6 +6178,7 @@ export function startSlidesStandalone(): void {
   if (argPath && existsSync(argPath)) pendingOpenPath = argPath
 
   app.whenReady().then(async () => {
+    // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
     installRendererProtocol({ slides: join(__dirname, '../renderer') })
     setUiLang(normalizeLang(process.env.VANTAGE_LANG ?? app.getLocale()))
     registerSlidesIpc()

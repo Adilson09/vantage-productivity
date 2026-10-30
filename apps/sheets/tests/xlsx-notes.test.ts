@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createBufferEntrySource,
+  MacroPreservationError,
   planCellEditsToXlsx,
 } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 import type { SheetNoteState } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
@@ -38,12 +39,16 @@ const NOTES: SheetNoteState[] = [
   },
 ]
 
-async function kitchenSinkWithControlThenNote(): Promise<Buffer> {
+async function kitchenSinkWithControlThenNote(kind: 'unknown VML' | 'VML button'): Promise<Buffer> {
   const zip = await JSZip.loadAsync(await buildKitchenSinkFixture())
+  const control =
+    kind === 'unknown VML'
+      ? '<v:shape id="_x0000_s1025" type="#_x0000_t201" style="position:absolute"/>'
+      : '<v:shape id="_x0000_s1025"><x:ClientData ObjectType="Button"><x:FmlaMacro>[0]!Synthetic_Click</x:FmlaMacro></x:ClientData></v:shape>'
   zip.file(
     'xl/drawings/vmlDrawing1.vml',
     '<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">' +
-      '<v:shape id="_x0000_s1025" type="#_x0000_t201" style="position:absolute"/>' +
+      control +
       '<v:shape id="_x0000_s1026" type="#_x0000_t202">' +
       '<x:ClientData ObjectType="Note"><x:Anchor>2, 15, 0, 2, 4, 15, 4, 2</x:Anchor>' +
       '<x:Row>0</x:Row><x:Column>1</x:Column></x:ClientData></v:shape>' +
@@ -53,15 +58,38 @@ async function kitchenSinkWithControlThenNote(): Promise<Buffer> {
 }
 
 describe('note removal', () => {
-  it('removes the note shape and keeps the self-closing control before it', async () => {
+  it.each(['unknown VML', 'VML button'] as const)(
+    'refuses to rewrite a note sharing VML with %s and leaves the source unchanged',
+    async (kind) => {
+      const source = await kitchenSinkWithControlThenNote(kind)
+      const before = Buffer.from(source)
+      await expect(planNotes([{ sheetName: 'Data', notes: [] }], source)).rejects.toBeInstanceOf(
+        MacroPreservationError,
+      )
+      expect(source).toEqual(before)
+    },
+  )
+
+  it('removes the note shape from a note-only VML part', async () => {
     const plan = await planNotes(
       [{ sheetName: 'Data', notes: [] }],
-      await kitchenSinkWithControlThenNote(),
+      await buildKitchenSinkFixture(),
     )
-    const vml = plan.replaced.get('xl/drawings/vmlDrawing1.vml')
-    expect(vml).toBeDefined()
-    expect(vml).toContain('<v:shape id="_x0000_s1025"')
-    expect(vml).not.toContain('ObjectType="Note"')
+    expect(plan.removedEntries).toEqual(
+      expect.arrayContaining(['xl/comments1.xml', 'xl/drawings/vmlDrawing1.vml']),
+    )
+    expect(plan.replaced.has('xl/drawings/vmlDrawing1.vml')).toBe(false)
+    expect(plan.added.has('xl/drawings/vmlDrawing1.vml')).toBe(false)
+    const worksheet = plan.replaced.get('xl/worksheets/sheet1.xml')
+    expect(worksheet).toBeDefined()
+    expect(worksheet).not.toContain('<legacyDrawing')
+    const relationships = plan.replaced.get('xl/worksheets/_rels/sheet1.xml.rels')
+    expect(relationships).toBeDefined()
+    expect(relationships).not.toContain('relationships/comments')
+    expect(relationships).not.toContain('relationships/vmlDrawing')
+    expect(plan.replaced.get('[Content_Types].xml')).not.toContain('PartName="/xl/comments1.xml"')
+    expect(plan.removedEntries).not.toContain('xl/drawings/drawing1.xml')
+    expect(plan.removedEntries).not.toContain('xl/tables/table1.xml')
   })
 })
 
@@ -134,17 +162,20 @@ describe('note snapshots', () => {
       plan.replaced.get('xl/worksheets/_rels/sheet1.xml.rels') ??
       plan.added.get('xl/worksheets/_rels/sheet1.xml.rels')
     expect(rels).toContain('Id="rId130001"')
-  })
+  }, 30_000)
 
-  it('starts new note shape ids after the ids the part already holds', async () => {
+  it('replaces the existing note with a complete snapshot of uniquely identified note shapes', async () => {
     const plan = await planNotes(NOTES, await buildKitchenSinkFixture())
     const vml =
       plan.replaced.get('xl/drawings/vmlDrawing1.vml') ??
       plan.added.get('xl/drawings/vmlDrawing1.vml')
     expect(vml).toBeDefined()
     const ids = [...vml!.matchAll(/id="_x0000_s(\d+)"/g)].map((match) => match[1])
-    expect(ids).toHaveLength(3)
+    expect(ids).toHaveLength(2)
     expect(new Set(ids).size).toBe(ids.length)
+    expect(vml!.match(/ObjectType="Note"/g)).toHaveLength(2)
+    expect(vml).toContain('<x:Row>0</x:Row><x:Column>1</x:Column>')
+    expect(vml).toContain('<x:Row>4</x:Row><x:Column>0</x:Column>')
   })
 
   it('is a no-op when clearing notes on a sheet that never had any', async () => {

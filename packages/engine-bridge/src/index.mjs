@@ -1,10 +1,21 @@
-import { spawn } from 'node:child_process'
-import { access, copyFile, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { access, copyFile, mkdtemp, readFile, readdir, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import { basename, delimiter, extname, isAbsolute, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
+import { releaseEngineDirectory, runBounded } from './process-supervision.mjs'
+import {
+  fileSha256,
+  javaArguments,
+  privateJavaEnvironment,
+  readEngineManifest,
+  verifiedJar,
+} from './engine-manifest.mjs'
+import { parseVeraPdfReport } from './verapdf-report.mjs'
+
+export { parseVeraPdfReport, VERAPDF_PROFILES } from './verapdf-report.mjs'
+export { runBounded } from './process-supervision.mjs'
 
 export const ENGINE_CATALOG = Object.freeze([
   {
@@ -28,98 +39,13 @@ export const ENGINE_CATALOG = Object.freeze([
   {
     id: 'verapdf',
     name: 'veraPDF',
-    license: 'GPL-3.0-or-later / MPL-2.0 (verify selected distribution)',
+    license: 'MPL-2.0 / GPL-3.0-or-later; bundled Java and dependency notices apply',
     url: 'https://docs.verapdf.org/cli/validation/',
     commands: ['verapdf.exe', 'verapdf'],
     env: 'VANTAGE_VERAPDF_PATH',
     capabilities: ['pdf-conformance-report'],
   },
 ])
-
-/** Bounded output/deadline, direct executable invocation. No shell or document-supplied arguments. */
-export function runBounded(
-  executable,
-  args,
-  { timeoutMs = 30000, maxOutputBytes = 1024 * 1024, signal, cwd, processEnv } = {},
-) {
-  if (!isAbsolute(executable)) throw new Error('An absolute engine executable path is required')
-  if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string'))
-    throw new Error('Engine arguments must be strings')
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000)
-    throw new Error('Deadline must be 1–120000 ms')
-  if (
-    !Number.isSafeInteger(maxOutputBytes) ||
-    maxOutputBytes < 1 ||
-    maxOutputBytes > 4 * 1024 * 1024
-  )
-    throw new Error('Output budget must be 1–4194304 bytes')
-  return new Promise((done) => {
-    if (signal?.aborted) {
-      done({ code: null, stdout: '', stderr: '', stopped: 'cancelled' })
-      return
-    }
-    let child
-    try {
-      child = spawn(executable, args, {
-        shell: false,
-        windowsHide: true,
-        cwd,
-        ...(processEnv ? { env: { ...process.env, ...processEnv } } : {}),
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-    } catch (error) {
-      done({ code: null, stdout: '', stderr: error.message, stopped: 'unavailable' })
-      return
-    }
-    let used = 0,
-      stopped,
-      stdout = '',
-      stderr = '',
-      settled = false
-    const finish = (code) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', abort)
-      done({ code, stdout, stderr, ...(stopped ? { stopped } : {}) })
-    }
-    const stop = (reason) => {
-      if (stopped) return
-      stopped = reason
-      // soffice.com and Java launchers may have descendants holding pipes open.
-      if (process.platform === 'win32' && child.pid && process.env.SystemRoot) {
-        const killer = spawn(
-          join(process.env.SystemRoot, 'System32', 'taskkill.exe'),
-          ['/PID', String(child.pid), '/T', '/F'],
-          { windowsHide: true, shell: false, stdio: 'ignore' },
-        )
-        killer.once('error', () => child.kill())
-        killer.once('close', (code) => {
-          if (code !== 0) child.kill()
-        })
-      } else child.kill('SIGKILL')
-    }
-    const abort = () => stop('cancelled')
-    signal?.addEventListener('abort', abort, { once: true })
-    const timer = setTimeout(() => stop('timeout'), timeoutMs)
-    const output = (chunk, target) => {
-      const remaining = Math.max(0, maxOutputBytes - used)
-      const text = chunk.subarray(0, remaining).toString('utf8')
-      used += chunk.length
-      if (target === 'stdout') stdout += text
-      else stderr += text
-      if (used > maxOutputBytes) stop('output-limit')
-    }
-    child.stdout.on('data', (chunk) => output(chunk, 'stdout'))
-    child.stderr.on('data', (chunk) => output(chunk, 'stderr'))
-    child.once('error', (error) => {
-      stderr += error.message
-      stopped = 'unavailable'
-      finish(null)
-    })
-    child.once('close', finish)
-  })
-}
 
 async function executableCandidates(engine, options) {
   const env = options.env ?? process.env
@@ -136,127 +62,153 @@ async function executableCandidates(engine, options) {
   return dirs.flatMap((dir) => engine.commands.map((name) => join(dir, name)))
 }
 
-export async function discoverEngines(options = {}) {
-  let manifest = null
+async function engineWork(options, prefix, action) {
+  const work = await mkdtemp(
+    join(options.tempRoot ?? process.env.VANTAGE_ENGINE_TEMP_DIR ?? tmpdir(), prefix),
+  )
+  try {
+    return await action(work)
+  } finally {
+    await releaseEngineDirectory(work)
+  }
+}
+
+function runInstalledEngine(engine, args, options, work) {
+  if (!engine.launch) return runBounded(engine.path, args, { ...options, cwd: work ?? options.cwd })
+  return runBounded(engine.path, javaArguments(engine.launch, work, args), {
+    ...options,
+    cwd: work,
+    processEnv: privateJavaEnvironment(options.processEnv),
+  })
+}
+
+async function discoverEngineSet(options = {}, engineIds) {
   const manifestPath =
     options.manifestPath ??
     (options.env ?? process.env).VANTAGE_ENGINE_MANIFEST ??
     (!options.env ? new URL('../engines.local.json', import.meta.url) : null)
-  if (manifestPath) {
-    try {
-      if ((await stat(manifestPath)).size > 65536) throw new Error('Engine manifest exceeds 64 KiB')
-      manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-      for (const pin of Object.values(manifest.engines ?? {})) {
-        if (pin && typeof pin.path === 'string' && !isAbsolute(pin.path)) {
-          const base = dirname(
-            manifestPath instanceof URL ? fileURLToPath(manifestPath) : resolve(manifestPath),
-          )
-          const expanded = resolve(base, pin.path)
-          // Portable manifests may reference only descendants of their own folder.
-          if (!expanded.startsWith(base + '/') && !expanded.startsWith(base + '\\'))
-            throw new Error('Relative engine path leaves the engine manifest directory')
-          pin.path = expanded
-        }
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT')
-        throw new Error('Cannot load local engine configuration: ' + error.message)
-    }
-  }
+  const manifest = await readEngineManifest(manifestPath)
   return Promise.all(
-    ENGINE_CATALOG.map(async (engine) => {
-      const pinned = manifest?.engines?.[engine.id]
-      let reason =
-        'Not installed or not found. Configure ' + engine.env + ' with a local executable path.'
-      for (const path of await executableCandidates(engine, { ...options, manifest })) {
-        if (!isAbsolute(path) || /\.(?:cmd|bat)$/i.test(path)) {
-          reason = 'Use a native executable, not a shell script, for ' + engine.env
-          continue
-        }
-        try {
-          await access(path, constants.X_OK)
-          const info = await stat(path)
-          if (!info.isFile() || info.size > 256 * 1024 * 1024) continue
-        } catch {
-          continue
-        }
-        const executableSha256 = createHash('sha256')
-          .update(await readFile(path))
-          .digest('hex')
-        if (
-          pinned?.path === path &&
-          pinned.sha256 &&
-          executableSha256 !== pinned.sha256.toLowerCase()
-        ) {
-          reason =
-            'Installed executable differs from its pinned SHA256; revalidate the local component.'
-          continue
-        }
-        // Even a version probe must never attach to a user's running Office profile.
-        const probeRoot =
-          engine.id === 'libreoffice'
-            ? await mkdtemp(
-                join(
-                  options.tempRoot ?? process.env.VANTAGE_ENGINE_TEMP_DIR ?? tmpdir(),
-                  'vantage-version-',
-                ),
-              )
-            : null
-        let result
-        try {
-          result = await runBounded(
+    ENGINE_CATALOG.filter((engine) => !engineIds || engineIds.includes(engine.id)).map(
+      async (engine) => {
+        const pinned = manifest?.engines?.[engine.id]
+        let reason =
+          'Not installed or not found. Configure ' + engine.env + ' with a local executable path.'
+        for (const path of await executableCandidates(engine, { ...options, manifest })) {
+          if (!isAbsolute(path) || /\.(?:cmd|bat)$/i.test(path)) {
+            reason = 'Use a native executable, not a shell script, for ' + engine.env
+            continue
+          }
+          try {
+            await access(path, constants.X_OK)
+            const info = await stat(path)
+            if (!info.isFile() || info.size > 256 * 1024 * 1024) continue
+          } catch {
+            continue
+          }
+          const executableSha256 = await fileSha256(path)
+          if (
+            pinned?.path === path &&
+            pinned.sha256 &&
+            executableSha256 !== pinned.sha256.toLowerCase()
+          ) {
+            reason =
+              'Installed executable differs from its pinned SHA256; revalidate the local component.'
+            continue
+          }
+          const launch = pinned?.path === path ? pinned.launch : undefined
+          if (launch) {
+            try {
+              await verifiedJar(launch)
+            } catch (error) {
+              reason = error.message
+              continue
+            }
+          }
+          // Even a version probe must never attach to a user's running Office profile.
+          const probeRoot =
+            engine.id === 'libreoffice' || launch
+              ? await mkdtemp(
+                  join(
+                    options.tempRoot ?? process.env.VANTAGE_ENGINE_TEMP_DIR ?? tmpdir(),
+                    'vantage-version-',
+                  ),
+                )
+              : null
+          let result
+          try {
+            const args =
+              engine.id === 'libreoffice'
+                ? [
+                    '-env:UserInstallation=' + pathToFileURL(join(probeRoot, 'profile')).href,
+                    '--headless',
+                    '--norestore',
+                    '--version',
+                  ]
+                : ['--version']
+            result = await runInstalledEngine(
+              { path, launch },
+              args,
+              {
+                timeoutMs: launch ? 60000 : 5000,
+                maxOutputBytes: 16384,
+                signal: options.signal,
+                ...(engine.id === 'libreoffice'
+                  ? { processEnv: { SAL_SKIA: 'raster', SAL_DISABLE_OPENCL: '1' } }
+                  : {}),
+              },
+              probeRoot,
+            )
+          } finally {
+            if (probeRoot) await releaseEngineDirectory(probeRoot)
+          }
+          if (result.stopped || result.code !== 0) {
+            reason =
+              result.cleanup?.status === 'pending'
+                ? 'The version probe did not complete. Process cleanup is still pending; temporary files are retained.'
+                : 'The configured executable did not complete its version probe.'
+            continue
+          }
+          return {
+            id: engine.id,
+            name: engine.name,
+            available: true,
             path,
-            probeRoot
-              ? [
-                  '-env:UserInstallation=' + pathToFileURL(join(probeRoot, 'profile')).href,
-                  '--headless',
-                  '--norestore',
-                  '--version',
-                ]
-              : ['--version'],
-            {
-              timeoutMs: 5000,
-              maxOutputBytes: 16384,
-              signal: options.signal,
-              ...(probeRoot ? { processEnv: { SAL_SKIA: 'raster', SAL_DISABLE_OPENCL: '1' } } : {}),
-            },
-          )
-        } finally {
-          if (probeRoot) await rm(probeRoot, { recursive: true, force: true })
-        }
-        if (result.stopped || result.code !== 0) {
-          reason = 'The configured executable did not complete its version probe.'
-          continue
+            executableSha256,
+            ...(launch ? { launch: { ...launch }, jarSha256: launch.sha256.toLowerCase() } : {}),
+            version: (launch
+              ? (result.stdout || result.stderr).trim().split(/\r?\n/, 1)[0]
+              : (result.stdout || result.stderr).trim()
+            ).slice(0, 200),
+            license: engine.license,
+            url: engine.url,
+            capabilities: engine.capabilities,
+            ...(pinned?.path === path && pinned.validation
+              ? { validation: pinned.validation }
+              : {}),
+          }
         }
         return {
           id: engine.id,
           name: engine.name,
-          available: true,
-          path,
-          executableSha256,
-          version: (result.stdout || result.stderr).trim().slice(0, 200),
+          available: false,
+          reason,
           license: engine.license,
           url: engine.url,
           capabilities: engine.capabilities,
           ...(pinned?.validation ? { validation: pinned.validation } : {}),
         }
-      }
-      return {
-        id: engine.id,
-        name: engine.name,
-        available: false,
-        reason,
-        license: engine.license,
-        url: engine.url,
-        capabilities: engine.capabilities,
-        ...(pinned?.validation ? { validation: pinned.validation } : {}),
-      }
-    }),
+      },
+    ),
   )
 }
 
+export function discoverEngines(options = {}) {
+  return discoverEngineSet(options)
+}
+
 async function selectedEngine(id, options) {
-  const engine = (await discoverEngines(options)).find((item) => item.id === id)
+  const engine = (await discoverEngineSet(options, [id])).find((item) => item.id === id)
   if (!engine?.available) throw new Error(engine?.reason ?? 'Unknown engine')
   return engine
 }
@@ -274,52 +226,73 @@ async function inputFile(filePath, extensions) {
 export async function checkPdf(filePath, { engine = 'qpdf', flavour, ...options } = {}) {
   const input = await inputFile(filePath, ['.pdf'])
   if (engine !== 'qpdf' && engine !== 'verapdf') throw new Error('Choose qpdf or verapdf')
-  const installed = await selectedEngine(engine, options)
   if (flavour && !/^(?:1[ab]|2[abu]|3[abu]|4[ef]?|ua[12])$/.test(flavour))
     throw new Error('Unsupported veraPDF validation flavour')
-  const args =
-    engine === 'qpdf'
-      ? ['--check', input]
-      : [
-          '--format',
-          'json',
-          '--maxfailuresdisplayed',
-          '10',
-          ...(flavour ? ['--flavour', flavour] : []),
-          input,
-        ]
-  const result = await runBounded(installed.path, args, options)
-  let report
-  if (engine === 'verapdf' && !result.stopped) {
-    try {
-      report = JSON.parse(result.stdout)
-    } catch {
-      /* Missing valid machine report cannot pass. */
+  const installed = await selectedEngine(engine, options)
+  if (engine === 'qpdf') {
+    const result = await runBounded(installed.path, ['--check', input], options)
+    return {
+      engine: installed.id,
+      version: installed.version,
+      filePath: input,
+      ...result,
+      status: result.stopped
+        ? 'incomplete'
+        : result.code === 0
+          ? 'pass'
+          : result.code === 3
+            ? 'warning'
+            : 'fail',
+      scope: 'Structural diagnostics only; visual fidelity and accessibility are not certified.',
     }
   }
-  const status = result.stopped
-    ? 'incomplete'
-    : engine === 'qpdf'
-      ? result.code === 0
-        ? 'pass'
-        : result.code === 3
-          ? 'warning'
-          : 'fail'
-      : report && result.code === 0
-        ? 'report'
-        : 'fail'
-  return {
-    engine: installed.id,
-    version: installed.version,
-    filePath: input,
-    status,
-    ...result,
-    ...(report ? { report } : {}),
-    scope:
-      engine === 'qpdf'
-        ? 'Structural diagnostics only; visual fidelity and accessibility are not certified.'
-        : 'Machine conformance report. Review validation results in the report; human accessibility requirements remain separate.',
-  }
+  return engineWork(options, 'vantage-standards-', async (work) => {
+    // Validation receives an independent copy; metadata fixing is never enabled.
+    const before = await fileSha256(input)
+    const copy = join(work, 'input.pdf')
+    await copyFile(input, copy, constants.COPYFILE_EXCL)
+    const copied = await stat(copy)
+    if (copied.size > 128 * 1024 * 1024 || (await fileSha256(copy)) !== before)
+      throw new Error('Source changed while preparing standards validation; retry after saving it')
+    const result = await runInstalledEngine(
+      installed,
+      [
+        '--format',
+        'json',
+        '--maxfailures',
+        '-1',
+        '--maxfailuresdisplayed',
+        '10',
+        ...(flavour ? ['--flavour', flavour] : []),
+        copy,
+      ],
+      { timeoutMs: 60000, ...options },
+      work,
+    )
+    const sourceUnchanged = (await fileSha256(input)) === before
+    const parsed = parseVeraPdfReport(result, {
+      flavour,
+      expectedPath: copy,
+      expectedBytes: copied.size,
+    })
+    if (!sourceUnchanged) {
+      parsed.status = 'incomplete'
+      parsed.conformance.complete = false
+      parsed.conformance.reason =
+        'The source changed during validation; this result describes an earlier copy.'
+    }
+    return {
+      engine: installed.id,
+      version: installed.version,
+      filePath: input,
+      ...result,
+      ...parsed,
+      sourceSha256: before,
+      sourceUnchanged,
+      scope:
+        'Machine checks for the listed PDF/A or PDF/UA profiles only. Human accessibility checks and visual review remain required; qpdf structural checks do not establish standards conformance.',
+    }
+  })
 }
 
 const conversionFormats = ['pdf', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp']
@@ -393,7 +366,11 @@ export async function convertDocument(sourcePath, destinationPath, options = {})
     )
     if (result.stopped || result.code !== 0)
       throw new Error(
-        'LibreOffice conversion did not complete: ' + (result.stopped ?? `exit ${result.code}`),
+        'LibreOffice conversion did not complete: ' +
+          (result.stopped ?? `exit ${result.code}`) +
+          (result.cleanup?.status === 'pending'
+            ? '. Process cleanup is still pending; temporary files are retained.'
+            : ''),
       )
     // LibreOffice sometimes exits zero for a failed import: require the actual artifact.
     const outputs = (await readdir(outputDir)).filter(
@@ -427,6 +404,6 @@ export async function convertDocument(sourcePath, destinationPath, options = {})
       diagnostics: result.stdout.slice(0, 4096),
     }
   } finally {
-    await rm(work, { recursive: true, force: true })
+    await releaseEngineDirectory(work)
   }
 }

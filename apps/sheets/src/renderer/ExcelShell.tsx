@@ -366,20 +366,22 @@ interface ExcelShellProps {
     sheets: { id: string; name: string }[]
     activeSheetId: string | null
   }
-  readonly onDefinedNameAction: (action: DefinedNameAction) => string | null
+  readonly onDefinedNameAction: (
+    action: DefinedNameAction,
+  ) => string | null | Promise<string | null>
   /// Subtotals use the selection; pivots pass their resolved source range.
   readonly onGetPivotFields: (sourceRange?: string) => PivotField[]
   readonly onGetSourceRange: () => string
-  readonly onCreatePivot: (request: PivotCreateRequest) => string | null
+  readonly onCreatePivot: (request: PivotCreateRequest) => string | null | Promise<string | null>
   /// PivotTable Fields pane: seed of the pivot under the cursor (null = App
   /// already showed why), the apply callback, and the member list of one
   /// source field for the report-filter item picker.
   readonly onGetPivotEditSeed: () => PivotEditSeed | null
-  readonly onEditPivot: (config: OoXmlPivotConfig) => string | null
+  readonly onEditPivot: (config: OoXmlPivotConfig) => string | null | Promise<string | null>
   readonly onGetPivotFieldMembers: (fieldIndex: number) => string[]
   /// Identity of the pivot under the selection; the pane follows it like Excel.
   readonly pivotSelectionKey: string | null
-  readonly onRefreshPivot: () => string | null
+  readonly onRefreshPivot: () => string | null | Promise<string | null>
   readonly onIsSelectionInPivot: () => boolean
   readonly onGetActiveCell: () => string
   /// Value of the selection's top-left cell, read when Format Cells opens
@@ -399,12 +401,16 @@ interface ExcelShellProps {
   /// Function descriptions from the running formula engine (Insert Function).
   readonly onListFunctions: () => readonly IFunctionInfo[]
   readonly functionArguments: FunctionArgumentsHost
-  readonly onCreateSubtotal: (config: SubtotalConfig) => string | null
-  readonly onCreateConsolidate: (config: ConsolidateConfig) => string | null
+  readonly onCreateSubtotal: (config: SubtotalConfig) => string | null | Promise<string | null>
+  readonly onCreateConsolidate: (
+    config: ConsolidateConfig,
+  ) => string | null | Promise<string | null>
   /// Prefill for the Consolidate reference input (current multi-cell selection).
   readonly onGetConsolidateDefault: () => string
   /// Header & Footer dialog OK; returns an error message, or null on success.
-  readonly onApplyHeaderFooter: (result: HeaderFooterResult) => string | null
+  readonly onApplyHeaderFooter: (
+    result: HeaderFooterResult,
+  ) => string | null | Promise<string | null>
   /// Print with Preview, open while non-null.
   readonly printHost: PrintPreviewHost | null
   readonly onClosePrint: () => void
@@ -599,22 +605,66 @@ export function ExcelShell({
   const [showNameManager, setShowNameManager] = useState(false)
   const [showPivotDialog, setShowPivotDialog] = useState(false)
   const [pivotPane, setPivotPane] = useState<PivotPaneState | null>(null)
+  const [pivotPending, setPivotPending] = useState(false)
+  const pivotPendingRef = useRef(false)
   /// Pane the user closed for this pivot; reopens once the selection leaves it.
   const dismissedPivotRef = useRef<string | null>(null)
   const openPivotPane = (): void => {
+    if (pivotPendingRef.current) return
     const seed = onGetPivotEditSeed()
     if (!seed) return
     dismissedPivotRef.current = null
     setPivotPane({ seed, model: seed.model, deferred: false, dirty: false, error: null })
   }
-  const applyPivotModel = (pane: PivotPaneState, model: PivotLayoutModel): PivotPaneState => {
+  const applyPivotModel = async (
+    pane: PivotPaneState,
+    model: PivotLayoutModel,
+    deferred = pane.deferred,
+  ): Promise<string | null> => {
+    if (pivotPendingRef.current) return pane.error
     const invalid = validatePivotModel(model)
-    if (invalid !== null)
-      return { ...pane, model, dirty: false, error: t(PIVOT_MODEL_ERRORS[invalid]) }
-    const failure = onEditPivot(modelToConfig(model, pane.seed.sourceRange, pane.seed.targetCell))
-    return { ...pane, model, dirty: false, error: failure }
+    if (invalid !== null) {
+      const failure = t(PIVOT_MODEL_ERRORS[invalid])
+      setPivotPane((current) =>
+        current?.seed.key === pane.seed.key
+          ? { ...current, model, deferred, dirty: true, error: failure }
+          : current,
+      )
+      return failure
+    }
+    pivotPendingRef.current = true
+    setPivotPending(true)
+    setPivotPane((current) =>
+      current?.seed.key === pane.seed.key
+        ? { ...current, model, deferred, dirty: true, error: null }
+        : current,
+    )
+    try {
+      const failure = await onEditPivot(
+        modelToConfig(model, pane.seed.sourceRange, pane.seed.targetCell),
+      )
+      setPivotPane((current) =>
+        current?.seed.key === pane.seed.key && current.model === model
+          ? { ...current, dirty: failure !== null, error: failure }
+          : current,
+      )
+      return failure
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : String(error)
+      setPivotPane((current) =>
+        current?.seed.key === pane.seed.key && current.model === model
+          ? { ...current, dirty: true, error: failure }
+          : current,
+      )
+      return failure
+    } finally {
+      pivotPendingRef.current = false
+      setPivotPending(false)
+    }
   }
   useEffect(() => {
+    // Keep the operation's pane and target stable until the authored write settles.
+    if (pivotPending) return
     if (pivotSelectionKey === null) {
       // Leaving the pivot hides the pane unless deferred edits would be lost,
       // and a dismissed pane may open again on the next visit.
@@ -629,7 +679,7 @@ export function ExcelShell({
     if (dismissedPivotRef.current !== pivotSelectionKey) openPivotPane()
     // Only the pivot identity drives this; the callbacks are App-scoped closures.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pivotSelectionKey])
+  }, [pivotSelectionKey, pivotPending])
   /** null = closed; otherwise the catalog category to open on and the cell the formula lands in */
   const [insertFunction, setInsertFunction] = useState<{
     category: string
@@ -1228,8 +1278,8 @@ export function ExcelShell({
             <PivotDialog
               hasFields={onGetPivotFields(sourceRange).length > 0}
               sourceRange={sourceRange}
-              onCreate={(request) => {
-                const failure = onCreatePivot(request)
+              onCreate={async (request) => {
+                const failure = await onCreatePivot(request)
                 if (failure === null) openPivotPane()
                 return failure
               }}
@@ -1244,23 +1294,25 @@ export function ExcelShell({
           deferred={pivotPane.deferred}
           dirty={pivotPane.dirty}
           error={pivotPane.error}
-          onModelChange={(model) =>
-            setPivotPane(
-              pivotPane.deferred
-                ? { ...pivotPane, model, dirty: true, error: null }
-                : applyPivotModel(pivotPane, model),
-            )
-          }
-          onDeferredChange={(deferred) =>
-            setPivotPane(
-              !deferred && pivotPane.dirty
-                ? { ...applyPivotModel(pivotPane, pivotPane.model), deferred }
-                : { ...pivotPane, deferred },
-            )
-          }
-          onUpdate={() => setPivotPane(applyPivotModel(pivotPane, pivotPane.model))}
+          pending={pivotPending}
+          onModelChange={(model) => {
+            if (pivotPendingRef.current) return pivotPane.error
+            if (pivotPane.deferred) {
+              setPivotPane({ ...pivotPane, model, dirty: true, error: null })
+              return null
+            }
+            return applyPivotModel(pivotPane, model)
+          }}
+          onDeferredChange={(deferred) => {
+            if (pivotPendingRef.current) return
+            if (!deferred && pivotPane.dirty)
+              void applyPivotModel(pivotPane, pivotPane.model, deferred)
+            else setPivotPane({ ...pivotPane, deferred })
+          }}
+          onUpdate={() => void applyPivotModel(pivotPane, pivotPane.model)}
           onGetFieldMembers={onGetPivotFieldMembers}
           onClose={() => {
+            if (pivotPendingRef.current) return
             dismissedPivotRef.current = pivotPane.seed.key
             setPivotPane(null)
           }}
@@ -1972,13 +2024,29 @@ function Ribbon({
   /** AI side panel visibility (docs/slides parity: the entry button toggles it) */
   readonly aiOpen: boolean
   readonly onAiToggle: () => void
-  readonly onRefreshPivot: () => string | null
+  readonly onRefreshPivot: () => string | null | Promise<string | null>
   readonly onIsSelectionInPivot: () => boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const [fontColor, setFontColor] = useState('#C00000')
   const [fillColor, setFillColor] = useState('#FFF2CC')
   const [borderColor, setBorderColor] = useState('#000000')
+  const [pivotRefreshing, setPivotRefreshing] = useState(false)
+  const pivotRefreshingRef = useRef(false)
+  const refreshPivot = async (): Promise<void> => {
+    if (pivotRefreshingRef.current) return
+    pivotRefreshingRef.current = true
+    setPivotRefreshing(true)
+    try {
+      const failure = await onRefreshPivot()
+      if (failure !== null) onCommand(`error:${failure}`)
+    } catch (error) {
+      onCommand(`error:${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      pivotRefreshingRef.current = false
+      setPivotRefreshing(false)
+    }
+  }
   const { families: systemFontFamilies, load: loadSystemFonts } = useSystemFontFamilies()
   // Large menu button: a native select stretched invisibly over the tool,
   // each option carrying its full command string.
@@ -3027,10 +3095,8 @@ function Ribbon({
             label={t('appRefresh')}
             detail={onIsSelectionInPivot() ? t('appRefreshHintIn') : t('appRefreshHintOut')}
             symbol="⟳"
-            onClick={() => {
-              const err = onRefreshPivot()
-              if (err) onCommand(`error:${err}`)
-            }}
+            disabled={pivotRefreshing}
+            onClick={() => void refreshPivot()}
           />
         </RibbonGroup>
         <RibbonGroup label={t('appGroupGetData')}>

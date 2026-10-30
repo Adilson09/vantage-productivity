@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test'
+import type { MarkdownSaveTicket } from '../../src/shared/ipc'
 const rebaseSource = '<details>\n<img src="assets/old.png">\n</details>\n'
 const source = 'Title\n=====\n\n* item  \n\n\n'
 
@@ -17,6 +18,8 @@ export async function openSource(
       if (enabled) localStorage.setItem('mdapp.experimentalRoundTrip', '1')
       localStorage.setItem('mdapp.showAi', '0')
       const off = () => {}
+      let sourceState: Parameters<typeof window.markdownApi.closeSourceState>[0] | null = null
+      const requests = new Map<string, { ticket: MarkdownSaveTicket; source: string | undefined }>()
       window.markdownApi = {
         getLanguage: async () => 'en',
         getTheme: async () => 'light',
@@ -32,22 +35,51 @@ export async function openSource(
         onAiPanelPrefsChanged: () => off,
         consumePending: async () => '/fixtures/polish.md',
         readFile: async () => text,
+        readPublication: async () => ({ text, publicationId: 'fixture-publication' }),
+        publicationLoaded: () => {},
         rememberWikiFragment: async () => {},
         takeWikiFragment: async () => '',
         consumeHeadlessExport: async () => null,
         headlessExportDone: () => {},
         setDirty: () => {},
-        save: async ({ text }) => {
-          document.body.dataset.saved = text
+        save: async (request) => {
+          const captured = request.requestId ? requests.get(request.requestId) : undefined
+          if (
+            !captured ||
+            !sourceState ||
+            sourceState.path !== captured.ticket.sourcePath ||
+            sourceState.stamp.source !== captured.source ||
+            request.closeSource?.source !== captured.source
+          )
+            return { ok: false, error: 'No current browser Main save ticket' }
+          const target = captured.ticket.sourcePath
+          if (!target) return { ok: false, error: 'No explicitly selected browser copy target' }
+          document.body.dataset.saved = request.text
           return {
             ok: true,
-            path: '/fixtures/polish.md',
+            path: target,
+            publicationId: 'fixture-published-' + request.requestId,
             imageRewrites: rebase ? [{ from: 'assets/old.png', to: 'assets/new.png' }] : [],
-            writtenText: rebase ? text.replace('assets/old.png', 'assets/new.png') : undefined,
+            writtenText: rebase
+              ? request.text.replace('assets/old.png', 'assets/new.png')
+              : undefined,
           }
         },
         onSaveRequest: (handler) => {
-          const save = () => handler('save')
+          const save = () => {
+            const requestId = crypto.randomUUID()
+            const ticket: MarkdownSaveTicket = {
+              requestId,
+              sourcePath: sourceState?.path ?? null,
+              requireClean: false,
+              intent: 'save',
+            }
+            requests.set(requestId, {
+              ticket: Object.freeze({ ...ticket }),
+              source: sourceState?.stamp.source,
+            })
+            handler('save', { ...ticket })
+          }
           window.addEventListener('test:save', save)
           return () => window.removeEventListener('test:save', save)
         },
@@ -57,7 +89,25 @@ export async function openSource(
         },
         sendReadTextResult: (result) =>
           window.dispatchEvent(new CustomEvent('test:read-source-result', { detail: result })),
-        sendSaveRequestAck: () => {},
+        sendSaveRequestAck: (result) => {
+          requests.delete(result.requestId)
+          window.dispatchEvent(new CustomEvent('test:save-ack', { detail: result }))
+        },
+        closeSourceState: (state) => {
+          sourceState = { ...state, stamp: { ...state.stamp } }
+        },
+        claimCloseLease: async () => false,
+        cancelCloseLease: async () => {},
+        onCloseLeaseRelease: (handler) => {
+          const listener = (event: Event) =>
+            handler((event as CustomEvent<Parameters<typeof handler>[0]>).detail)
+          window.addEventListener('test:close-lease-release', listener)
+          return () => window.removeEventListener('test:close-lease-release', listener)
+        },
+        writeDraft: async () => ({
+          ok: false,
+          error: 'Native recovery is unavailable in browser-only renderer coverage',
+        }),
         onCloseSaveRequest: () => off,
         sendCloseSaveResult: () => {},
         onFileRenamed: () => off,

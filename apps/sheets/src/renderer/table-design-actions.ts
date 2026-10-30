@@ -4,7 +4,6 @@
  * that came with the file (banding baked at load time, journal tableEdits).
  */
 import { parseRange } from '@vantage/xlsx-gateway/domain/cell-address'
-
 import type { WorkbookFile, WorkbookTableAdd, WorkbookTableEdit } from '../shared/desktop-api'
 import {
   isSheetRemoved,
@@ -46,12 +45,14 @@ import {
   type UniverWorksheet,
 } from './univer-state'
 import { applyAiTableAdd, applySessionTableTheme } from './workbook-ops'
-
 type FileTable = WorkbookFile['sheets'][number]['tables'][number]
-
 export interface TableDesignContext {
-  univerRef: { readonly current: UniverRuntime | null }
-  lazyWorkbookRef: { readonly current: LazyWorkbookState | null }
+  univerRef: {
+    readonly current: UniverRuntime | null
+  }
+  lazyWorkbookRef: {
+    readonly current: LazyWorkbookState | null
+  }
   setMessage: (message: string) => void
   setPendingEdits: (count: number) => void
   /// Re-reads the selection so the ribbon echo follows the table change.
@@ -59,7 +60,6 @@ export interface TableDesignContext {
   /// Fires after Ctrl+T succeeds so the shell can activate Table Design.
   onTableCreated?: () => void
 }
-
 /// What the ribbon shows for the table under the selection.
 export interface SelectedTableRibbon extends TableStyleOptionFlags {
   readonly key: string
@@ -68,9 +68,12 @@ export interface SelectedTableRibbon extends TableStyleOptionFlags {
   readonly style: string | null
   readonly isFile: boolean
 }
-
 type TableRef =
-  | { readonly kind: 'session'; readonly sheetId: string; readonly add: WorkbookTableAdd }
+  | {
+      readonly kind: 'session'
+      readonly sheetId: string
+      readonly add: WorkbookTableAdd
+    }
   | {
       readonly kind: 'file'
       readonly sheetId: string
@@ -79,35 +82,39 @@ type TableRef =
       readonly originalName: string
       readonly edit: WorkbookTableEdit | undefined
     }
-
 interface TableFacade {
   addTable(
     name: string,
     range: TableRegion,
     id: string,
-    options?: { columns: { id: string; displayName: string }[] },
+    options?: {
+      columns: {
+        id: string
+        displayName: string
+      }[]
+    },
   ): Promise<boolean> | boolean
   removeTable(id: string): Promise<boolean>
   setTableName(id: string, name: string): Promise<boolean> | boolean
   setTableRange(id: string, range: TableRegion): Promise<boolean>
   addTableTheme(id: string, theme: unknown): Promise<boolean>
 }
-
 function tableApi(worksheet: UniverWorksheet): TableFacade {
   return worksheet as unknown as TableFacade
 }
-
 function sessionTableId(runtime: UniverRuntime, name: string): string | null {
   const workbook = runtime.univerAPI.getActiveWorkbook() as unknown as {
-    getTableInfoByName?: (tableName: string) => { id: string } | undefined
+    getTableInfoByName?: (tableName: string) =>
+      | {
+          id: string
+        }
+      | undefined
   } | null
   return workbook?.getTableInfoByName?.(name)?.id ?? null
 }
-
 /// Open-time displayName of every file table, by `${sheetId}:${index}`: the
 /// save locates the part by it after an in-session rename.
 const originalNames = new WeakMap<LazyWorkbookState, Map<string, string>>()
-
 function originalFileTableName(
   state: LazyWorkbookState,
   sheetId: string,
@@ -126,11 +133,9 @@ function originalFileTableName(
   names.set(key, name)
   return name
 }
-
 function fileTableArea(table: FileTable): TableRegion {
   return table.range
 }
-
 export function findTableAt(
   state: LazyWorkbookState,
   sheetId: string,
@@ -154,7 +159,6 @@ export function findTableAt(
   }
   return null
 }
-
 function tablesOnSheet(state: LazyWorkbookState, sheetId: string): TableRef[] {
   const refs: TableRef[] = []
   for (const add of state.editJournal.tableAdds) {
@@ -168,33 +172,27 @@ function tablesOnSheet(state: LazyWorkbookState, sheetId: string): TableRef[] {
   })
   return refs
 }
-
 function refArea(ref: TableRef): TableRegion {
   return ref.kind === 'session' ? ref.add.area : fileTableArea(ref.table)
 }
-
 function refName(ref: TableRef): string {
   return ref.kind === 'session' ? ref.add.name : (ref.table.name ?? ref.originalName)
 }
-
 function refOptions(ref: TableRef): TableStyleOptionFlags {
   return ref.kind === 'session'
     ? optionsOfTableAdd(ref.add)
     : optionsOfFileTable(ref.table, ref.edit)
 }
-
 function refStyle(ref: TableRef): string | null {
   if (ref.kind === 'session') return ref.add.style ?? DEFAULT_TABLE_STYLE
   return ref.table.styleName ?? null
 }
-
 interface ActiveTarget {
   readonly runtime: UniverRuntime
   readonly state: LazyWorkbookState
   readonly worksheet: UniverWorksheet
   readonly sheetId: string
 }
-
 function activeTarget(ctx: TableDesignContext): ActiveTarget | null {
   const runtime = ctx.univerRef.current
   const state = ctx.lazyWorkbookRef.current
@@ -204,8 +202,11 @@ function activeTarget(ctx: TableDesignContext): ActiveTarget | null {
   if (isSheetRemoved(state.editJournal, sheetId)) return null
   return { runtime, state, worksheet, sheetId }
 }
-
-function selectedRef(ctx: TableDesignContext): (ActiveTarget & { ref: TableRef }) | null {
+function selectedRef(ctx: TableDesignContext):
+  | (ActiveTarget & {
+      ref: TableRef
+    })
+  | null {
   const target = activeTarget(ctx)
   if (!target) return null
   let range: ReturnType<UniverWorksheet['getRange']> | null
@@ -218,7 +219,6 @@ function selectedRef(ctx: TableDesignContext): (ActiveTarget & { ref: TableRef }
   const ref = findTableAt(target.state, target.sheetId, range.getRow(), range.getColumn())
   return ref ? { ...target, ref } : null
 }
-
 export function selectedTableEcho(ctx: TableDesignContext): SelectedTableRibbon | null {
   const selected = selectedRef(ctx)
   if (!selected) return null
@@ -236,7 +236,6 @@ export function selectedTableEcho(ctx: TableDesignContext): SelectedTableRibbon 
     ...refOptions(ref),
   }
 }
-
 export function selectedTableEquals(
   a: SelectedTableRibbon | null,
   b: SelectedTableRibbon | null,
@@ -250,7 +249,6 @@ export function selectedTableEquals(
     TABLE_OPTION_KEYS.every((option) => a[option] === b[option])
   )
 }
-
 /// Default range for the Create Table dialog: the selection, widened to its
 /// data block from a single cell.
 export function createTableDefaultRange(ctx: TableDesignContext): string {
@@ -276,48 +274,52 @@ export function createTableDefaultRange(ctx: TableDesignContext): string {
       }),
   )
 }
-
 /// Returns true when the command belonged to Table Design.
-export function handleTableDesignCommand(ctx: TableDesignContext, command: string): boolean {
+export async function handleTableDesignCommand(
+  ctx: TableDesignContext,
+  command: string,
+): Promise<boolean> {
   if (command.startsWith('table-create:')) {
     const rest = command.slice('table-create:'.length)
     const cut = rest.lastIndexOf(':')
     const ref = cut < 0 ? rest : rest.slice(0, cut)
     const headers = cut < 0 ? '1' : rest.slice(cut + 1)
-    runGuarded(ctx, () => createTable(ctx, ref, headers === '1'))
+    await runGuarded(ctx, async () => await createTable(ctx, ref, headers === '1'))
     return true
   }
   if (command.startsWith('table-rename:')) {
-    runGuarded(ctx, () => renameTable(ctx, command.slice('table-rename:'.length)))
+    await runGuarded(ctx, async () => await renameTable(ctx, command.slice('table-rename:'.length)))
     return true
   }
   if (command.startsWith('table-style:')) {
-    runGuarded(ctx, () => restyleTable(ctx, command.slice('table-style:'.length)))
+    await runGuarded(ctx, async () => await restyleTable(ctx, command.slice('table-style:'.length)))
     return true
   }
   if (command.startsWith('table-option:')) {
     const [, key = '', value = ''] = command.split(':')
     if ((TABLE_OPTION_KEYS as readonly string[]).includes(key)) {
-      runGuarded(ctx, () => toggleOption(ctx, key as TableOptionKey, value === '1'))
+      await runGuarded(
+        ctx,
+        async () => await toggleOption(ctx, key as TableOptionKey, value === '1'),
+      )
     }
     return true
   }
   if (command.startsWith('table-resize:')) {
-    runGuarded(ctx, () => resizeTable(ctx, command.slice('table-resize:'.length)))
+    await runGuarded(ctx, async () => await resizeTable(ctx, command.slice('table-resize:'.length)))
     return true
   }
   if (command === 'table-convert-range') {
-    runGuarded(ctx, () => convertToRange(ctx))
+    await runGuarded(ctx, async () => await convertToRange(ctx))
     return true
   }
   return false
 }
-
-function runGuarded(
+async function runGuarded(
   ctx: TableDesignContext,
   action: () => string | void | Promise<string | void>,
-): void {
-  void (async () => {
+): Promise<void> {
+  await (async () => {
     try {
       const message = await action()
       const state = ctx.lazyWorkbookRef.current
@@ -329,7 +331,6 @@ function runGuarded(
     ctx.refreshSelection()
   })()
 }
-
 /// Streamed sheets may not have the rows around the table resident yet; an
 /// absent cell must not read as a free one. The padding rows are clamped to
 /// the sheet extent (the loader rejects ranges past it) and a load that does
@@ -357,7 +358,6 @@ async function ensureRowsLoaded(
   )
   if (!loaded) throw new Error(t('appTableRowsNotLoaded'))
 }
-
 function parseA1(ref: string): TableRegion {
   try {
     const bounds = parseRange(ref)
@@ -371,14 +371,12 @@ function parseA1(ref: string): TableRegion {
     throw new Error(t('appTableInvalidRange'))
   }
 }
-
 function rowIsFree(worksheet: UniverWorksheet, row: number, area: TableRegion): boolean {
   if (row < 0) return false
   const width = area.endColumn - area.startColumn + 1
   const values = worksheet.getRange(row, area.startColumn, 1, width).getValues()[0] ?? []
   return values.every((value) => value === null || value === undefined || value === '')
 }
-
 async function createTable(
   ctx: TableDesignContext,
   ref: string,
@@ -412,7 +410,6 @@ async function createTable(
   ctx.onTableCreated?.()
   return t('appTableCreated')
 }
-
 /// Excel inserts a header row above the data; without structural edits
 /// (they cannot save together with a new table) the free row above is
 /// used, else the data moves down into the free row below. Planned before
@@ -420,29 +417,39 @@ async function createTable(
 function planHeaderRoom(
   worksheet: UniverWorksheet,
   area: TableRegion,
-): { area: TableRegion; shiftDown: boolean } {
+): {
+  area: TableRegion
+  shiftDown: boolean
+} {
   if (rowIsFree(worksheet, area.startRow - 1, area)) {
     return { area: { ...area, startRow: area.startRow - 1 }, shiftDown: false }
   }
   if (!rowIsFree(worksheet, area.endRow + 1, area)) throw new Error(t('appTableNoRoomForHeader'))
   return { area: { ...area, endRow: area.endRow + 1 }, shiftDown: true }
 }
-
 /// A plain copy cannot re-point formulas, so blocks holding any are refused
 /// (the user leaves a free row instead).
 function shiftDataDown(worksheet: UniverWorksheet, area: TableRegion): void {
   const rows = area.endRow - area.startRow + 1
   const width = area.endColumn - area.startColumn + 1
   const source = worksheet.getRange(area.startRow, area.startColumn, rows, width)
-  const formulas = (source as unknown as { getFormulas?: () => string[][] }).getFormulas?.() ?? []
+  const formulas =
+    (
+      source as unknown as {
+        getFormulas?: () => string[][]
+      }
+    ).getFormulas?.() ?? []
   if (formulas.some((row) => row.some((formula) => formula.length > 0))) {
     throw new Error(t('appTableNoRoomForHeader'))
   }
-  const cells = (source as unknown as { getCellDatas(): unknown[][] }).getCellDatas()
+  const cells = (
+    source as unknown as {
+      getCellDatas(): unknown[][]
+    }
+  ).getCellDatas()
   worksheet.getRange(area.startRow + 1, area.startColumn, rows, width).setValues(cells as never)
   worksheet.getRange(area.startRow, area.startColumn, 1, width).clearContent()
 }
-
 function assertNameAvailable(state: LazyWorkbookState, name: string, self: TableRef): void {
   const lower = name.toLowerCase()
   for (const add of state.editJournal.tableAdds) {
@@ -464,8 +471,7 @@ function assertNameAvailable(state: LazyWorkbookState, name: string, self: Table
     if (entry.tableName.toLowerCase() === lower) throw new Error(t('appTableNameInFile', { name }))
   }
 }
-
-function renameTable(ctx: TableDesignContext, rawName: string): string | void {
+async function renameTable(ctx: TableDesignContext, rawName: string): Promise<string | void> {
   const selected = selectedRef(ctx)
   if (!selected) return
   const name = rawName.trim()
@@ -476,49 +482,61 @@ function renameTable(ctx: TableDesignContext, rawName: string): string | void {
   if (ref.kind === 'session') {
     const id = sessionTableId(runtime, ref.add.name)
     updateTableAdd(state.editJournal, ref.sheetId, ref.add.name, { name })
-    if (id) void tableApi(worksheet).setTableName(id, name)
+    if (id) await tableApi(worksheet).setTableName(id, name)
     return
   }
   replaceFileTable(ref, { name })
   commitFileTable(state, ref)
   recordTableEdit(state.editJournal, { sheetId: ref.sheetId, tableName: ref.originalName, name })
   if (ref.table.headerRowCount > 0) {
-    void tableApi(worksheet).setTableName(fileTableId(ref.sheetId, ref.index), name)
+    await tableApi(worksheet).setTableName(fileTableId(ref.sheetId, ref.index), name)
   }
 }
-
 /// File table entries are replaced in place so the lazy loader, the AI
 /// readers and the structured-reference registry all see the change.
 function replaceFileTable(
-  ref: Extract<TableRef, { kind: 'file' }>,
+  ref: Extract<
+    TableRef,
+    {
+      kind: 'file'
+    }
+  >,
   patch: Partial<FileTable>,
 ): void {
   const next = { ...ref.table, ...patch } as FileTable
   for (const key of Object.keys(patch) as (keyof FileTable)[]) {
     if (patch[key] === undefined) delete (next as Record<string, unknown>)[key]
   }
-  ;(ref as { table: FileTable }).table = next
+  ;(
+    ref as {
+      table: FileTable
+    }
+  ).table = next
 }
-
-function commitFileTable(state: LazyWorkbookState, ref: Extract<TableRef, { kind: 'file' }>): void {
+function commitFileTable(
+  state: LazyWorkbookState,
+  ref: Extract<
+    TableRef,
+    {
+      kind: 'file'
+    }
+  >,
+): void {
   const sheet = state.file.sheets.find((candidate) => candidate.id === ref.sheetId)
   if (sheet) (sheet.tables as FileTable[])[ref.index] = ref.table
 }
-
-function repaintSheet(ctx: TableDesignContext, target: ActiveTarget): void {
+async function repaintSheet(ctx: TableDesignContext, target: ActiveTarget): Promise<void> {
   const { state, runtime, worksheet, sheetId } = target
   state.loadedRanges.delete(sheetId)
   state.frozenStripKeys.delete(sheetId)
-  void loadVisibleRange(runtime, ctx.lazyWorkbookRef, worksheet, ctx.setMessage)
+  await loadVisibleRange(runtime, ctx.lazyWorkbookRef, worksheet, ctx.setMessage)
 }
-
 function paletteFor(state: LazyWorkbookState, style: string): Partial<FileTable> {
   const cleared: Record<string, undefined> = {}
   for (const key of TABLE_PALETTE_KEYS) cleared[key] = undefined
   return { ...cleared, styleName: style, ...builtinTablePalette(style, state.file.themeColors) }
 }
-
-function restyleTable(ctx: TableDesignContext, style: string): string | void {
+async function restyleTable(ctx: TableDesignContext, style: string): Promise<string | void> {
   const selected = selectedRef(ctx)
   if (!selected) return
   if (!isBuiltinTableStyle(style)) throw new Error(t('appTableInvalidStyle'))
@@ -533,9 +551,8 @@ function restyleTable(ctx: TableDesignContext, style: string): string | void {
   replaceFileTable(ref, paletteFor(state, style))
   commitFileTable(state, ref)
   recordTableEdit(state.editJournal, { sheetId: ref.sheetId, tableName: ref.originalName, style })
-  repaintSheet(ctx, selected)
+  await repaintSheet(ctx, selected)
 }
-
 async function toggleOption(
   ctx: TableDesignContext,
   key: TableOptionKey,
@@ -548,21 +565,22 @@ async function toggleOption(
   switch (key) {
     case 'totalsRow':
       await ensureRowsLoaded(ctx, selected, refArea(ref))
-      return toggleTotalsRow(ctx, selected, on)
+      return await toggleTotalsRow(ctx, selected, on)
     case 'headerRow':
       await ensureRowsLoaded(ctx, selected, refArea(ref))
-      return toggleHeaderRow(ctx, selected, on)
+      return await toggleHeaderRow(ctx, selected, on)
     default:
-      return toggleStyleFlag(ctx, selected, key, on)
+      return await toggleStyleFlag(ctx, selected, key, on)
   }
 }
-
-function toggleStyleFlag(
+async function toggleStyleFlag(
   ctx: TableDesignContext,
-  selected: ActiveTarget & { ref: TableRef },
+  selected: ActiveTarget & {
+    ref: TableRef
+  },
   key: Exclude<TableOptionKey, 'totalsRow' | 'headerRow'>,
   on: boolean,
-): void {
+): Promise<void> {
   const { ref, state, worksheet, runtime } = selected
   if (ref.kind === 'session') {
     updateTableAdd(state.editJournal, ref.sheetId, ref.add.name, { [key]: on })
@@ -584,15 +602,16 @@ function toggleStyleFlag(
     }
     replaceFileTable(ref, patch)
     commitFileTable(state, ref)
-    repaintSheet(ctx, selected)
+    await repaintSheet(ctx, selected)
   }
 }
-
-function toggleTotalsRow(
+async function toggleTotalsRow(
   ctx: TableDesignContext,
-  selected: ActiveTarget & { ref: TableRef },
+  selected: ActiveTarget & {
+    ref: TableRef
+  },
   on: boolean,
-): string | void {
+): Promise<string | void> {
   const { ref, worksheet } = selected
   const area = refArea(ref)
   const width = area.endColumn - area.startColumn + 1
@@ -624,21 +643,22 @@ function toggleTotalsRow(
       worksheet.getRange(row, lastColumn, 1, 1).setValue({ f: `=SUBTOTAL(${fn},${columnRef})` })
     }
     worksheet.getRange(row, area.startColumn, 1, width).setFontWeight('bold')
-    applyAreaChange(ctx, selected, { ...area, endRow: row }, { totalsRow: true })
+    await applyAreaChange(ctx, selected, { ...area, endRow: row }, { totalsRow: true })
     return
   }
   const totalsRow = area.endRow
   const strip = worksheet.getRange(totalsRow, area.startColumn, 1, width)
   strip.clearContent()
   strip.setFontWeight(null)
-  applyAreaChange(ctx, selected, { ...area, endRow: area.endRow - 1 }, { totalsRow: false })
+  await applyAreaChange(ctx, selected, { ...area, endRow: area.endRow - 1 }, { totalsRow: false })
 }
-
-function toggleHeaderRow(
+async function toggleHeaderRow(
   ctx: TableDesignContext,
-  selected: ActiveTarget & { ref: TableRef },
+  selected: ActiveTarget & {
+    ref: TableRef
+  },
   on: boolean,
-): string | void {
+): Promise<string | void> {
   const { ref, state, worksheet, runtime } = selected
   const area = refArea(ref)
   const width = area.endColumn - area.startColumn + 1
@@ -650,7 +670,7 @@ function toggleHeaderRow(
       Array.from({ length: width }, (_, index) => columnNames[index] ?? ''),
     )
     worksheet.getRange(row, area.startColumn, 1, width).setValues([names])
-    applyAreaChange(
+    await applyAreaChange(
       ctx,
       selected,
       { ...area, startRow: row },
@@ -661,7 +681,7 @@ function toggleHeaderRow(
     if (ref.kind === 'session') {
       const id = `ai-table-${Date.now().toString(36)}`
       const updated = state.editJournal.tableAdds.find((add) => add.name === ref.add.name)
-      void Promise.resolve(
+      await Promise.resolve(
         tableApi(worksheet).addTable(ref.add.name, dataRange(next, hasTotals), id),
       )
         .then(() => {
@@ -670,7 +690,7 @@ function toggleHeaderRow(
         .catch(() => undefined)
     } else {
       const id = fileTableId(ref.sheetId, ref.index)
-      void Promise.resolve(
+      await Promise.resolve(
         tableApi(worksheet).addTable(refName(ref), dataRange(next, hasTotals), id, {
           columns: names.map((displayName, index) => ({ id: `${id}-col-${index}`, displayName })),
         }),
@@ -688,36 +708,40 @@ function toggleHeaderRow(
       ? sessionTableId(runtime, ref.add.name)
       : fileTableId(ref.sheetId, ref.index)
   if (id)
-    void tableApi(worksheet)
+    await tableApi(worksheet)
       .removeTable(id)
       .catch(() => undefined)
-  applyAreaChange(
+  await applyAreaChange(
     ctx,
     selected,
     { ...area, startRow: area.startRow + 1 },
     { headerRow: false, columnNames: liveNames },
   )
 }
-
 /// Univer's table range: the data block plus header, never the totals band
 /// (so `Table[Column]` sums the data only).
 function dataRange(area: TableRegion, totalsRow: boolean): TableRegion {
   return totalsRow ? { ...area, endRow: area.endRow - 1 } : area
 }
-
-function applyAreaChange(
+async function applyAreaChange(
   ctx: TableDesignContext,
-  selected: ActiveTarget & { ref: TableRef },
+  selected: ActiveTarget & {
+    ref: TableRef
+  },
   area: TableRegion,
-  patch: { totalsRow?: boolean; headerRow?: boolean; columnNames?: string[] },
-): void {
+  patch: {
+    totalsRow?: boolean
+    headerRow?: boolean
+    columnNames?: string[]
+  },
+): Promise<void> {
   const { ref, state, worksheet, runtime } = selected
   if (ref.kind === 'session') {
     updateTableAdd(state.editJournal, ref.sheetId, ref.add.name, { area, ...patch })
     const updated = state.editJournal.tableAdds.find((add) => add.name === ref.add.name)
     const id = sessionTableId(runtime, ref.add.name)
     if (id && updated && patch.headerRow === undefined) {
-      void tableApi(worksheet)
+      await tableApi(worksheet)
         .setTableRange(id, dataRange(area, optionsOfTableAdd(updated).totalsRow))
         .catch(() => undefined)
     }
@@ -738,23 +762,22 @@ function applyAreaChange(
     ...(patch.columnNames === undefined ? {} : { columnNames: patch.columnNames }),
   })
   if (patch.headerRow === undefined && ref.table.headerRowCount > 0) {
-    void tableApi(worksheet)
+    await tableApi(worksheet)
       .setTableRange(
         fileTableId(ref.sheetId, ref.index),
         dataRange(area, (ref.table.totalsRowCount ?? 0) > 0),
       )
       .catch(() => undefined)
   }
-  repaintSheet(ctx, selected)
+  await repaintSheet(ctx, selected)
 }
-
 async function resizeTable(ctx: TableDesignContext, rawRef: string): Promise<string | void> {
   const selected = selectedRef(ctx)
   if (!selected) return
   const { ref, state, worksheet } = selected
   const current = refArea(ref)
   const next = parseA1(rawRef)
-  if (next.endColumn - next.startColumn + 1 > 1_000) throw new Error(t('appTableTooWide'))
+  if (next.endColumn - next.startColumn + 1 > 1000) throw new Error(t('appTableTooWide'))
   const options = refOptions(ref)
   await ensureRowsLoaded(ctx, selected, {
     startRow: Math.min(current.startRow, next.startRow),
@@ -770,8 +793,18 @@ async function resizeTable(ctx: TableDesignContext, rawRef: string): Promise<str
     const same =
       other.kind === ref.kind &&
       (other.kind === 'session'
-        ? other.add === (ref as { add?: WorkbookTableAdd }).add
-        : other.index === (ref as { index?: number }).index)
+        ? other.add ===
+          (
+            ref as {
+              add?: WorkbookTableAdd
+            }
+          ).add
+        : other.index ===
+          (
+            ref as {
+              index?: number
+            }
+          ).index)
     if (!same && areasIntersect(next, refArea(other))) {
       throw new Error(t('appTableOverlapsSession', { name: refName(other) }))
     }
@@ -817,16 +850,15 @@ async function resizeTable(ctx: TableDesignContext, rawRef: string): Promise<str
     updateTableAdd(state.editJournal, ref.sheetId, ref.add.name, { area: next, columnNames })
     const id = sessionTableId(selected.runtime, ref.add.name)
     if (id) {
-      void tableApi(worksheet)
+      await tableApi(worksheet)
         .setTableRange(id, dataRange(next, totalsRow))
         .catch(() => undefined)
     }
     return t('appTableResized')
   }
-  applyAreaChange(ctx, selected, next, { columnNames })
+  await applyAreaChange(ctx, selected, next, { columnNames })
   return t('appTableResized')
 }
-
 /// The totals band stays the table's last row. When that row is free the
 /// totals cells follow their sheet column there. A shrink onto existing
 /// cells follows Excel: they simply become the totals band. A grow over
@@ -842,14 +874,18 @@ function assertTotalsRowCanMove(
     throw new Error(t('appTableTotalsRowBlocked'))
   }
 }
-
 function moveTotalsRow(worksheet: UniverWorksheet, current: TableRegion, next: TableRegion): void {
   if (current.endRow === next.endRow) return
   const destination: TableRegion = { ...next, startRow: next.endRow }
   if (!rowIsFree(worksheet, next.endRow, destination)) return
   const oldWidth = current.endColumn - current.startColumn + 1
   const source = worksheet.getRange(current.endRow, current.startColumn, 1, oldWidth)
-  const cells = (source as unknown as { getCellDatas(): unknown[][] }).getCellDatas()[0] ?? []
+  const cells =
+    (
+      source as unknown as {
+        getCellDatas(): unknown[][]
+      }
+    ).getCellDatas()[0] ?? []
   source.clearContent()
   source.setFontWeight(null)
   const width = next.endColumn - next.startColumn + 1
@@ -861,7 +897,6 @@ function moveTotalsRow(worksheet: UniverWorksheet, current: TableRegion, next: T
   target.setValues([moved] as never)
   target.setFontWeight('bold')
 }
-
 /// A resize moves the data block under the totals row: every SUBTOTAL the
 /// totals row carries is re-pointed at its column's new data range.
 function refreshTotalsFormulas(
@@ -875,7 +910,12 @@ function refreshTotalsFormulas(
   if (dataEnd < dataStart) return
   for (let column = area.startColumn; column <= area.endColumn; column += 1) {
     const cell = worksheet.getRange(totalsRow, column, 1, 1)
-    const formula = (cell as unknown as { getFormula?: () => string }).getFormula?.() ?? ''
+    const formula =
+      (
+        cell as unknown as {
+          getFormula?: () => string
+        }
+      ).getFormula?.() ?? ''
     const match = /^=SUBTOTAL\((\d+),/.exec(formula)
     if (!match) continue
     const columnRef = areaToA1({
@@ -887,8 +927,7 @@ function refreshTotalsFormulas(
     cell.setValue({ f: `=SUBTOTAL(${match[1]},${columnRef})` })
   }
 }
-
-function convertToRange(ctx: TableDesignContext): string | void {
+async function convertToRange(ctx: TableDesignContext): Promise<string | void> {
   const selected = selectedRef(ctx)
   if (!selected) return
   const { ref, state, worksheet, runtime } = selected
@@ -896,7 +935,7 @@ function convertToRange(ctx: TableDesignContext): string | void {
     const id = sessionTableId(runtime, ref.add.name)
     removeTableAdd(state.editJournal, ref.sheetId, ref.add.name)
     if (id)
-      void tableApi(worksheet)
+      await tableApi(worksheet)
         .removeTable(id)
         .catch(() => undefined)
     return t('appTableConverted')
@@ -922,10 +961,10 @@ function convertToRange(ctx: TableDesignContext): string | void {
   })
   commitFileTable(state, ref)
   if (hadHeader) {
-    void tableApi(worksheet)
+    await tableApi(worksheet)
       .removeTable(fileTableId(ref.sheetId, ref.index))
       .catch(() => undefined)
   }
-  repaintSheet(ctx, selected)
+  await repaintSheet(ctx, selected)
   return t('appTableConverted')
 }

@@ -539,4 +539,5 @@ export const ar = {
   appMergeSourceLoaded: 'تم تحميل {name} ({n} سجلًا)',
   appMergeWritten: 'تمت كتابة {n} مستندًا',
   appMergeNothingToWrite: 'لا يوجد ما يكتب',
+  appRecoveryFailed: 'تعذر حفظ مسودة الاسترداد: {error}',
 } satisfies Record<keyof typeof zh, string>

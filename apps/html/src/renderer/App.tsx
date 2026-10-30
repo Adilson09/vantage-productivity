@@ -1,3 +1,14 @@
+import { pendingCssCanBeCommitted } from './document/html-close-pending'
+import { CloseMutationBarrier } from '../../../../packages/electron-utils/src/renderer-close-barrier'
+import {
+  bindHtmlCloseBarrier,
+  htmlCloseStamp,
+  mutateHtml,
+  beforeHtmlMutation,
+  runHtmlAsyncMutation,
+  requireHtmlMutation,
+  installHtmlCloseInputFence,
+} from './close-lease'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Dropdown,
@@ -11,10 +22,7 @@ import {
   rememberAiPanelOpen,
   useAiSidebarEnabled,
 } from '@vantage/ui'
-import {
-  pollUntilReady,
-  runHeadlessRendererExport,
-} from '@vantage/electron-utils/headless-export'
+import { pollUntilReady, runHeadlessRendererExport } from '@vantage/electron-utils/headless-export'
 import { useI18n } from './i18n/locale'
 import { parseDocText, serializeDocText, type Envelope } from './document/envelope'
 import {
@@ -74,6 +82,22 @@ import { adoptImageRewrites } from './document/image-rewrites'
 import { deriveAutoFileName, deriveNameFromPrompt } from './document/auto-name'
 import { localFileName, modelSaveAsName } from './file-naming'
 import { runGuardedPrint } from './print-guard'
+import {
+  captureHtmlRecoveryText,
+  readHtmlRecoveryState,
+  type HtmlPanelRecoveryState,
+  type HtmlRecoveryUi,
+} from './document/html-recovery-snapshot'
+import { HTML_DRAFT_MAX_BYTES } from '../shared/html-draft'
+import {
+  prepareAndApplyHtmlReload,
+  type HtmlReloadLiveState,
+} from './document/html-reload-controller'
+import {
+  completeHtmlSaveAcknowledgment,
+  htmlSaveStateIsDirty,
+  type HtmlSaveLiveState,
+} from './document/html-save-acknowledgment'
 import type { ExportFormat, SaveMode } from '../shared/ipc'
 
 type LoadStatus = 'loading' | 'ready' | 'error'
@@ -136,6 +160,15 @@ export default function App() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   // Vantage Productivity: retain actionable storage errors and rescue paths for the reader.
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveWarning, setSaveWarning] = useState<string | null>(null)
+  const [closeError, setCloseError] = useState<string | null>(null)
+  const [sourceOnlyClose, setSourceOnlyClose] = useState(false)
+  const sourceOnlyCloseRef = useRef(false)
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+  const [reloadCleanupError, setReloadCleanupError] = useState<string | null>(null)
+  const [recoveryRemoteCount, setRecoveryRemoteCount] = useState(0)
+  const [panelPending, setPanelPending] = useState(false)
+  const [visualPending, setVisualPending] = useState(false)
   const [view, setView] = useState<ViewMode>(readViewMode)
   const [canvasMode, setCanvasModeState] = useState<CanvasMode>('edit')
   /** Present → Fullscreen: the presenting view also takes the whole screen */
@@ -208,12 +241,21 @@ export default function App() {
     /** authored src at open time: the result only lands on an <img> that still carries it */
     src: string
     image: string
+    source: string
+    generation: number
   } | null>(null)
+  const pictureGenerationRef = useRef(0),
+    pictureActiveRef = useRef(false)
   /** the range awaiting a label, with the selection text it was opened on */
-  const [redactDialog, setRedactDialog] = useState<(SourceRange & { seed: string }) | null>(null)
+  const [redactDialog, setRedactDialog] = useState<
+    (SourceRange & { seed: string; source: string }) | null
+  >(null)
 
   const editorRef = useRef<SourceEditorHandle>(null)
   const previewRef = useRef<PreviewFrameHandle>(null)
+  const previewFrameNameRef = useRef('html-preview-' + crypto.randomUUID())
+  const discardPreviewRef = useRef(false)
+  const [previewRetired, setPreviewRetired] = useState(false)
   const envelopeRef = useRef<Envelope>(DEFAULT_ENVELOPE)
   const textRef = useRef('')
   const savedTextRef = useRef('')
@@ -243,6 +285,7 @@ export default function App() {
   const mapRef = useRef<ParseMap | null>(null)
   const mapSourceRef = useRef('')
   const pathRef = useRef<string | null>(null)
+  const publicationIdRef = useRef<string | null>(null)
   const selectedSidRef = useRef<number | null>(null)
   const editQueueRef = useRef<EditQueueItem[]>([])
   const canvasModeRef = useRef<CanvasMode>('edit')
@@ -256,14 +299,178 @@ export default function App() {
   const flushingStylesRef = useRef(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
-  pathRef.current = path
-  textRef.current = text
   editQueueRef.current = editQueue
-  canvasModeRef.current = canvasMode
-  savedTextRef.current = savedText
-  statusRef.current = status
-  selectedSidRef.current = selectedSid
+  const draftTokenRef = useRef<string | null>(null)
+  const draftActivationRef = useRef(0)
+  const draftRevisionRef = useRef(0)
+  const closeInstanceRef = useRef(crypto.randomUUID()),
+    closeAliveRef = useRef(true),
+    closePublishingRef = useRef<() => void>(() => {})
+  const closeBarrierRef = useRef<CloseMutationBarrier | null>(null)
+  if (!closeBarrierRef.current)
+    closeBarrierRef.current = new CloseMutationBarrier({
+      source: () => closeInstanceRef.current + ':' + draftActivationRef.current,
+      claim: (ticket) => window.htmlApi.claimCloseLease(ticket),
+      cancel: (ticket, reason) => window.htmlApi.cancelCloseLease(ticket, reason),
+      report: (error) => setCloseError(String(error)),
+    })
+  const publicationSequenceRef = useRef(0)
+  const preparingCloseRef = useRef(false),
+    deferredClosePreviewReloadRef = useRef(false),
+    resumeClosePreviewRef = useRef<() => void>(() => {})
+
+  const draftSequenceRef = useRef(0)
+  const draftBusyRef = useRef(false)
+  const draftSuppressedRef = useRef(false)
+  const draftActivatingRef = useRef<Promise<void> | null>(null)
+  const panelRecoveryRef = useRef<(() => HtmlPanelRecoveryState) | null>(null)
+  const discardPanelDraftsRef = useRef<(() => void) | null>(null)
+  const recoveryUiRef = useRef<HtmlRecoveryUi | null>(null)
+  const visualPendingRef = useRef(false)
+  const composingRef = useRef(false)
   const dirty = text !== savedText
+  const activateDraft = useCallback((documentPath: string | null): Promise<void> => {
+    requireHtmlMutation()
+    pictureGenerationRef.current++
+    pictureActiveRef.current = false
+    setPictureDialog(null)
+    setRedactDialog(null)
+    const generation = ++draftActivationRef.current
+    draftTokenRef.current = null
+    draftSequenceRef.current = 0
+    draftSuppressedRef.current = false
+    const pending = window.htmlApi
+      .activateDraft(documentPath, draftRevisionRef.current)
+      .then((token) => {
+        if (generation !== draftActivationRef.current) return
+        draftTokenRef.current = token
+        window.htmlApi.draftChanged({
+          token,
+          revision: draftRevisionRef.current,
+          dirty:
+            textRef.current !== savedTextRef.current ||
+            visualPendingRef.current ||
+            !!panelRecoveryRef.current?.().dirty ||
+            Object.keys(pendingStylesRef.current).length > 0,
+        })
+      })
+    draftActivatingRef.current = pending
+    void pending
+      .finally(() => {
+        if (draftActivatingRef.current === pending) draftActivatingRef.current = null
+      })
+      .catch(() => {})
+    return pending
+  }, [])
+  const touchDraft = useCallback(() => {
+    mutateHtml(() => {
+      draftRevisionRef.current++
+      const token = draftTokenRef.current
+      if (token)
+        window.htmlApi.draftChanged({ token, revision: draftRevisionRef.current, dirty: true })
+      else if (statusRef.current === 'ready' && !draftActivatingRef.current)
+        void activateDraft(pathRef.current).catch((error) => setRecoveryError(String(error)))
+    })
+  }, [activateDraft])
+
+  const readSaveLiveState = useCallback((): HtmlSaveLiveState => {
+    const editor = editorRef.current?.recoveryState()
+    return {
+      token: draftTokenRef.current,
+      activation: draftActivationRef.current,
+      revision: draftRevisionRef.current,
+      text: textRef.current,
+      savedText: savedTextRef.current,
+      sourceText: editor?.text ?? null,
+      sourceComposing: editor?.composing ?? false,
+      composing: composingRef.current,
+      panelPending: panelRecoveryRef.current?.().dirty ?? false,
+      visualPending: visualPendingRef.current,
+      stylesPending: Object.keys(pendingStylesRef.current).length > 0,
+    }
+  }, [])
+
+  closePublishingRef.current = () => {
+    const state = readSaveLiveState(),
+      barrier = closeBarrierRef.current!
+    window.htmlApi.closeSourceState({
+      stamp: barrier.snapshot(),
+      path: pathRef.current,
+      ready: statusRef.current === 'ready',
+      dirty: htmlSaveStateIsDirty(state),
+      pending:
+        state.panelPending ||
+        state.visualPending ||
+        state.stylesPending ||
+        (state.sourceText !== null && state.sourceText !== state.text) ||
+        pictureActiveRef.current ||
+        !!redactDialog,
+      busy: barrier.busy || savingRef.current || !!draftActivatingRef.current,
+      composing: state.composing || state.sourceComposing,
+    })
+  }
+  useEffect(() => {
+    closeAliveRef.current = true
+    const barrier = closeBarrierRef.current!,
+      unbind = bindHtmlCloseBarrier({
+        barrier,
+        publish: () => closePublishingRef.current(),
+        alive: () => closeAliveRef.current,
+      }),
+      fence = installHtmlCloseInputFence(barrier)
+    const off = window.htmlApi.onCloseLeaseRelease((ticket) => {
+      previewRef.current?.releaseClose(ticket)
+      barrier.release(ticket)
+      resumeClosePreviewRef.current()
+    })
+    const unregister = barrier.registerLock(() => {
+      if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
+      styleTimerRef.current = null
+      const controls = [
+        ...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+          '.hx-panel input,.hx-panel textarea,.hx-panel select,.image-dialog input,.redact-dialog input',
+        ),
+      ].map((element) => ({ element, disabled: element.disabled }))
+      for (const item of controls) item.element.disabled = true
+      return () => {
+        for (const item of controls)
+          if (item.element.isConnected) item.element.disabled = item.disabled
+        if (closeAliveRef.current && Object.keys(pendingStylesRef.current).length)
+          styleTimerRef.current = window.setTimeout(
+            () => flushStylesRef.current?.(),
+            STYLE_COMMIT_MS,
+          )
+      }
+    })
+    return () => {
+      closeAliveRef.current = false
+      draftActivationRef.current++
+      const ticket = barrier.ticket
+      if (ticket) void window.htmlApi.cancelCloseLease(ticket, 'HTML view unmounted')
+      fence()
+      off()
+      unregister()
+      unbind()
+    }
+  }, [])
+  useEffect(() => {
+    closePublishingRef.current()
+  })
+
+  const readReloadLiveState = useCallback(
+    (): HtmlReloadLiveState => ({
+      ...readSaveLiveState(),
+      path: pathRef.current,
+      highestSequence: draftSequenceRef.current,
+      ready: statusRef.current === 'ready' && !savingRef.current,
+      pendingSignature: JSON.stringify({
+        panel: panelRecoveryRef.current?.() ?? null,
+        styles: pendingStylesRef.current,
+        visual: visualPendingRef.current,
+      }),
+    }),
+    [readSaveLiveState],
+  )
 
   const getMap = useCallback((): ParseMap => {
     const cached = mapRef.current
@@ -280,19 +487,56 @@ export default function App() {
     let cancelled = false
     void (async () => {
       try {
-        const [pending, info] = await Promise.all([
-          window.htmlApi.consumePending(),
-          window.htmlApi.getPreviewInfo(),
-        ])
-        const raw = pending ? await window.htmlApi.readFile(pending) : ''
+        const pending = await window.htmlApi.consumePending()
+        const loaded = pending ? await window.htmlApi.readPublication(pending) : null
+        const raw = loaded?.text ?? ''
         if (cancelled) return
         diskTextRef.current = raw
         const doc = parseDocText(raw)
+        const recovery = readHtmlRecoveryState(doc.text)
+        doc.text = recovery.text
+        recoveryUiRef.current = recovery.ui
+        setRecoveryRemoteCount(recovery.remoteReferences)
+        pathRef.current = pending
+        savedTextRef.current = doc.text
+        await activateDraft(pending)
+        if (cancelled) return
         envelopeRef.current = doc.envelope
         textRef.current = doc.text
+        publicationIdRef.current = loaded?.publicationId ?? null
+        if (pending && loaded) {
+          closePublishingRef.current()
+          window.htmlApi.publicationLoaded({
+            publicationId: loaded.publicationId,
+            path: pending,
+            stamp: htmlCloseStamp(),
+          })
+        }
         // the frame must never race the first push: serve the buffer before the URL is known to React
         const map0 = getMap()
-        window.htmlApi.updatePreview(instrumentForPreview(doc.text, map0, inspectorSource))
+        const instrumented = instrumentForPreview(doc.text, map0, inspectorSource)
+        closePublishingRef.current()
+        window.htmlApi.updatePreview(instrumented)
+        let initialPreview: { id: string; url: string } | null = null
+        try {
+          initialPreview = await window.htmlApi.publishPreview({
+            source: doc.text,
+            instrumented,
+            stamp: htmlCloseStamp(),
+          })
+        } catch (error) {
+          sourceOnlyCloseRef.current = true
+          setSourceOnlyClose(true)
+          setView('source')
+          setCloseError(
+            'The preview is unavailable; the source is kept and can still be saved. ' +
+              String(error),
+          )
+        }
+        if (cancelled) {
+          if (initialPreview) await window.htmlApi.retirePreview(initialPreview.id)
+          return
+        }
         pushedTextRef.current = doc.text
         pushedVersionRef.current = map0.version
         frameVersionsRef.current = new Set([map0.version])
@@ -300,23 +544,64 @@ export default function App() {
         setPath(pending)
         setText(doc.text)
         setSavedText(doc.text)
-        setPreviewUrl(info.url)
+        setPreviewUrl(initialPreview?.url ?? null)
+        statusRef.current = 'ready'
         setStatus('ready')
       } catch (err) {
         console.error('[html] open failed:', err)
-        if (!cancelled) setStatus('error')
+        if (!cancelled) {
+          statusRef.current = 'error'
+          setStatus('error')
+        }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [getMap])
+  }, [getMap, activateDraft])
 
   // mirror dirtiness to the main process (close prompt) — untitled blank docs never count
   useEffect(() => {
     if (status !== 'ready') return
-    window.htmlApi.setDirty(dirty || pendingCount > 0)
-  }, [dirty, pendingCount, status])
+    const dirtyNow = htmlSaveStateIsDirty(readSaveLiveState())
+    const token = draftTokenRef.current
+    if (token) {
+      window.htmlApi.draftChanged({ token, revision: draftRevisionRef.current, dirty: dirtyNow })
+      if (!dirtyNow)
+        void window.htmlApi
+          .acknowledgeDraftSaved({
+            token,
+            revision: draftRevisionRef.current,
+            throughSequence: draftSequenceRef.current,
+            documentPath: pathRef.current,
+            clean: true,
+          })
+          .catch((error) => setRecoveryError(String(error)))
+    }
+  }, [dirty, pendingCount, panelPending, visualPending, status, readSaveLiveState])
+  useEffect(() => {
+    const start = () => {
+      composingRef.current = true
+    }
+    const end = () => {
+      composingRef.current = false
+    }
+    document.addEventListener('compositionstart', start, true)
+    document.addEventListener('compositionend', end, true)
+    const off = window.htmlApi.onDraftDiscarded((token) => {
+      if (token !== draftTokenRef.current) return
+      draftActivationRef.current++
+      draftTokenRef.current = null
+      draftSequenceRef.current = 0
+      draftSuppressedRef.current = true
+      setRecoveryError(null)
+    })
+    return () => {
+      document.removeEventListener('compositionstart', start, true)
+      document.removeEventListener('compositionend', end, true)
+      off()
+    }
+  }, [])
 
   /**
    * Serve the current source to html-preview://. `reload` = false for a commit the frame already
@@ -326,22 +611,71 @@ export default function App() {
    */
   const pushPreview = useCallback(
     (nextText: string, reload = true) => {
+      if (nextText !== textRef.current) return
+      if (reload && (preparingCloseRef.current || closeBarrierRef.current?.locked)) {
+        deferredClosePreviewReloadRef.current = true
+        reload = false
+      }
       if (previewTimerRef.current !== null) {
         window.clearTimeout(previewTimerRef.current)
         previewTimerRef.current = null
       }
       if (pushedTextRef.current === nextText) return
       const map = getMap()
-      window.htmlApi.updatePreview(instrumentForPreview(nextText, map, inspectorSource))
+      const instrumented = instrumentForPreview(nextText, map, inspectorSource)
+      window.htmlApi.updatePreview(instrumented)
       pushedTextRef.current = nextText
       pushedVersionRef.current = map.version
-      if (reload) {
-        frameVersionsRef.current = new Set([map.version])
-        setPreviewNonce((n) => n + 1)
-      } else frameVersionsRef.current.add(map.version)
+      frameVersionsRef.current.add(map.version)
+      if (reload && !sourceOnlyCloseRef.current && !discardPreviewRef.current) {
+        const source = htmlCloseStamp().source,
+          version = map.version
+        void runHtmlAsyncMutation(async () => {
+          const published = await window.htmlApi.publishPreview({
+            source: nextText,
+            instrumented,
+            stamp: htmlCloseStamp(),
+          })
+          if (
+            !closeAliveRef.current ||
+            source !== htmlCloseStamp().source ||
+            version !== versionRef.current ||
+            nextText !== textRef.current ||
+            sourceOnlyCloseRef.current ||
+            discardPreviewRef.current ||
+            preparingCloseRef.current ||
+            closeBarrierRef.current?.locked
+          ) {
+            await window.htmlApi.retirePreview(published.id)
+            if (source === htmlCloseStamp().source && nextText === textRef.current)
+              deferredClosePreviewReloadRef.current = true
+            return
+          }
+          frameVersionsRef.current = new Set([map.version])
+          setPreviewUrl(published.url)
+        }).catch((error) =>
+          setCloseError(
+            'The previous preview is kept because its source update failed: ' + String(error),
+          ),
+        )
+      }
     },
     [getMap],
   )
+  resumeClosePreviewRef.current = () => {
+    if (
+      !deferredClosePreviewReloadRef.current ||
+      preparingCloseRef.current ||
+      closeBarrierRef.current?.locked ||
+      visualPendingRef.current ||
+      panelRecoveryRef.current?.().dirty ||
+      Object.keys(pendingStylesRef.current).length
+    )
+      return
+    deferredClosePreviewReloadRef.current = false
+    pushedTextRef.current = null
+    pushPreview(textRef.current)
+  }
   // push the instrumented buffer to html-preview:// and reload the frame, debounced per keystroke
   useEffect(() => {
     if (status !== 'ready' || pushedTextRef.current === text) return
@@ -414,23 +748,26 @@ export default function App() {
   /** every text change goes through here so the version counter and the map cache stay coherent */
   const commitText = useCallback(
     (next: string, manual: boolean, preservePending = false) => {
-      textRef.current = next
-      versionRef.current += 1
-      if (manual) lastManualVersionRef.current = versionRef.current
-      // text-range coordinates never survive a document change
-      setTextSel(null)
-      // any other document change reloads the preview and drops the live pokes; forget them too rather than
-      // committing them later against sids the rebuilt parse map may have reassigned
-      if (!flushingStylesRef.current && !preservePending) {
-        if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
-        styleTimerRef.current = null
-        pendingStylesRef.current = {}
-        setPendingCount(0)
-      }
-      setText(next)
-      refreshHistory()
+      mutateHtml(() => {
+        textRef.current = next
+        versionRef.current += 1
+        touchDraft()
+        if (manual) lastManualVersionRef.current = versionRef.current
+        // text-range coordinates never survive a document change
+        setTextSel(null)
+        // any other document change reloads the preview and drops the live pokes; forget them too rather than
+        // committing them later against sids the rebuilt parse map may have reassigned
+        if (!flushingStylesRef.current && !preservePending) {
+          if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
+          styleTimerRef.current = null
+          pendingStylesRef.current = {}
+          setPendingCount(0)
+        }
+        setText(next)
+        refreshHistory()
+      })
     },
-    [refreshHistory],
+    [refreshHistory, touchDraft],
   )
 
   const onEditorChange = useCallback(
@@ -447,6 +784,7 @@ export default function App() {
       ops: HtmlOp[],
       manual: boolean,
     ): { ok: true; ranges: Array<[number, number]> } | { ok: false; errors: OpError[] } => {
+      requireHtmlMutation()
       const base = textRef.current
       const compiled = compileOps(base, getMap(), ops)
       if (compiled.errors.length > 0) return { ok: false, errors: compiled.errors }
@@ -470,6 +808,7 @@ export default function App() {
 
   const replaceAll = useCallback(
     (html: string, highlight: boolean) => {
+      requireHtmlMutation()
       flushPending()
       // a generated document carries the confirmed brief so later turns (and re-opens) stay anchored to it
       const pinned =
@@ -494,6 +833,7 @@ export default function App() {
         inPlace?: boolean
       } = {},
     ) => {
+      requireHtmlMutation()
       // live style pokes and open panel drafts are written first, while their sid still names the element they were made on
       flushPending()
       const before = selectedSidRef.current
@@ -591,7 +931,11 @@ export default function App() {
         applyRedaction(clear)
         return
       }
-      setRedactDialog({ ...range, seed: range.text.replace(/\s+/g, ' ').trim() })
+      setRedactDialog({
+        ...range,
+        source: htmlCloseStamp().source,
+        seed: range.text.replace(/\s+/g, ' ').trim(),
+      })
     },
     [applyRedaction, flushPending, getMap],
   )
@@ -599,7 +943,10 @@ export default function App() {
   /** the label is in: write the mark, unless the range moved out from under the dialog */
   const confirmRedaction = useCallback(
     (label: string) => {
+      requireHtmlMutation()
       const range = redactDialog
+      if (range && range.source !== htmlCloseStamp().source)
+        throw new Error('The dialog belongs to a replaced source.')
       setRedactDialog(null)
       if (!range) return
       flushPending()
@@ -632,6 +979,7 @@ export default function App() {
       opts: { reveal?: boolean; toPreview?: boolean; state?: NodeState } = {},
     ) => {
       if (sid !== selectedSidRef.current) flushPending()
+      selectedSidRef.current = sid
       setSelectedSid(sid)
       setSelectedState(opts.state ?? 'static')
       setTextSel(null)
@@ -669,9 +1017,28 @@ export default function App() {
 
   const onInspectorMessage = useCallback(
     (msg: FromInspector) => {
+      if (sourceOnlyCloseRef.current || discardPreviewRef.current) return
+      if (
+        [
+          'gx:recoveryChanged',
+          'gx:textEditCommit',
+          'gx:htmlEditCommit',
+          'gx:resize',
+          'gx:moveTo',
+          'gx:keyCommand',
+        ].includes(msg.type)
+      )
+        requireHtmlMutation()
       // a click that lands while the frame is reloading carries sids from the previous copy
       if (!frameVersionsRef.current.has(msg.version)) return
       switch (msg.type) {
+        case 'gx:recoveryChanged':
+          mutateHtml(() => {})
+          if (typeof msg.dirty !== 'boolean') return
+          visualPendingRef.current = msg.dirty
+          setVisualPending(msg.dirty)
+          touchDraft()
+          return
         case 'gx:ready': {
           previewRef.current?.post({ type: 'gx:theme', dark: isDarkTheme() })
           previewRef.current?.post({ type: 'gx:setMode', mode: frameMode(canvasModeRef.current) })
@@ -683,6 +1050,15 @@ export default function App() {
           if (editAfterLoadRef.current !== null && editAfterLoadRef.current === sid)
             previewRef.current?.post({ type: 'gx:beginTextEdit', sid })
           editAfterLoadRef.current = null
+          const restored = recoveryUiRef.current
+          if (restored) {
+            const entry = getMap().elements.find((element) => element.path === restored.path)
+            if (entry && selectedSidRef.current === null) {
+              setPanelOpen(true)
+              setPanelDismissedSid(null)
+              selectSid(entry.sid, { reveal: true })
+            }
+          }
           postMarks()
           return
         }
@@ -777,7 +1153,11 @@ export default function App() {
           return
         case 'gx:keyCommand': {
           if (canvasModeRef.current === 'present') {
-            if (msg.command === 'escape') setCanvasModeState('edit')
+            if (msg.command === 'escape')
+              mutateHtml(() => {
+                canvasModeRef.current = 'edit'
+                setCanvasModeState('edit')
+              })
             return
           }
           if (msg.command === 'undo' || msg.command === 'redo') {
@@ -838,7 +1218,7 @@ export default function App() {
           return
       }
     },
-    [getMap, postMarks, runManual, selectSid, t, flushPending],
+    [getMap, postMarks, runManual, selectSid, t, flushPending, touchDraft],
   )
 
   // the source cursor picks the covering element (no reveal: the user is already there)
@@ -881,17 +1261,19 @@ export default function App() {
       runManual([{ op: 'set_attr', sid: selectedEntry.sid, name, value }])
   }
   /** picks a file, copies it into the document's assets/ and points src at it; needs a saved document */
-  const replaceImage = async () => {
-    if (!selectedEntry) return
-    if (!pathRef.current) {
-      setNotice(t('imageNeedsSave'))
-      return
-    }
-    const sid = selectedEntry.sid
-    const rel = await window.htmlApi.pickImage()
-    if (rel && selectedSidRef.current === sid)
-      runManual([{ op: 'set_attr', sid, name: 'src', value: rel }])
-  }
+  const replaceImage = () =>
+    runHtmlAsyncMutation(async (source) => {
+      if (!selectedEntry) return
+      if (!pathRef.current) {
+        setNotice(t('imageNeedsSave'))
+        return
+      }
+      const sid = selectedEntry.sid
+      const rel = await window.htmlApi.pickImage(htmlCloseStamp())
+      await beforeHtmlMutation(source)
+      if (rel && selectedSidRef.current === sid)
+        runManual([{ op: 'set_attr', sid, name: 'src', value: rel }])
+    })
   /** ribbon Insert > Insert skeleton: a standards-mode page in the UI language, for a still-blank document */
   const insertSkeleton = useCallback(() => {
     // the menu is disabled once the page has content, and re-checked here so
@@ -901,91 +1283,121 @@ export default function App() {
   }, [lang, replaceAll])
 
   /** ribbon Insert menu: a starter element after the selection (or at the end of the body), then straight into editing */
-  const insertElement = async (kind: InsertKind, opts: InsertOptions = {}) => {
-    let imageSrc: string | undefined
-    if (kind === 'image' && opts.url) {
-      imageSrc = opts.url
-    } else if (kind === 'image') {
+  const insertElement = (kind: InsertKind, opts: InsertOptions = {}) =>
+    runHtmlAsyncMutation(async (source) => {
+      let imageSrc: string | undefined
+      if (kind === 'image' && opts.url) {
+        imageSrc = opts.url
+      } else if (kind === 'image') {
+        if (!pathRef.current) {
+          setNotice(t('imageNeedsSave'))
+          return
+        }
+        const rel = await window.htmlApi.pickImage(htmlCloseStamp())
+        await beforeHtmlMutation(source)
+        if (!rel) return
+        imageSrc = rel
+      }
+      flushPending()
+      const map = getMap()
+      const selected =
+        selectedSidRef.current !== null ? map.bySid.get(selectedSidRef.current) : undefined
+      const html = insertPresetHtml(
+        kind,
+        {
+          heading: t('insertPlaceholderHeading'),
+          paragraph: t('insertPlaceholderParagraph'),
+          listItem: t('insertPlaceholderListItem'),
+          button: t('insertPlaceholderButton'),
+          sectionTitle: t('insertPlaceholderHeading'),
+          sectionBody: t('insertPlaceholderParagraph'),
+          imageAlt: '',
+          tableHeaders: Array.from({ length: Math.max(1, opts.cols ?? 3) }, (_, i) =>
+            t('insertPlaceholderTableHeader', { n: i + 1 }),
+          ),
+          tableCell: t('insertPlaceholderTableCell'),
+        },
+        { imageSrc, tableBodyRows: Math.max(1, (opts.rows ?? 3) - 1) },
+      )
+      const op = insertOp(map, selected, html)
+      if (!op) {
+        setNotice(t('insertNoBody'))
+        return
+      }
+      insertedSidRef.current = null
+      if (runManual([op], 'inserted') && TEXT_INSERT_KINDS.has(kind))
+        editAfterLoadRef.current = insertedSidRef.current
+    })
+  /** crop / remove background edit the pixels: read the picture, open the dialog, write a new asset */
+  const openPictureDialog = (kind: 'crop' | 'cutout') =>
+    runHtmlAsyncMutation(async (source) => {
+      const src = selComputed?.image?.src
+      if (!selectedEntry || !src) return
       if (!pathRef.current) {
         setNotice(t('imageNeedsSave'))
         return
       }
-      const rel = await window.htmlApi.pickImage()
-      if (!rel) return
-      imageSrc = rel
-    }
-    flushPending()
-    const map = getMap()
-    const selected =
-      selectedSidRef.current !== null ? map.bySid.get(selectedSidRef.current) : undefined
-    const html = insertPresetHtml(
-      kind,
-      {
-        heading: t('insertPlaceholderHeading'),
-        paragraph: t('insertPlaceholderParagraph'),
-        listItem: t('insertPlaceholderListItem'),
-        button: t('insertPlaceholderButton'),
-        sectionTitle: t('insertPlaceholderHeading'),
-        sectionBody: t('insertPlaceholderParagraph'),
-        imageAlt: '',
-        tableHeaders: Array.from({ length: Math.max(1, opts.cols ?? 3) }, (_, i) =>
-          t('insertPlaceholderTableHeader', { n: i + 1 }),
-        ),
-        tableCell: t('insertPlaceholderTableCell'),
-      },
-      { imageSrc, tableBodyRows: Math.max(1, (opts.rows ?? 3) - 1) },
-    )
-    const op = insertOp(map, selected, html)
-    if (!op) {
-      setNotice(t('insertNoBody'))
-      return
-    }
-    insertedSidRef.current = null
-    if (runManual([op], 'inserted') && TEXT_INSERT_KINDS.has(kind))
-      editAfterLoadRef.current = insertedSidRef.current
-  }
-  /** crop / remove background edit the pixels: read the picture, open the dialog, write a new asset */
-  const openPictureDialog = async (kind: 'crop' | 'cutout') => {
-    const src = selComputed?.image?.src
-    if (!selectedEntry || !src) return
-    if (!pathRef.current) {
-      setNotice(t('imageNeedsSave'))
-      return
-    }
-    const sid = selectedEntry.sid
-    const image = await loadImageDataUrl(src).catch(() => null)
-    if (selectedSidRef.current !== sid) return
-    if (!image) {
-      setNotice(t('imageLoadFail'))
-      return
-    }
-    setPictureDialog({ kind, sid, src, image })
-  }
-  const applyPictureBytes = async (sid: number, src: string, png: string) => {
-    setPictureDialog(null)
-    const rel = await window.htmlApi.saveImage({ base64: png, ext: 'png' })
-    // sids are matched by path, so after an edit during the write the sid may name another
-    // element: the target must still be the <img> with the src the dialog was opened on
-    const entry = rel ? getMap().bySid.get(sid) : undefined
-    // compare through the same attribute decoding the frame used (entities such as &amp; in the query)
-    const authoredSrc =
-      entry?.tag === 'img'
-        ? new DOMParser()
-            .parseFromString(
-              textRef.current.slice(entry.startTag[0], entry.startTag[1]),
-              'text/html',
-            )
-            .querySelector('img')
-            ?.getAttribute('src')
-        : null
-    const stillThere = authoredSrc === src
-    if (!rel || !stillThere) {
-      // an unreferenced pending asset is discarded by the save-time reconciliation
-      setNotice(t('imageProcessFail'))
-      return
-    }
-    runManual([{ op: 'set_attr', sid, name: 'src', value: rel }])
-  }
+      const sid = selectedEntry.sid
+      const image = await loadImageDataUrl(src).catch(() => null)
+      if (selectedSidRef.current !== sid) return
+      if (!image) {
+        setNotice(t('imageLoadFail'))
+        return
+      }
+      await beforeHtmlMutation(source)
+      pictureActiveRef.current = true
+      setPictureDialog({
+        kind,
+        sid,
+        src,
+        image,
+        source,
+        generation: ++pictureGenerationRef.current,
+      })
+      closePublishingRef.current()
+    })
+  const applyPictureBytes = (
+    sid: number,
+    src: string,
+    png: string,
+    expectedSource: string,
+    generation: number,
+  ) =>
+    runHtmlAsyncMutation(async (source) => {
+      await beforeHtmlMutation(expectedSource)
+      if (generation !== pictureGenerationRef.current)
+        throw new Error('The picture edit was cancelled with its original document.')
+      pictureActiveRef.current = false
+      pictureGenerationRef.current++
+      setPictureDialog(null)
+      const rel = await window.htmlApi.saveImage({
+        base64: png,
+        ext: 'png',
+        closeSource: htmlCloseStamp(),
+      })
+      await beforeHtmlMutation(source)
+      // sids are matched by path, so after an edit during the write the sid may name another
+      // element: the target must still be the <img> with the src the dialog was opened on
+      const entry = rel ? getMap().bySid.get(sid) : undefined
+      // compare through the same attribute decoding the frame used (entities such as &amp; in the query)
+      const authoredSrc =
+        entry?.tag === 'img'
+          ? new DOMParser()
+              .parseFromString(
+                textRef.current.slice(entry.startTag[0], entry.startTag[1]),
+                'text/html',
+              )
+              .querySelector('img')
+              ?.getAttribute('src')
+          : null
+      const stillThere = authoredSrc === src
+      if (!rel || !stillThere) {
+        // an unreferenced pending asset is discarded by the save-time reconciliation
+        setNotice(t('imageProcessFail'))
+        return
+      }
+      runManual([{ op: 'set_attr', sid, name: 'src', value: rel }])
+    })
   const imageDialogLabels: ImageDialogLabels = {
     cancel: t('cancel'),
     apply: t('imageApply'),
@@ -1070,6 +1482,7 @@ export default function App() {
 
   // ── live style editing: poke the preview DOM now, write one set_style op to the source shortly after ──
   const flushStyles = useCallback(() => {
+    requireHtmlMutation()
     if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
     styleTimerRef.current = null
     const styles = pendingStylesRef.current
@@ -1088,35 +1501,42 @@ export default function App() {
   flushStylesRef.current = flushStyles
 
   const previewStyle = (styles: Record<string, string | null>) => {
-    const sid = selectedSidRef.current
-    if (sid === null) return
-    previewRef.current?.post({ type: 'gx:previewStyle', sid, styles })
-    pendingStylesRef.current = { ...pendingStylesRef.current, ...styles }
-    setPendingCount(Object.keys(pendingStylesRef.current).length)
-    if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
-    styleTimerRef.current = window.setTimeout(flushStyles, STYLE_COMMIT_MS)
+    mutateHtml(() => {
+      const sid = selectedSidRef.current
+      if (sid === null) return
+      previewRef.current?.post({ type: 'gx:previewStyle', sid, styles })
+      pendingStylesRef.current = { ...pendingStylesRef.current, ...styles }
+      touchDraft()
+      setPendingCount(Object.keys(pendingStylesRef.current).length)
+      if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
+      styleTimerRef.current = window.setTimeout(flushStyles, STYLE_COMMIT_MS)
+    })
   }
 
   previewStyleRef.current = previewStyle
 
   /** drop uncommitted previews: reload the frame from the last pushed source */
   const revertStyles = () => {
-    if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
-    styleTimerRef.current = null
-    pendingStylesRef.current = {}
-    setPendingCount(0)
-    setPreviewNonce((n) => n + 1)
+    mutateHtml(() => {
+      if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
+      styleTimerRef.current = null
+      pendingStylesRef.current = {}
+      touchDraft()
+      setPendingCount(0)
+      setPreviewNonce((n) => n + 1)
+    })
   }
 
   const setCanvasMode = useCallback(
     (mode: CanvasMode) => {
-      setCanvasModeState((prev) => {
-        if (prev === mode) return prev
+      mutateHtml(() => {
+        if (canvasModeRef.current === mode) return
         if (mode === 'present') selectSid(null)
-        return mode
+        canvasModeRef.current = mode
+        setCanvasModeState(mode)
+        flushPending()
+        setAskMode(null)
       })
-      flushPending()
-      setAskMode(null)
     },
     [flushPending, selectSid],
   )
@@ -1190,8 +1610,15 @@ export default function App() {
     runManual([{ op: 'set_text_node', sid: selectedEntry.sid, index: selText.index, text }])
   }
 
-  const doSave = useCallback(
-    async (mode: SaveMode, suggestedName?: string, proposedName?: string): Promise<boolean> => {
+  const doSaveImpl = useCallback(
+    async (
+      mode: SaveMode,
+      suggestedName?: string,
+      proposedName?: string,
+      saveRequestId?: string,
+      automatic = false,
+    ): Promise<boolean> => {
+      if (automatic && closeBarrierRef.current?.locked) return false
       if (statusRef.current !== 'ready') return false
       if (diskNoticeRef.current && !overwriteRef.current) {
         // the user has not chosen between the two versions yet; autosave must not pick for them
@@ -1203,9 +1630,20 @@ export default function App() {
       // a menu save or ⌘S during an autosave queues behind it instead of being dropped;
       // the main-process waiter is resolved by the save() call that follows
       while (savingRef.current) await new Promise((r) => setTimeout(r, 50))
+      if (!draftTokenRef.current) {
+        try {
+          await (draftActivatingRef.current ?? activateDraft(pathRef.current))
+        } catch {
+          return false
+        }
+      }
       savingRef.current = true
       setSaveState('saving')
       try {
+        const tokenAtSave = draftTokenRef.current!
+        const activationAtSave = draftActivationRef.current
+        const revisionAtSave = draftRevisionRef.current
+        const sequenceAtSave = draftSequenceRef.current
         const textAtSave = textRef.current
         const serialized = serializeDocText({ text: textAtSave, envelope: envelopeRef.current })
         // A page that has never been saved is offered a name derived from its
@@ -1223,6 +1661,11 @@ export default function App() {
             ? localFileName(textAtSave, provisionalNameRef.current)
             : undefined
         const result = await window.htmlApi.save({
+          publicationId: publicationIdRef.current,
+          automatic,
+          closeSource: htmlCloseStamp(),
+          requestId: saveRequestId,
+          draft: { token: tokenAtSave, revision: revisionAtSave, throughSequence: sequenceAtSave },
           text: serialized,
           imageSources: [],
           mode,
@@ -1230,26 +1673,67 @@ export default function App() {
           defaultName,
           overwrite: overwriteRef.current,
         })
+        if (result.ok && 'path' in result) publicationSequenceRef.current++
+        if (
+          draftActivationRef.current !== activationAtSave ||
+          draftTokenRef.current !== tokenAtSave
+        )
+          return false
+        setSaveWarning(result.warnings?.join(' ') ?? null)
         if (result.ok && 'path' in result) {
+          if (result.publicationId) publicationIdRef.current = result.publicationId
           setSaveError(null)
           diskTextRef.current = serialized
           overwriteRef.current = false
           setDiskNotice(null)
+          const revisionWasSaved = draftRevisionRef.current === revisionAtSave
           const adopted = adoptImageRewrites(textAtSave, textRef.current, result.imageRewrites)
           if (adopted.liveText !== textRef.current) {
             editorRef.current?.setDoc(adopted.liveText)
             commitText(adopted.liveText, false, true)
           }
-          setPath((previous) => {
-            if (previous !== result.path) setPreviewNonce((n) => n + 1)
-            return result.path
-          })
+          const previousPath = pathRef.current
+          pathRef.current = result.path
+          if (previousPath !== result.path) {
+            if (preparingCloseRef.current || closeBarrierRef.current?.locked)
+              deferredClosePreviewReloadRef.current = true
+            else setPreviewNonce((n) => n + 1)
+          }
+          setPath(result.path)
           savedTextRef.current = adopted.savedText
           setSavedText(adopted.savedText)
-          const saved = adopted.liveText === adopted.savedText
-          setSaveState(saved ? 'saved' : 'idle')
-          if (!saved) window.htmlApi.setDirty(true)
-          pushPreview(adopted.liveText)
+          pathRef.current = result.path
+          const saved =
+            adopted.liveText === adopted.savedText &&
+            revisionWasSaved &&
+            !visualPendingRef.current &&
+            !panelRecoveryRef.current?.().dirty &&
+            Object.keys(pendingStylesRef.current).length === 0
+          await completeHtmlSaveAcknowledgment(
+            window.htmlApi.acknowledgeDraftSaved({
+              token: tokenAtSave,
+              throughSequence: sequenceAtSave,
+              revision: draftRevisionRef.current,
+              documentPath: result.path,
+              clean: saved,
+            }),
+            {
+              token: tokenAtSave,
+              activation: activationAtSave,
+              revision: draftRevisionRef.current,
+              representedClean: saved,
+            },
+            readSaveLiveState,
+            (current) => {
+              setSaveState(current.clean ? 'saved' : 'idle')
+              window.htmlApi.draftChanged({
+                token: tokenAtSave,
+                revision: current.revision,
+                dirty: current.dirty,
+              })
+              pushPreview(textRef.current)
+            },
+          )
           return true
         }
         if (!result.ok && result.conflict) setDiskNotice('conflict')
@@ -1263,39 +1747,167 @@ export default function App() {
         return false
       } finally {
         savingRef.current = false
+        closePublishingRef.current()
       }
     },
-    [commitText, flushPending, pushPreview],
+    [commitText, flushPending, pushPreview, activateDraft, readSaveLiveState],
   )
 
-  /** another program wrote the file: swap the text in and show it as the saved state */
+  const doSave = useCallback(
+    (
+      mode: SaveMode,
+      suggestedName?: string,
+      proposedName?: string,
+      requestId?: string,
+      automatic = false,
+    ): Promise<boolean> =>
+      automatic && closeBarrierRef.current?.locked
+        ? Promise.resolve(false)
+        : runHtmlAsyncMutation(async () =>
+            automatic && closeBarrierRef.current?.locked
+              ? false
+              : doSaveImpl(mode, suggestedName, proposedName, requestId, automatic),
+          ),
+    [doSaveImpl],
+  )
+
+  /** Read/validate first; every await precedes the synchronous source replacement. */
   const reloadFromDisk = useCallback(
-    (raw: string) => {
-      diskTextRef.current = raw
-      overwriteRef.current = false
-      setDiskNotice(null)
-      const doc = parseDocText(raw)
-      envelopeRef.current = doc.envelope
-      editorRef.current?.setDoc(doc.text)
-      commitText(doc.text, false)
-      savedTextRef.current = doc.text
-      setSavedText(doc.text)
-      setSaveState('idle')
-      setSaveError(null)
-      pushPreview(doc.text)
-    },
-    [commitText, pushPreview],
+    (documentPath: string): Promise<boolean> =>
+      runHtmlAsyncMutation(async () => {
+        const captured = readReloadLiveState()
+        if (captured.path !== documentPath) return false
+        let cleanup: Promise<void> | null = null
+        let committedGeneration = captured.activation
+        try {
+          const applied = await prepareAndApplyHtmlReload(
+            captured,
+            async () => {
+              const initialFrame = sourceOnlyCloseRef.current
+                ? { version: getMap().version, ops: [], composing: false, busy: false }
+                : await previewRef.current?.readRecovery()
+              if (!initialFrame || initialFrame.composing || initialFrame.busy)
+                throw new Error(
+                  'Finish the current preview edit or composition before Reload; the document is retained.',
+                )
+              const loaded = await window.htmlApi.readPublication(documentPath, {
+                token: captured.token!,
+                documentPath,
+                revision: captured.revision,
+              })
+              const raw = loaded.text
+              const doc = parseDocText(raw),
+                recovery = readHtmlRecoveryState(doc.text)
+              doc.text = recovery.text
+              const map = buildParseMap(doc.text, versionRef.current + 1, mapRef.current)
+              const finalFrame = sourceOnlyCloseRef.current
+                ? { version: getMap().version, ops: [], composing: false, busy: false }
+                : await previewRef.current?.readRecovery()
+              if (
+                !finalFrame ||
+                finalFrame.composing ||
+                finalFrame.busy ||
+                finalFrame.version !== initialFrame.version ||
+                JSON.stringify(finalFrame.ops) !== JSON.stringify(initialFrame.ops)
+              )
+                throw new Error(
+                  'The preview changed while Reload was reading; current edits are retained.',
+                )
+              return { raw, doc, recovery, map, publicationId: loaded.publicationId }
+            },
+            readReloadLiveState,
+            (prepared, receipt) => {
+              // IPC is initiated here without awaiting. Renderer replacement is one
+              // synchronous block; main retires only snapshots at or below this floor.
+              cleanup = window.htmlApi.applyDraftReload(receipt)
+              requireHtmlMutation()
+              pictureGenerationRef.current++
+              pictureActiveRef.current = false
+              setPictureDialog(null)
+              setRedactDialog(null)
+              committedGeneration = ++draftActivationRef.current
+              discardPanelDraftsRef.current?.()
+              if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
+              styleTimerRef.current = null
+              pendingStylesRef.current = {}
+              setPendingCount(0)
+              visualPendingRef.current = false
+              setVisualPending(false)
+              setPanelPending(false)
+              recoveryUiRef.current = prepared.recovery.ui
+              setRecoveryRemoteCount(prepared.recovery.remoteReferences)
+              diskTextRef.current = prepared.raw
+              overwriteRef.current = false
+              setDiskNotice(null)
+              envelopeRef.current = prepared.doc.envelope
+              commitText(prepared.doc.text, false)
+              mapRef.current = prepared.map
+              mapSourceRef.current = prepared.doc.text
+              editorRef.current?.setDoc(prepared.doc.text)
+              selectedSidRef.current = null
+              setSelectedSid(null)
+              setSelRect(null)
+              setSelComputed(null)
+              setSelText({ run: null, index: -1, editable: false })
+              savedTextRef.current = prepared.doc.text
+              setSavedText(prepared.doc.text)
+              setSaveState('idle')
+              setSaveError(null)
+              setRecoveryError(null)
+              window.htmlApi.draftChanged({
+                token: receipt.token,
+                revision: draftRevisionRef.current,
+                dirty: false,
+              })
+              pushedTextRef.current = null
+              pushPreview(prepared.doc.text)
+              publicationIdRef.current = prepared.publicationId
+              closePublishingRef.current()
+              window.htmlApi.publicationLoaded({
+                publicationId: prepared.publicationId,
+                path: documentPath,
+                stamp: htmlCloseStamp(),
+              })
+              window.htmlApi.ackFileChangedOnDisk()
+            },
+          )
+          if (!applied)
+            throw new Error(
+              'The document changed while Reload was preparing; current edits and recovery are retained.',
+            )
+          try {
+            await cleanup
+            if (
+              draftTokenRef.current === captured.token &&
+              draftActivationRef.current === committedGeneration
+            )
+              setReloadCleanupError(null)
+          } catch (error) {
+            if (
+              draftTokenRef.current === captured.token &&
+              draftActivationRef.current === committedGeneration
+            )
+              setReloadCleanupError(
+                'The source reloaded, but its previous recovery copy could not be removed: ' +
+                  (error instanceof Error ? error.message : String(error)),
+              )
+          }
+          return true
+        } catch (error) {
+          if (
+            draftTokenRef.current === captured.token &&
+            draftActivationRef.current === captured.activation
+          )
+            setRecoveryError(error instanceof Error ? error.message : String(error))
+          return false
+        }
+      }),
+    [readReloadLiveState, commitText, pushPreview],
   )
 
   const reloadNow = useCallback(async () => {
     const current = pathRef.current
-    if (!current) return
-    try {
-      window.htmlApi.ackFileChangedOnDisk()
-      reloadFromDisk(await window.htmlApi.readFile(current))
-    } catch (err) {
-      console.error('[html] reload from disk failed:', err)
-    }
+    if (current) await reloadFromDisk(current)
   }, [reloadFromDisk])
 
   const keepMine = useCallback(() => {
@@ -1432,12 +2044,312 @@ export default function App() {
   }, [runExport])
 
   useEffect(() => {
-    const offSave = window.htmlApi.onSaveRequest((mode) => {
-      if (statusRef.current !== 'ready') {
-        window.htmlApi.sendSaveRequestAck(false)
-        return
+    const offSave = window.htmlApi.onSaveRequest((mode, requestId, targetPath, ticket) => {
+      const barrier = closeBarrierRef.current!,
+        source = htmlCloseStamp().source,
+        sourceMatches = !ticket || ticket.sourcePath === pathRef.current,
+        beforePublication = publicationSequenceRef.current
+      const isCurrent = () =>
+        closeAliveRef.current &&
+        statusRef.current === 'ready' &&
+        sourceMatches &&
+        source === htmlCloseStamp().source
+      const idle = () =>
+        !barrier.busy &&
+        !savingRef.current &&
+        !draftActivatingRef.current &&
+        !composingRef.current &&
+        !editorRef.current?.recoveryState()?.composing
+      const canFreeze = () =>
+        isCurrent() &&
+        idle() &&
+        !htmlSaveStateIsDirty(readSaveLiveState()) &&
+        !pictureActiveRef.current &&
+        !redactDialog
+      const exactApproved = () =>
+        !!ticket?.approved &&
+        ticket.approved.source === htmlCloseStamp().source &&
+        ticket.approved.revision === htmlCloseStamp().revision
+      let held: import('../shared/html-close-lease').HtmlCloseLease | undefined
+      let previewProof: string | undefined
+      const proveFrame = async () => {
+        const token = draftTokenRef.current,
+          stamp = htmlCloseStamp(),
+          serialized = serializeDocText({ text: textRef.current, envelope: envelopeRef.current })
+        if (!token) throw new Error('The current document activation is unavailable.')
+        const verified = await window.htmlApi.validateCloseSource({
+          requestId,
+          token,
+          revision: draftRevisionRef.current,
+          text: serialized,
+          stamp,
+          sourceOnly: sourceOnlyCloseRef.current,
+          frameName: previewFrameNameRef.current,
+        })
+        if (!verified.ok || !verified.proof)
+          throw new Error(verified.error ?? 'The actual loaded preview could not be verified.')
+        if (
+          !isCurrent() ||
+          stamp.source !== htmlCloseStamp().source ||
+          stamp.revision !== htmlCloseStamp().revision ||
+          serialized !== serializeDocText({ text: textRef.current, envelope: envelopeRef.current })
+        )
+          throw new Error('The authored state changed during loaded-source verification.')
+        previewProof = verified.proof
+        return { id: verified.proof, stamp, serialized }
       }
-      void doSave(mode)
+      const releaseFrame = () => {
+        if (ticket?.closeLease) previewRef.current?.releaseClose(ticket.closeLease)
+      }
+      void (async () => {
+        const deadline = Date.now() + 110000
+        if (
+          ticket?.requireClean &&
+          (!ticket.closeLease || !(await window.htmlApi.claimCloseLease(ticket.closeLease)))
+        )
+          throw new Error('The close request expired before preparation.')
+        while (!idle()) {
+          if (!isCurrent() || Date.now() > deadline)
+            throw new Error('An asynchronous edit or composition is still active.')
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        if (!isCurrent()) throw new Error('The HTML source was replaced before Save.')
+        if (!ticket?.requireClean) {
+          const clean =
+            !htmlSaveStateIsDirty(readSaveLiveState()) &&
+            (!targetPath || targetPath === pathRef.current) &&
+            mode === 'save'
+          if (!clean) await doSave(mode, undefined, undefined, requestId)
+          return
+        }
+        if (!ticket.closeLease) throw new Error('Close requires its main-owned ticket.')
+        preparingCloseRef.current = true
+        try {
+          if (ticket.intent === 'discard') {
+            if (!exactApproved())
+              throw new Error('The document changed after discard was approved.')
+            const stamp = await barrier.acquire(
+              ticket.closeLease,
+              () => isCurrent() && idle() && exactApproved(),
+            )
+            if (!stamp) throw new Error('The approved discard was cancelled by newer work.')
+            held = { ticket: ticket.closeLease, stamp }
+            // Retire captured child/dialog work, rather than trusting a scripted page to attest it.
+            discardPreviewRef.current = true
+            setPreviewRetired(true)
+            pictureGenerationRef.current++
+            pictureActiveRef.current = false
+            setPictureDialog(null)
+            const retirementDeadline = Date.now() + 3000
+            while (
+              !(await window.htmlApi.isCloseFrameRetired({
+                requestId,
+                frameName: previewFrameNameRef.current,
+              }))
+            ) {
+              if (!isCurrent() || !exactApproved() || Date.now() > retirementDeadline)
+                throw new Error(
+                  'The approved preview did not finish retiring. The document remains open.',
+                )
+              await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+            await proveFrame()
+            closePublishingRef.current()
+          } else {
+            if (pictureActiveRef.current)
+              throw new Error('Finish or cancel the picture dialog before Save and Close.')
+            if (redactDialog)
+              throw new Error('Finish or cancel the open document dialog before Save and Close.')
+            await runHtmlAsyncMutation(async (currentSource) => {
+              for (let pass = 0; pass < 3; pass++) {
+                await beforeHtmlMutation(currentSource)
+                const proof = await proveFrame()
+                const frame = sourceOnlyCloseRef.current
+                  ? null
+                  : await previewRef.current?.prepareClose(ticket.closeLease!, proof.id)
+                if (
+                  frame &&
+                  !(await window.htmlApi.confirmCloseFrame({ requestId, proof: proof.id }))
+                )
+                  throw new Error(
+                    'The loaded frame navigated or changed identity after attestation.',
+                  )
+                if (
+                  !sourceOnlyCloseRef.current &&
+                  (!frame ||
+                    frame.busy ||
+                    frame.composing ||
+                    !frameVersionsRef.current.has(frame.version))
+                )
+                  throw new Error('The live preview cannot attest its current pending edit.')
+                const panel = panelRecoveryRef.current?.(),
+                  styles = { ...pendingStylesRef.current },
+                  sid = selectedSidRef.current
+                if (
+                  panel?.css &&
+                  !pendingCssCanBeCommitted(panel.css, (property, value) =>
+                    CSS.supports(property, value),
+                  )
+                )
+                  throw new Error(
+                    'The CSS field contains unfinished or unsupported declarations. Finish or cancel that field before closing; its text is retained.',
+                  )
+                const pending =
+                  !!frame?.ops.length || !!panel?.dirty || Object.keys(styles).length > 0
+                if (
+                  ticket.intent === 'clean' &&
+                  (pending || htmlSaveStateIsDirty(readSaveLiveState()))
+                )
+                  throw new Error(
+                    'The renderer has pending changes; close needs a new Save or Discard decision.',
+                  )
+                if (pending) {
+                  if ((panel?.dirty || Object.keys(styles).length) && sid === null)
+                    throw new Error('A pending style edit has no current target.')
+                  const panelOps: HtmlOp[] = []
+                  if (sid !== null) {
+                    if (panel?.text !== null && panel?.text !== undefined) {
+                      if (selText.index < 0)
+                        throw new Error('The pending text field has no current text run.')
+                      panelOps.push({
+                        op: 'set_text_node',
+                        sid,
+                        index: selText.index,
+                        text: panel.text,
+                      })
+                    }
+                    if (panel?.alt !== null && panel?.alt !== undefined)
+                      panelOps.push({ op: 'set_attr', sid, name: 'alt', value: panel.alt })
+                  }
+                  if (
+                    frame?.ops.some((op) =>
+                      panelOps.some(
+                        (panelOp) =>
+                          op.sid === panelOp.sid &&
+                          (op.op === 'set_inner_html' ||
+                            (op.op === 'set_text_node' &&
+                              panelOp.op === 'set_text_node' &&
+                              op.index === panelOp.index &&
+                              op.text !== panelOp.text)),
+                      ),
+                    )
+                  )
+                    throw new Error(
+                      'The inline editor and style panel have different pending text. Apply one editing surface before closing; both drafts are retained.',
+                    )
+                  const allStyles = {
+                    ...styles,
+                    ...(panel?.css ? parseDeclarations(panel.css) : {}),
+                  }
+                  const captured = captureHtmlRecoveryText(textRef.current, getMap(), [
+                    frame?.ops ?? [],
+                    panelOps,
+                    sid !== null && Object.keys(allStyles).length
+                      ? [{ op: 'set_style', sid, styles: allStyles }]
+                      : [],
+                  ])
+                  // One synchronous replacement adopts all pending editors against one parse map.
+                  if (captured !== textRef.current) {
+                    editorRef.current?.replaceDoc(captured, false)
+                    commitText(captured, true, true)
+                  }
+                  if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
+                  styleTimerRef.current = null
+                  pendingStylesRef.current = {}
+                  setPendingCount(0)
+                  discardPanelDraftsRef.current?.()
+                  setPanelPending(false)
+                  recoveryUiRef.current = null
+                  visualPendingRef.current = false
+                  setVisualPending(false)
+                  if (frame) {
+                    const acknowledged = await previewRef.current?.commitCloseCapture(
+                      ticket.closeLease!,
+                    )
+                    if (!acknowledged || acknowledged.ops.length)
+                      throw new Error('The preview did not acknowledge its captured inline edit.')
+                  }
+                }
+                const clean =
+                  !htmlSaveStateIsDirty(readSaveLiveState()) &&
+                  (!targetPath || targetPath === pathRef.current) &&
+                  mode === 'save'
+                if (clean) {
+                  if (
+                    !isCurrent() ||
+                    proof.stamp.revision !== htmlCloseStamp().revision ||
+                    proof.stamp.source !== htmlCloseStamp().source ||
+                    proof.serialized !==
+                      serializeDocText({ text: textRef.current, envelope: envelopeRef.current })
+                  )
+                    throw new Error('The document changed after its loaded frame was attested.')
+                  return
+                }
+                releaseFrame()
+                if (!(await doSave(mode, undefined, undefined, requestId)))
+                  throw new Error('The requested HTML revision was not published.')
+              }
+              throw new Error('New edits kept arriving during Save. The document remains open.')
+            })
+          }
+          if (!isCurrent())
+            throw new Error('The document was replaced before final close readiness.')
+          if (ticket.intent !== 'discard') {
+            const stamp = await barrier.acquire(
+              ticket.closeLease,
+              () =>
+                isCurrent() &&
+                idle() &&
+                (sourceOnlyCloseRef.current ||
+                  previewRef.current?.closeCaptureCurrent(ticket.closeLease!) === true) &&
+                canFreeze(),
+            )
+            if (!stamp) throw new Error('Close was cancelled by newer document work.')
+            held = { ticket: ticket.closeLease, stamp }
+          }
+          closePublishingRef.current()
+        } catch (error) {
+          await window.htmlApi.cancelCloseLease(ticket.closeLease, 'HTML close preparation failed')
+          releaseFrame()
+          throw error
+        } finally {
+          preparingCloseRef.current = false
+          resumeClosePreviewRef.current()
+        }
+      })().then(
+        () => {
+          const state = readSaveLiveState(),
+            current = isCurrent()
+          window.htmlApi.sendSaveRequestAck(requestId, {
+            requestId,
+            published: publicationSequenceRef.current > beforePublication,
+            current,
+            clean:
+              current && !htmlSaveStateIsDirty(state) && !pictureActiveRef.current && !redactDialog,
+            ...(held ? { closeLease: held, previewProof } : {}),
+            ...(state.token
+              ? {
+                  draft: {
+                    token: state.token,
+                    revision: state.revision,
+                    throughSequence: draftSequenceRef.current,
+                    documentPath: pathRef.current,
+                  },
+                }
+              : {}),
+          })
+        },
+        (error) => {
+          setCloseError(String(error))
+          window.htmlApi.sendSaveRequestAck(requestId, {
+            requestId,
+            published: publicationSequenceRef.current > beforePublication,
+            current: isCurrent(),
+            clean: false,
+            error: String(error),
+          })
+        },
+      )
     })
     // MCP read of this open document: hand back the same serialization a save
     // would write, so uncommitted edits are included. Staying silent while the
@@ -1469,7 +2381,12 @@ export default function App() {
         window.htmlApi.sendCloseSaveResult(await doSave('save'))
       })()
     })
-    const offRenamed = window.htmlApi.onFileRenamed((next) => setPath(next))
+    const offRenamed = window.htmlApi.onFileRenamed((next) => {
+      mutateHtml(() => {
+        pathRef.current = next
+        setPath(next)
+      })
+    })
     const offDisk = window.htmlApi.onFileChangedOnDisk((changedPath) => {
       // the watcher keeps refusing saves until the change is acknowledged; a
       // change parked behind the bar stays unacknowledged until the user decides
@@ -1477,12 +2394,24 @@ export default function App() {
       void (async () => {
         try {
           if (changedPath !== pathRef.current || statusRef.current !== 'ready') return
-          const raw = await window.htmlApi.readFile(changedPath)
+          const token = draftTokenRef.current
+          if (!token) {
+            setDiskNotice('changed')
+            awaitingUser = true
+            return
+          }
+          const raw = await window.htmlApi.readReloadSource({
+            token,
+            documentPath: changedPath,
+            revision: draftRevisionRef.current,
+          })
           if (changedPath !== pathRef.current || raw === diskTextRef.current) return
           // uncommitted style pokes are edits too, even though the text still equals the saved text
           const dirtyNow =
             textRef.current !== savedTextRef.current ||
             Object.keys(pendingStylesRef.current).length > 0 ||
+            !!panelRecoveryRef.current?.().dirty ||
+            visualPendingRef.current ||
             savingRef.current
           if (dirtyNow) {
             diskTextRef.current = raw
@@ -1490,9 +2419,16 @@ export default function App() {
             awaitingUser = true
             return
           }
-          reloadFromDisk(raw)
+          if (!(await reloadFromDisk(changedPath))) {
+            setDiskNotice('changed')
+            awaitingUser = true
+          }
         } catch (err) {
           console.error('[html] reload after external change failed:', err)
+          if (changedPath === pathRef.current) {
+            setDiskNotice('changed')
+            awaitingUser = true
+          }
         } finally {
           if (!awaitingUser) window.htmlApi.ackFileChangedOnDisk()
         }
@@ -1569,6 +2505,7 @@ export default function App() {
     flushPending,
     openFind,
     reloadFromDisk,
+    readSaveLiveState,
   ])
 
   // pinch / ctrl+wheel over the stage chrome around the frame; wheel inside the frame arrives as gx:zoom
@@ -1584,16 +2521,130 @@ export default function App() {
     return () => window.removeEventListener('wheel', onWheel)
   }, [])
 
+  // Crash recovery is independent of the reader's normal AutoSave preference.
+  // Sequence/revision are captured before the asynchronous iframe request.
+  const captureRecovery = useCallback(async () => {
+    const token = draftTokenRef.current
+    if (
+      statusRef.current !== 'ready' ||
+      !token ||
+      draftSuppressedRef.current ||
+      closeBarrierRef.current?.locked ||
+      draftBusyRef.current ||
+      composingRef.current ||
+      savingRef.current
+    )
+      return
+    const sourceEditor = editorRef.current?.recoveryState()
+    if (sourceEditor?.composing || (sourceEditor && sourceEditor.text !== textRef.current)) return
+    const panel = panelRecoveryRef.current?.()
+    if (
+      textRef.current === savedTextRef.current &&
+      !panel?.dirty &&
+      !visualPendingRef.current &&
+      !Object.keys(pendingStylesRef.current).length
+    )
+      return
+    const sequence = ++draftSequenceRef.current
+    const revision = draftRevisionRef.current
+    const activation = draftActivationRef.current
+    const documentPath = pathRef.current
+    const source = textRef.current
+    const map = getMap()
+    const sid = selectedSidRef.current
+    const styles = { ...pendingStylesRef.current }
+    draftBusyRef.current = true
+    try {
+      const frame = sourceOnlyCloseRef.current
+        ? { version: getMap().version, ops: [], composing: false, busy: false }
+        : await previewRef.current?.readRecovery()
+      if (!frame) throw new Error('The live preview is not ready for recovery.')
+      if (
+        closeBarrierRef.current?.locked ||
+        frame.composing ||
+        frame.busy ||
+        (!sourceOnlyCloseRef.current && !frameVersionsRef.current.has(frame.version)) ||
+        composingRef.current
+      )
+        return
+      if (
+        activation !== draftActivationRef.current ||
+        token !== draftTokenRef.current ||
+        revision !== draftRevisionRef.current ||
+        documentPath !== pathRef.current
+      )
+        return
+      const panelOps: HtmlOp[] = []
+      if (sid !== null) {
+        if (panel?.text !== null && panel?.text !== undefined && selText.index >= 0)
+          panelOps.push({ op: 'set_text_node', sid, index: selText.index, text: panel.text })
+        if (panel?.alt !== null && panel?.alt !== undefined)
+          panelOps.push({ op: 'set_attr', sid, name: 'alt', value: panel.alt })
+      }
+      if ((panel?.dirty && sid === null) || (Object.keys(styles).length && sid === null))
+        throw new Error('Pending visual edits have no current element.')
+      const entry = sid === null ? undefined : map.bySid.get(sid)
+      const privateText = captureHtmlRecoveryText(
+        source,
+        map,
+        [
+          frame.ops,
+          panelOps,
+          sid !== null && Object.keys(styles).length ? [{ op: 'set_style', sid, styles }] : [],
+        ],
+        panel?.css && entry ? { path: entry.path, css: panel.css } : undefined,
+      )
+      const serialized = serializeDocText({ text: privateText, envelope: envelopeRef.current })
+      const bytes = new TextEncoder().encode(serialized)
+      if (bytes.byteLength > HTML_DRAFT_MAX_BYTES)
+        throw new Error('The complete HTML draft exceeds 16 MiB.')
+      const result = await window.htmlApi.writeDraft({
+        token,
+        sequence,
+        revision,
+        documentPath,
+        data: bytes.buffer as ArrayBuffer,
+      })
+      if (
+        activation !== draftActivationRef.current ||
+        token !== draftTokenRef.current ||
+        revision !== draftRevisionRef.current
+      )
+        return
+      if (result.written) {
+        setRecoveryError(null)
+        setRecoveryRemoteCount(result.remoteReferences)
+      }
+    } catch (error) {
+      if (
+        activation === draftActivationRef.current &&
+        token === draftTokenRef.current &&
+        revision === draftRevisionRef.current
+      )
+        setRecoveryError(error instanceof Error ? error.message : String(error))
+    } finally {
+      draftBusyRef.current = false
+    }
+  }, [getMap, selText.index])
+  const recoveryCaptureRef = useRef(captureRecovery)
+  recoveryCaptureRef.current = captureRecovery
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void recoveryCaptureRef.current()
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   // autosave: every 30s and on window blur; untitled documents wait for an explicit first save
   useEffect(() => {
     if (!autoSave || !path) return
     const tick = () => {
       // a native Save As dialog blurs the window: autosave must not queue a write behind
       // a user-driven save, only explicit saves do
-      if (savingRef.current) return
+      if (closeBarrierRef.current?.locked || savingRef.current) return
       flushPending()
       if (textRef.current === savedTextRef.current) return
-      void doSave('save')
+      void doSave('save', undefined, undefined, undefined, true)
     }
     const id = window.setInterval(tick, 30_000)
     window.addEventListener('blur', tick)
@@ -1602,6 +2653,39 @@ export default function App() {
       window.removeEventListener('blur', tick)
     }
   }, [autoSave, path, doSave, flushPending])
+
+  const resumeLivePreview = (next: ViewMode = 'split') =>
+    mutateHtml(() => {
+      sourceOnlyCloseRef.current = false
+      discardPreviewRef.current = false
+      setSourceOnlyClose(false)
+      setPreviewRetired(false)
+      setPreviewUrl(null)
+      setView(next)
+      pushedTextRef.current = null
+      pushPreview(textRef.current)
+    })
+  const useSourceOnlyForClose = () =>
+    mutateHtml(() => {
+      // Explicitly approved visual discard; committed source and ordinary Save remain intact.
+      pictureGenerationRef.current++
+      pictureActiveRef.current = false
+      setPictureDialog(null)
+      discardPanelDraftsRef.current?.()
+      pendingStylesRef.current = {}
+      if (styleTimerRef.current !== null) window.clearTimeout(styleTimerRef.current)
+      styleTimerRef.current = null
+      setPendingCount(0)
+      visualPendingRef.current = false
+      setVisualPending(false)
+      setPanelPending(false)
+      frameVersionsRef.current.clear()
+      sourceOnlyCloseRef.current = true
+      setSourceOnlyClose(true)
+      setView('source')
+      touchDraft()
+      setCloseError(null)
+    })
 
   const aiDeps: HtmlAiDeps = {
     access: {
@@ -1617,8 +2701,12 @@ export default function App() {
       },
       replaceAll: (html) => replaceAll(html, true),
     },
-    getSnapshot: () => ({ text: textRef.current }),
-    restoreSnapshot: (snapshot) => replaceAll(snapshot.text, false),
+    getSnapshot: () => ({ text: textRef.current, source: htmlCloseStamp().source }),
+    restoreSnapshot: (snapshot) => {
+      if (snapshot.source && snapshot.source !== htmlCloseStamp().source)
+        throw new Error('The snapshot belongs to a replaced source.')
+      replaceAll(snapshot.text, false)
+    },
     onPrompt: (text) => {
       if (pathRef.current || provisionalNameRef.current) return
       const name = deriveNameFromPrompt(text)
@@ -1649,10 +2737,10 @@ export default function App() {
   const statusText = useMemo(() => {
     if (saveState === 'saving') return t('saving')
     if (saveState === 'failed') return t('saveFailedStatus')
-    if (dirty) return t('unsaved')
+    if (dirty || pendingCount > 0 || panelPending || visualPending) return t('unsaved')
     if (saveState === 'saved') return t('savedOk')
     return ''
-  }, [saveState, dirty, t])
+  }, [saveState, dirty, pendingCount, panelPending, visualPending, t])
 
   if (status === 'error') return <div className="center-note">{t('loadFailed')}</div>
   if (status === 'loading') return <div className="center-note">{t('loading')}</div>
@@ -1713,7 +2801,11 @@ export default function App() {
         autoSave={autoSave}
         onToggleAutoSave={setAutoSave}
         view={view}
-        onView={setView}
+        onView={(next) => {
+          if (next !== 'source' && (sourceOnlyCloseRef.current || discardPreviewRef.current))
+            resumeLivePreview(next)
+          else mutateHtml(() => setView(next))
+        }}
         aiOpen={aiOpen}
         onToggleAi={() => setAiOpen((v) => !v)}
         canInsert={canvasMode === 'edit'}
@@ -1760,6 +2852,48 @@ export default function App() {
           />
         </div>
         <div className="app-content">
+          {closeError && (
+            <div className="disk-notice" role="alert">
+              <span>{closeError}</span>
+              <button type="button" onClick={useSourceOnlyForClose}>
+                Use source only and discard preview edits
+              </button>
+              <button type="button" onClick={() => void doSave('save')}>
+                Save
+              </button>
+            </div>
+          )}
+          {(sourceOnlyClose || previewRetired) && (
+            <div className="disk-notice" role="status">
+              <span>Preview editing is paused. The source is kept.</span>
+              <button type="button" onClick={() => resumeLivePreview()}>
+                Resume preview
+              </button>
+            </div>
+          )}
+          {reloadCleanupError && (
+            <div className="disk-notice" role="alert">
+              <span>{t('recoveryFailed', { error: reloadCleanupError })}</span>
+            </div>
+          )}
+          {recoveryError && (
+            <div className="disk-notice" role="alert">
+              <span>{t('recoveryFailed', { error: recoveryError })}</span>
+              <button type="button" onClick={() => void captureRecovery()}>
+                {t('recoveryRetry')}
+              </button>
+            </div>
+          )}
+          {recoveryRemoteCount > 0 && (
+            <div className="disk-notice" role="status">
+              <span>{t('recoveryRemote', { count: recoveryRemoteCount })}</span>
+            </div>
+          )}
+          {saveWarning && (
+            <div className="disk-notice" role="status">
+              <span>{saveWarning}</span>
+            </div>
+          )}
           {saveError && (
             <div className="disk-notice vantage-save-error" role="alert">
               <span>{saveError}</span>
@@ -1810,15 +2944,18 @@ export default function App() {
                   if (e.target === e.currentTarget) selectSid(null)
                 }}
               >
-                <PreviewFrame
-                  ref={previewRef}
-                  url={previewUrl}
-                  nonce={previewNonce}
-                  zoom={zoom}
-                  onMessage={onInspectorMessage}
-                  onLoad={onPreviewLoad}
-                  draft={draftHtml}
-                />
+                {!sourceOnlyClose && !previewRetired && (
+                  <PreviewFrame
+                    ref={previewRef}
+                    name={previewFrameNameRef.current}
+                    url={previewUrl}
+                    nonce={previewNonce}
+                    zoom={zoom}
+                    onMessage={onInspectorMessage}
+                    onLoad={onPreviewLoad}
+                    draft={draftHtml}
+                  />
+                )}
                 {canvasMode === 'present' && (
                   <button
                     type="button"
@@ -1882,6 +3019,22 @@ export default function App() {
                       onText={setRunText}
                       onAttr={setAttr}
                       draftRef={flushDraftsRef}
+                      recoveryRef={panelRecoveryRef}
+                      discardDraftsRef={discardPanelDraftsRef}
+                      recoveryCss={
+                        recoveryUiRef.current?.path === selectedEntry.path
+                          ? recoveryUiRef.current.css
+                          : undefined
+                      }
+                      onDraftChange={() => {
+                        touchDraft()
+                        setPanelPending(panelRecoveryRef.current?.().dirty ?? false)
+                      }}
+                      onPendingChange={(value) => {
+                        setPanelPending(value)
+                        if (!value && !panelRecoveryRef.current?.().css)
+                          recoveryUiRef.current = null
+                      }}
                       onCustomCss={(css) => {
                         const decls = parseDeclarations(css)
                         if (Object.keys(decls).length) previewStyle(decls)
@@ -2001,8 +3154,22 @@ export default function App() {
         <CutoutDialog
           labels={imageDialogLabels}
           image={pictureDialog.image}
-          onApply={(png) => void applyPictureBytes(pictureDialog.sid, pictureDialog.src, png)}
-          onCancel={() => setPictureDialog(null)}
+          onApply={(png) =>
+            void applyPictureBytes(
+              pictureDialog.sid,
+              pictureDialog.src,
+              png,
+              pictureDialog.source,
+              pictureDialog.generation,
+            )
+          }
+          onCancel={() =>
+            mutateHtml(() => {
+              pictureGenerationRef.current++
+              pictureActiveRef.current = false
+              setPictureDialog(null)
+            })
+          }
         />
       )}
       {pictureDialog?.kind === 'crop' && (
@@ -2010,8 +3177,22 @@ export default function App() {
           labels={imageDialogLabels}
           lang={lang}
           image={pictureDialog.image}
-          onApply={(png) => void applyPictureBytes(pictureDialog.sid, pictureDialog.src, png)}
-          onCancel={() => setPictureDialog(null)}
+          onApply={(png) =>
+            void applyPictureBytes(
+              pictureDialog.sid,
+              pictureDialog.src,
+              png,
+              pictureDialog.source,
+              pictureDialog.generation,
+            )
+          }
+          onCancel={() =>
+            mutateHtml(() => {
+              pictureGenerationRef.current++
+              pictureActiveRef.current = false
+              setPictureDialog(null)
+            })
+          }
         />
       )}
     </div>

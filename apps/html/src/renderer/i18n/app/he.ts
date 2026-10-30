@@ -1,6 +1,9 @@
 import type { zh } from './zh'
 
 export const he = {
+  recoveryFailed: 'לא ניתן לעדכן את עותק השחזור: {error}. העותק הקודם נשמר.',
+  recoveryRetry: 'ניסיון נוסף',
+  recoveryRemote: 'עותק זה עדיין תלוי ב־{count} משאבים מרוחקים שעשויים לדרוש חיבור לאינטרנט.',
   redactMenuLabel: 'הסתרת הבחירה מהמודל',
   redactDialogDesc:
     'המילים נשארות במסמך ובקובץ; המודל רואה רק את הסימון. תן לו שם כדי שיהיה ברור מה הוא מייצג.',

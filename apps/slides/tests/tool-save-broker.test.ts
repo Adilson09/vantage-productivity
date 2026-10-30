@@ -1,0 +1,240 @@
+// @vitest-environment node
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SlidesToolSaveBroker } from '../src/main/slides-tool-save'
+import { CloseCleanupQueue } from '../../../packages/electron-utils/src/close-cleanup'
+import type { SlidesToolSaveRequest, SlidesToolSaveResult } from '../src/shared/slides-tool-save'
+function deferred() {
+  let done!: () => void
+  const promise = new Promise<void>((resolve) => {
+    done = resolve
+  })
+  return { promise, done }
+}
+function fixture() {
+  const source = {},
+    sent: Array<{ owner: number; channel: string; value: any }> = [],
+    producer = {
+      token: '12345678-1234-4234-8234-123456789abc',
+      documentPath: null as string | null,
+      ready: Promise.resolve(),
+      attest: () => null,
+      cancel: vi.fn(),
+      removed: vi.fn(),
+      cleanup: vi.fn(async () => {}),
+    }
+  let state: {
+    source: object
+    identity: string
+    token: string | null
+    revision: string
+    dirty: boolean
+    busy?: boolean
+  } | null = {
+    source,
+    identity: 'renderer:A',
+    token: producer.token,
+    revision: 'main:1',
+    dirty: false,
+  }
+  const queue = new CloseCleanupQueue({
+    persist: () => {},
+    prepare: async () => false,
+    purge: async () => {},
+    warning: () => {},
+  })
+  const host = {
+    state: () => state,
+    send: (owner: number, channel: string, value: unknown) => {
+      sent.push({ owner, channel, value })
+    },
+    write: vi.fn(async (_owner: number, _source: object, path: string) => ({ ok: true, path })),
+    stage: vi.fn((_owner: number, _through: number) => ({
+      producer,
+      admission: queue.begin({
+        id: 'cleanup-' + sent.length,
+        module: 'slides',
+        ownerKey: '1',
+        source: 'A',
+        generation: 1,
+        token: producer.token,
+        documentPath: null,
+        custody: {},
+        ready: producer.ready,
+        run: producer.cleanup,
+      }),
+    })),
+  }
+  const broker = new SlidesToolSaveBroker(host, 120_000)
+  const request = () =>
+    [...sent].reverse().find((item) => item.channel === 'slides:tool-save-request')!
+      .value as SlidesToolSaveRequest
+  const final = (over: Partial<SlidesToolSaveResult> = {}): SlidesToolSaveResult => ({
+    requestId: request().requestId,
+    sourceToken: producer.token,
+    published: false,
+    current: true,
+    clean: true,
+    revision: state?.revision ?? 'gone',
+    stamp: { source: 'renderer:A', revision: 'authored:1' },
+    throughSequence: 0,
+    ...over,
+  })
+  return {
+    broker,
+    host,
+    producer,
+    queue,
+    sent,
+    request,
+    final,
+    state: () => state,
+    replace: (value: typeof state) => {
+      state = value
+    },
+  }
+}
+afterEach(() => vi.useRealTimers())
+describe('actual Slides main publication/close/custody coordinator', () => {
+  it('consults a clean renderer and holds the actual synchronous removal without rewriting', async () => {
+    const f = fixture(),
+      closing = f.broker.request(1, '/deck.pptx', true, true)
+    const request = f.request()
+    expect(f.broker.claim(1, request.closeLease!)).toBe(true)
+    await f.broker.finish(1, f.final())
+    const receipt = await closing
+    expect(f.host.write).not.toHaveBeenCalled()
+    expect(receipt.cleanupId).toBeDefined()
+    const remove = vi.fn(() => true)
+    expect(f.broker.completeClose(1, receipt.requestId, remove)).toBe(true)
+    await f.queue.outcome(receipt.cleanupId!)
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(f.producer.removed).toHaveBeenCalledOnce()
+    expect(f.producer.cleanup).toHaveBeenCalledOnce()
+  })
+  it('false removal retains old bytes and restores the captured producer before unlock', async () => {
+    const f = fixture(),
+      closing = f.broker.request(1, '/deck.pptx', true, true)
+    await f.broker.finish(1, f.final())
+    const receipt = await closing
+    expect(f.broker.completeClose(1, receipt.requestId, () => false)).toBe(false)
+    expect(f.producer.cancel).toHaveBeenCalled()
+    expect(f.producer.cleanup).not.toHaveBeenCalled()
+    expect(f.queue.status(receipt.cleanupId!)?.phase).toBe('canceled')
+  })
+  it('shared peer authored revision refuses an earlier ready close', async () => {
+    const f = fixture(),
+      closing = f.broker.request(1, '/deck.pptx', true, true)
+    await f.broker.finish(1, f.final())
+    const receipt = await closing
+    f.state()!.revision = 'peer:2'
+    const remove = vi.fn(() => true)
+    expect(f.broker.completeClose(1, receipt.requestId, remove)).toBe(false)
+    expect(remove).not.toHaveBeenCalled()
+    expect(f.producer.cancel).toHaveBeenCalled()
+  })
+  it('Discard holds the same source/revision barrier without forcing pending editors into the shared model', async () => {
+    const f = fixture()
+    f.state()!.dirty = true
+    const closing = f.broker.request(1, '/deck.pptx', true, true, 'discard')
+    await f.broker.finish(1, f.final({ clean: false }))
+    const receipt = await closing
+    expect(receipt.intent).toBe('discard')
+    expect(f.host.write).not.toHaveBeenCalled()
+    expect(f.broker.completeClose(1, receipt.requestId, () => true)).toBe(true)
+  })
+  it('retains custody when another operation cancels preparation before capture settles', async () => {
+    const f = fixture(),
+      gate = deferred()
+    f.producer.ready = gate.promise
+    const closing = f.broker.request(1, '/deck.pptx', true, true),
+      refused = expect(closing).rejects.toThrow()
+    const finishing = f.broker.finish(1, f.final())
+    await Promise.resolve()
+    f.broker.invalidateReady(1)
+    await refused
+    expect(f.producer.cancel).toHaveBeenCalled()
+    expect(f.producer.cleanup).not.toHaveBeenCalled()
+    gate.done()
+    await finishing
+  })
+  it('ready expiry invalidates permission and restores producer before a correlated release', async () => {
+    vi.useFakeTimers()
+    const f = fixture(),
+      closing = f.broker.request(1, '/deck.pptx', true, true)
+    await f.broker.finish(1, f.final())
+    const receipt = await closing
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(f.producer.cancel).toHaveBeenCalled()
+    expect(f.sent.some((item) => item.channel === 'slides:close-release')).toBe(true)
+    expect(f.broker.completeClose(1, receipt.requestId, () => true)).toBe(false)
+  })
+  it('ordinary publication can succeed while newer edits remain and cannot grant Close', async () => {
+    const f = fixture(),
+      saving = f.broker.request(1, '/deck.pptx', true, false),
+      request = f.request()
+    await f.broker.publish(1, { requestId: request.requestId, sourceToken: f.producer.token })
+    f.state()!.revision = 'newer:2'
+    f.state()!.dirty = true
+    await f.broker.finish(1, f.final({ published: true, current: false, clean: false }))
+    const receipt = await saving
+    expect(receipt).toMatchObject({ published: true, current: false, clean: false })
+    expect(receipt.closeLease).toBeUndefined()
+    expect(f.broker.completeClose(1, receipt.requestId, () => true)).toBe(false)
+  })
+  it('a forged or obsolete sender/result cannot settle another request', async () => {
+    const f = fixture(),
+      saving = f.broker.request(1, '/deck.pptx', true, true)
+    expect(await f.broker.finish(2, f.final())).toBe(false)
+    expect(await f.broker.finish(1, { ...f.final(), requestId: 'foreign' })).toBe(false)
+    await f.broker.finish(1, f.final())
+    const receipt = await saving
+    f.broker.cancelRequest(1, 'foreign')
+    expect(f.broker.completeClose(1, receipt.requestId, () => true)).toBe(true)
+  })
+  it('a new source identity refuses a late ready result and never removes its replacement', async () => {
+    const f = fixture(),
+      saving = f.broker.request(1, '/deck.pptx', true, true),
+      refused = expect(saving).rejects.toThrow()
+    f.replace({ ...f.state()!, source: {}, identity: 'renderer:B' })
+    await f.broker.finish(1, f.final())
+    await refused
+    expect(f.host.stage).not.toHaveBeenCalled()
+  })
+  it('retains a timed-out actual writer reservation until its genuine final result', async () => {
+    vi.useFakeTimers()
+    const f = fixture(),
+      gate = deferred()
+    f.host.write.mockImplementation(async (_owner, _source, path) => {
+      await gate.promise
+      return { ok: true, path }
+    })
+    const saving = f.broker.request(1, '/deck.pptx', true, true),
+      refused = expect(saving).rejects.toEqual(new Error('prepare expired')),
+      request = f.request()
+    const writing = f.broker.publish(1, {
+      requestId: request.requestId,
+      sourceToken: f.producer.token,
+    })
+    await vi.advanceTimersByTimeAsync(120_000)
+    await refused
+    await expect(f.broker.request(1, '/other.pptx', true, true)).rejects.toThrow('finishing')
+    gate.done()
+    await writing
+    await f.broker.finish(1, f.final({ published: true, current: false, clean: false }))
+    expect(f.producer.cleanup).not.toHaveBeenCalled()
+  })
+  it('main mutation during actual owned replacement cannot cancel its own synchronous commit', async () => {
+    const f = fixture(),
+      closing = f.broker.request(1, '/deck.pptx', true, true)
+    await f.broker.finish(1, f.final())
+    const receipt = await closing
+    expect(
+      f.broker.completeClose(1, receipt.requestId, () => {
+        f.broker.invalidateReady(1)
+        return true
+      }),
+    ).toBe(true)
+    expect(f.producer.removed).toHaveBeenCalledOnce()
+    expect(f.producer.cancel).not.toHaveBeenCalled()
+  })
+})

@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto'
-import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs'
-import { rename, rm } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { closeSync, fsyncSync, openSync, readFileSync } from 'node:fs'
 
 import JSZip from 'jszip'
 import { atomicWriteFile, withAtomicSaveQueue } from '../../../electron-utils/src/atomic-write'
-import { assertMacroMutationPlanSafe, assertMacroStructurePreserved, assertPackageSignaturePreserved, inspectMacroPreservation } from './xlsx-macro-preservation'
+import {
+  assertMacroMutationPlanSafe,
+  assertMacroStructurePreserved,
+  assertPackageSignaturePreserved,
+  inspectMacroPreservation,
+} from './xlsx-macro-preservation'
 export { MacroPreservationError, inspectMacroPreservation } from './xlsx-macro-preservation'
 import { assertZipInflatesWithinLimits } from '@vantage/zip-gate'
 
@@ -74,10 +77,11 @@ import {
   applySheetPlanToWorkbookXml,
   assertNoSheetScopedDefinedNames,
   buildWorksheetPartXml,
-  chartReferencesSheet,
   classifyRemovedSheetRels,
-  definedNamesReferenceSheet,
   definedNamesUseToken,
+  invalidateSheetReferencesInChart,
+  invalidateSheetReferencesInDefinedNames,
+  invalidateSheetReferencesInWorksheet,
   nextFreeRelationshipId,
   nextFreeRelationshipIds,
   maxSheetIdInWorkbook,
@@ -97,7 +101,6 @@ import {
   SheetEditError,
   stripPageSetupRelIds,
   validateSheetName,
-  worksheetReferencesSheet,
 } from './xlsx-sheets'
 import type { StructuralOp } from './xlsx-structure'
 import { applyCfRules, type CfWireRule } from './xlsx-cf'
@@ -756,7 +759,9 @@ export async function applyPlanToXlsx(
   sheetNamesById: Readonly<Record<string, string>>,
 ): Promise<XlsxMutation> {
   const entrySource = await createBufferEntrySource(source)
-  await assertMacroStructurePreserved(entrySource, { legacySheetRenames: plan.sheetRenames.length > 0 })
+  await assertMacroStructurePreserved(entrySource, {
+    legacySheetRenames: plan.sheetRenames.length > 0,
+  })
   const pkg = new PackageEditor(entrySource)
   const touchedEntries = new Set<string>()
 
@@ -973,9 +978,47 @@ export async function planCellEditsToXlsx(
   redactionStates: readonly SheetRedactionState[] | null = null,
 ): Promise<MutationPlan> {
   const macroInfo = await inspectMacroPreservation(source)
-  const requestedMutation = [edits, structuralOps, chartEdits, filterStates, hyperlinkEdits, cfStates, dvStates, sheetProtections, visualAdditions, pageSetupStates, noteStates, tableAdditions, pivotAdditions, pivotCacheRefreshPaths, pivotRefreshUpdates, visualEdits, sparklineAdditions, formulaValues, protectedRangeStates, bulkConstantFills, tabColorStates, tableEdits, cellImageAdditions].some((items) => items.length > 0) || sheetPlan !== undefined || definedNamesState !== null || themeState !== null || workbookProtectionState !== null || redactionStates !== null
+  const requestedMutation =
+    [
+      edits,
+      structuralOps,
+      chartEdits,
+      filterStates,
+      hyperlinkEdits,
+      cfStates,
+      dvStates,
+      sheetProtections,
+      visualAdditions,
+      pageSetupStates,
+      noteStates,
+      tableAdditions,
+      pivotAdditions,
+      pivotCacheRefreshPaths,
+      pivotRefreshUpdates,
+      visualEdits,
+      sparklineAdditions,
+      formulaValues,
+      protectedRangeStates,
+      bulkConstantFills,
+      tabColorStates,
+      tableEdits,
+      cellImageAdditions,
+    ].some((items) => items.length > 0) ||
+    sheetPlan !== undefined ||
+    definedNamesState !== null ||
+    themeState !== null ||
+    workbookProtectionState !== null ||
+    redactionStates !== null
   assertPackageSignaturePreserved(macroInfo, requestedMutation)
-  if (macroInfo.packageSigned && !requestedMutation) return { replaced: new Map(), added: new Map(), addedBinary: new Map(), removedEntries: [], addedEntries: [], touchedEntries: [] }
+  if (macroInfo.packageSigned && !requestedMutation)
+    return {
+      replaced: new Map(),
+      added: new Map(),
+      addedBinary: new Map(),
+      removedEntries: [],
+      addedEntries: [],
+      touchedEntries: [],
+    }
   await assertMacroStructurePreserved(source, { sheetPlan, structuralOps }, macroInfo)
   // A pending pivot pins final coordinates for its source and output; shifts
   // on either sheet, and sheet renames (worksheetSource@sheet), would desync
@@ -1916,41 +1959,39 @@ async function applySheetPlanToPackage(
     }
   }
 
-  // Removals fail closed while every reference to the sheet is still intact.
+  // Ordinary A1 references to removed sheets become #REF!. Unsupported
+  // formula forms and relationships still fail before a plan is published.
   const removedLocalIds = new Set(
     originalNames.flatMap((name, index) => (plan.removals.includes(name) ? [index] : [])),
   )
   for (const removal of plan.removals) {
     for (const path of survivingWorksheetPaths) {
       if (!(await pkg.canPatch(path))) {
-        if (await pkg.containsText(path, removal)) {
-          throw new SheetEditError(
-            `Another sheet's formulas reference "${removal}" — deleting it is not allowed.`,
-          )
-        }
-        continue
-      }
-      if (worksheetReferencesSheet(await pkg.readText(path), removal)) {
+        // An exact raw-text search cannot prove absence: Excel qualifiers
+        // are case-insensitive and may be XML character references.
         throw new SheetEditError(
-          `Another sheet's formulas reference "${removal}" — deleting it is not allowed.`,
+          `${path} is too large to verify and update formula references — deleting "${removal}" cannot be saved safely.`,
         )
+      }
+      const xml = await pkg.readText(path)
+      const rewritten = invalidateSheetReferencesInWorksheet(xml, removal)
+      if (rewritten !== xml) {
+        pkg.write(path, rewritten)
+        touchedEntries.add(path)
       }
     }
     for (const chartPath of chartPaths) {
       // Charts dying with a removed sheet chart that sheet's own data; only
       // surviving charts can hold a genuinely dangling reference.
       if (removedOwnedParts.has(chartPath)) continue
-      if (chartReferencesSheet(await pkg.readText(chartPath), removal)) {
-        throw new SheetEditError(
-          `A chart reads its data from "${removal}" — deleting it is not allowed.`,
-        )
+      const xml = await pkg.readText(chartPath)
+      const rewritten = invalidateSheetReferencesInChart(xml, removal)
+      if (rewritten !== xml) {
+        pkg.write(chartPath, rewritten)
+        touchedEntries.add(chartPath)
       }
     }
-    if (definedNamesReferenceSheet(workbookXml, removal, removedLocalIds)) {
-      throw new SheetEditError(
-        `A workbook defined name references "${removal}" — deleting it is not allowed.`,
-      )
-    }
+    workbookXml = invalidateSheetReferencesInDefinedNames(workbookXml, removal, removedLocalIds)
     // A pivot hosted on a surviving sheet may read its source rows from the
     // removed sheet; only the pivotCacheDefinition records that link
     // (cacheSource/worksheetSource@sheet), so the hosting-sheet pivotTable

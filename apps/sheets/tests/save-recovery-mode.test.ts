@@ -105,6 +105,90 @@ describe('handleSave recovery mode', () => {
   })
 })
 
+describe('handleSave complete native checkpoints', () => {
+  function installCheckpoint() {
+    const checkpoint = vi.fn(async () => ({ apiVersion: 1, revision: 1, durable: true }))
+    Object.assign(window.desktopApi, { checkpointWorkbookDocument: checkpoint })
+    return checkpoint
+  }
+
+  it('checkpoints the full typed payload without publishing or reopening', async () => {
+    const checkpoint = installCheckpoint()
+    const { ctx, journal, messages } = ctxWith({ dirty: true })
+    recordSetRangeValues(journal, 'sheet-1', {
+      1: { 0: { v: '12' }, 1: { v: 12 }, 2: { v: true }, 3: { v: '' } },
+    })
+    const reopen = vi.fn()
+    ctx.openLazyWorkbook = reopen
+    await expect(handleSave(ctx, 'checkpoint')).resolves.toEqual({ ok: true })
+    const [payload, dirty] = checkpoint.mock.calls[0]! as unknown as [
+      Record<string, unknown>,
+      boolean,
+    ]
+    expect(payload).toMatchObject({
+      mode: 'save-as',
+      noteStates: [],
+      sheetOps: [],
+      structuralOps: [],
+      definedNamesState: null,
+    })
+    expect((payload.edits as { value: unknown }[]).slice(1).map((cell) => cell.value)).toEqual([
+      '12',
+      12,
+      true,
+      '',
+    ])
+    expect(dirty).toBe(true)
+    expect(writeWorkbookRecovery).not.toHaveBeenCalled()
+    expect(saveWorkbookEdits).not.toHaveBeenCalled()
+    expect(reopen).not.toHaveBeenCalled()
+    expect(messages).toEqual([])
+  })
+
+  it('can replace an earlier checkpoint after undo returns the document to clean', async () => {
+    const checkpoint = installCheckpoint()
+    const { ctx } = ctxWith({ dirty: false })
+    ctx.documentDirty = () => false
+    await expect(handleSave(ctx, 'checkpoint')).resolves.toEqual({ ok: true })
+    expect(checkpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ edits: [], mode: 'save-as' }),
+      false,
+    )
+  })
+
+  it('binds dirty status to the captured payload rather than a later undo', async () => {
+    const checkpoint = installCheckpoint()
+    const { ctx } = ctxWith({ dirty: true })
+    let dirty = true
+    ctx.documentDirty = () => dirty
+    const pending = handleSave(ctx, 'checkpoint')
+    dirty = false
+    await pending
+    expect(checkpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ edits: expect.any(Array) }),
+      true,
+    )
+  })
+
+  it('abandons a captured checkpoint if its workbook is replaced during staging', async () => {
+    const checkpoint = installCheckpoint()
+    const { ctx } = ctxWith({ dirty: true })
+    const pending = handleSave(ctx, 'checkpoint')
+    ;(ctx.lazyWorkbookRef as { current: unknown }).current = null
+    await expect(pending).resolves.toEqual({ ok: false })
+    expect(checkpoint).not.toHaveBeenCalled()
+  })
+
+  it('keeps pending changes and stays silent when native persistence fails', async () => {
+    const checkpoint = installCheckpoint()
+    checkpoint.mockRejectedValueOnce(new Error('disk full'))
+    const { ctx, journal, messages } = ctxWith({ dirty: true })
+    await expect(handleSave(ctx, 'checkpoint')).resolves.toEqual({ ok: false })
+    expect(journal.cells.get('sheet-1')?.get('0:0')?.value).toBe('edited')
+    expect(messages).toEqual([])
+  })
+})
+
 describe('handleSave formula cache overlay', () => {
   it('never pairs an immediately saved replacement formula with the previous cached value', async () => {
     const { ctx, journal, overlay } = ctxWith({ dirty: false })

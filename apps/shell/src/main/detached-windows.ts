@@ -4,28 +4,23 @@ import type { Rectangle, WebContents, WebContentsView } from 'electron'
 
 import {
   docsQueryDirty,
-  requestDocsClose,
   setActiveDocsResolver,
   teardownDocsRenderer,
 } from '../../../docs/src/main/docs-main'
 import {
-  requestSheetsClose,
-  resetSheetsShuttingDown,
   setActiveSheetsWebContents,
   sheetsPendingEditCount,
 } from '../../../sheets/src/main/sheets-main'
-import {
-  requestSlidesClose,
-  setActiveSlidesWebContents,
-  slidesIsDirty,
-} from '../../../slides/src/main/slides-main'
-import { pdfIsDirty, requestPdfClose } from '../../../pdf/src/main/pdf-main'
-import { markdownIsDirty, requestMarkdownClose } from '../../../markdown/src/main/markdown-main'
-import { htmlIsDirty, requestHtmlClose } from '../../../html/src/main/html-main'
+import { setActiveSlidesWebContents, slidesIsDirty } from '../../../slides/src/main/slides-main'
+import { pdfIsDirty } from '../../../pdf/src/main/pdf-main'
+import { markdownIsDirty } from '../../../markdown/src/main/markdown-main'
+import { htmlIsDirty } from '../../../html/src/main/html-main'
 import { canonicalPath } from './tab-manager'
 import type { DetachedTab } from './tab-manager'
 import { shellQuitTracker } from './window-close-guard'
-import type { OpenDocumentTab, TabKind } from '../shared/tabs-api'
+import { rootQuitIntent } from './root-quit-intent'
+import { prepareRootIndividualClose } from './root-close-adapters'
+import type { DocumentTabKind, OpenDocumentTab, TabKind } from '../shared/tabs-api'
 import {
   DOCK_BAND_SLACK,
   DOCK_DWELL_MS,
@@ -212,10 +207,11 @@ export function detachedWebContentsFor(id: string): WebContents | undefined {
 }
 
 export function closeDetachedWithoutPrompt(id: string): boolean {
+  if (!rootQuitIntent.mutationAllowed()) return false
   const rec = recordById(id)
   if (!rec) return false
   rec.closeWithoutPrompt()
-  return true
+  return rec.window.isDestroyed() && !rec.released
 }
 
 /** unsaved-changes state of one detached document, whichever family owns it */
@@ -237,30 +233,6 @@ async function detachedIsDirty(rec: DetachedRecord): Promise<boolean> {
       return htmlIsDirty(wc.id)
     default:
       return false
-  }
-}
-
-/** run the family's save/don't-save/cancel prompt when the document is dirty;
- *  true when the window may close (same helpers as the tab close path) */
-async function confirmDetachedClose(rec: DetachedRecord): Promise<boolean> {
-  if (!(await detachedIsDirty(rec))) return true
-  const wc = rec.view.webContents
-  const win = rec.window
-  switch (rec.kind) {
-    case 'sheets':
-      return requestSheetsClose(wc, win)
-    case 'docs':
-      return requestDocsClose(wc, win)
-    case 'slides':
-      return requestSlidesClose(wc, win)
-    case 'pdf':
-      return requestPdfClose(wc, win)
-    case 'markdown':
-      return requestMarkdownClose(wc, win)
-    case 'html':
-      return requestHtmlClose(wc, win)
-    default:
-      return true
   }
 }
 
@@ -539,26 +511,58 @@ export function createDetachedEditorWindow(options: {
   // a second close event while the prompt is open must not re-enter the
   // prompt (the same double-trigger the main window guards against)
   let promptInFlight = false
-  const vetoQuit = (): void => {
-    resetSheetsShuttingDown()
-    shellQuitTracker().reset()
-  }
   win.on('close', (event) => {
     if (closeConfirmed || rec.released) return
     event.preventDefault()
     if (promptInFlight) return
     promptInFlight = true
+    const epoch = rootQuitIntent.capture(),
+      controller = new AbortController(),
+      tracker = shellQuitTracker()
+    const holdingQuit = tracker.quitting()
+    if (holdingQuit) tracker.hold()
+    const current = () =>
+      rootQuitIntent.current(epoch) &&
+      !controller.signal.aborted &&
+      detached.get(wcId) === rec &&
+      !win.isDestroyed() &&
+      !rec.released &&
+      rec.view === view &&
+      !view.webContents.isDestroyed()
+    const unsubscribe = rootQuitIntent.subscribe((reason) => controller.abort(reason))
+    rootQuitIntent.beginApproval()
     void (async () => {
+      let receipt: Awaited<ReturnType<typeof prepareRootIndividualClose>> = null
       try {
-        // a denied close vetoes any quit that was in flight: the sheets close
-        // guard must prompt again on later closes instead of silently proceeding
-        if (await confirmDetachedClose(rec)) tearDown()
-        else vetoQuit()
-      } catch (err) {
-        console.error('[shell] detached window close prompt failed:', err)
-        vetoQuit()
+        if (rec.kind === 'home' || rec.kind === 'help') {
+          if (current()) tearDown()
+          return
+        }
+        receipt = await prepareRootIndividualClose(
+          rec.kind as DocumentTabKind,
+          view.webContents,
+          win,
+          { signal: controller.signal, isCurrent: current, allowForce: rec.kind === 'docs' },
+        )
+        const removed =
+          !!receipt &&
+          current() &&
+          receipt.complete(() => {
+            if (!current()) return false
+            tearDown()
+            return win.isDestroyed() && detached.get(wcId) !== rec
+          })
+        if (!removed)
+          rootQuitIntent.cancel('Detached document close was declined or became obsolete.')
+        else if (rootQuitIntent.current(epoch) && tracker.quitting()) tracker.quit()
+      } catch (error) {
+        console.error('[shell] detached close preparation failed:', error)
+        rootQuitIntent.cancel('Detached document close failed; the document remains open.')
       } finally {
+        unsubscribe()
         promptInFlight = false
+        if (holdingQuit) tracker.release()
+        if (receipt) await receipt.cancel('detached close finished')
       }
     })()
   })

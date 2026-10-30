@@ -34,17 +34,22 @@ export function registerPrivilegedSchemes(): void {
 }
 
 export function registerPreviewProtocol(
-  resolve: (webContentsId: number) => { text: string; baseHref: string | null } | null,
+  resolve: (
+    webContentsId: number,
+    requestUrl: URL,
+  ) => { text: string; baseHref: string | null } | null,
 ): void {
   protocol.handle(PREVIEW_SCHEME, (request) => {
     let host: string
+    let requestUrl: URL
     try {
-      host = new URL(request.url).host
+      requestUrl = new URL(request.url)
+      host = requestUrl.host
     } catch {
       return new Response(null, { status: 400 })
     }
     const match = /^view-(\d+)$/.exec(host)
-    const entry = match ? resolve(Number(match[1])) : null
+    const entry = match ? resolve(Number(match[1]), requestUrl!) : null
     if (!entry) return new Response(null, { status: 404 })
     return new Response(buildPreviewDocument(entry.text, entry.baseHref), {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },

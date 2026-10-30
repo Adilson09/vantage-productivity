@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { noteSidecarCrash, readSheetRangeMapped } from '../src/renderer/univer-sync'
+import {
+  noteSidecarCrash,
+  readSheetRangeMapped,
+  configureWorkbookReaderRecovery,
+} from '../src/renderer/univer-sync'
 import type { LazyWorkbookState } from '../src/renderer/univer-state'
 
 /// Both the Rust sidecar and sheets-main's own session guard reject an unknown
@@ -35,10 +39,9 @@ const readWorkbookRange = vi.fn(async (call: RangeCall) => {
   return cellsFor(call)
 })
 
-/// The normal open path: what selectWorkbook re-opens a file through.
-const reopenWorkbook = vi.fn(async (path: string) => ({
+/// The main-owned reader recovery path: it never samples the live file.
+const recoverWorkbookReader = vi.fn(async (_sessionId: string) => ({
   sessionId: FRESH,
-  path,
   sheets: [],
 }))
 
@@ -100,13 +103,29 @@ const sheetMeta = {
 
 const RANGE = { startRow: 0, endRow: 49, startColumn: 0, endColumn: 9 }
 
+// This slice tests derived read retries/memos. The App adapter's full checkpoint
+// and owned adoption is tested separately; a live path open is never a fallback.
+let stopRecoveryAdapter: (() => void) | undefined
+beforeEach(() => {
+  stopRecoveryAdapter = configureWorkbookReaderRecovery(async (current) => {
+    const replacement = await recoverWorkbookReader(current.file.sessionId)
+    if (!replacement) return false
+    current.file = { ...current.file, sessionId: replacement.sessionId }
+    return true
+  })
+})
+afterEach(() => {
+  stopRecoveryAdapter?.()
+  stopRecoveryAdapter = undefined
+})
+
 describe('a sidecar crash no longer strands the grid on a dead session', () => {
   beforeEach(() => {
     readWorkbookRange.mockClear()
-    reopenWorkbook.mockClear()
+    recoverWorkbookReader.mockClear()
     openWorkbooksForMerge.mockClear()
     vi.stubGlobal('window', {
-      desktopApi: { readWorkbookRange, reopenWorkbook, openWorkbooksForMerge },
+      desktopApi: { readWorkbookRange, recoverWorkbookReader, openWorkbooksForMerge },
     })
   })
 
@@ -114,7 +133,7 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
     vi.unstubAllGlobals()
   })
 
-  it('re-opens through the normal open path and serves the read on the new session', async () => {
+  it('recovers through the owned immutable-reader adapter and serves the new session', async () => {
     // The positive crash signal from the main process (sidecar process death).
     noteSidecarCrash()
     const lazy = state()
@@ -122,9 +141,8 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
     const result = await readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)
 
     expect(readWorkbookRange.mock.calls[0]![0].sessionId).toBe(STALE)
-    // The NORMAL open path, not the merge-source open: a crash re-open is
-    // re-opening this workbook, not opening a second read-only input.
-    expect(reopenWorkbook).toHaveBeenCalledWith('/books/report.xlsx')
+    // Exact old reader identity, never a live path or a merge-source open.
+    expect(recoverWorkbookReader).toHaveBeenCalledWith(STALE)
     expect(openWorkbooksForMerge).not.toHaveBeenCalled()
     expect(readWorkbookRange.mock.calls.at(-1)![0].sessionId).toBe(FRESH)
     expect(result?.screen.cells).toEqual([{ row: 0, column: 0, value: 'ok' }])
@@ -160,7 +178,7 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
     await expect(readSheetRangeMapped(state(), 's1', RANGE, sheetMeta)).rejects.toThrow(
       'worksheet part unreadable',
     )
-    expect(reopenWorkbook).not.toHaveBeenCalled()
+    expect(recoverWorkbookReader).not.toHaveBeenCalled()
   })
 
   it('recovers a genuine crash even when the read fails for another reason', async () => {
@@ -173,17 +191,57 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
 
     const result = await readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)
 
-    expect(reopenWorkbook).toHaveBeenCalledWith('/books/report.xlsx')
+    expect(recoverWorkbookReader).toHaveBeenCalledWith(STALE)
     expect(result?.screen.cells).toEqual([{ row: 0, column: 0, value: 'ok' }])
     expect(lazy.file.sessionId).toBe(FRESH)
   })
 
-  it('gives up rather than looping when there is no file to re-open', async () => {
-    // An unsaved new workbook has no path: only a manual open can recover it.
+  it('recovers an unnamed workbook by its owned immutable reader rather than a live path', async () => {
     noteSidecarCrash()
     const lazy = state(null)
+    const result = await readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)
+    expect(result?.screen.cells).toEqual([{ row: 0, column: 0, value: 'ok' }])
+    expect(recoverWorkbookReader).toHaveBeenCalledWith(STALE)
+    expect(openWorkbooksForMerge).not.toHaveBeenCalled()
+  })
+
+  it('retries on the next read after a native question is canceled, without another crash notification', async () => {
+    const journal = new Map([['0:0', { hasValue: true, value: 'accepted before the question' }]])
+    const lazy = state('/books/report.xlsx', journal)
+    let questionOpen = true
+    stopRecoveryAdapter?.()
+    const adapter = vi.fn(async (current: LazyWorkbookState) => {
+      // The App adapter cannot adopt a reader while main owns the question.
+      if (questionOpen) return false
+      const replacement = await recoverWorkbookReader(current.file.sessionId)
+      current.file = { ...current.file, sessionId: replacement.sessionId }
+      return true
+    })
+    stopRecoveryAdapter = configureWorkbookReaderRecovery(adapter)
+
+    noteSidecarCrash()
     await expect(readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)).rejects.toThrow(SESSION_GONE)
-    expect(reopenWorkbook).not.toHaveBeenCalled()
+    expect(adapter).toHaveBeenCalledTimes(1)
+    expect(recoverWorkbookReader).not.toHaveBeenCalled()
+    expect(lazy.file.sessionId).toBe(STALE)
+    expect(lazy.loadedRanges.size).toBe(1)
+    expect(lazy.frozenStripKeys.size).toBe(1)
+    expect(lazy.editJournal.cells).toBe(journal)
+
+    questionOpen = false // Cancel only releases the question; it is not a crash.
+    const result = await readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)
+    expect(adapter).toHaveBeenCalledTimes(2)
+    expect(recoverWorkbookReader).toHaveBeenCalledExactlyOnceWith(STALE)
+    expect(lazy.file.sessionId).toBe(FRESH)
+    expect(result?.screen.cells).toEqual([{ row: 0, column: 0, value: 'ok' }])
+    expect(lazy.loadedRanges.size).toBe(0)
+    expect(lazy.loadingKeys.size).toBe(0)
+    expect(lazy.frozenStripKeys.size).toBe(0)
+    expect(lazy.editJournal.cells).toBe(journal)
+    expect(journal.get('0:0')?.value).toBe('accepted before the question')
+    expect(openWorkbooksForMerge).not.toHaveBeenCalled()
+    await readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)
+    expect(adapter).toHaveBeenCalledTimes(2)
   })
 
   it('retries after a re-open that produced no session', async () => {
@@ -191,13 +249,13 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
     // workbook's one automatic recovery.
     const lazy = state()
     noteSidecarCrash()
-    reopenWorkbook.mockResolvedValueOnce(null as never)
+    recoverWorkbookReader.mockResolvedValueOnce(null as never)
     await expect(readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)).rejects.toThrow(SESSION_GONE)
-    expect(reopenWorkbook).toHaveBeenCalledTimes(1)
+    expect(recoverWorkbookReader).toHaveBeenCalledTimes(1)
 
     noteSidecarCrash()
     const result = await readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)
-    expect(reopenWorkbook).toHaveBeenCalledTimes(2)
+    expect(recoverWorkbookReader).toHaveBeenCalledTimes(2)
     expect(result?.screen.cells).toEqual([{ row: 0, column: 0, value: 'ok' }])
     expect(lazy.file.sessionId).toBe(FRESH)
   })
@@ -206,7 +264,7 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
     const lazy = state()
     noteSidecarCrash()
     await readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)
-    expect(reopenWorkbook).toHaveBeenCalledTimes(1)
+    expect(recoverWorkbookReader).toHaveBeenCalledTimes(1)
 
     // A new crash after the recovered session: reported, not retried forever.
     readWorkbookRange.mockImplementation(async () => {
@@ -214,7 +272,7 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
     })
     noteSidecarCrash()
     await expect(readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)).rejects.toThrow(SESSION_GONE)
-    expect(reopenWorkbook).toHaveBeenCalledTimes(1)
+    expect(recoverWorkbookReader).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -224,10 +282,10 @@ describe('a sidecar crash no longer strands the grid on a dead session', () => {
 describe('a deliberate teardown is not a crash', () => {
   beforeEach(() => {
     readWorkbookRange.mockClear()
-    reopenWorkbook.mockClear()
+    recoverWorkbookReader.mockClear()
     openWorkbooksForMerge.mockClear()
     vi.stubGlobal('window', {
-      desktopApi: { readWorkbookRange, reopenWorkbook, openWorkbooksForMerge },
+      desktopApi: { readWorkbookRange, recoverWorkbookReader, openWorkbooksForMerge },
     })
   })
 
@@ -245,7 +303,7 @@ describe('a deliberate teardown is not a crash', () => {
     // Re-opening here is what orphaned a merge-source session: the swap's
     // replacement session then overwrote state.file.sessionId, leaving the
     // merge session alive and unowned, on every save that raced a read.
-    expect(reopenWorkbook).not.toHaveBeenCalled()
+    expect(recoverWorkbookReader).not.toHaveBeenCalled()
     expect(openWorkbooksForMerge).not.toHaveBeenCalled()
     expect(lazy.file.sessionId).toBe(STALE)
   })
@@ -254,7 +312,7 @@ describe('a deliberate teardown is not a crash', () => {
     const lazy = state()
     await expect(readSheetRangeMapped(lazy, 's1', RANGE, sheetMeta)).rejects.toThrow(SESSION_GONE)
 
-    expect(reopenWorkbook).not.toHaveBeenCalled()
+    expect(recoverWorkbookReader).not.toHaveBeenCalled()
     expect(openWorkbooksForMerge).not.toHaveBeenCalled()
     expect(lazy.file.sessionId).toBe(STALE)
   })
@@ -266,6 +324,6 @@ describe('a deliberate teardown is not a crash', () => {
     await expect(readSheetRangeMapped(state(), 's1', RANGE, sheetMeta)).rejects.toThrow(
       'Merge source not found.',
     )
-    expect(reopenWorkbook).not.toHaveBeenCalled()
+    expect(recoverWorkbookReader).not.toHaveBeenCalled()
   })
 })

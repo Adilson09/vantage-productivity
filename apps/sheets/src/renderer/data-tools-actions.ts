@@ -7,11 +7,7 @@
 import { ILayoutService } from '@univerjs/preset-sheets-core'
 
 import { columnLabel } from '@vantage/xlsx-gateway/domain/cell-address'
-import {
-  decodeCsvBuffer,
-  isNumericCell,
-  parseCsv,
-} from '@vantage/xlsx-gateway/gateway/csv-import'
+import { decodeCsvBuffer, isNumericCell, parseCsv } from '@vantage/xlsx-gateway/gateway/csv-import'
 import type { AdvancedFilterColumn, AdvancedFilterCriteria } from './AdvancedFilterDialog'
 import {
   buildLabelMatrix,
@@ -42,6 +38,7 @@ import {
 } from './univer-sync'
 import type { LazyWorkbookState, UniverRuntime, UniverWorksheet } from './univer-state'
 import { applyAiTableAdd } from './workbook-ops'
+import { enqueueWorkbookMutation } from './workbook-mutation-queue'
 
 /** The App refs/state the data-tool actions need; built fresh per call. */
 export interface DataToolsContext {
@@ -67,36 +64,72 @@ const CSV_CHARSET_BY_LANG: Record<string, string> = {
 
 /// Data → From Text/CSV: reads a delimited file (encoding and delimiter
 /// sniffed by the shared CSV pipeline) into the active sheet at the selection.
-export function handleImportCsv(ctx: DataToolsContext): void {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain'
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (!file) return
-    if (file.size > 32 * 1024 * 1024) {
-      ctx.setMessage(t('appCsvTooLarge'))
-      return
-    }
-    void file
-      .arrayBuffer()
-      .then((buffer) => {
-        importCsvText(ctx, decodeCsvBuffer(new Uint8Array(buffer), CSV_CHARSET_BY_LANG[getLang()]))
-      })
-      .catch(() => ctx.setMessage(t('appCsvTooLarge')))
-  }
-  input.click()
-}
-
-function importCsvText(ctx: DataToolsContext, text: string): void {
+export async function handleImportCsv(ctx: DataToolsContext): Promise<void> {
   const runtime = ctx.univerRef.current
   const workbook = runtime?.univerAPI.getActiveWorkbook()
   const worksheet = workbook?.getActiveSheet()
   const range = workbook?.getActiveRange()
-  if (!worksheet || !range) {
+  if (!runtime || !workbook || !worksheet || !range) {
     ctx.setMessage(t('appSelectCellFirst'))
     return
   }
+  const target = {
+    runtime,
+    state: ctx.lazyWorkbookRef.current,
+    worksheet,
+    workbookId: workbook.getId(),
+    sheetId: worksheet.getSheetId(),
+    row: range.getRow(),
+    column: range.getColumn(),
+  }
+  const charset = CSV_CHARSET_BY_LANG[getLang()]
+  const assertTarget = () => {
+    if (
+      ctx.univerRef.current !== target.runtime ||
+      ctx.lazyWorkbookRef.current !== target.state ||
+      runtime.univerAPI.getActiveWorkbook()?.getId() !== target.workbookId ||
+      runtime.univerAPI.getActiveWorkbook()?.getActiveSheet()?.getSheetId() !== target.sheetId ||
+      (target.state && isSheetRemoved(target.state.editJournal, target.sheetId))
+    )
+      throw new Error('The accepted CSV target changed while choosing or reading its file.')
+  }
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain'
+  const file = await new Promise<File | null>((resolve) => {
+    let settled = false
+    const finish = (selected: File | null) => {
+      if (settled) return
+      settled = true
+      input.onchange = null
+      input.removeEventListener('cancel', cancel)
+      resolve(selected)
+    }
+    const cancel = () => finish(null)
+    input.onchange = () => finish(input.files?.[0] ?? null)
+    input.addEventListener('cancel', cancel)
+    input.click()
+  })
+  if (!file) return
+  assertTarget()
+  if (file.size > 32 * 1024 * 1024) {
+    ctx.setMessage(t('appCsvTooLarge'))
+    return
+  }
+  await enqueueWorkbookMutation(async () => {
+    assertTarget()
+    const buffer = await file.arrayBuffer()
+    assertTarget()
+    importCsvText(ctx, decodeCsvBuffer(new Uint8Array(buffer), charset), target)
+  })
+}
+
+function importCsvText(
+  ctx: DataToolsContext,
+  text: string,
+  target: { worksheet: UniverWorksheet; row: number; column: number },
+): void {
+  const { worksheet, row, column } = target
   const rows = parseCsv(text)
   const columns = rows.reduce((width, row) => Math.max(width, row.length), 0)
   if (rows.length === 0 || columns === 0) {
@@ -113,8 +146,6 @@ function importCsvText(ctx: DataToolsContext, text: string): void {
       return isNumericCell(cell) ? { v: Number(cell) } : { v: cell }
     }),
   )
-  const row = range.getRow()
-  const column = range.getColumn()
   try {
     worksheet.getRange(row, column, rows.length, columns).setValues(values)
   } catch (error: unknown) {

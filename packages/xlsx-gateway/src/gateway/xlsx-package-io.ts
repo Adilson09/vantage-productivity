@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 
 import { z } from 'zod'
-import { AtomicSaveError, publishCompletedFile, withAtomicSaveQueue } from '../../../electron-utils/src/atomic-write'
+import {
+  AtomicSaveError,
+  publishCompletedFile,
+  withAtomicSaveQueue,
+} from '../../../electron-utils/src/atomic-write'
+import { withAttestedFilePublication } from '../../../electron-utils/src/file-publication-exclusion'
 
 import { MAX_PATCH_ENTRY_BYTES } from '../shared/edit-schemas'
 import type { WorkbookChartEdit, WorkbookVisualEdit } from '../shared/edit-schemas'
@@ -59,9 +64,20 @@ const saveArchiveResultSchema = z.object({
   afterEntries: z.array(archiveEntrySchema),
 })
 
+export interface ArchiveNativeRequestAdmission {
+  readonly result: Promise<unknown>
+  readonly completion: Promise<unknown>
+  readonly actualSettled: Promise<void>
+}
+
 /// The subset of XlsxSidecarClient the streaming save path needs; tests can
 /// substitute a stub.
 export interface ArchiveClient {
+  /** Optional for other consumers; the streaming/native I/O path requires it. */
+  requestAttested?(
+    command: Readonly<Record<string, unknown>>,
+    timeoutMs?: number,
+  ): ArchiveNativeRequestAdmission
   archiveManifest(path: string): Promise<unknown>
   readEntries(input: {
     readonly path: string
@@ -80,6 +96,94 @@ export interface ArchiveClient {
     readonly removals: readonly string[]
     readonly additions: readonly { name: string; contentPath: string }[]
   }): Promise<unknown>
+}
+
+const ARCHIVE_TIMEOUT_MS = 180_000
+type ArchiveRequest = NonNullable<ArchiveClient['requestAttested']>
+
+function requireArchiveAttestation(client: ArchiveClient): ArchiveRequest {
+  if (typeof client.requestAttested !== 'function')
+    throw new Error(
+      'Native archive I/O requires definitive request attestation; no legacy dispatch was started.',
+    )
+  return client.requestAttested.bind(client)
+}
+
+/** Owns real requests and extraction tasks, including siblings after a planner rejects early. */
+class ArchiveNativeWork {
+  readonly mainActualSettled: Promise<void>
+  private resolveMainActual!: () => void
+  private readonly actual = new Set<Promise<unknown>>()
+  private closed = false
+  private unattested = false
+  constructor(private readonly dispatch: ArchiveRequest) {
+    this.mainActualSettled = new Promise<void>((resolve) => {
+      this.resolveMainActual = resolve
+    })
+  }
+
+  private hold<T>(work: Promise<T>): Promise<T> {
+    this.actual.add(work)
+    void work.then(
+      () => this.actual.delete(work),
+      () => this.actual.delete(work),
+    )
+    return work
+  }
+
+  track<T>(start: () => Promise<T>): Promise<T> {
+    if (this.closed)
+      return Promise.reject(new Error('The archive operation is no longer admitting work.'))
+    return this.hold(start())
+  }
+
+  request(command: Readonly<Record<string, unknown>>): ArchiveNativeRequestAdmission {
+    if (this.closed) throw new Error('The archive operation is no longer admitting native work.')
+    let operation: ArchiveNativeRequestAdmission
+    try {
+      operation = this.dispatch(command, ARCHIVE_TIMEOUT_MS)
+      if (
+        !operation ||
+        typeof operation.result?.catch !== 'function' ||
+        typeof operation.completion?.then !== 'function' ||
+        typeof operation.actualSettled?.then !== 'function' ||
+        typeof operation.actualSettled?.catch !== 'function'
+      )
+        throw new Error(
+          'The native archive dispatch did not return definitive settlement attestation.',
+        )
+      void operation.result.catch(() => undefined)
+      this.hold(operation.actualSettled)
+      void operation.actualSettled.catch(() => {
+        this.unattested = true
+      })
+      return operation
+    } catch (error) {
+      // Dispatch may have accepted bytes before throwing. No cleanup permission
+      // is inferred from its failure; retained staging is safer than deletion.
+      this.unattested = true
+      throw error
+    }
+  }
+
+  completed(command: Readonly<Record<string, unknown>>): Promise<unknown> {
+    return this.request(command).completion
+  }
+
+  async closeAndDrain(): Promise<boolean> {
+    this.closed = true
+    for (;;) {
+      const pending = [...this.actual]
+      if (pending.length) await Promise.allSettled(pending)
+      await Promise.resolve()
+      if (!this.actual.size) return !this.unattested
+    }
+  }
+
+  /** Called only after the owned JS pipeline's real filesystem finalizers finish. */
+  finishMainFinalizers(): void {
+    if (this.closed && !this.actual.size && !this.unattested) this.resolveMainActual()
+  }
 }
 
 export interface StreamingSaveRequest {
@@ -132,16 +236,22 @@ export async function readArchiveEntryText(
   sourcePath: string,
   entryName: string,
 ): Promise<string> {
+  const native = new ArchiveNativeWork(requireArchiveAttestation(client))
   const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-read-'))
   try {
     const extracted = readEntriesResultSchema.parse(
-      await client.readEntries({ path: sourcePath, entries: [entryName], outputDir: workDir }),
+      await native.completed({
+        command: 'read_entries',
+        path: sourcePath,
+        entries: [entryName],
+        outputDir: workDir,
+      }),
     )
     const filePath = extracted.entries[0]?.path
     if (!filePath) throw new Error(`Workbook is missing ${entryName}.`)
     return normalizeOoxmlPartPrefix(readFileSync(filePath, 'utf8'))
   } finally {
-    await rm(workDir, { recursive: true, force: true })
+    if (await native.closeAndDrain()) await rm(workDir, { recursive: true, force: true })
   }
 }
 
@@ -151,20 +261,59 @@ export async function readArchiveEntryText(
 export async function saveWorkbookViaSidecar(
   request: StreamingSaveRequest,
 ): Promise<StreamingSaveResult> {
-  return withAtomicSaveQueue(request.targetPath, () => saveWorkbookViaSidecarQueued(request))
-}
-
-async function saveWorkbookViaSidecarQueued(request: StreamingSaveRequest): Promise<StreamingSaveResult> {
-  const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-save-'))
+  const native = new ArchiveNativeWork(requireArchiveAttestation(request.client))
   const temporaryTarget = join(
     dirname(request.targetPath),
     `${basename(request.targetPath)}.${randomUUID()}.tmp`,
   )
+  const start = () => {
+    const result = (async () => {
+      try {
+        return await withAtomicSaveQueue(request.targetPath, () =>
+          saveWorkbookViaSidecarQueued(request, native, temporaryTarget),
+        )
+      } finally {
+        if (await native.closeAndDrain()) native.finishMainFinalizers()
+      }
+    })()
+    return { result, actualSettled: native.mainActualSettled }
+  }
+  return withAttestedFilePublication(
+    { targetPath: request.targetPath, sourcePaths: [request.sourcePath] },
+    () => {
+      // This is the genuine full JS pipeline, not a caller's bounded result. The
+      // native temporary target is admitted BEFORE the first pipeline await, so
+      // its later native publisher is a continuation during a source/target move.
+      try {
+        return {
+          result: withAttestedFilePublication(
+            { targetPath: temporaryTarget, sourcePaths: [request.sourcePath] },
+            start,
+          ),
+          actualSettled: native.mainActualSettled,
+        }
+      } catch (error) {
+        const result = (async (): Promise<StreamingSaveResult> => {
+          if (await native.closeAndDrain()) native.finishMainFinalizers()
+          throw error
+        })()
+        return { result, actualSettled: native.mainActualSettled }
+      }
+    },
+  )
+}
+
+async function saveWorkbookViaSidecarQueued(
+  request: StreamingSaveRequest,
+  native: ArchiveNativeWork,
+  temporaryTarget: string,
+): Promise<StreamingSaveResult> {
+  const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-save-'))
   try {
     const manifest = manifestResultSchema.parse(
-      await request.client.archiveManifest(request.sourcePath),
+      await native.completed({ command: 'archive_manifest', path: request.sourcePath }),
     ).entries
-    const source = createSidecarEntrySource(request.client, request.sourcePath, manifest, workDir)
+    const source = createSidecarEntrySource(native, request.sourcePath, manifest, workDir)
     const plan = await planCellEditsToXlsx(
       source,
       request.edits,
@@ -203,13 +352,31 @@ async function saveWorkbookViaSidecarQueued(request: StreamingSaveRequest): Prom
       ...(await writePlanContents(workDir, 'add-bin', plan.addedBinary)),
     ]
     const result = saveArchiveResultSchema.parse(
-      await request.client.saveArchive({
-        sourcePath: request.sourcePath,
-        targetPath: temporaryTarget,
-        replacements,
-        removals: plan.removedEntries,
-        additions,
-      }),
+      await withAttestedFilePublication(
+        {
+          targetPath: temporaryTarget,
+          sourcePaths: [
+            request.sourcePath,
+            ...replacements.map((item) => item.contentPath),
+            ...additions.map((item) => item.contentPath),
+          ],
+        },
+        () => {
+          const operation = native.request({
+            command: 'save_archive',
+            sourcePath: request.sourcePath,
+            targetPath: temporaryTarget,
+            replacements,
+            removals: plan.removedEntries,
+            additions,
+          })
+          // The streaming writer intentionally waits for the definitive archive
+          // response. A bounded caller timeout cannot release its input files.
+          // Own validation, atomic promotion and all main cleanup as well as the
+          // native command. A move cannot start in the reply-to-promotion gap.
+          return { result: operation.completion, actualSettled: native.mainActualSettled }
+        },
+      ),
     )
 
     // The source manifest was read before planning; if the file changed on
@@ -228,15 +395,16 @@ async function saveWorkbookViaSidecarQueued(request: StreamingSaveRequest): Prom
   } catch (error: unknown) {
     // A completed rescue file belongs to the user after publication refusal.
     // Only incomplete/invalid archive output is disposable here.
-    if (!(error instanceof AtomicSaveError)) await rm(temporaryTarget, { force: true })
+    if ((await native.closeAndDrain()) && !(error instanceof AtomicSaveError))
+      await rm(temporaryTarget, { force: true })
     throw error
   } finally {
-    await rm(workDir, { recursive: true, force: true })
+    if (await native.closeAndDrain()) await rm(workDir, { recursive: true, force: true })
   }
 }
 
 function createSidecarEntrySource(
-  client: ArchiveClient,
+  native: ArchiveNativeWork,
   sourcePath: string,
   manifest: readonly ArchiveEntry[],
   workDir: string,
@@ -251,36 +419,47 @@ function createSidecarEntrySource(
       (entryByName.get(path)?.uncompressedSize ?? 0) <= MAX_PATCH_ENTRY_BYTES,
     containsText: async (path, needle) => {
       const scanned = scanEntriesResultSchema.parse(
-        await client.scanEntries({ path: sourcePath, entries: [path], needle }),
+        await native.completed({
+          command: 'scan_entries',
+          path: sourcePath,
+          entries: [path],
+          needle,
+        }),
       )
       return scanned.matches.includes(path)
     },
     releaseText: (path) => {
       cache.delete(path)
     },
-    readText: async (path) => {
-      const cached = cache.get(path)
-      if (cached !== undefined) return cached
-      const entry = entryByName.get(path)
-      if (!entry) throw new Error(`Workbook is missing ${path}.`)
-      if (entry.uncompressedSize > MAX_PATCH_ENTRY_BYTES) {
-        throw new Error(
-          `${path} is ${entry.uncompressedSize} bytes uncompressed — too large to edit. ` +
-            'Entries above 500MB can be preserved but not patched.',
+    readText: (path) =>
+      native.track(async () => {
+        const cached = cache.get(path)
+        if (cached !== undefined) return cached
+        const entry = entryByName.get(path)
+        if (!entry) throw new Error(`Workbook is missing ${path}.`)
+        if (entry.uncompressedSize > MAX_PATCH_ENTRY_BYTES) {
+          throw new Error(
+            `${path} is ${entry.uncompressedSize} bytes uncompressed — too large to edit. ` +
+              'Entries above 500MB can be preserved but not patched.',
+          )
+        }
+        const extractDir = join(workDir, `extract-${extractionCount}`)
+        extractionCount += 1
+        await mkdir(extractDir, { recursive: true })
+        const extracted = readEntriesResultSchema.parse(
+          await native.completed({
+            command: 'read_entries',
+            path: sourcePath,
+            entries: [path],
+            outputDir: extractDir,
+          }),
         )
-      }
-      const extractDir = join(workDir, `extract-${extractionCount}`)
-      extractionCount += 1
-      await mkdir(extractDir, { recursive: true })
-      const extracted = readEntriesResultSchema.parse(
-        await client.readEntries({ path: sourcePath, entries: [path], outputDir: extractDir }),
-      )
-      const filePath = extracted.entries[0]?.path
-      if (!filePath) throw new Error(`Sidecar did not extract ${path}.`)
-      const content = normalizeOoxmlPartPrefix(readFileSync(filePath, 'utf8'))
-      cache.set(path, content)
-      return content
-    },
+        const filePath = extracted.entries[0]?.path
+        if (!filePath) throw new Error(`Sidecar did not extract ${path}.`)
+        const content = normalizeOoxmlPartPrefix(readFileSync(filePath, 'utf8'))
+        cache.set(path, content)
+        return content
+      }),
   }
 }
 

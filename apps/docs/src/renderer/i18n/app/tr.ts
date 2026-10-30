@@ -543,4 +543,5 @@ export const tr = {
   appMergeSourceLoaded: '{name} yüklendi ({n} kayıt)',
   appMergeWritten: '{n} belge yazıldı',
   appMergeNothingToWrite: 'Yazılacak bir şey yok',
+  appRecoveryFailed: 'Taslak kurtarma başarısız oldu: {error}',
 } satisfies Record<keyof typeof zh, string>

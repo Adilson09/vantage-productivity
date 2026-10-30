@@ -5,6 +5,7 @@
  * journal because Univer has no outline model.
  */
 import type { IRange } from '@univerjs/core'
+import { admitJournalAuthored } from './workbook-authored-admission'
 
 import { isSheetRemoved, journalSize, recordStructuralOp } from './edit-journal'
 import { t } from './i18n/locale'
@@ -238,23 +239,25 @@ export function setOutlineSummary(
   const target = activeTarget(ctx)
   if (!target) return
   const { state, sheetId } = target
-  const outline = sheetOutline(state, sheetId)
-  if (patch.below !== undefined) outline.summaryBelow = patch.below
-  if (patch.right !== undefined) outline.summaryRight = patch.right
-  outline.version += 1
-  // One outlinePr op per sheet: the latest placement replaces earlier ones.
-  const ops = state.editJournal.structuralOps.get(sheetId)
-  if (ops) {
-    const kept = ops.filter((op) => op.kind !== 'set-outline-pr')
-    if (kept.length === 0) state.editJournal.structuralOps.delete(sheetId)
-    else state.editJournal.structuralOps.set(sheetId, kept)
-  }
-  recordStructuralOp(state.editJournal, sheetId, {
-    kind: 'set-outline-pr',
-    summaryBelow: outline.summaryBelow,
-    summaryRight: outline.summaryRight,
+  return admitJournalAuthored(state.editJournal, [patch] as const, (patch) => {
+    const outline = sheetOutline(state, sheetId)
+    if (patch.below !== undefined) outline.summaryBelow = patch.below
+    if (patch.right !== undefined) outline.summaryRight = patch.right
+    outline.version += 1
+    // One outlinePr op per sheet: the latest placement replaces earlier ones.
+    const ops = state.editJournal.structuralOps.get(sheetId)
+    if (ops) {
+      const kept = ops.filter((op) => op.kind !== 'set-outline-pr')
+      if (kept.length === 0) state.editJournal.structuralOps.delete(sheetId)
+      else state.editJournal.structuralOps.set(sheetId, kept)
+    }
+    recordStructuralOp(state.editJournal, sheetId, {
+      kind: 'set-outline-pr',
+      summaryBelow: outline.summaryBelow,
+      summaryRight: outline.summaryRight,
+    })
+    ctx.setPendingEdits(journalSize(state.editJournal))
   })
-  ctx.setPendingEdits(journalSize(state.editJournal))
 }
 
 export function outlineSummarySettings(

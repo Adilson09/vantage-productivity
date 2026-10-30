@@ -1,9 +1,27 @@
 import type { Editor } from '@tiptap/react'
 import { BLANK_BULLET_NUM_ID, BLANK_ORDERED_NUM_ID } from '@vantage/docx-engine'
-import type { McpCommandMessage, McpEditorCommand } from '../shared/ipc'
+import type {
+  McpCommandMessage,
+  McpEditorCommand,
+  DocMcpSaveInput,
+  DocMcpSaveCompletion,
+} from '../shared/ipc'
 import { executeTool, markDocSeen } from './ai/tools'
 import { findNumId, type NumIds } from './ai/protocol'
-import { save, type FileActionContext } from './file-actions'
+import {
+  save,
+  currentDocGeneration,
+  currentRecoverySequence,
+  canCloseSavedDocument,
+  type FileActionContext,
+} from './file-actions'
+import { saveUntilPersisted } from './save-until-persisted'
+import { isCloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
+import {
+  docCloseBarrier,
+  installDocCloseLease,
+  releaseDocCloseAfterFailure,
+} from './doc-close-lease'
 
 /**
  * MCP bridge (renderer half).
@@ -86,6 +104,7 @@ async function runCommand(
   deps: McpBridgeDeps,
   command: McpEditorCommand,
   payload: unknown,
+  requestId: string,
 ): Promise<unknown> {
   const ctx = deps.getCtx()
   const editor = ctx.editor
@@ -180,18 +199,103 @@ async function runCommand(
     }
 
     case 'save_document': {
-      const input = (payload ?? {}) as { path?: string; overwrite?: boolean }
+      const input = (payload ?? {}) as DocMcpSaveInput
       if (typeof input.path !== 'string' || !input.path) {
         throw new Error('save_document requires an absolute "path"')
       }
+      if (input.requireClean !== undefined && typeof input.requireClean !== 'boolean')
+        throw new Error('save_document requires a Boolean internal requireClean option')
+      const generation = currentDocGeneration()
+      const path = input.path
       let reason = ''
-      const ok = await save(ctx, false, true, undefined, {
-        path: input.path,
-        overwrite: input.overwrite === true,
-        onError: (message) => (reason = message),
-      })
-      if (!ok) throw new Error(reason || 'the document could not be saved')
-      return { ok: true, path: input.path }
+      let published = false
+      const isCurrent = () => currentDocGeneration() === generation
+      const canClose = () => canCloseSavedDocument(deps.getCtx(), generation)
+      const finish = (complete: boolean): DocMcpSaveCompletion => {
+        const clean = complete && canClose()
+        const current = isCurrent()
+        const savedPath = published ? path : current ? deps.getCtx().doc?.filePath : undefined
+        return {
+          ok: true,
+          throughSequence: currentRecoverySequence(),
+          published,
+          current,
+          clean: current && clean,
+          ...(savedPath ? { path: savedPath } : {}),
+          ...(reason ? { error: reason } : {}),
+        }
+      }
+      const publish = async (): Promise<boolean> => {
+        const ok = await save(
+          deps.getCtx(),
+          false,
+          true,
+          undefined,
+          {
+            path,
+            overwrite: input.overwrite === true,
+            onError: (message) => (reason = message),
+          },
+          ...(input.requireClean && isCloseLeaseTicket(input.closeTicket)
+            ? ([input.closeTicket] as const)
+            : ([] as const)),
+        )
+        published ||= ok
+        return ok
+      }
+      if (input.requireClean) {
+        if (
+          !Object.hasOwn(input, 'sourcePath') ||
+          (input.sourcePath !== null && typeof input.sourcePath !== 'string')
+        )
+          throw new Error('An internal close-save request requires its sourcePath')
+        if (input.sourcePath !== (ctx.doc?.filePath ?? null))
+          return {
+            ok: true,
+            throughSequence: currentRecoverySequence(),
+            published: false,
+            current: false,
+            clean: false,
+          }
+        if (!isCloseLeaseTicket(input.closeTicket) || input.closeTicket.id !== requestId)
+          throw new Error('The internal close request has no valid main-owned ticket.')
+        const ticket = input.closeTicket
+        // Consult the renderer even when main's dirty mirror says clean. A
+        // genuinely clean document needs no new publication or invented path.
+        try {
+          if (docCloseBarrier.busy) {
+            await releaseDocCloseAfterFailure(ticket)
+            return finish(false)
+          }
+          window.dispatchEvent(new Event('ai-docs-commit-tables'))
+          const complete =
+            canClose() ||
+            (await saveUntilPersisted({
+              save: publish,
+              wasIncomplete: () => deps.getCtx().saveIncompleteRef.current,
+              hasPath: () => true,
+              isCurrent,
+              canClose,
+            }))
+          if (!complete || !isCurrent()) {
+            await releaseDocCloseAfterFailure(ticket)
+            return finish(false)
+          }
+          const stamp = await docCloseBarrier.acquire(ticket, () => isCurrent() && canClose())
+          const result = finish(stamp !== null)
+          if (!stamp || !result.current || !result.clean || !docCloseBarrier.locked) {
+            await releaseDocCloseAfterFailure(ticket)
+            return finish(false)
+          }
+          // Held until main commits actual removal or explicitly cancels/expires.
+          return { ...result, closeLease: { ticket, stamp } }
+        } catch (error) {
+          await releaseDocCloseAfterFailure(ticket)
+          throw error
+        }
+      }
+      if (!(await publish())) throw new Error(reason || 'the document could not be saved')
+      return finish(true)
     }
 
     default: {
@@ -238,12 +342,17 @@ export function installMcpBridge(deps: McpBridgeDeps): () => void {
   const desktop = window.desktop
   if (!desktop?.onMcpCommand || !desktop.reportMcpResult) return () => {}
   let cancelled = false
+  const disposeClose = installDocCloseLease((error) => deps.getCtx().setStatus(String(error)))
   let queue: Promise<void> = Promise.resolve()
   const unsubscribe = desktop.onMcpCommand((message: McpCommandMessage) => {
     if (!message || typeof message.requestId !== 'string') return
     queue = queue.then(async () => {
       try {
-        const result = await runCommand(deps, message.command, message.payload)
+        const closing =
+          message.command === 'save_document' &&
+          (message.payload as DocMcpSaveInput | null)?.requireClean === true
+        if (!closing && message.command !== 'read_document') await docCloseBarrier.beforeMutation()
+        const result = await runCommand(deps, message.command, message.payload, message.requestId)
         desktop.reportMcpResult({ requestId: message.requestId, ok: true, result })
       } catch (error) {
         desktop.reportMcpResult({
@@ -262,6 +371,7 @@ export function installMcpBridge(deps: McpBridgeDeps): () => void {
   )
   return () => {
     cancelled = true
+    disposeClose()
     unsubscribe()
   }
 }

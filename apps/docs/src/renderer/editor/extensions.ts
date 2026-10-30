@@ -1,4 +1,10 @@
+import { DocCloseGuard } from './close-guard'
 import { ScriptFonts } from './script-fonts'
+import {
+  captureRecoveryAttrs,
+  RECOVERY_SNAPSHOT_EVENT,
+  recoverySnapshotListener,
+} from './recovery-snapshot'
 import { MultiSelect } from './multi-select'
 import { Editor, Extension, Node } from '@tiptap/core'
 import { SHAPE_INLINE_WRAP } from './floating-z-order'
@@ -4437,7 +4443,7 @@ export const DocNestedTable = Node.create({
       }
       render()
 
-      const commit = () => {
+      const commit = (event?: Event) => {
         const model = currentNode.attrs.model as TableModel | null
         if (!model) return
         const tds = ownTds()
@@ -4456,10 +4462,11 @@ export const DocNestedTable = Node.create({
             return next
           }),
         )
-        dirty.clear()
         if (!changed) return
         const pos = getPos()
         if (typeof pos !== 'number') return
+        if (captureRecoveryAttrs(event, pos, { model: { ...model, rows } })) return
+        dirty.clear()
         editor.view.dispatch(
           editor.view.state.tr.setNodeMarkup(pos, undefined, { model: { ...model, rows } }),
         )
@@ -4472,6 +4479,8 @@ export const DocNestedTable = Node.create({
       }
       dom.addEventListener('focusout', onFocusOut)
       window.addEventListener('ai-docs-commit-tables', commit)
+      const recoveryListener = recoverySnapshotListener(commit)
+      window.addEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
       editor.on('update', applyEditable)
 
       return {
@@ -4494,6 +4503,7 @@ export const DocNestedTable = Node.create({
         },
         destroy: () => {
           window.removeEventListener('ai-docs-commit-tables', commit)
+          window.removeEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
           editor.off('update', applyEditable)
         },
       }
@@ -6188,7 +6198,7 @@ function wireTableEditing(
     if (td) dirty.add(td)
   })
 
-  const commit = () => {
+  const commit = (event?: Event) => {
     const current = getNode()
     const model = current.attrs.table as TableModel
     const domTds = Array.from(dom.querySelectorAll('td'))
@@ -6205,10 +6215,11 @@ function wireTableEditing(
         return { ...cell, paras }
       }),
     )
-    dirty.clear()
     if (!changed) return
     const pos = getPos()
     if (typeof pos !== 'number') return
+    if (captureRecoveryAttrs(event, pos, { table: { ...model, rows } })) return
+    dirty.clear()
     view.dispatch(
       view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, table: { ...model, rows } }),
     )
@@ -6220,10 +6231,15 @@ function wireTableEditing(
     commit()
   })
   window.addEventListener('ai-docs-commit-tables', commit)
+  const recoveryListener = recoverySnapshotListener(commit)
+  window.addEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
   return {
     setEditable,
     commit,
-    cleanup: () => window.removeEventListener('ai-docs-commit-tables', commit),
+    cleanup: () => {
+      window.removeEventListener('ai-docs-commit-tables', commit)
+      window.removeEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
+    },
   }
 }
 
@@ -6262,9 +6278,8 @@ function wireFieldEditing(
   const markDirty = () => {
     dirty = true
   }
-  const commit = () => {
+  const commit = (event?: Event) => {
     if (!dirty) return
-    dirty = false
     const current = getNode()
     const currentField = current.attrs.fieldDisplay as FieldDisplay | null
     if (!currentField) return
@@ -6284,6 +6299,8 @@ function wireFieldEditing(
     if (JSON.stringify(next) === JSON.stringify(currentField)) return
     const pos = getPos()
     if (typeof pos !== 'number') return
+    if (captureRecoveryAttrs(event, pos, { fieldDisplay: next })) return
+    dirty = false
     view.dispatch(
       view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, fieldDisplay: next }),
     )
@@ -6291,6 +6308,8 @@ function wireFieldEditing(
   for (const target of targets) target.addEventListener('keydown', preventProtectedLineBreak)
   dom.addEventListener('input', markDirty)
   window.addEventListener('ai-docs-commit-tables', commit)
+  const recoveryListener = recoverySnapshotListener(commit)
+  window.addEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
   return {
     setEditable,
     commit,
@@ -6298,6 +6317,7 @@ function wireFieldEditing(
       for (const target of targets) target.removeEventListener('keydown', preventProtectedLineBreak)
       dom.removeEventListener('input', markDirty)
       window.removeEventListener('ai-docs-commit-tables', commit)
+      window.removeEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
     },
   }
 }
@@ -6357,9 +6377,8 @@ function wireFormulaEditing(
   const markDirty = () => {
     dirty = true
   }
-  const commit = () => {
+  const commit = (event?: Event) => {
     if (!dirty) return
-    dirty = false
     const current = getNode()
     const currentFormula = current.attrs.formulaDisplay as FormulaDisplay | null
     if (!currentFormula || currentFormula.tokens.length !== targets.length) return
@@ -6377,11 +6396,21 @@ function wireFormulaEditing(
     if (current.attrs.genXml) {
       attrs.genXml = patchMathTokens(String(current.attrs.genXml), tokens)
     }
+    if (
+      captureRecoveryAttrs(event, pos, {
+        formulaDisplay: nextFormula,
+        ...(current.attrs.genXml ? { genXml: attrs.genXml } : {}),
+      })
+    )
+      return
+    dirty = false
     view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, attrs))
   }
   for (const target of targets) target.addEventListener('keydown', preventProtectedLineBreak)
   dom.addEventListener('input', markDirty)
   window.addEventListener('ai-docs-commit-tables', commit)
+  const recoveryListener = recoverySnapshotListener(commit)
+  window.addEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
   return {
     setEditable,
     commit,
@@ -6389,6 +6418,7 @@ function wireFormulaEditing(
       for (const target of targets) target.removeEventListener('keydown', preventProtectedLineBreak)
       dom.removeEventListener('input', markDirty)
       window.removeEventListener('ai-docs-commit-tables', commit)
+      window.removeEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
     },
   }
 }
@@ -6580,7 +6610,7 @@ function mountTextboxEditors(
     }
   }
 
-  const commit = () => {
+  const commit = (event?: Event) => {
     const current = getNode()
     const model = current.attrs.textboxes as TextboxDisplay[] | null
     if (!model) return
@@ -6607,6 +6637,7 @@ function mountTextboxEditors(
     if (!changed) return
     const pos = getPos()
     if (typeof pos !== 'number') return
+    if (captureRecoveryAttrs(event, pos, { textboxes: next })) return
     knownBoxes = next
     view.dispatch(
       view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, textboxes: next }),
@@ -6639,8 +6670,11 @@ function mountTextboxEditors(
     commit()
   })
   window.addEventListener('ai-docs-commit-tables', commit)
+  const recoveryListener = recoverySnapshotListener(commit)
+  window.addEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
   const cleanup = () => {
     window.removeEventListener('ai-docs-commit-tables', commit)
+    window.removeEventListener(RECOVERY_SNAPSHOT_EVENT, recoveryListener)
     for (const frame of resizeFrames) {
       if (frame !== undefined) cancelAnimationFrame(frame)
     }
@@ -7539,6 +7573,7 @@ export const TextboxListRenumber = Extension.create({
 
 /** shared with the main editor: same mark names, so ribbon commands route 1:1 */
 export const textboxSubExtensions = [
+  DocCloseGuard,
   Node.create({ name: 'doc', topNode: true, content: 'block+' }),
   DocText,
   DocHardBreak,
@@ -7623,6 +7658,7 @@ export const AutoLinkOnDelimiter = Extension.create({
 })
 
 export const editorExtensions = [
+  DocCloseGuard,
   StreamingTailGuardExtension,
   ScriptFonts,
   DocDocument,

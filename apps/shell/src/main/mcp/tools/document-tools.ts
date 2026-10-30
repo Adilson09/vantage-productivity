@@ -1,3 +1,4 @@
+import type { CloseCleanupStatus } from '../../../../../../packages/electron-utils/src/close-cleanup'
 import { existsSync } from 'node:fs'
 import { basename, extname, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
@@ -63,6 +64,11 @@ export interface DocsControl {
   openBlankTab: () => Promise<number>
   /** run one editor command in that tab and resolve its result */
   runCommand: (wcId: number, command: McpEditorCommandName, payload: unknown) => Promise<unknown>
+  /** Internal held-lease completion; never replace with an awaited removal. */
+  prepareDiscardClose?: (wcId: number, sourcePath: string | null) => Promise<unknown>
+  completeSaveClose?: (wcId: number, lease: unknown, close: () => boolean) => boolean
+  cancelSaveClose?: (wcId: number, lease: unknown) => void
+  closeCleanup?: (wcId: number, lease: unknown) => Promise<CloseCleanupStatus | undefined>
 }
 
 const DOCX_EXT = `.${generateExtension('docx')}`

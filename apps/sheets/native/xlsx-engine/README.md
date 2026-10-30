@@ -6,17 +6,17 @@ layers preserve the existing interface and workbook package design.
 
 ## Modules and desktop integration
 
-| Module | Responsibility |
-| --- | --- |
-| `transaction.rs` | Typed operations, whole-batch validation, bounded input overlays, canonical command hashing. |
-| `session.rs` | One in-process writer per workbook ID, revisions, immutable snapshots, command replay, persistence-before-publication. |
-| `snapshot.rs` | Stable worksheet IDs, entered-input overlays, and SDK coordinate types. |
-| `store.rs` | Desktop SQLite recovery, revision fencing, and durable command receipts. Excluded on `wasm32`. |
-| `edit_backend.rs` | Source-byte fingerprints, store binding, workbook lifetimes, and calculation leases. |
-| `recalc.rs` | Resident IronCalc models and formula evaluation against a complete input overlay. |
-| `protocol.rs` | Versioned JSON-lines requests and asynchronous calculation responses. |
-| `workbook.rs`, `worksheet.rs`, related readers | Streaming import, indexing, and existing workbook metadata/features. |
-| `archive.rs` | Native ZIP publication that copies untouched compressed members. |
+| Module                                         | Responsibility                                                                                                         |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `transaction.rs`                               | Typed operations, whole-batch validation, bounded input overlays, canonical command hashing.                           |
+| `session.rs`                                   | One in-process writer per workbook ID, revisions, immutable snapshots, command replay, persistence-before-publication. |
+| `snapshot.rs`                                  | Stable worksheet IDs, entered-input overlays, and SDK coordinate types.                                                |
+| `store.rs`                                     | Desktop SQLite recovery, revision fencing, and durable command receipts. Excluded on `wasm32`.                         |
+| `edit_backend.rs`                              | Source-byte fingerprints, store binding, workbook lifetimes, and calculation leases.                                   |
+| `recalc.rs`                                    | Resident IronCalc models and formula evaluation against a complete input overlay.                                      |
+| `protocol.rs`                                  | Versioned JSON-lines requests and asynchronous calculation responses.                                                  |
+| `workbook.rs`, `worksheet.rs`, related readers | Streaming import, indexing, and existing workbook metadata/features.                                                   |
+| `archive.rs`                                   | Native ZIP publication that copies untouched compressed members.                                                       |
 
 The desktop main process routes the existing Rust calculation fallback through
 `open_edit_session`, `apply_transaction`, and `recalc_snapshot`. It serializes a
@@ -78,7 +78,16 @@ Open an input authority. The host supplies stable sheet IDs matching its import
 metadata; the backend hashes the actual source bytes:
 
 ```json
-{"version":1,"requestId":"open-1","command":"open_edit_session","apiVersion":1,"workbookId":"book-7","sourcePath":"C:/Documents/book.xlsx","storePath":"C:/LocalData/Spreadsheet/book-7.sqlite","sheets":[{"id":"sheet-1","name":"Sheet1"}]}
+{
+  "version": 1,
+  "requestId": "open-1",
+  "command": "open_edit_session",
+  "apiVersion": 1,
+  "workbookId": "book-7",
+  "sourcePath": "C:/Documents/book.xlsx",
+  "storePath": "C:/LocalData/Spreadsheet/book-7.sqlite",
+  "sheets": [{ "id": "sheet-1", "name": "Sheet1" }]
+}
 ```
 
 The result contains `apiVersion`, `workbookId`, `revision`,
@@ -88,13 +97,35 @@ Omit `storePath` for memory-only operation.
 Commit one atomic batch against the expected revision:
 
 ```json
-{"version":1,"requestId":"apply-1","command":"apply_transaction","apiVersion":1,"workbookId":"book-7","commandId":"command-51","expectedRevision":0,"actor":"desktop","operations":[{"type":"set_cell","sheetId":"sheet-1","row":0,"column":0,"input":"21"}]}
+{
+  "version": 1,
+  "requestId": "apply-1",
+  "command": "apply_transaction",
+  "apiVersion": 1,
+  "workbookId": "book-7",
+  "commandId": "command-51",
+  "expectedRevision": 0,
+  "actor": "desktop",
+  "operations": [{ "type": "set_cell", "sheetId": "sheet-1", "row": 0, "column": 0, "input": "21" }]
+}
 ```
 
 Example durable receipt:
 
 ```json
-{"version":1,"requestId":"apply-1","ok":true,"result":{"apiVersion":1,"workbookId":"book-7","commandId":"command-51","revision":1,"changed":1,"durable":true}}
+{
+  "version": 1,
+  "requestId": "apply-1",
+  "ok": true,
+  "result": {
+    "apiVersion": 1,
+    "workbookId": "book-7",
+    "commandId": "command-51",
+    "revision": 1,
+    "changed": 1,
+    "durable": true
+  }
+}
 ```
 
 Supported operations are `set_cell`, `clear_range`, and `replace_inputs`.
@@ -145,6 +176,14 @@ directly to a legacy read without translating its ends.
   immutable command receipt. A conditional prior-revision check fences stale
   writers. The commit completes before the Rust session publishes its revision
   or acknowledges `durable: true`. This relies on the OS/storage honoring flushes.
+- The session indexes command IDs for replay and outcome lookup. The SQLite
+  and memory stores append one new receipt without cloning or scanning prior
+  receipts on each edit. SQLite recovery still reads and validates the full
+  receipt sequence once when reopening a workbook; receipt history remains in
+  session memory. Each commit also validates and writes the complete current
+  input overlay, so this is not a constant-cost edit or a measured latency claim.
+  Custom stores that implement only `load` and `commit` retain the compatible
+  full-candidate fallback until they implement the optional append path.
 - Recovery binds a workbook ID to the source SHA-256 and sheet descriptors.
   Identical source bytes can move to a different cache path. Changed source or
   sheet identity is rejected rather than silently merging unrelated inputs.

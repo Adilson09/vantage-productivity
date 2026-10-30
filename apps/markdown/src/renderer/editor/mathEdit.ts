@@ -1,3 +1,9 @@
+import {
+  markdownCloseStamp,
+  mutateMarkdown,
+  publishMarkdownCloseState,
+  registerMarkdownPendingSurface,
+} from '../close-lease'
 import katex from 'katex'
 import type { Editor } from '@tiptap/core'
 import { t } from '../i18n/locale'
@@ -28,7 +34,11 @@ function closeActive(): void {
  * click. Applying an empty input deletes the node.
  */
 export function openMathEditor(editor: Editor, options: OpenMathOptions): void {
+  mutateMarkdown(() => openMathEditorUntracked(editor, options))
+}
+function openMathEditorUntracked(editor: Editor, options: OpenMathOptions): void {
   closeActive()
+  const source = markdownCloseStamp().source
   const { pos, anchor } = options
   const node = pos === null ? null : editor.state.doc.nodeAt(pos)
   const isBlock = node ? node.type.name === 'blockMath' : true
@@ -50,6 +60,17 @@ export function openMathEditor(editor: Editor, options: OpenMathOptions): void {
   input.placeholder = t('mathPlaceholder')
   input.value = String(node?.attrs.latex ?? '')
   input.spellcheck = false
+  const initialLatex = input.value
+  let composing = false
+  let releaseSurface: (() => void) | null = null
+  input.addEventListener('compositionstart', () => {
+    composing = true
+    publishMarkdownCloseState()
+  })
+  input.addEventListener('compositionend', () => {
+    composing = false
+    publishMarkdownCloseState()
+  })
 
   const preview = document.createElement('div')
   preview.className = 'md-math-preview'
@@ -65,15 +86,17 @@ export function openMathEditor(editor: Editor, options: OpenMathOptions): void {
     del.className = 'md-math-delete'
     del.textContent = t('blockDelete')
     del.addEventListener('click', () => {
-      const target = targetNode()
-      if (target) {
-        editor
-          .chain()
-          .focus()
-          .deleteRange({ from: pos, to: pos + target.nodeSize })
-          .run()
-      }
-      close()
+      mutateMarkdown(() => {
+        const target = targetNode()
+        if (target) {
+          editor
+            .chain()
+            .focus()
+            .deleteRange({ from: pos, to: pos + target.nodeSize })
+            .run()
+        }
+        close()
+      }, source)
     })
     row.appendChild(del)
   }
@@ -87,29 +110,34 @@ export function openMathEditor(editor: Editor, options: OpenMathOptions): void {
     }
     katex.render(latex, preview, { throwOnError: false, displayMode: isBlock })
   }
-  input.addEventListener('input', renderPreview)
+  input.addEventListener('input', () => {
+    mutateMarkdown(renderPreview, source)
+  })
 
   const applyLatex = (): void => {
-    const latex = input.value.trim()
-    if (pos === null) {
-      if (latex) editor.chain().focus().insertBlockMath({ latex }).run()
-    } else {
-      const target = targetNode()
-      if (target) {
-        if (!latex) {
-          editor
-            .chain()
-            .focus()
-            .deleteRange({ from: pos, to: pos + target.nodeSize })
-            .run()
-        } else if (target.type.name === 'blockMath') {
-          editor.chain().focus().updateBlockMath({ latex, pos }).run()
-        } else {
-          editor.chain().focus().updateInlineMath({ latex, pos }).run()
+    if (composing) return
+    mutateMarkdown(() => {
+      const latex = input.value.trim()
+      if (pos === null) {
+        if (latex) editor.chain().focus().insertBlockMath({ latex }).run()
+      } else {
+        const target = targetNode()
+        if (target) {
+          if (!latex) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange({ from: pos, to: pos + target.nodeSize })
+              .run()
+          } else if (target.type.name === 'blockMath') {
+            editor.chain().focus().updateBlockMath({ latex, pos }).run()
+          } else {
+            editor.chain().focus().updateInlineMath({ latex, pos }).run()
+          }
         }
       }
-    }
-    close()
+      close()
+    }, source)
   }
   apply.addEventListener('click', applyLatex)
 
@@ -139,13 +167,26 @@ export function openMathEditor(editor: Editor, options: OpenMathOptions): void {
   const close = (): void => {
     document.removeEventListener('pointerdown', onPointerDown, true)
     editor.off('transaction', onTransaction)
+    releaseSurface?.()
+    releaseSurface = null
     pop.remove()
+    publishMarkdownCloseState()
     if (activePop?.el === pop) activePop = null
   }
 
   pop.append(input, preview, row)
   document.body.appendChild(pop)
   activePop = { el: pop, dispose: close }
+  releaseSurface = registerMarkdownPendingSurface({
+    pending: () => input.value !== initialLatex,
+    composing: () => composing,
+    flush: () => {
+      if (composing) return false
+      applyLatex()
+      return activePop?.el !== pop
+    },
+  })
+  publishMarkdownCloseState()
 
   // position below the anchor, clamped to the viewport — measured only after
   // the preview has rendered, so a tall formula flips above the anchor

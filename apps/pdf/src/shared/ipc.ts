@@ -4,7 +4,40 @@ import type { AiSettings, AiStreamChunk, AiStreamRequest } from '@vantage/ai-pro
 import type { PrintDuplex, PrintJobOptions, PrinterInfo } from '@vantage/electron-utils/print-job'
 export type { PrintDuplex, PrintJobOptions, PrinterInfo }
 
+import type {
+  PdfSourceRead,
+  PdfDraftActivation,
+  PdfDraftSnapshotRequest,
+  PdfWorkspaceSaveProof,
+  PdfCopyReceipt,
+  PdfSaveFallbackRequest,
+  PdfSaveFallbackResult,
+} from './pdf-workspace'
+import type {
+  PdfCloseRequest,
+  PdfClosePrepared,
+  PdfCloseRelease,
+  PdfCloseState,
+} from './pdf-workspace'
+import type { CloseLeaseTicket } from '@vantage/electron-utils/close-lease'
+
 export const PDF_CHANNELS = {
+  readSource: 'pdf:workspace-read-source',
+  activateDraft: 'pdf:workspace-activate',
+  writeDraft: 'pdf:workspace-snapshot',
+  discardDraft: 'pdf:workspace-discard',
+  retryDraftCleanup: 'pdf:workspace-cleanup-retry',
+  acknowledgeCopy: 'pdf:workspace-copy-ack',
+  forkAfterSave: 'pdf:workspace-save-fallback',
+  draftRetired: 'pdf:workspace-retired',
+  requestWorkspaceCopy: 'pdf:workspace-copy-request',
+  closePrepare: 'pdf:close-prepare',
+  closePrepared: 'pdf:close-prepared',
+  closeClaim: 'pdf:close-claim',
+  closeCancel: 'pdf:close-cancel',
+  closeRelease: 'pdf:close-release',
+  closeStateRequest: 'pdf:close-state-request',
+  closeStateResponse: 'pdf:close-state-response',
   consumePending: 'pdf:consume-pending',
   readFile: 'pdf:read-file',
   save: 'pdf:save',
@@ -700,6 +733,10 @@ export interface BlankPageInput {
 
 export interface SavePdfRequest {
   path: string
+  /** Background publication must defer while a main native close prompt is unresolved. */
+  automaticSave?: boolean
+  workspaceProof?: PdfWorkspaceSaveProof
+  closeTicket?: CloseLeaseTicket
   /**
    * Save As destination. When set, `path` is only read (source bytes) and the edited PDF
    * is written to this path instead — the original file must never be mutated.
@@ -778,11 +815,13 @@ export interface PdfAutoRenameResult {
 export type SavePdfResult =
   | {
       ok: true
+      copyReceipt?: PdfCopyReceipt
+      warning?: string
       skippedTextEdits?: TextEditFailure[]
       skippedTextInserts?: TextInsertFailure[]
       skippedImageEdits?: ImageEditFailure[]
     }
-  | { ok: false; error: string }
+  | { ok: false; error: string; deferred?: boolean }
 
 /** Dry-run matching for pending text edits against the file on disk (no mutation) */
 export interface ValidateTextEditsRequest {
@@ -953,12 +992,38 @@ export interface ImageSearchResponse {
 
 /** API exposed by preload to the renderer (window.pdfApi) */
 export interface PdfApi {
+  claimClose(ticket: CloseLeaseTicket): Promise<boolean>
+  cancelClose(ticket: CloseLeaseTicket, reason: string): Promise<void>
+  onClosePrepare(handler: (request: PdfCloseRequest) => void): () => void
+  sendClosePrepared(response: PdfClosePrepared): void
+  onCloseRelease(handler: (response: PdfCloseRelease) => void): () => void
+  onCloseStateRequest(handler: (id: string) => void): () => void
+  sendCloseState(id: string, state: PdfCloseState): void
+  readSource(path: string, closeTicket?: CloseLeaseTicket): Promise<PdfSourceRead>
+  activateDraft(readId: string, unjournaledPath?: string): Promise<PdfDraftActivation>
+  retryDraftCleanup(): Promise<void>
+  forkAfterSave(request: PdfSaveFallbackRequest): Promise<PdfSaveFallbackResult>
+  writeDraft(request: PdfDraftSnapshotRequest): Promise<{ ok: true; skipped?: boolean }>
+  discardDraft(token: string): Promise<void>
+  acknowledgeCopy(request: {
+    token: string
+    copyId: string
+    state: ArrayBuffer
+    sequence: number
+  }): Promise<void>
+  onDraftRetired(
+    handler: (value: {
+      token: string
+      reason: 'discarded' | 'checkpoint' | 'redacted' | 'close'
+    }) => void,
+  ): () => void
+  requestWorkspaceCopy(path: string): Promise<boolean>
   /** Take the pdf path pending for this view (queued at tab creation); null if none */
   consumePending(): Promise<string | null>
   /** open any shell-routed document path (an AI answer's filenav citation) */
   openSourcePath(path: string): Promise<void>
   /** Read pdf bytes. Only paths granted to this view are allowed */
-  readFile(path: string): Promise<ArrayBuffer>
+  readFile(path: string, closeTicket?: CloseLeaseTicket): Promise<ArrayBuffer>
   /** Pick a second document for Compare and read its per-page text (the pick is
       main-side; no grant and no bytes travel to the render side) */
   compareReadPdf(): Promise<

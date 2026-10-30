@@ -40,6 +40,7 @@ import {
   type PictureAnchor,
 } from './picture-paste'
 import { startSheetShapeDraw } from './shape-draw'
+import { enqueueWorkbookMutation } from './workbook-mutation-queue'
 import {
   a1RangeRef,
   a1RowRangeRef,
@@ -58,6 +59,8 @@ import {
 
 /** The App refs/state the visual-insert actions need; built fresh per call. */
 export interface VisualActionContext {
+  /** The real source-bound producer gate; delayed gesture commits enter it at mouseup. */
+  runAuthored?<T>(action: () => T | Promise<T>): Promise<T>
   adapterRef: { readonly current: InMemoryWorkbookAdapter }
   univerRef: { readonly current: UniverRuntime | null }
   lazyWorkbookRef: { current: LazyWorkbookState | null }
@@ -390,11 +393,41 @@ export async function handleInsertPivotChart(
 export function startShapeDraw(ctx: VisualActionContext, shapeType: string): void {
   const runtime = ctx.univerRef.current
   if (!runtime) return
-  if (!ctx.lazyWorkbookRef.current) {
+  const state = ctx.lazyWorkbookRef.current
+  if (!state) {
     ctx.setMessage(t('appShapeNeedsFile'))
     return
   }
-  startSheetShapeDraw(runtime, shapeType, (anchor) => insertShapeAtAnchor(ctx, shapeType, anchor))
+  const workbook = runtime.univerAPI.getActiveWorkbook()
+  const sheetId = workbook?.getActiveSheet()?.getSheetId()
+  if (!workbook || !sheetId) return
+  const unitId = workbook.getId()
+  startSheetShapeDraw(runtime, shapeType, (anchor) => {
+    const acceptedAnchor = { ...anchor }
+    const commit = () => {
+      // Recheck inside the action: a close hold may postpone its execution.
+      if (
+        ctx.univerRef.current !== runtime ||
+        ctx.lazyWorkbookRef.current !== state ||
+        runtime.univerAPI.getActiveWorkbook()?.getId() !== unitId ||
+        runtime.univerAPI.getActiveWorkbook()?.getActiveSheet()?.getSheetId() !== sheetId ||
+        isSheetRemoved(state.editJournal, sheetId)
+      )
+        throw new Error('The accepted shape-drawing target changed before its gesture committed.')
+      insertShapeAtAnchor(ctx, shapeType, acceptedAnchor)
+    }
+    try {
+      if (ctx.runAuthored) {
+        void ctx
+          .runAuthored(commit)
+          .catch((error) =>
+            ctx.setMessage(error instanceof Error ? error.message : t('appShapeNeedsFile')),
+          )
+      } else commit()
+    } catch (error) {
+      ctx.setMessage(error instanceof Error ? error.message : t('appShapeNeedsFile'))
+    }
+  })
 }
 
 /** Insert a gallery shape at an explicit twoCellAnchor (draw-mode commit). */
@@ -662,25 +695,68 @@ export function insertAiShapeVisual(
   queueCtxVisualInstall(ctx, runtime)
 }
 
-export function handleInsertPicture(ctx: VisualActionContext): void {
-  if (!pictureTargetReady(ctx)) return
+export async function handleInsertPicture(ctx: VisualActionContext): Promise<void> {
+  const target = capturePictureTarget(ctx)
+  if (!target) return
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/png,image/jpeg,image/gif'
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (file) handleInsertPictureFile(ctx, file)
-  }
-  input.click()
+  const file = await new Promise<File | null>((resolve) => {
+    let settled = false
+    const finish = (selected: File | null) => {
+      if (settled) return
+      settled = true
+      input.onchange = null
+      input.removeEventListener('cancel', cancel)
+      resolve(selected)
+    }
+    const cancel = () => finish(null)
+    input.onchange = () => finish(input.files?.[0] ?? null)
+    input.addEventListener('cancel', cancel)
+    input.click()
+  })
+  if (!file) return
+  assertPictureTarget(ctx, target)
+  await handleInsertPictureFile(ctx, file, target.anchor)
 }
 
-function pictureTargetReady(ctx: VisualActionContext): boolean {
-  if (!ctx.univerRef.current) return false
-  if (!ctx.lazyWorkbookRef.current) {
+function capturePictureTarget(ctx: VisualActionContext, anchor: PictureAnchor | null = null) {
+  const runtime = ctx.univerRef.current
+  const state = ctx.lazyWorkbookRef.current
+  if (!runtime) return null
+  if (!state) {
     ctx.setMessage(t('appPictureNeedsFile'))
-    return false
+    return null
   }
-  return true
+  const workbook = runtime.univerAPI.getActiveWorkbook()
+  const worksheet = workbook?.getActiveSheet()
+  const range = workbook?.getActiveRange()
+  if (!workbook || !worksheet || !range) {
+    ctx.setMessage(t('appSelectCellFirst'))
+    return null
+  }
+  return {
+    runtime,
+    state,
+    workbookId: workbook.getId(),
+    sheetId: worksheet.getSheetId(),
+    anchor: { row: anchor?.row ?? range.getRow(), column: anchor?.column ?? range.getColumn() },
+  }
+}
+
+function assertPictureTarget(
+  ctx: VisualActionContext,
+  target: NonNullable<ReturnType<typeof capturePictureTarget>>,
+): void {
+  if (
+    ctx.univerRef.current !== target.runtime ||
+    ctx.lazyWorkbookRef.current !== target.state ||
+    target.runtime.univerAPI.getActiveWorkbook()?.getId() !== target.workbookId ||
+    target.runtime.univerAPI.getActiveWorkbook()?.getActiveSheet()?.getSheetId() !==
+      target.sheetId ||
+    isSheetRemoved(target.state.editJournal, target.sheetId)
+  )
+    throw new Error('The accepted picture target changed before its image could be inserted.')
 }
 
 /// Shared by the file picker, clipboard paste and drag-and-drop: validates
@@ -690,33 +766,61 @@ export function handleInsertPictureFile(
   ctx: VisualActionContext,
   file: File,
   anchor: PictureAnchor | null = null,
-): void {
-  if (!pictureTargetReady(ctx)) return
+): Promise<void> {
+  const target = capturePictureTarget(ctx, anchor)
+  if (!target) return Promise.resolve()
   const problem = pictureFileProblem(file)
   if (problem) {
     ctx.setMessage(t(problem === 'too-large' ? 'appPictureTooLarge' : 'appPictureBadType'))
-    return
+    return Promise.resolve()
   }
   const mediaType = pictureMediaType(file.type)
-  const reader = new FileReader()
-  reader.onload = () => {
-    const dataUrl = typeof reader.result === 'string' ? reader.result : null
-    if (!dataUrl) return
-    const image = new Image()
-    image.onload = () =>
-      insertPictureVisual(
-        ctx,
-        dataUrl,
-        mediaType,
-        file.name,
-        image.naturalWidth,
-        image.naturalHeight,
-        anchor,
-      )
-    image.onerror = () => insertPictureVisual(ctx, dataUrl, mediaType, file.name, 480, 320, anchor)
-    image.src = dataUrl
-  }
-  reader.readAsDataURL(file)
+  // Paste/drop callers can discard this return value; the actual producer is
+  // still reserved and its rejection observed until decoding and commit finish.
+  const work = enqueueWorkbookMutation(async () => {
+    assertPictureTarget(ctx, target)
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      const clear = () => {
+        reader.onload = null
+        reader.onerror = null
+        reader.onabort = null
+      }
+      reader.onload = () => {
+        const result = reader.result
+        clear()
+        if (typeof result === 'string') resolve(result)
+        else reject(new Error('The chosen picture could not be read.'))
+      }
+      reader.onerror = () => {
+        clear()
+        reject(new Error('The chosen picture could not be read.'))
+      }
+      reader.onabort = () => {
+        clear()
+        reject(new Error('The chosen picture read was aborted.'))
+      }
+      reader.readAsDataURL(file)
+    })
+    assertPictureTarget(ctx, target)
+    const size = await new Promise<{ width: number; height: number }>((resolve) => {
+      const image = new Image()
+      const finish = (width: number, height: number) => {
+        image.onload = null
+        image.onerror = null
+        resolve({ width, height })
+      }
+      image.onload = () => finish(image.naturalWidth, image.naturalHeight)
+      image.onerror = () => finish(480, 320)
+      image.src = dataUrl
+    })
+    assertPictureTarget(ctx, target)
+    insertPictureVisual(ctx, dataUrl, mediaType, file.name, size.width, size.height, target.anchor)
+  })
+  void work.catch((error) =>
+    ctx.setMessage(error instanceof Error ? error.message : t('appPictureBadType')),
+  )
+  return work
 }
 
 /// Grid cell under a viewport point (drop target), mirroring Univer's own

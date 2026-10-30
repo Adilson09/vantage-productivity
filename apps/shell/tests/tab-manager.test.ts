@@ -1,3 +1,4 @@
+import type { DocsCloseReceipt } from '../../docs/src/main/doc-native-close'
 // Vantage Productivity modification (2026): assert the fork Home title while preserving user filenames.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -92,7 +93,24 @@ vi.mock('electron', () => ({
 const createDocsView = vi.fn(() => makeFakeView())
 const docsQueryDirty = vi.fn(() => Promise.resolve(false))
 const markDocsNewBlank = vi.fn()
-const requestDocsClose = vi.fn(() => Promise.resolve(true))
+const docReceipt: DocsCloseReceipt = {
+  kind: 'lease' as const,
+  intent: 'save' as const,
+  published: false,
+  clean: true,
+  source: 'A',
+  closeLease: {
+    ticket: { id: 'test-close', sequence: 1, source: 'main-A' },
+    stamp: { source: 'renderer-A', revision: '1' },
+  },
+}
+const prepareDocsNativeClose = vi.fn<(...args: unknown[]) => Promise<DocsCloseReceipt | null>>(
+  async () => docReceipt,
+)
+const completeDocsClose = vi.fn((_contents: unknown, _receipt: unknown, remove: () => boolean) =>
+  remove(),
+)
+const cancelDocsClose = vi.fn(async () => {})
 const setActiveDocsResolver = vi.fn()
 const teardownDocsRenderer = vi.fn()
 
@@ -100,7 +118,9 @@ vi.mock('../../docs/src/main/docs-main', () => ({
   createDocsView: (...args: unknown[]) => createDocsView(...(args as [])),
   docsQueryDirty: (...args: unknown[]) => docsQueryDirty(...(args as [])),
   markDocsNewBlank: (...args: unknown[]) => markDocsNewBlank(...args),
-  requestDocsClose: (...args: unknown[]) => requestDocsClose(...(args as [])),
+  prepareDocsNativeClose: (...args: unknown[]) => prepareDocsNativeClose(...args),
+  completeDocsClose: (...args: Parameters<typeof completeDocsClose>) => completeDocsClose(...args),
+  cancelDocsClose: () => cancelDocsClose(),
   setActiveDocsResolver: (...args: unknown[]) => setActiveDocsResolver(...args),
   teardownDocsRenderer: (...args: unknown[]) => teardownDocsRenderer(...args),
 }))
@@ -212,7 +232,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   nextWebContentsId = 1
   docsQueryDirty.mockImplementation(() => Promise.resolve(false))
-  requestDocsClose.mockImplementation(() => Promise.resolve(true))
+  prepareDocsNativeClose.mockImplementation(async () => docReceipt)
+  completeDocsClose.mockImplementation((_contents, _receipt, remove) => remove())
   pdfIsDirty.mockImplementation(() => false)
   sheetsPendingEditCount.mockImplementation(() => 0)
   slidesIsDirty.mockImplementation(() => false)
@@ -299,7 +320,11 @@ describe('opening tabs', () => {
   it('uses module default titles for pathless tabs', () => {
     manager.openSheetsTab()
     manager.openSlidesTab()
-    expect(manager.list().map((t) => t.title)).toEqual(['Vantage Productivity', 'AI Sheets', 'AI Slides'])
+    expect(manager.list().map((t) => t.title)).toEqual([
+      'Vantage Productivity',
+      'AI Sheets',
+      'AI Slides',
+    ])
   })
 
   it('assigns unique, monotonic tab ids', () => {
@@ -619,20 +644,20 @@ describe('closing tabs', () => {
     expect(view.webContents.close).toHaveBeenCalledTimes(1)
   })
 
-  it('closes a clean docs tab after the async dirty query says clean', async () => {
+  it('closes a clean Docs tab only through held actual-removal permission', async () => {
     const id = manager.openDocsTab()
     await manager.closeTab(id)
-    expect(docsQueryDirty).toHaveBeenCalledTimes(1)
-    expect(requestDocsClose).not.toHaveBeenCalled()
+    expect(prepareDocsNativeClose).toHaveBeenCalledTimes(1)
+    expect(completeDocsClose).toHaveBeenCalledTimes(1)
+    expect(cancelDocsClose).toHaveBeenCalledTimes(1)
     expect(manager.list()).toHaveLength(1)
   })
 
   it('keeps a dirty docs tab open when the user cancels the close guard', async () => {
-    docsQueryDirty.mockImplementation(() => Promise.resolve(true))
-    requestDocsClose.mockImplementation(() => Promise.resolve(false))
+    prepareDocsNativeClose.mockResolvedValueOnce(null)
     const id = manager.openDocsTab()
     await manager.closeTab(id)
-    expect(requestDocsClose).toHaveBeenCalledTimes(1)
+    expect(prepareDocsNativeClose).toHaveBeenCalledTimes(1)
     expect(manager.list().map((t) => t.id)).toEqual(['home', id])
   })
 
@@ -1211,5 +1236,15 @@ describe('tab sleep (background renderers released to free memory)', () => {
     await manager.closeTab(a)
     expect(docsQueryDirty).not.toHaveBeenCalled()
     expect(manager.list().some((t) => t.id === a)).toBe(false)
+  })
+})
+
+describe('Docs tab actual-removal fencing', () => {
+  it('does not remove an exact tab whose permission is refused at commit', async () => {
+    completeDocsClose.mockReturnValueOnce(false)
+    const id = manager.openDocsTab()
+    await manager.closeTab(id)
+    expect(manager.list().map((tab) => tab.id)).toContain(id)
+    expect(cancelDocsClose).toHaveBeenCalledTimes(1)
   })
 })

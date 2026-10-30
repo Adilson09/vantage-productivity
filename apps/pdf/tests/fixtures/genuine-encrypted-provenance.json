@@ -1,0 +1,8 @@
+{
+  "sha256": "ba01bcbdc121c9b28ab34c7d1a015f05db732665b1f67cf53508cf1b462b5d6c",
+  "bytes": 15654,
+  "source": "Existing apps/shell/tests/fixtures/testPassword4Spaces.pdf rewritten by pinned qpdf12.4.2",
+  "verification": "Root receipt: pdf-genuine-encrypted-fixture-20261030/receipt.json; correct-password qpdf --check exited0, R4 AESv2, no syntax/encoding errors",
+  "purpose": "Protected exact-base recovery refusal; no password/decrypted recovery capture",
+  "license": "Preserves the source repository test-fixture provenance; no new third-party content"
+}

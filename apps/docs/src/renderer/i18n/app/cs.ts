@@ -544,4 +544,5 @@ export const cs = {
   appMergeSourceLoaded: 'Načteno {name} ({n} záznamů)',
   appMergeWritten: 'Zapsáno dokumentů: {n}',
   appMergeNothingToWrite: 'Není co zapsat',
+  appRecoveryFailed: 'Obnovení konceptu se nezdařilo: {error}',
 } satisfies Record<keyof typeof zh, string>

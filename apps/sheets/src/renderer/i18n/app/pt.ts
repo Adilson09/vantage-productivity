@@ -343,7 +343,7 @@ export const pt = {
   appPivotSheetNoStructural:
     'Esta planilha contém uma Tabela Dinâmica — alterações estruturais ainda não são suportadas.',
   appDeleteSpanFormulas:
-    'Uma fórmula referencia apenas as linhas/colunas excluídas — atualize-a ou remova-a primeiro.',
+    'Uma fórmula não pode ser atualizada com segurança após esta exclusão. Altere ou remova essa fórmula primeiro.',
   appIconSetUnsupported:
     'Esta combinação de ícones não pode ser salva em xlsx — escolha outro conjunto de ícones.',
   appFullLoadFilterTitle: 'Esta ação requer a pasta de trabalho completa',

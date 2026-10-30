@@ -1,3 +1,4 @@
+import { docCloseBarrier, docMutationSource } from '../doc-close-lease'
 import type { Editor } from '@tiptap/core'
 import type { Mark, Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { ChartDisplay, CommentInfo, NewChart, NoteInfo } from '@vantage/docx-engine'
@@ -882,6 +883,7 @@ async function executeAsyncTool(
   call: AgentToolCall,
   signal?: AbortSignal,
 ): Promise<ToolExecution> {
+  const source = docMutationSource()
   switch (call.name) {
     case 'web_search': {
       const query = String(call.input.query ?? '').trim()
@@ -977,7 +979,7 @@ async function executeAsyncTool(
         prompt,
         ...(aspectRatio ? { aspectRatio } : {}),
       })
-      if (signal?.aborted)
+      if (source !== docMutationSource() || signal?.aborted)
         return fail(t('aiSumGenerateImage'), 'stopped by the user; the image was not inserted')
       if (!generated.url) {
         return fail(t('aiSumGenerateImage'), generated.error ?? 'image generation failed')
@@ -1054,6 +1056,7 @@ async function setPictureWatermark(
   signal: AbortSignal | undefined,
   extras: AiDocExtras | undefined,
 ): Promise<ToolExecution> {
+  const mutationSource = docMutationSource()
   const summary = t('aiSumSetWatermark')
   if (!extras?.watermark) return fail(summary, 'the watermark is not available here')
   const url = String(call.input.image).trim()
@@ -1083,6 +1086,8 @@ async function setPictureWatermark(
     heightPx: natural.height,
   })
   if ('error' in resolved) return fail(summary, resolved.error)
+  if (mutationSource !== docMutationSource())
+    return fail(summary, 'The document changed; the watermark was not applied.')
   const error = extras.watermark.set(resolved.spec)
   if (error) return fail(summary, error)
   return {
@@ -1098,6 +1103,7 @@ async function insertPicture(
   call: AgentToolCall,
   signal: AbortSignal | undefined,
 ): Promise<ToolExecution> {
+  const mutationSource = docMutationSource()
   const summary = t('aiSumInsertPicture')
   const url = String(call.input.url ?? '')
   if (!/^https?:\/\/|^data:image\//.test(url))
@@ -1142,6 +1148,8 @@ async function insertPicture(
   if (editedExternally(editor)) return fail(summary, STALE_DOC_ERROR)
   const pos = insertPosition(editor, call.input.afterBlockIndex)
   if ('error' in pos) return fail(summary, pos.error)
+  if (mutationSource !== docMutationSource())
+    return fail(summary, 'The document changed; the picture was not applied.')
   editor.chain().insertContentAt(pos.pos, built.node).run()
   markDocSeen(editor)
   return {
@@ -1159,6 +1167,7 @@ async function insertImageFromUrl(
   signal: AbortSignal | undefined,
   labels: { failLabel: string; doneLabel: string; blockLabel: string },
 ): Promise<ToolExecution> {
+  const mutationSource = docMutationSource()
   const fetched = await window.desktop.fetchImage(url)
   // never write after the user hit stop (the download may resolve long after the abort)
   if (signal?.aborted)
@@ -1186,6 +1195,8 @@ async function insertImageFromUrl(
     // The download can take long: user edits made meanwhile must keep the
     // freshness baseline stale, so only our own insertion may mark the doc
     // seen. Checked right before the write — there is no async gap after.
+    if (mutationSource !== docMutationSource())
+      return fail(labels.failLabel, 'The document changed; the pending image was not applied.')
     const userEditedDuringFetch = editedExternally(editor)
     insertPictureAtSelection(editor, {
       dataUrl,
@@ -1207,6 +1218,63 @@ async function insertImageFromUrl(
 }
 
 export function executeTool(
+  editor: Editor,
+  call: AgentToolCall,
+  numIds: NumIds,
+  track?: AiTrack,
+  signal?: AbortSignal,
+  frozen?: FrozenSelection | null,
+  comments?: AiCommentsAccess,
+  hf?: AiHeaderFooterAccess,
+  writer?: AiDocWriter,
+  pageSetup?: AiPageSetupAccess,
+  extras?: AiDocExtras,
+  notes?: AiNotesAccess,
+): ToolExecution | Promise<ToolExecution> {
+  const source = docMutationSource()
+  const run = () => {
+    if (source !== docMutationSource() || editor.isDestroyed || signal?.aborted)
+      return fail(
+        t('aiSumUnknownTool'),
+        'The document changed or this writer was stopped before its edit could begin.',
+      )
+    if (
+      ![
+        'get_document_context',
+        'read_blocks',
+        'web_search',
+        'image_search',
+        'analyze_media',
+      ].includes(call.name)
+    )
+      docCloseBarrier.mutate(() => {}, source)
+    return executeToolUnlocked(
+      editor,
+      call,
+      numIds,
+      track,
+      signal,
+      frozen,
+      comments,
+      hf,
+      writer,
+      pageSetup,
+      extras,
+      notes,
+    )
+  }
+  if (
+    call.name === 'get_document_context' ||
+    call.name === 'read_blocks' ||
+    call.name === 'web_search' ||
+    call.name === 'image_search' ||
+    call.name === 'analyze_media'
+  )
+    return run()
+  return docCloseBarrier.runMutationWork(run, source)
+}
+
+function executeToolUnlocked(
   editor: Editor,
   call: AgentToolCall,
   numIds: NumIds,
@@ -1260,6 +1328,7 @@ async function writeDocument(
   signal: AbortSignal | undefined,
   writer: AiDocWriter | undefined,
 ): Promise<ToolExecution> {
+  const mutationSource = docMutationSource()
   const summary = t('aiSumWriteDocument')
   const plan = String(call.input.plan ?? '').trim()
   if (!plan) return fail(summary, 'plan must not be empty')
@@ -1297,6 +1366,8 @@ async function writeDocument(
   } finally {
     rendered = draft.finish()
   }
+  if (mutationSource !== docMutationSource())
+    return fail(summary, 'The document changed; the pending draft was not applied.')
   if (editor.isDestroyed) return fail(summary, 'the document was closed')
   if (!result.ok || !result.html) {
     return fail(

@@ -11,6 +11,7 @@ import type {
   DocTheme,
   ExportFormat,
   MarkdownApi,
+  MarkdownSaveTicket,
   SaveMode,
   UiTheme,
 } from '../shared/ipc'
@@ -31,11 +32,14 @@ const api: MarkdownApi = {
   headlessExportDone: (result: { ok: boolean; error?: string }) =>
     ipcRenderer.send(MARKDOWN_CHANNELS.headlessExportDone, result),
   readFile: (path) => ipcRenderer.invoke(MARKDOWN_CHANNELS.readFile, path),
+  readPublication: (path) => ipcRenderer.invoke(MARKDOWN_CHANNELS.readPublication, path),
+  publicationLoaded: (request) => ipcRenderer.send(MARKDOWN_CHANNELS.publicationLoaded, request),
   save: (request) => ipcRenderer.invoke(MARKDOWN_CHANNELS.save, request),
-  setDirty: (dirty) => ipcRenderer.send(MARKDOWN_CHANNELS.dirtyChanged, dirty),
+  setDirty: (dirty, stamp) => ipcRenderer.send(MARKDOWN_CHANNELS.dirtyChanged, dirty, stamp),
   writeDraft: (text) => ipcRenderer.invoke(MARKDOWN_CHANNELS.writeDraft, text),
   onSaveRequest: (handler) => {
-    const listener = (_e: Electron.IpcRendererEvent, mode: SaveMode) => handler(mode)
+    const listener = (_e: Electron.IpcRendererEvent, mode: SaveMode, request: MarkdownSaveTicket) =>
+      handler(mode, request)
     ipcRenderer.on(MARKDOWN_CHANNELS.saveRequest, listener)
     return () => ipcRenderer.removeListener(MARKDOWN_CHANNELS.saveRequest, listener)
   },
@@ -46,6 +50,18 @@ const api: MarkdownApi = {
   },
   sendCloseSaveResult: (ok) => ipcRenderer.send(MARKDOWN_CHANNELS.closeSaveResult, ok),
   sendSaveRequestAck: (ok) => ipcRenderer.send(MARKDOWN_CHANNELS.saveRequestAck, ok),
+  closeSourceState: (state) => ipcRenderer.send(MARKDOWN_CHANNELS.closeSourceState, state),
+  claimCloseLease: (ticket) => ipcRenderer.invoke(MARKDOWN_CHANNELS.closeLeaseClaim, ticket),
+  cancelCloseLease: (ticket, reason) =>
+    ipcRenderer.invoke(MARKDOWN_CHANNELS.closeLeaseCancel, ticket, reason),
+  onCloseLeaseRelease: (handler) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+    ) => handler(ticket)
+    ipcRenderer.on(MARKDOWN_CHANNELS.closeLeaseRelease, listener)
+    return () => ipcRenderer.removeListener(MARKDOWN_CHANNELS.closeLeaseRelease, listener)
+  },
   onReadTextRequest: (handler) => {
     const listener = () => handler()
     ipcRenderer.on(MARKDOWN_CHANNELS.readTextRequest, listener)
@@ -63,7 +79,7 @@ const api: MarkdownApi = {
     return () => ipcRenderer.removeListener(MARKDOWN_CHANNELS.fileChangedOnDisk, listener)
   },
   ackFileChangedOnDisk: () => ipcRenderer.send(MARKDOWN_CHANNELS.ackFileChangedOnDisk),
-  pickImage: () => ipcRenderer.invoke(MARKDOWN_CHANNELS.pickImage),
+  pickImage: (source) => ipcRenderer.invoke(MARKDOWN_CHANNELS.pickImage, source),
   saveImage: (data) => ipcRenderer.invoke(MARKDOWN_CHANNELS.saveImage, data),
   readImage: (src) => ipcRenderer.invoke(MARKDOWN_CHANNELS.readImage, src),
   saveImageAs: (src) => ipcRenderer.invoke(MARKDOWN_CHANNELS.saveImageAs, src),

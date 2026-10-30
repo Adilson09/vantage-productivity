@@ -14,6 +14,8 @@
     "native:build": "cargo build --release --locked --manifest-path native/xlsx-engine/Cargo.toml --config native/xlsx-engine/.cargo/config.toml",
     "native:build:universal": "node scripts/build-sidecar-universal.mjs",
     "native:test": "cargo test --release --locked --manifest-path native/xlsx-engine/Cargo.toml --config native/xlsx-engine/.cargo/config.toml",
+    "backend:host": "tsx scripts/spreadsheet-backend-host.ts",
+    "backend:bundle": "node scripts/build-document-backend.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run native:test && npm run native:build && vitest run",
     "test:watch": "vitest",

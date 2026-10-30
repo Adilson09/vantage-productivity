@@ -1,3 +1,5 @@
+import { publishSelectedUserOutput } from '@vantage/electron-utils/user-output-publication'
+import { slidesOwnedHandle } from './slides-owned-ipc'
 /**
  * AI IPC for the slides main process, extracted from slides-main.ts:
  * settings persistence, the streaming proxy (main process does the networking
@@ -12,7 +14,6 @@ import {
   readFileSync,
   renameSync,
   statSync,
-  writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -121,12 +122,12 @@ function appendRunFailure(entry: AiRunFailure): void {
 }
 
 export function registerAiIpc(): void {
-  app.once('before-quit', shutdownCodexAppServers)
+  app.once('will-quit', shutdownCodexAppServers)
   // Node fetch (undici) direct connections get reset under VPN/tun setups; retry over Chromium's stack
   setRescueFetch((url, init) => net.fetch(url, init))
   setAiUserAgent(`Vantage/${app.getVersion()}`)
 
-  ipcMain.handle('ai:get-settings', (): AiSettings => {
+  slidesOwnedHandle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {})
     const settings = resolveAiSettings(stored, defaultAiSettings())
     // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
@@ -135,7 +136,7 @@ export function registerAiIpc(): void {
   })
 
   // Genspark account (gsk login state): the auth source for AI features; when logged out the frontend uses this to guide login
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:gsk-status',
     async (_event, withEmail?: boolean): Promise<GenSparkAccountStatus> => {
       if (!hasGskAuth()) return { loggedIn: false }
@@ -148,11 +149,11 @@ export function registerAiIpc(): void {
   // a 401 on the gsk key opens the device-code login once (vantage-auth recovery)
   setVantageLoginOpener((url) => void shell.openExternal(url))
 
-  ipcMain.handle('ai:gsk-login', () => {
+  slidesOwnedHandle('ai:gsk-login', () => {
     ensureVantageLogin((url) => void shell.openExternal(url))
   })
 
-  ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
+  slidesOwnedHandle('ai:set-settings', (_event, settings: AiSettings) => {
     // SECURITY.md: payloads are schema-checked in the main process. The settings
     // file feeds cliPath into spawn() and baseUrl receives the gsk bearer token,
     // so the renderer's copy is sanitized before it touches disk.
@@ -166,11 +167,11 @@ export function registerAiIpc(): void {
       if (!wc.isDestroyed()) wc.send('ai:settings-changed')
   })
 
-  ipcMain.handle('ai:log-run-failure', (_event, entry: AiRunFailure) => {
+  slidesOwnedHandle('ai:log-run-failure', (_event, entry: AiRunFailure) => {
     appendRunFailure(entry)
   })
 
-  ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {
+  slidesOwnedHandle('ai:stream', async (event, request: AiStreamRequest) => {
     // per-request settings get the same schema check as the persisted ones: a
     // compromised renderer could otherwise hand cliPath/baseUrl straight to
     // the provider layer without ever touching the settings file
@@ -301,12 +302,12 @@ export function registerAiIpc(): void {
     }
   })
 
-  ipcMain.handle('ai:stream-cancel', (_event, requestId: string) => {
+  slidesOwnedHandle('ai:stream-cancel', (_event, requestId: string) => {
     activeAiStreams.get(requestId)?.abort()
   })
 
   // Search tools (content + images), Serper with DuckDuckGo fallback
-  ipcMain.handle('ai:web-search', async (_event, query: string, maxResults?: number) => {
+  slidesOwnedHandle('ai:web-search', async (_event, query: string, maxResults?: number) => {
     try {
       return await webSearchTool(
         AI_SETTINGS_PATH(),
@@ -318,7 +319,7 @@ export function registerAiIpc(): void {
     }
   })
 
-  ipcMain.handle('ai:image-search', async (_event, query: string, maxResults?: number) => {
+  slidesOwnedHandle('ai:image-search', async (_event, query: string, maxResults?: number) => {
     try {
       return await imageSearchTool(
         AI_SETTINGS_PATH(),
@@ -338,7 +339,7 @@ export function registerAiIpc(): void {
 // "No handler registered".
 export function registerSlidesOnlyAiIpc(): void {
   // gsk (Genspark CLI) capabilities: AI image generation / media analysis. Returns an error prompt when not logged in.
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:generate-image',
     async (
       event,
@@ -371,7 +372,7 @@ export function registerSlidesOnlyAiIpc(): void {
     },
   )
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:analyze-media',
     async (event, op: { mediaUrls: string[]; requirements: string }) => {
       return analyzeMediaTool(
@@ -406,7 +407,7 @@ export function registerSlidesOnlyAiIpc(): void {
   }
 
   // Download an image from a URL and insert it into the given page (image search -> insert in one step; download in the main process avoids CORS)
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:insert-image-url',
     async (
       e,
@@ -484,7 +485,7 @@ export function registerSlidesOnlyAiIpc(): void {
 
   // Download an image from a URL and swap it into an existing picture in place
   // (frame/z-order/effects survive). Same URL hardening as ai:insert-image-url.
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:replace-picture-url',
     async (
       e,
@@ -555,7 +556,7 @@ export function registerSlidesOnlyAiIpc(): void {
   )
 
   // ── Style Skill sidecar persistence: write a same-named .styleskill.json next to the draft (fail-open)
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:save-sidecar',
     async (
       event,
@@ -566,7 +567,19 @@ export function registerSlidesOnlyAiIpc(): void {
         const draftPath = session?.path
         if (!draftPath || !draftPath.endsWith('.pptx')) return { ok: false }
         const sidecarPath = draftPath.replace(/\.pptx$/i, '.styleskill.json')
-        writeFileSync(sidecarPath, JSON.stringify(data, null, 2))
+        const assertCurrent = () => {
+          if (
+            event.sender.isDestroyed() ||
+            sessions.get(event.sender.id) !== session ||
+            session.path !== draftPath
+          )
+            throw new Error('The presentation source changed before sidecar publication.')
+        }
+        await publishSelectedUserOutput(
+          sidecarPath,
+          async () => Buffer.from(JSON.stringify(data, null, 2), 'utf8'),
+          { sourcePaths: [draftPath], assertCurrent },
+        )
         return { ok: true }
       } catch {
         return { ok: false }
@@ -577,7 +590,7 @@ export function registerSlidesOnlyAiIpc(): void {
   // ── Style template save: stored in userData/style-templates/<name>.json
   const STYLE_TEMPLATES_DIR = () => join(app.getPath('userData'), 'style-templates')
 
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:save-style-template',
     async (
       _event,
@@ -599,7 +612,7 @@ export function registerSlidesOnlyAiIpc(): void {
   )
 
   // ── Style template list
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:list-style-templates',
     (): Array<{ name: string; topic: string; createdAt: string }> => {
       try {
@@ -632,7 +645,7 @@ export function registerSlidesOnlyAiIpc(): void {
   )
 
   // ── Style template load
-  ipcMain.handle(
+  slidesOwnedHandle(
     'ai:load-style-template',
     (
       _event,

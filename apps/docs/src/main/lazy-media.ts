@@ -7,7 +7,9 @@ import { DOCX_MEDIA_SCHEME_PRIVILEGE } from '@vantage/electron-utils'
 import { takeHandoff } from './byte-handoff'
 import {
   LAZY_MEDIA_SCHEME,
+  LAZY_MEDIA_PLACEHOLDER_BYTES,
   isLazyMediaPart,
+  lazyMediaHashOf,
   parseLazyMediaUrl,
 } from '@vantage/docx-engine/lazy-media'
 import {
@@ -194,15 +196,92 @@ async function sourceZip(hash: string): Promise<ZipFile | null> {
  *  plus the hashes those placeholders named */
 export async function materializeLazyDocx(
   bytes: Buffer,
+  options?: { strict: true; ownerId: number; maxReferencedBytes: number },
 ): Promise<{ bytes: Buffer; hashes: Set<string> }> {
-  const hashes = await lazyMediaHashesIn(bytes).catch(() => new Set<string>())
+  const hashes = options?.strict
+    ? await lazyMediaHashesIn(bytes)
+    : await lazyMediaHashesIn(bytes).catch(() => new Set<string>())
   if (hashes.size === 0) return { bytes, hashes }
+  if (
+    options &&
+    (!Number.isSafeInteger(options.maxReferencedBytes) ||
+      options.maxReferencedBytes < 1 ||
+      options.maxReferencedBytes > 16 * 1024 * 1024)
+  )
+    throw new Error('Invalid draft media budget')
+  let remaining = options?.maxReferencedBytes ?? Infinity
   const opened = new Map<string, Promise<ZipFile | null>>()
-  const full = await materializeDocx(bytes, (hash) => {
+  const sourceFor = (hash: string): Promise<ZipFile | null> => {
     let zip = opened.get(hash)
-    if (!zip) opened.set(hash, (zip = sourceZip(hash)))
+    if (!zip) {
+      zip = (async () => {
+        const source = sources.get(hash)
+        if (options && (!source || !source.owners.has(options.ownerId)))
+          throw new Error('Draft media is unavailable for this document view')
+        const memory = source?.bytes
+        const before = options && source && !memory ? await stat(source.path) : null
+        const result = await sourceZip(hash)
+        if (!result || !options || !source) return result
+        const unchanged = async () => {
+          if (sources.get(hash) !== source || !source.owners.has(options.ownerId)) return false
+          if (memory) return source.bytes === memory
+          if (source.bytes) return false
+          const current = await stat(source.path)
+          return (
+            current.size === before!.size &&
+            current.mtimeMs === before!.mtimeMs &&
+            current.ctimeMs === before!.ctimeMs &&
+            current.ino === before!.ino
+          )
+        }
+        if (!(await unchanged())) throw new Error('Draft media changed while preparing recovery')
+        return {
+          ...result,
+          read: async (offset, length) => {
+            if (!Number.isSafeInteger(length) || length < 0 || length > remaining)
+              throw new Error('The complete draft media exceeds its 16 MiB recovery budget')
+            remaining -= length
+            if (!(await unchanged()))
+              throw new Error('Draft media changed while preparing recovery')
+            const part = await result.read(offset, length)
+            if (!(await unchanged()))
+              throw new Error('Draft media changed while preparing recovery')
+            return part
+          },
+        }
+      })()
+      opened.set(hash, zip)
+    }
     return zip
-  })
+  }
+  if (options) {
+    // writeZip emits these exact local/central headers. Count every final
+    // part before borrowing media or concatenating the complete package;
+    // a small renderer ZIP can otherwise expand beyond the journal's cap.
+    let completeSize = 22
+    const input = bufferSource(bytes)
+    for (const entry of await readZipEntries(input)) {
+      let compressedSize = entry.csize
+      if (entry.usize === LAZY_MEDIA_PLACEHOLDER_BYTES) {
+        const raw = await input.read(entry.dataOffset, entry.csize)
+        // lazyMediaHashesIn already validates actual/declared sizes. Keep
+        // this second decoding bounded as well, even for a forged archive.
+        const plain =
+          entry.method === 0 ? raw : inflateRawSync(raw, { maxOutputLength: entry.usize })
+        const hash = lazyMediaHashOf(plain)
+        if (hash) {
+          const source = await sourceFor(hash)
+          const original = source?.entries.get(entry.name)
+          if (!original) throw new Error(`Draft media is unavailable for ${entry.name}`)
+          compressedSize = original.csize
+        }
+      }
+      completeSize += 76 + entry.nameBytes.length * 2 + compressedSize
+      if (completeSize > options.maxReferencedBytes)
+        throw new Error('The complete draft media exceeds its 16 MiB recovery budget')
+    }
+  }
+  const full = await materializeDocx(bytes, sourceFor)
   return { bytes: full, hashes }
 }
 

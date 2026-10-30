@@ -10,7 +10,7 @@ import { BrowserWindow, dialog } from 'electron'
 
 import { isHeadlessMode, showSaveDialogWithMemory } from '@vantage/electron-utils'
 
-import { atomicWriteFile } from './atomic-write'
+import { publishSelectedUserOutput } from '@vantage/electron-utils/user-output-publication'
 import { evenPageRanges, stitchPlan, type PageVariant } from './pdf-page-variants'
 import { printOptionsFor } from './print-options'
 
@@ -38,21 +38,25 @@ export async function exportPdf(
       : await showSaveDialogWithMemory(dialog, parent, dialogOptions)
   if (selection.canceled || !selection.filePath) return { canceled: true }
 
-  const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-pdf-'))
-  const htmlPath = join(workDir, 'print.html')
-  const window = new BrowserWindow({
-    show: false,
-    webPreferences: { sandbox: true, javascript: false },
-  })
+  let workDir: string | undefined
+  let window: BrowserWindow | undefined
   try {
-    await writeFile(htmlPath, request.html, 'utf8')
-    await window.loadFile(htmlPath)
-    const pdf = await renderPdf(window.webContents, request)
-    await atomicWriteFile(selection.filePath, pdf)
+    await publishSelectedUserOutput(selection.filePath, async () => {
+      workDir = await mkdtemp(join(tmpdir(), 'ai-excel-pdf-'))
+      const htmlPath = join(workDir, 'print.html')
+      const renderingWindow = new BrowserWindow({
+        show: false,
+        webPreferences: { sandbox: true, javascript: false },
+      })
+      window = renderingWindow
+      await writeFile(htmlPath, request.html, 'utf8')
+      await renderingWindow.loadFile(htmlPath)
+      return renderPdf(renderingWindow.webContents, request)
+    })
     return { canceled: false, path: selection.filePath }
   } finally {
-    window.destroy()
-    await rm(workDir, { recursive: true, force: true })
+    window?.destroy()
+    if (workDir) await rm(workDir, { recursive: true, force: true })
   }
 }
 

@@ -1,3 +1,4 @@
+import { slidesActionApi, slidesActionWait, slidesActionWork } from './slides-action-ownership'
 /**
  * Table editing actions extracted from App.tsx: row/column
  * structure, merge/split, resize, cell text commit and Tab navigation.
@@ -7,6 +8,7 @@ import type { EditParagraph } from '../shared/ipc'
 import type { ActionCtx } from './action-context'
 import { FIT_WIDTH } from './app-constants'
 import { t } from './i18n/locale'
+import { slidesRecoveryClient } from './slides-recovery'
 
 export async function tableStructureOp(
   ctx: ActionCtx,
@@ -15,24 +17,29 @@ export async function tableStructureOp(
   index: number,
   before?: boolean,
 ): Promise<void> {
-  const r = await window.slidesApi.tableStructure({
-    slideIndex: ctx.current,
-    sourceId,
-    kind,
-    index,
-    ...(before ? { before: true } : {}),
-  })
-  if (r) {
-    ctx.applySlide(ctx.current, r.slide)
-    ctx.setSelectedIds([r.sourceId])
-    ctx.setEditingCell(null)
-  } else {
-    ctx.setStatus(
-      kind.startsWith('delete')
-        ? t('appStatusTableDeleteLimit')
-        : t('appStatusTableMergedUnsupported'),
+  return slidesActionWork(ctx, async () => {
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).tableStructure({
+        slideIndex: ctx.current,
+        sourceId,
+        kind,
+        index,
+        ...(before ? { before: true } : {}),
+      }),
     )
-  }
+    if (r) {
+      ctx.applySlide(ctx.current, r.slide)
+      ctx.setSelectedIds([r.sourceId])
+      ctx.setEditingCell(null)
+    } else {
+      ctx.setStatus(
+        kind.startsWith('delete')
+          ? t('appStatusTableDeleteLimit')
+          : t('appStatusTableMergedUnsupported'),
+      )
+    }
+  })
 }
 
 export async function tableMergeOp(
@@ -42,20 +49,25 @@ export async function tableMergeOp(
   row: number,
   col: number,
 ): Promise<void> {
-  const r = await window.slidesApi.tableMerge({
-    slideIndex: ctx.current,
-    sourceId,
-    kind,
-    row,
-    col,
+  return slidesActionWork(ctx, async () => {
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).tableMerge({
+        slideIndex: ctx.current,
+        sourceId,
+        kind,
+        row,
+        col,
+      }),
+    )
+    if (r) {
+      ctx.applySlide(ctx.current, r.slide)
+      ctx.setSelectedIds([r.sourceId])
+      ctx.setEditingCell(null)
+    } else {
+      ctx.setStatus(t('appStatusMergeFailed'))
+    }
   })
-  if (r) {
-    ctx.applySlide(ctx.current, r.slide)
-    ctx.setSelectedIds([r.sourceId])
-    ctx.setEditingCell(null)
-  } else {
-    ctx.setStatus(t('appStatusMergeFailed'))
-  }
 }
 
 export async function onTableColResize(
@@ -64,14 +76,19 @@ export async function onTableColResize(
   col: number,
   wPx: number,
 ): Promise<void> {
-  const updated = await window.slidesApi.setTableColWidth({
-    slideIndex: ctx.current,
-    sourceId,
-    col,
-    wPx,
-    fitWidthPx: FIT_WIDTH,
+  return slidesActionWork(ctx, async () => {
+    const updated = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).setTableColWidth({
+        slideIndex: ctx.current,
+        sourceId,
+        col,
+        wPx,
+        fitWidthPx: FIT_WIDTH,
+      }),
+    )
+    if (updated) ctx.applySlide(ctx.current, updated)
   })
-  if (updated) ctx.applySlide(ctx.current, updated)
 }
 
 export async function onTableRowResize(
@@ -80,27 +97,41 @@ export async function onTableRowResize(
   row: number,
   hPx: number,
 ): Promise<void> {
-  const updated = await window.slidesApi.setTableRowHeight({
-    slideIndex: ctx.current,
-    sourceId,
-    row,
-    hPx,
-    fitWidthPx: FIT_WIDTH,
+  return slidesActionWork(ctx, async () => {
+    const updated = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).setTableRowHeight({
+        slideIndex: ctx.current,
+        sourceId,
+        row,
+        hPx,
+        fitWidthPx: FIT_WIDTH,
+      }),
+    )
+    if (updated) ctx.applySlide(ctx.current, updated)
   })
-  if (updated) ctx.applySlide(ctx.current, updated)
 }
 
 export async function commitCellEdit(ctx: ActionCtx, paragraphs: EditParagraph[]): Promise<void> {
-  if (!ctx.editingCell) return
-  const updated = await window.slidesApi.editTableCell({
-    slideIndex: ctx.current,
-    sourceId: ctx.editingCell.sourceId,
-    row: ctx.editingCell.row,
-    col: ctx.editingCell.col,
-    paragraphs,
+  return slidesActionWork(ctx, async () => {
+    if (!ctx.editingCell) return
+    const recovery = slidesRecoveryClient()
+    const ticket = recovery?.beginSave()
+    const updated = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).editTableCell({
+        slideIndex: ctx.current,
+        sourceId: ctx.editingCell.sourceId,
+        row: ctx.editingCell.row,
+        col: ctx.editingCell.col,
+        paragraphs,
+      }),
+    )
+    if (ticket && recovery && !recovery.isCurrent(ticket)) return
+    if (updated) ctx.applySlide(ctx.current, updated)
+    else throw new Error('Table text changes could not be applied; the cell editor was kept open.')
+    ctx.setEditingCell(null)
   })
-  if (updated) ctx.applySlide(ctx.current, updated)
-  ctx.setEditingCell(null)
 }
 
 /** Cell Tab/Shift+Tab: commit the current cell (if content changed) and jump to the next/previous cell;
@@ -110,42 +141,50 @@ export async function navigateCell(
   paragraphs: EditParagraph[] | null,
   dir: 1 | -1,
 ): Promise<void> {
-  const { editingCell, slide, current } = ctx
-  if (!editingCell || !slide) return
-  const tbl = slide.nodes.find((n) => n.sourceId === editingCell.sourceId)
-  if (!tbl || tbl.type !== 'table') return
-  if (paragraphs) {
-    const updated = await window.slidesApi.editTableCell({
-      slideIndex: current,
-      sourceId: editingCell.sourceId,
-      row: editingCell.row,
-      col: editingCell.col,
-      paragraphs,
-    })
-    if (updated) ctx.applySlide(current, updated)
-  }
-  const cells = [...tbl.cells].sort((a, b) => a.row - b.row || a.col - b.col)
-  const idx = cells.findIndex((c) => c.row === editingCell.row && c.col === editingCell.col)
-  const next = cells[idx + dir]
-  if (next) {
-    ctx.setEditingCell({ sourceId: editingCell.sourceId, row: next.row, col: next.col })
-    return
-  }
-  if (dir > 0) {
-    // Tab on the last cell: add a row and enter its first cell
-    const lastRow = Math.max(...cells.map((c) => c.row))
-    const r = await window.slidesApi.tableStructure({
-      slideIndex: current,
-      sourceId: editingCell.sourceId,
-      kind: 'insert-row',
-      index: lastRow,
-    })
-    if (r) {
-      ctx.applySlide(current, r.slide)
-      ctx.setSelectedIds([r.sourceId])
-      const firstCol = Math.min(...cells.filter((c) => c.row === lastRow).map((c) => c.col))
-      ctx.setEditingCell({ sourceId: r.sourceId, row: lastRow + 1, col: firstCol })
+  return slidesActionWork(ctx, async () => {
+    const { editingCell, slide, current } = ctx
+    if (!editingCell || !slide) return
+    const tbl = slide.nodes.find((n) => n.sourceId === editingCell.sourceId)
+    if (!tbl || tbl.type !== 'table') return
+    if (paragraphs) {
+      const updated = await slidesActionWait(
+        ctx,
+        slidesActionApi(ctx).editTableCell({
+          slideIndex: current,
+          sourceId: editingCell.sourceId,
+          row: editingCell.row,
+          col: editingCell.col,
+          paragraphs,
+        }),
+      )
+      if (updated) ctx.applySlide(current, updated)
     }
-  }
-  // Shift+Tab on the first cell: stay in place
+    const cells = [...tbl.cells].sort((a, b) => a.row - b.row || a.col - b.col)
+    const idx = cells.findIndex((c) => c.row === editingCell.row && c.col === editingCell.col)
+    const next = cells[idx + dir]
+    if (next) {
+      ctx.setEditingCell({ sourceId: editingCell.sourceId, row: next.row, col: next.col })
+      return
+    }
+    if (dir > 0) {
+      // Tab on the last cell: add a row and enter its first cell
+      const lastRow = Math.max(...cells.map((c) => c.row))
+      const r = await slidesActionWait(
+        ctx,
+        slidesActionApi(ctx).tableStructure({
+          slideIndex: current,
+          sourceId: editingCell.sourceId,
+          kind: 'insert-row',
+          index: lastRow,
+        }),
+      )
+      if (r) {
+        ctx.applySlide(current, r.slide)
+        ctx.setSelectedIds([r.sourceId])
+        const firstCol = Math.min(...cells.filter((c) => c.row === lastRow).map((c) => c.col))
+        ctx.setEditingCell({ sourceId: r.sourceId, row: lastRow + 1, col: firstCol })
+      }
+    }
+    // Shift+Tab on the first cell: stay in place
+  })
 }

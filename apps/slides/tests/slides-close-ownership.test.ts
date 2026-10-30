@@ -1,0 +1,100 @@
+// @vitest-environment node
+import { describe, expect, it, vi } from 'vitest'
+import { SlidesSessionOwnership } from '../src/main/slides-session-ownership'
+function deferred() {
+  let done!: () => void
+  const promise = new Promise<void>((resolve) => {
+    done = resolve
+  })
+  return { promise, done }
+}
+function fixture() {
+  const source = {},
+    peer = {},
+    sources = new Map([
+      [1, source],
+      [2, source],
+    ]),
+    identities = new Map([
+      [1, 'renderer:A'],
+      [2, 'renderer:B'],
+    ]),
+    changed = vi.fn()
+  const ownership = new SlidesSessionOwnership({
+    source: (owner) => sources.get(owner),
+    identity: (owner) => identities.get(owner) ?? '',
+    changed,
+  })
+  return { source, peer, sources, identities, ownership, changed }
+}
+describe('actual main shared Session ownership', () => {
+  it('revokes a peer close before accepting shared model work', () => {
+    const f = fixture()
+    f.ownership.run(2, () => f.ownership.assert(f.source))
+    expect(f.changed).toHaveBeenCalledWith(f.source)
+    expect(f.ownership.revision(f.source)).toBeGreaterThan(0)
+  })
+  it('keeps asynchronous decode/finalizer work busy through real settlement', async () => {
+    const f = fixture(),
+      gate = deferred(),
+      finalizer = deferred()
+    const work = f.ownership.run(1, async () => {
+      try {
+        await gate.promise
+      } finally {
+        await finalizer.promise
+      }
+    })
+    expect(f.ownership.busy(f.source)).toBe(true)
+    gate.done()
+    await Promise.resolve()
+    expect(f.ownership.busy(f.source)).toBe(true)
+    finalizer.done()
+    await work
+    expect(f.ownership.busy(f.source)).toBe(false)
+  })
+  it('refuses a late old source continuation while its peer model survives', async () => {
+    const f = fixture(),
+      gate = deferred()
+    const work = f.ownership.run(1, async () => {
+      await gate.promise
+      f.ownership.assert(f.source)
+    })
+    f.sources.set(1, f.peer)
+    const refused = expect(work).rejects.toThrow('changed')
+    gate.done()
+    await refused
+    expect(f.sources.get(2)).toBe(f.source)
+  })
+  it('refuses a pre-navigation continuation even when Session and path are unchanged', async () => {
+    const f = fixture(),
+      gate = deferred()
+    const work = f.ownership.run(1, async () => {
+      await gate.promise
+      f.ownership.assert(f.source)
+    })
+    f.identities.set(1, 'replacement-page')
+    const refused = expect(work).rejects.toThrow('changed')
+    gate.done()
+    await refused
+  })
+  it('refuses replacing a deck after a peer accepted a newer edit during the read', async () => {
+    const f = fixture(),
+      gate = deferred()
+    const work = f.ownership.run(1, async () => {
+      await gate.promise
+      f.ownership.adopt(1, f.peer)
+      f.sources.set(1, f.peer)
+    })
+    f.ownership.run(2, () => f.ownership.assert(f.source))
+    const refused = expect(work).rejects.toThrow('Newer')
+    gate.done()
+    await refused
+    expect(f.sources.get(1)).toBe(f.source)
+  })
+  it('keeps a read query from invalidating a held close', () => {
+    const f = fixture()
+    f.ownership.run(1, () => 42, true)
+    expect(f.changed).not.toHaveBeenCalled()
+  })
+})

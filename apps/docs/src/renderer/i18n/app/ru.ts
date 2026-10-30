@@ -550,4 +550,5 @@ export const ru = {
   appMergeSourceLoaded: 'Загружено {name} (записей: {n})',
   appMergeWritten: 'Записано документов: {n}',
   appMergeNothingToWrite: 'Нечего записывать',
+  appRecoveryFailed: 'Не удалось сохранить черновик для восстановления: {error}',
 } satisfies Record<keyof typeof zh, string>

@@ -1,8 +1,10 @@
+import type { AtomicFileVersion } from '@vantage/electron-utils/atomic-write'
+import type { UserOutputSourceProof } from '@vantage/electron-utils/user-output-publication'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 // Vantage Productivity: preserve existing PDF destinations and capture their previous version.
-import { atomicWriteFile } from '@vantage/electron-utils/atomic-write'
+import { publishSelectedUserOutput } from '@vantage/electron-utils/user-output-publication'
 import type { ExportPdfLink, ExportPdfPage } from '../shared/ipc'
 
 export interface PdfExportWindow {
@@ -15,6 +17,9 @@ export interface PdfExportWindow {
 }
 
 export interface ExportSlidesPdfOptions {
+  /** Main-only selected receipt fields, never adopted from the renderer payload. */
+  selectedVersion?: Readonly<AtomicFileVersion> | null
+  sourceProof?: UserOutputSourceProof
   pages: ExportPdfPage[]
   widthPx: number
   heightPx: number
@@ -139,6 +144,8 @@ export const PDF_EXPORT_TIMEOUT_MS = 300_000
 /** Export rendered slide pages via an app-owned temporary HTML file. */
 export async function exportSlidesPdf({
   pages,
+  selectedVersion,
+  sourceProof,
   widthPx,
   heightPx,
   filePath,
@@ -148,45 +155,57 @@ export async function exportSlidesPdf({
   openExportedPdf,
   timeoutMs = PDF_EXPORT_TIMEOUT_MS,
 }: ExportSlidesPdfOptions): Promise<ExportSlidesPdfResult> {
-  // PDF page size: fixed 7.5in height, width by slide ratio (16:9 -> 13.333in, 4:3 -> 10in)
   const heightIn = PDF_EXPORT_HEIGHT_IN
   const widthIn = exportPageWidthIn(widthPx, heightPx)
-  const win = createWindow()
+  let win: PdfExportWindow | undefined
   let tempDir: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    tempDir = await mkdtemp(join(tmpdir(), 'vantage-slides-pdf-'))
-    const htmlPath = join(tempDir, 'slides.html')
-    await writeFile(htmlPath, buildPdfExportHtml(pages, widthIn, heightIn, links, fontCss), 'utf8')
-    const result = await Promise.race([
-      (async (): Promise<ExportSlidesPdfResult> => {
-        await win.loadFile(htmlPath)
-        await win.webContents.executeJavaScript(PRINT_READY_SCRIPT, true)
-        const pdf = await win.webContents.printToPDF({
-          landscape: false, // The page size is already landscape (width > height); passing landscape would rotate a second time
-          printBackground: true,
-          pageSize: { width: widthIn, height: heightIn },
-          margins: { top: 0, bottom: 0, left: 0, right: 0 },
-          preferCSSPageSize: false,
-        })
-        await atomicWriteFile(filePath, pdf)
-        openExportedPdf(filePath)
-        return { ok: true, path: filePath }
-      })(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`slides PDF export timed out after ${timeoutMs}ms`)),
-          timeoutMs,
+    await publishSelectedUserOutput(
+      filePath,
+      async () => {
+        // Selected identity is pinned before renderer creation or materialization.
+        const renderingWindow = createWindow()
+        win = renderingWindow
+        tempDir = await mkdtemp(join(tmpdir(), 'vantage-slides-pdf-'))
+        const htmlPath = join(tempDir, 'slides.html')
+        await writeFile(
+          htmlPath,
+          buildPdfExportHtml(pages, widthIn, heightIn, links, fontCss),
+          'utf8',
         )
-      }),
-    ])
-    return result
+        // The loser can only produce bytes, never publish a file after timeout.
+        // Once real publication starts it remains awaited through actual settlement.
+        return Promise.race([
+          (async (): Promise<Buffer> => {
+            await renderingWindow.loadFile(htmlPath)
+            await renderingWindow.webContents.executeJavaScript(PRINT_READY_SCRIPT, true)
+            return renderingWindow.webContents.printToPDF({
+              landscape: false,
+              printBackground: true,
+              pageSize: { width: widthIn, height: heightIn },
+              margins: { top: 0, bottom: 0, left: 0, right: 0 },
+              preferCSSPageSize: false,
+            })
+          })(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`slides PDF export timed out after ${timeoutMs}ms`)),
+              timeoutMs,
+            )
+          }),
+        ])
+      },
+      { ...sourceProof, afterPublished: () => openExportedPdf(filePath) },
+      selectedVersion,
+    )
+    return { ok: true, path: filePath }
   } catch (err) {
     return { ok: false, error: String(err) }
   } finally {
     if (timer) clearTimeout(timer)
     try {
-      win.destroy()
+      win?.destroy()
     } finally {
       if (tempDir) await rm(tempDir, { recursive: true, force: true })
     }

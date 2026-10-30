@@ -35,6 +35,36 @@
         "https://www.libreoffice.org/about-us/licenses/",
         "https://github.com/qpdf/qpdf"
       ]
+    },
+    {
+      "name": "Moment",
+      "package": "moment",
+      "version": "2.30.1",
+      "use": "Pinned dependency of the local IANA timezone provider; no machine-specific timezone lookup or remote service",
+      "license": "MIT",
+      "modified": false,
+      "source": "https://registry.npmjs.org/moment/-/moment-2.30.1.tgz",
+      "upstream": "https://github.com/moment/moment",
+      "integrity": "sha512-uEmtNhbDOrWPFS+hdjFCBfy9f2YoyzRpwcl+DqpC6taX21FzsTLQVbMV/W7PzNSX6x/bhC1zA3c2UQ5NzH6how==",
+      "licenseSha256": "8f38f320bbf5eb84c08e08676f7ee1d2204ebe5797f6a090d077329cf212fca3",
+      "distribution": "Retain the complete MIT license and attribution in generated third-party notices. The canonical unmodified source archive is identified above."
+    },
+    {
+      "name": "Moment-Timezone",
+      "package": "moment-timezone",
+      "version": "0.6.6",
+      "dataVersion": "2026f",
+      "zoneNamesAndAliases": 597,
+      "use": "Full published IANA timezone transition data and local wall-time resolution through a Vantage adapter for ICAL.js; embedded document definitions remain authoritative",
+      "license": "MIT",
+      "modified": false,
+      "source": "https://registry.npmjs.org/moment-timezone/-/moment-timezone-0.6.6.tgz",
+      "upstream": "https://github.com/moment/moment-timezone",
+      "integrity": "sha512-LF5AAYsMduXFW2ungr/D9JqNq9ykZyhWgYG6wFtdGZW5ZlBDTBgTUFqW8EC7Fa+Dvs3IMZxlWkSR09sW2D/+0w==",
+      "dataFile": "data/packed/latest.json",
+      "dataSha256": "3103c5c0eaa879615da630b74e2373ad9b571e0eae992e0b2a3db6e4475de2ce",
+      "licenseSha256": "b3a550795f41cdccdb5eb2523505ce54dc4a7a3e0d3a6d457d297591341795e7",
+      "distribution": "Retain the complete MIT license and attribution. Include the pinned data version in calendar diagnostics and retain this source/integrity record; later political timezone changes require a deliberate data update."
     }
   ]
 }

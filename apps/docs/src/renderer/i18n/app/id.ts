@@ -547,4 +547,5 @@ export const id = {
   appMergeSourceLoaded: '{name} dimuat ({n} record)',
   appMergeWritten: '{n} dokumen ditulis',
   appMergeNothingToWrite: 'Tidak ada yang ditulis',
+  appRecoveryFailed: 'Pemulihan draf gagal: {error}',
 } satisfies Record<keyof typeof zh, string>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { useI18n } from './i18n/locale'
 import { useModalDialog } from './modal-dialog'
@@ -30,20 +30,42 @@ export function PivotDialog({
   readonly hasFields: boolean
   readonly sourceRange: string
   /// Returns an error message, or null on success.
-  readonly onCreate: (request: PivotCreateRequest) => string | null
+  readonly onCreate: (request: PivotCreateRequest) => string | null | Promise<string | null>
   readonly onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const [targetCell, setTargetCell] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const modal = useModalDialog(onClose)
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
+  const close = (): void => {
+    if (!pendingRef.current) onClose()
+  }
+  const create = async (): Promise<void> => {
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setPending(true)
+    setError(null)
+    try {
+      const failure = await onCreate({ sourceRange, targetCell: targetCell.trim() || 'A1' })
+      setError(failure)
+      if (failure === null) onClose()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      pendingRef.current = false
+      setPending(false)
+    }
+  }
+  const modal = useModalDialog(close)
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
+    <div className="dialog-backdrop" onClick={close}>
       <div
         className="format-cells-dialog pivot-dialog"
         role="dialog"
         {...modal}
         aria-label={t('dlgPivotCreateTitle')}
+        aria-busy={pending}
         style={{ minWidth: 380 }}
         onClick={(event) => event.stopPropagation()}
       >
@@ -63,6 +85,7 @@ export function PivotDialog({
                 className="cell-input"
                 placeholder={t('dlgPivotTargetPlaceholder')}
                 value={targetCell}
+                disabled={pending}
                 onChange={(event) => setTargetCell(event.target.value.toUpperCase())}
                 style={{ width: 80 }}
               />
@@ -76,18 +99,11 @@ export function PivotDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button className="secondary" onClick={onClose}>
+          <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
           {hasFields && (
-            <button
-              className="primary-action"
-              onClick={() => {
-                const failure = onCreate({ sourceRange, targetCell: targetCell.trim() || 'A1' })
-                if (failure !== null) setError(failure)
-                else onClose()
-              }}
-            >
+            <button className="primary-action" disabled={pending} onClick={() => void create()}>
               {t('dlgCreate')}
             </button>
           )}

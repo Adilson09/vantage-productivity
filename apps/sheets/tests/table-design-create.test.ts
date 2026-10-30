@@ -53,7 +53,7 @@ describe('Create Table completion signal', () => {
     const { runtime, state, activated } = fakeSheet(10)
     const created = vi.fn()
     const messages: string[] = []
-    handleTableDesignCommand(
+    await handleTableDesignCommand(
       {
         univerRef: { current: runtime },
         lazyWorkbookRef: { current: state },
@@ -75,7 +75,7 @@ describe('Create Table completion signal', () => {
     const { handleTableDesignCommand } = await import('../src/renderer/table-design-actions')
     const { runtime, state } = fakeSheet(10)
     const created = vi.fn()
-    handleTableDesignCommand(
+    await handleTableDesignCommand(
       {
         univerRef: { current: runtime },
         lazyWorkbookRef: { current: state },

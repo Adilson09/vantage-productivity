@@ -555,4 +555,5 @@ export const nl = {
   appMergeSourceLoaded: '{name} geladen ({n} records)',
   appMergeWritten: '{n} documenten geschreven',
   appMergeNothingToWrite: 'Er is niets te schrijven',
+  appRecoveryFailed: 'Herstel van het concept is mislukt: {error}',
 } satisfies Record<keyof typeof zh, string>

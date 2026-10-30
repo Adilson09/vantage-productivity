@@ -1,6 +1,7 @@
 /// Univer glue for the sheet-tab context menu. Every structural change goes
 /// through the stock sheet commands so the mutation listener in App journals
 /// it (insert/remove/order/hidden/tab-color) exactly like the ribbon paths.
+import type { WorkbookAuthoredAdmission } from './workbook-authored-admission'
 import { IConfirmService } from '@univerjs/core'
 
 import { t } from './i18n/locale'
@@ -29,7 +30,7 @@ export interface SheetTabActions {
   insertBefore(id: string): Promise<void>
   /// Resolves true only when the user confirmed and the sheets were removed.
   remove(ids: readonly string[]): Promise<boolean>
-  rename(id: string): void
+  rename(id: string): Promise<void>
   moveOrCopy(ids: readonly string[], beforeId: string | null, copy: boolean): Promise<void>
   setTabColor(ids: readonly string[], hex: string | null): Promise<void>
   hide(ids: readonly string[]): Promise<void>
@@ -41,6 +42,7 @@ export function createSheetTabActions(deps: {
   readonly univerRef: { readonly current: UniverRuntime | null }
   readonly lazyWorkbookRef: { readonly current: LazyWorkbookState | null }
   readonly notify: (message: string) => void
+  readonly admission?: WorkbookAuthoredAdmission
 }): SheetTabActions {
   const workbook = () => deps.univerRef.current?.univerAPI.getActiveWorkbook() ?? null
   const run = async (id: string, params: object): Promise<boolean> => {
@@ -70,7 +72,7 @@ export function createSheetTabActions(deps: {
     }
   }
 
-  return {
+  const actions: SheetTabActions = {
     listSheets() {
       const file = deps.lazyWorkbookRef.current?.file
       return (
@@ -124,8 +126,8 @@ export function createSheetTabActions(deps: {
       for (const id of ids) removed = (await run(REMOVE_SHEET, { subUnitId: id })) || removed
       return removed
     },
-    rename(id) {
-      void run(RENAME_SHEET, { subUnitId: id })
+    async rename(id) {
+      await run(RENAME_SHEET, { subUnitId: id })
     },
     async moveOrCopy(ids, beforeId, copy) {
       if (!copy) {
@@ -154,4 +156,24 @@ export function createSheetTabActions(deps: {
     },
     notify: deps.notify,
   }
+  if (!deps.admission) return actions
+  const wrapped = { ...actions }
+  for (const key of [
+    'activate',
+    'insertBefore',
+    'remove',
+    'rename',
+    'moveOrCopy',
+    'setTabColor',
+    'hide',
+    'show',
+  ] as const) {
+    const action = actions[key] as (...args: unknown[]) => Promise<unknown>
+    const target = wrapped as unknown as Record<string, (...args: unknown[]) => unknown>
+    target[key] = (...args: unknown[]) => {
+      const accepted = structuredClone(args)
+      return deps.admission!.runAsync(() => action(...accepted))
+    }
+  }
+  return wrapped
 }

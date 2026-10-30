@@ -1,3 +1,15 @@
+import { CloseMutationBarrier } from '../../../../packages/electron-utils/src/renderer-close-barrier'
+import { MarkdownCloseTransactionGuard } from './editor/close-lease-guard'
+import {
+  bindMarkdownCloseBarrier,
+  beforeMarkdownMutation,
+  flushMarkdownPendingSurfaces,
+  hasMarkdownPendingSurface,
+  installMarkdownCloseInputFence,
+  markdownCloseStamp,
+  mutateMarkdown,
+  runMarkdownAsyncMutation,
+} from './close-lease'
 import {
   captureMarkdownSource,
   roundTripMarkdownEnabled,
@@ -13,10 +25,7 @@ import {
   useAutoSavePref,
   useAiSidebarEnabled,
 } from '@vantage/ui'
-import {
-  pollUntilReady,
-  runHeadlessRendererExport,
-} from '@vantage/electron-utils/headless-export'
+import { pollUntilReady, runHeadlessRendererExport } from '@vantage/electron-utils/headless-export'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { FindPanel, type FindFocusRequest, type FindPanelStrings } from '@vantage/ui'
 import type { Editor } from '@tiptap/core'
@@ -49,6 +58,7 @@ import { dirOf, setImageBaseDir, VIEW_IMAGE_EVENT } from './editor/localImage'
 import { Ribbon } from './components/Ribbon'
 import { deriveAutoFileName } from './auto-file-name'
 import { modelSaveAsName, proposedSaveName } from './file-naming'
+import { saveMarkdownForClose } from './save-for-close'
 import type { MarkdownTheme } from '../shared/markdown-theme'
 import { ImageHostDialog } from './components/ImageHostDialog'
 import { RedactMenu } from './components/RedactMenu'
@@ -151,6 +161,7 @@ export default function App() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   // Vantage Productivity: retain actionable storage errors and rescue paths for the reader.
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveWarning, setSaveWarning] = useState<string | null>(null)
   const exportingImagesRef = useRef(false)
   const [imageExportStatus, setImageExportStatus] = useState<{
     key: StringKey
@@ -224,6 +235,27 @@ export default function App() {
   const statusRef = useRef<LoadStatus>('loading')
   const dirtyRef = useRef(false)
   const savingRef = useRef(false)
+  const sourceGenerationRef = useRef(0)
+  const rendererInstanceRef = useRef(crypto.randomUUID())
+  const closeAliveRef = useRef(true)
+  const redactDialogGenerationRef = useRef(0)
+  const [redactCloseEpoch, setRedactCloseEpoch] = useState(0)
+  const renderedRedactGeneration = redactDialogGenerationRef.current
+  const renderedRedactSource = rendererInstanceRef.current + ':' + sourceGenerationRef.current
+  const composingRef = useRef(false)
+  const activeGestureRef = useRef(false)
+  const [closeLocked, setCloseLocked] = useState(false)
+  const publishCloseRef = useRef<() => void>(() => {})
+  const closeBarrierRef = useRef<CloseMutationBarrier | null>(null)
+  if (!closeBarrierRef.current)
+    closeBarrierRef.current = new CloseMutationBarrier({
+      source: () => rendererInstanceRef.current + ':' + sourceGenerationRef.current,
+      claim: (ticket) => window.markdownApi.claimCloseLease(ticket),
+      cancel: (ticket, reason) => window.markdownApi.cancelCloseLease(ticket, reason),
+      report: (error) => showToast(error instanceof Error ? error.message : String(error), 'error'),
+    })
+  const activeSaveRequestRef = useRef<string | undefined>(undefined)
+  const publicationSequenceRef = useRef(0)
   const [roundTripEnabled] = useState(roundTripMarkdownEnabled)
   const originalSourceRef = useRef<MarkdownSourceSnapshot | undefined>(undefined)
   const envelopeRef = useRef<DocEnvelope>(EMPTY_ENVELOPE)
@@ -237,6 +269,7 @@ export default function App() {
     return map ? spliceMarkdown(current, current.state.doc, map) : current.getMarkdown()
   }
   const filePathRef = useRef<string | null>(null)
+  const publicationIdRef = useRef<string | null>(null)
   /** text last read from or written to disk; a watcher tick that reads the same text is a touch, not an edit */
   const diskTextRef = useRef<string | null>(null)
   const overwriteRef = useRef(false)
@@ -259,22 +292,122 @@ export default function App() {
     [],
   )
 
+  publishCloseRef.current = () => {
+    const barrier = closeBarrierRef.current!
+    window.markdownApi.closeSourceState?.({
+      stamp: barrier.snapshot(),
+      path: filePathRef.current,
+      ready: statusRef.current === 'ready',
+      dirty: dirtyRef.current,
+      pending:
+        pendingSourceRef.current !== null ||
+        hasMarkdownPendingSurface() ||
+        !!document.querySelector('.redact-dialog') ||
+        activeGestureRef.current,
+      busy: barrier.busy || savingRef.current,
+      composing:
+        composingRef.current ||
+        !!editorRef.current?.view.composing ||
+        !!sourceRef.current?.composing(),
+    })
+  }
+  useEffect(() => {
+    closeAliveRef.current = true
+    const barrier = closeBarrierRef.current!
+    const unbind = bindMarkdownCloseBarrier({
+      barrier,
+      publish: () => publishCloseRef.current(),
+      alive: () => closeAliveRef.current,
+    })
+    const inputFence = installMarkdownCloseInputFence(barrier)
+    const release = window.markdownApi.onCloseLeaseRelease((ticket) => barrier.release(ticket))
+    const lock = barrier.registerLock(() => {
+      setCloseLocked(true)
+      const current = editorRef.current,
+        editable = current?.isEditable ?? false
+      current?.setEditable(false, false)
+      const releaseSource = sourceRef.current?.lockForClose()
+      const controls = [
+        ...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          '.source-textarea,.fm-textarea,.md-math-input,.redact-dialog-input',
+        ),
+      ].map((element) => ({ element, readOnly: element.readOnly }))
+      for (const control of controls) control.element.readOnly = true
+      return () => {
+        if (current && !current.isDestroyed) current.setEditable(editable, false)
+        releaseSource?.()
+        for (const control of controls)
+          if (control.element.isConnected) control.element.readOnly = control.readOnly
+        if (closeAliveRef.current) setCloseLocked(false)
+      }
+    })
+    const compositionStart = () => {
+      composingRef.current = true
+      publishCloseRef.current()
+    }
+    const compositionEnd = () => {
+      composingRef.current = false
+      publishCloseRef.current()
+    }
+    const gestureStart = (event: Event) => {
+      if (
+        (event.target as Element | null)?.closest?.(
+          '.doc-page,.source-pane,.source-editor,.md-math-pop',
+        )
+      ) {
+        activeGestureRef.current = true
+        publishCloseRef.current()
+      }
+    }
+    const gestureEnd = () => {
+      activeGestureRef.current = false
+      publishCloseRef.current()
+    }
+    document.addEventListener('compositionstart', compositionStart, true)
+    document.addEventListener('compositionend', compositionEnd, true)
+    document.addEventListener('pointerdown', gestureStart, true)
+    document.addEventListener('pointerup', gestureEnd, true)
+    document.addEventListener('pointercancel', gestureEnd, true)
+    document.addEventListener('dragstart', gestureStart, true)
+    document.addEventListener('dragend', gestureEnd, true)
+    return () => {
+      closeAliveRef.current = false
+      sourceGenerationRef.current++
+      const ticket = barrier.ticket
+      if (ticket) void window.markdownApi.cancelCloseLease(ticket, 'Markdown source unmounted')
+      inputFence()
+      lock()
+      release()
+      unbind()
+      document.removeEventListener('compositionstart', compositionStart, true)
+      document.removeEventListener('compositionend', compositionEnd, true)
+      document.removeEventListener('pointerdown', gestureStart, true)
+      document.removeEventListener('pointerup', gestureEnd, true)
+      document.removeEventListener('pointercancel', gestureEnd, true)
+      document.removeEventListener('dragstart', gestureStart, true)
+      document.removeEventListener('dragend', gestureEnd, true)
+    }
+  }, [])
+
   const markDirty = useCallback(() => {
+    publishCloseRef.current()
     if (statusRef.current !== 'ready' || dirtyRef.current) return
     dirtyRef.current = true
     setDirty(true)
     setSaveState('idle')
-    window.markdownApi.setDirty(true)
+    window.markdownApi.setDirty(true, markdownCloseStamp())
+    publishCloseRef.current()
   }, [])
 
   const [imageHostOpen, setImageHostOpen] = useState(false)
 
   const insertImage = useCallback(() => {
-    void (async () => {
-      const relPath = await window.markdownApi.pickImage()
+    void runMarkdownAsyncMutation(async (source) => {
+      const relPath = await window.markdownApi.pickImage(markdownCloseStamp())
+      await beforeMarkdownMutation(source)
       const current = editorRef.current
       if (relPath && current) uiOp(current, { op: 'insertImage', after: 'selection', src: relPath })
-    })()
+    }).catch((error) => showToast(String(error), 'error'))
   }, [])
 
   /**
@@ -338,37 +471,40 @@ export default function App() {
       onKeyDown: (event) => wikiSuggestMenuRef.current?.handleKey(event) ?? false,
       onClose: () => setWikiSuggestState(null),
     }
-    return buildExtensions({
-      slashController: controller,
-      slashItems: () =>
-        buildSlashItems({ insertImage: filePathRef.current ? insertImage : undefined }),
-      wikiSuggestController,
-      wikiLink: {
-        getDocumentPath: () => filePathRef.current ?? '',
-        onOpen: (path, fragment) => {
-          void window.markdownApi.rememberWikiFragment(path, fragment)
-          void window.markdownApi.openSourcePath(path)
-          // a link into the note already on screen opens no tab; jump here
-          if (filePathRef.current === path) jumpToWikiFragment(path)
+    return [
+      MarkdownCloseTransactionGuard,
+      ...buildExtensions({
+        slashController: controller,
+        slashItems: () =>
+          buildSlashItems({ insertImage: filePathRef.current ? insertImage : undefined }),
+        wikiSuggestController,
+        wikiLink: {
+          getDocumentPath: () => filePathRef.current ?? '',
+          onOpen: (path, fragment) => {
+            void window.markdownApi.rememberWikiFragment(path, fragment)
+            void window.markdownApi.openSourcePath(path)
+            // a link into the note already on screen opens no tab; jump here
+            if (filePathRef.current === path) jumpToWikiFragment(path)
+          },
+          // the module-level `t`, not the hook's: this memo holds the closure for
+          // the life of the editor, and the hook's `t` is a new function each render
+          onUnresolved: (target, embed) => {
+            // an embed of a missing file usually names a picture, which an empty
+            // note cannot stand in for; only a link creates its note
+            if (embed) {
+              showToast(translate('wikiLinkUnresolved', { target }), 'error')
+              return
+            }
+            createWikiNoteAndOpen(wikiTargetOf(target))
+          },
         },
-        // the module-level `t`, not the hook's: this memo holds the closure for
-        // the life of the editor, and the hook's `t` is a new function each render
-        onUnresolved: (target, embed) => {
-          // an embed of a missing file usually names a picture, which an empty
-          // note cannot stand in for; only a link creates its note
-          if (embed) {
-            showToast(translate('wikiLinkUnresolved', { target }), 'error')
-            return
-          }
-          createWikiNoteAndOpen(wikiTargetOf(target))
+        blockLink: {
+          getDocumentPath: () => filePathRef.current ?? '',
+          onCopied: (link) => showToast(translate('blockLinkCopied', { link })),
+          onNothing: () => showToast(translate('blockLinkNone'), 'error'),
         },
-      },
-      blockLink: {
-        getDocumentPath: () => filePathRef.current ?? '',
-        onCopied: (link) => showToast(translate('blockLinkCopied', { link })),
-        onNothing: () => showToast(translate('blockLinkNone'), 'error'),
-      },
-    })
+      }),
+    ]
   }, [createWikiNoteAndOpen, insertImage, jumpToWikiFragment])
 
   // status-bar text statistics: Word's CJK counting rule (asian chars count
@@ -390,10 +526,10 @@ export default function App() {
       setOutlineItems(collectOutline(updated))
       setDocStats(statsOf(updated.getText()))
       syncSourceFromEditorRef.current()
+      publishCloseRef.current()
     },
   })
   editorRef.current = editor
-  filePathRef.current = filePath
 
   useEffect(() => {
     localStorage.setItem('mdapp.spellcheck', spellcheck ? '1' : '0')
@@ -419,50 +555,66 @@ export default function App() {
    * end up on one surface because of the path it happened to be renamed to.
    */
   const loadFromPath = useCallback(
-    (path: string, raw: string) => {
-      diskTextRef.current = raw
-      overwriteRef.current = false
-      setDiskNotice(null)
-      const mode = textModeForPath(path)
-      setTextMode(mode)
-      if (sourceApplyTimerRef.current) clearTimeout(sourceApplyTimerRef.current)
-      sourceApplyTimerRef.current = null
-      pendingSourceRef.current = null
-      setSourceViewOpen(false)
-      if (isSourceMode(mode)) {
-        // source files keep their own bytes; the block editor never sees them
-        const { text, format } = readSourceText(raw)
-        sourceTextRef.current = text
-        sourceFormatRef.current = format
-        setDocStats(statsOf(text))
+    (path: string, raw: string, publicationId?: string) => {
+      mutateMarkdown(() => {
+        const commitPublication = () => {
+          publicationIdRef.current = publicationId ?? null
+          publishCloseRef.current()
+          if (publicationId)
+            window.markdownApi.publicationLoaded({
+              publicationId,
+              path,
+              stamp: markdownCloseStamp(),
+            })
+        }
+        filePathRef.current = path
+        sourceGenerationRef.current++
+        diskTextRef.current = raw
+        overwriteRef.current = false
+        setDiskNotice(null)
+        const mode = textModeForPath(path)
+        setTextMode(mode)
+        if (sourceApplyTimerRef.current) clearTimeout(sourceApplyTimerRef.current)
+        sourceApplyTimerRef.current = null
+        pendingSourceRef.current = null
+        setSourceViewOpen(false)
+        if (isSourceMode(mode)) {
+          // source files keep their own bytes; the block editor never sees them
+          const { text, format } = readSourceText(raw)
+          sourceTextRef.current = text
+          sourceFormatRef.current = format
+          setDocStats(statsOf(text))
+          setFilePath(path)
+          setFmText('')
+          setFmOpen(false)
+          setOutlineItems([])
+          commitPublication()
+          return
+        }
+        const envelope = parseDocText(raw)
+        envelopeRef.current = envelope
+        setImageBaseDir(dirOf(path))
+        // the initial load must not be undoable — Cmd+Z right after opening
+        // would otherwise blank the document (and Cmd+S overwrite the file)
+        const body = stripLegacyFencedDivs(envelope.body)
+        editor
+          ?.chain()
+          .setMeta('addToHistory', false)
+          .setContent(body, { contentType: 'markdown' })
+          .setTextSelection(1)
+          .run()
+        if (editor) {
+          sourceMapRef.current = buildSourceMap(editor, editor.state.doc, body)
+          // Exact source is safe for a provably unchanged document even when
+          // edited-document experimental round trips remain disabled.
+          originalSourceRef.current = captureMarkdownSource(raw, envelope, editor.state.doc)
+        }
         setFilePath(path)
-        setFmText('')
-        setFmOpen(false)
-        setOutlineItems([])
-        return
-      }
-      const envelope = parseDocText(raw)
-      envelopeRef.current = envelope
-      setImageBaseDir(dirOf(path))
-      // the initial load must not be undoable — Cmd+Z right after opening
-      // would otherwise blank the document (and Cmd+S overwrite the file)
-      const body = stripLegacyFencedDivs(envelope.body)
-      editor
-        ?.chain()
-        .setMeta('addToHistory', false)
-        .setContent(body, { contentType: 'markdown' })
-        .setTextSelection(1)
-        .run()
-      if (editor) {
-        sourceMapRef.current = buildSourceMap(editor, editor.state.doc, body)
-        // Exact source is safe for a provably unchanged document even when
-        // edited-document experimental round trips remain disabled.
-        originalSourceRef.current = captureMarkdownSource(raw, envelope, editor.state.doc)
-      }
-      setFilePath(path)
-      const inner = frontmatterInner(envelope.frontmatter)
-      setFmText(inner)
-      setFmOpen(inner !== '')
+        const inner = frontmatterInner(envelope.frontmatter)
+        setFmText(inner)
+        setFmOpen(inner !== '')
+        commitPublication()
+      })
     },
     [editor, roundTripEnabled],
   )
@@ -475,15 +627,17 @@ export default function App() {
         const path = await window.markdownApi.consumePending()
         if (cancelled) return
         if (path) {
-          const raw = await window.markdownApi.readFile(path)
+          const loaded = await window.markdownApi.readPublication(path),
+            raw = loaded.text
           if (cancelled) return
-          loadFromPath(path, raw)
+          loadFromPath(path, raw, loaded.publicationId)
           jumpToWikiFragment(path)
         } else {
           envelopeRef.current = { ...EMPTY_ENVELOPE }
         }
         statusRef.current = 'ready'
         setStatus('ready')
+        publishCloseRef.current()
       } catch (err) {
         console.error('[markdown] load failed:', err)
         if (!cancelled) {
@@ -499,9 +653,11 @@ export default function App() {
 
   const onFrontmatterChange = useCallback(
     (inner: string) => {
-      setFmText(inner)
-      envelopeRef.current.frontmatter = buildFrontmatterRaw(inner)
-      markDirty()
+      mutateMarkdown(() => {
+        setFmText(inner)
+        envelopeRef.current.frontmatter = buildFrontmatterRaw(inner)
+        markDirty()
+      })
     },
     [markDirty],
   )
@@ -511,7 +667,7 @@ export default function App() {
    * holds it, with the file's own BOM and line endings restored — no markdown
    * serialization, no image extraction, no trailing-newline fixups.
    */
-  const doSaveSource = useCallback(async (mode: SaveMode): Promise<boolean> => {
+  const doSaveSource = useCallback(async (mode: SaveMode, automatic = false): Promise<boolean> => {
     if (statusRef.current !== 'ready' || savingRef.current) return false
     if (diskNoticeRef.current && !overwriteRef.current) {
       // the user has not chosen between the two versions yet; autosave must not pick for them
@@ -521,46 +677,63 @@ export default function App() {
     savingRef.current = true
     setSaveState('saving')
     const textAtSave = sourceTextRef.current
+    const sourceAtSave = markdownCloseStamp().source
     try {
       const written = writeSourceText(textAtSave, sourceFormatRef.current)
       const result = await window.markdownApi.save({
+        publicationId: publicationIdRef.current,
+        automatic,
         text: written,
         imageSources: [],
         mode,
         overwrite: overwriteRef.current,
+        requestId: activeSaveRequestRef.current,
+        closeSource: markdownCloseStamp(),
       })
       if (result.ok && 'path' in result) {
+        publicationSequenceRef.current++
+        if (markdownCloseStamp().source !== sourceAtSave) return true
+        if (result.publicationId) publicationIdRef.current = result.publicationId
+        setSaveWarning(result.warnings?.join(' ') ?? null)
         setSaveError(null)
         diskTextRef.current = written
         overwriteRef.current = false
         setDiskNotice(null)
         // an edit that landed mid-write is still unsaved
-        const unchanged = sourceTextRef.current === textAtSave
+        const unchanged =
+          sourceTextRef.current === textAtSave &&
+          !composingRef.current &&
+          !sourceRef.current?.composing()
+        filePathRef.current = result.path
         setFilePath(result.path)
         if (unchanged) {
           dirtyRef.current = false
           setDirty(false)
-          window.markdownApi.setDirty(false)
+          window.markdownApi.setDirty(false, markdownCloseStamp())
           setSaveState('saved')
         } else {
           dirtyRef.current = true
           setDirty(true)
-          window.markdownApi.setDirty(true)
+          window.markdownApi.setDirty(true, markdownCloseStamp())
           setSaveState('idle')
         }
         return true
       }
+      if (markdownCloseStamp().source !== sourceAtSave) return false
+      setSaveWarning(result.warnings?.join(' ') ?? null)
       if (!result.ok && result.conflict) setDiskNotice('conflict')
       if (!result.ok && !result.conflict) setSaveError(result.error)
       setSaveState(result.ok ? 'idle' : 'failed')
       return false
     } catch (err) {
       console.error('[markdown] save failed:', err)
+      if (markdownCloseStamp().source !== sourceAtSave) return false
       setSaveError(err instanceof Error ? err.message : String(err))
       setSaveState('failed')
       return false
     } finally {
       savingRef.current = false
+      publishCloseRef.current()
     }
   }, [])
 
@@ -572,7 +745,11 @@ export default function App() {
       envelopeRef.current,
       current.state.doc,
       () => bodyMarkdown(current),
-      { original: originalSourceRef.current, clean: !dirtyRef.current, experimental: roundTripEnabled },
+      {
+        original: originalSourceRef.current,
+        clean: !dirtyRef.current,
+        experimental: roundTripEnabled,
+      },
     )
   }, [roundTripEnabled])
 
@@ -591,21 +768,23 @@ export default function App() {
     sourceApplyTimerRef.current = null
     const text = pendingSourceRef.current
     if (text === null) return
-    pendingSourceRef.current = null
-    const current = editorRef.current
-    if (!current || statusRef.current !== 'ready') return
-    const hadFrontmatter = envelopeRef.current.frontmatter !== ''
-    const applied = applySourceText(current, text)
-    envelopeRef.current = applied.envelope
-    sourceMapRef.current = applied.sourceMap
-    // Source text can change syntax absent from the visual projection. An old
-    // model fingerprint must never resurrect the pre-edit raw source.
-    originalSourceRef.current = undefined
-    const inner = frontmatterInner(applied.envelope.frontmatter)
-    setFmText(inner)
-    // surface a frontmatter block that just appeared, but leave a panel the
-    // user closed on purpose closed
-    if (inner && !hadFrontmatter) setFmOpen(true)
+    mutateMarkdown(() => {
+      pendingSourceRef.current = null
+      const current = editorRef.current
+      if (!current || statusRef.current !== 'ready') return
+      const hadFrontmatter = envelopeRef.current.frontmatter !== ''
+      const applied = applySourceText(current, text)
+      envelopeRef.current = applied.envelope
+      sourceMapRef.current = applied.sourceMap
+      // Source text can change syntax absent from the visual projection. An old
+      // model fingerprint must never resurrect the pre-edit raw source.
+      originalSourceRef.current = undefined
+      const inner = frontmatterInner(applied.envelope.frontmatter)
+      setFmText(inner)
+      // surface a frontmatter block that just appeared, but leave a panel the
+      // user closed on purpose closed
+      if (inner && !hadFrontmatter) setFmOpen(true)
+    })
   }, [])
 
   const closeSource = useCallback(() => {
@@ -623,12 +802,14 @@ export default function App() {
   // re-parse is debounced; the pane itself updates immediately.
   const onSourceChange = useCallback(
     (text: string) => {
-      setSourceText(text)
-      pendingSourceRef.current = text
-      setDocStats(statsOf(text))
-      markDirty()
-      if (sourceApplyTimerRef.current) clearTimeout(sourceApplyTimerRef.current)
-      sourceApplyTimerRef.current = setTimeout(flushSource, SOURCE_APPLY_DEBOUNCE_MS)
+      mutateMarkdown(() => {
+        setSourceText(text)
+        pendingSourceRef.current = text
+        setDocStats(statsOf(text))
+        markDirty()
+        if (sourceApplyTimerRef.current) clearTimeout(sourceApplyTimerRef.current)
+        sourceApplyTimerRef.current = setTimeout(flushSource, SOURCE_APPLY_DEBOUNCE_MS)
+      })
     },
     [flushSource, markDirty],
   )
@@ -655,9 +836,15 @@ export default function App() {
   useEffect(() => () => clearTimeout(sourceApplyTimerRef.current ?? undefined), [])
 
   /** Serialize and write to disk; false when canceled/failed (caller keeps the tab open) */
-  const doSave = useCallback(
-    async (mode: SaveMode, suggestedName?: string, proposedName?: string): Promise<boolean> => {
-      if (sourceMode) return doSaveSource(mode)
+  const doSaveImpl = useCallback(
+    async (
+      mode: SaveMode,
+      suggestedName?: string,
+      proposedName?: string,
+      automatic = false,
+    ): Promise<boolean> => {
+      if (automatic && closeBarrierRef.current?.locked) return false
+      if (sourceMode) return doSaveSource(mode, automatic)
       flushSource()
       const current = editorRef.current
       if (!current || statusRef.current !== 'ready' || savingRef.current) return false
@@ -667,6 +854,7 @@ export default function App() {
       }
       savingRef.current = true
       setSaveState('saving')
+      const activationAtSave = markdownCloseStamp().source
       try {
         // edits landing while the write is in flight (AI streaming, fast typing)
         // must keep the document dirty — compare doc identity after the await
@@ -691,7 +879,12 @@ export default function App() {
           suggestedName,
           proposedName,
         })
+        await beforeMarkdownMutation(activationAtSave)
         const result = await window.markdownApi.save({
+          publicationId: publicationIdRef.current,
+          automatic,
+          requestId: activeSaveRequestRef.current,
+          closeSource: markdownCloseStamp(),
           text,
           imageSources,
           mode,
@@ -700,13 +893,21 @@ export default function App() {
           ...(defaultName ? { defaultName } : {}),
         })
         if (result.ok && 'path' in result) {
+          publicationSequenceRef.current++
+          if (markdownCloseStamp().source !== activationAtSave) return true
+          if (result.publicationId) publicationIdRef.current = result.publicationId
+          setSaveWarning(result.warnings?.join(' ') ?? null)
           setSaveError(null)
           diskTextRef.current = result.writtenText ?? text
           overwriteRef.current = false
           setDiskNotice(null)
           const unchanged =
             editorRef.current?.state.doc === docAtSave &&
-            sameMarkdownEnvelope(envelopeRef.current, envelopeAtSave)
+            sameMarkdownEnvelope(envelopeRef.current, envelopeAtSave) &&
+            pendingSourceRef.current === null &&
+            !hasMarkdownPendingSurface() &&
+            !composingRef.current &&
+            !editorRef.current?.view.composing
           // Save As can rewrite sources absent from the visual projection (e.g. HTML).
           // Never reuse a snapshot containing paths from the previous location.
           if (result.imageRewrites?.length) originalSourceRef.current = undefined
@@ -739,81 +940,113 @@ export default function App() {
             )
           }
           setImageBaseDir(dirOf(result.path))
+          filePathRef.current = result.path
           setFilePath(result.path)
           if (unchanged) {
             dirtyRef.current = false
             setDirty(false)
-            window.markdownApi.setDirty(false)
+            window.markdownApi.setDirty(false, markdownCloseStamp())
             setSaveState('saved')
           } else {
             // the main process cleared its dirty flag on write — re-assert it
             dirtyRef.current = true
             setDirty(true)
-            window.markdownApi.setDirty(true)
+            window.markdownApi.setDirty(true, markdownCloseStamp())
             setSaveState('idle')
           }
           return true
         }
+        if (markdownCloseStamp().source !== activationAtSave) return false
+        setSaveWarning(result.warnings?.join(' ') ?? null)
         if (!result.ok && result.conflict) setDiskNotice('conflict')
         if (!result.ok && !result.conflict) setSaveError(result.error)
         setSaveState(result.ok ? 'idle' : 'failed')
         return false
       } catch (err) {
         console.error('[markdown] save failed:', err)
+        if (markdownCloseStamp().source !== activationAtSave) return false
         setSaveError(err instanceof Error ? err.message : String(err))
         setSaveState('failed')
         return false
       } finally {
         savingRef.current = false
+        publishCloseRef.current()
       }
     },
     [flushSource, sourceMode, doSaveSource, roundTripEnabled],
   )
 
+  const doSave = useCallback(
+    (
+      mode: SaveMode,
+      suggestedName?: string,
+      proposedName?: string,
+      automatic = false,
+    ): Promise<boolean> =>
+      automatic && closeBarrierRef.current?.locked
+        ? Promise.resolve(false)
+        : runMarkdownAsyncMutation(async () =>
+            automatic && closeBarrierRef.current?.locked
+              ? false
+              : doSaveImpl(mode, suggestedName, proposedName, automatic),
+          ),
+    [doSaveImpl],
+  )
+
   /** another program wrote the file: swap the text in, keep caret and scroll, leave undo history alone */
   const reloadFromDisk = useCallback(
-    (path: string, raw: string) => {
-      const current = editorRef.current
-      const caret = current?.state.selection.from ?? 1
-      const scrollTop = scrollRef.current?.scrollTop ?? 0
-      // loadFromPath replaces the content; with the status parked the resulting update is not an edit
-      statusRef.current = 'loading'
-      try {
-        loadFromPath(path, raw)
-        if (isSourceMode(textModeForPath(path))) sourceRef.current?.setDoc(readSourceText(raw).text)
-      } finally {
-        statusRef.current = 'ready'
-      }
-      if (current && !isSourceMode(textModeForPath(path))) {
-        current
-          .chain()
-          .setMeta('addToHistory', false)
-          .setMeta('uiOnly', true)
-          .setTextSelection(Math.min(caret, current.state.doc.content.size))
-          .run()
-      }
-      requestAnimationFrame(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = scrollTop
+    (path: string, raw: string, publicationId?: string) => {
+      mutateMarkdown(() => {
+        const current = editorRef.current
+        const caret = current?.state.selection.from ?? 1
+        const scrollTop = scrollRef.current?.scrollTop ?? 0
+        // loadFromPath replaces the content; with the status parked the resulting update is not an edit
+        statusRef.current = 'loading'
+        try {
+          loadFromPath(path, raw, publicationId)
+          if (isSourceMode(textModeForPath(path)))
+            sourceRef.current?.setDoc(readSourceText(raw).text)
+        } finally {
+          statusRef.current = 'ready'
+        }
+        if (current && !isSourceMode(textModeForPath(path))) {
+          current
+            .chain()
+            .setMeta('addToHistory', false)
+            .setMeta('uiOnly', true)
+            .setTextSelection(Math.min(caret, current.state.doc.content.size))
+            .run()
+        }
+        requestAnimationFrame(() => {
+          if (scrollRef.current) scrollRef.current.scrollTop = scrollTop
+        })
+        dirtyRef.current = false
+        setDirty(false)
+        window.markdownApi.setDirty(false, markdownCloseStamp())
+        setSaveState('idle')
+        setSaveError(null)
       })
-      dirtyRef.current = false
-      setDirty(false)
-      window.markdownApi.setDirty(false)
-      setSaveState('idle')
-      setSaveError(null)
     },
     [loadFromPath],
   )
 
-  const reloadNow = useCallback(async () => {
-    const path = filePathRef.current
-    if (!path) return
-    try {
-      window.markdownApi.ackFileChangedOnDisk()
-      reloadFromDisk(path, await window.markdownApi.readFile(path))
-    } catch (err) {
-      console.error('[markdown] reload from disk failed:', err)
-    }
-  }, [reloadFromDisk])
+  const reloadNow = useCallback(
+    () =>
+      runMarkdownAsyncMutation(async (source) => {
+        const path = filePathRef.current
+        if (!path) return
+        try {
+          window.markdownApi.ackFileChangedOnDisk()
+          const loaded = await window.markdownApi.readPublication(path),
+            raw = loaded.text
+          await beforeMarkdownMutation(source)
+          reloadFromDisk(path, raw, loaded.publicationId)
+        } catch (err) {
+          console.error('[markdown] reload from disk failed:', err)
+        }
+      }),
+    [reloadFromDisk],
+  )
 
   const keepMine = useCallback(() => {
     overwriteRef.current = true
@@ -1049,15 +1282,134 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const offSave = window.markdownApi.onSaveRequest((mode) => {
+    const offSave = window.markdownApi.onSaveRequest((mode, request) => {
+      const generation = markdownCloseStamp().source,
+        barrier = closeBarrierRef.current!
+      const requestedSource = request.sourcePath === filePathRef.current
+      const isCurrent = () =>
+        requestedSource &&
+        markdownCloseStamp().source === generation &&
+        closeAliveRef.current &&
+        statusRef.current === 'ready'
+      const settled = () =>
+        !savingRef.current &&
+        !barrier.busy &&
+        !composingRef.current &&
+        !editorRef.current?.view.composing &&
+        !sourceRef.current?.composing() &&
+        !activeGestureRef.current
+      const canClose = () =>
+        isCurrent() &&
+        settled() &&
+        !dirtyRef.current &&
+        pendingSourceRef.current === null &&
+        !hasMarkdownPendingSurface() &&
+        !document.querySelector('.redact-dialog')
+      const flushPending = () => {
+        const pending = pendingSourceRef.current !== null
+        if (pending && hasMarkdownPendingSurface())
+          throw new Error(
+            'Apply the pending source or math edit before closing; both editing surfaces have changes.',
+          )
+        if (!flushMarkdownPendingSurfaces())
+          throw new Error('Finish the pending math edit before closing.')
+        flushSource()
+        if (pending) markDirty()
+      }
+      const beforePublication = publicationSequenceRef.current
+      let held: import('../shared/markdown-close-lease').MarkdownCloseLease | undefined
       void (async () => {
-        // same as the close-save path: wait out an in-flight autosave instead of
-        // answering false, or an MCP save-and-close during a blur autosave fails
-        while (savingRef.current) {
+        const deadline = Date.now() + 110000
+        if (
+          request.requireClean &&
+          (!request.closeLease || !(await window.markdownApi.claimCloseLease(request.closeLease)))
+        )
+          throw new Error('The close request expired before preparation.')
+        while (!settled()) {
+          if (!isCurrent() || Date.now() >= deadline)
+            throw new Error('Pending input or an asynchronous writer is still active.')
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
-        window.markdownApi.sendSaveRequestAck(await doSave(mode))
-      })()
+        if (!isCurrent()) return false
+        activeSaveRequestRef.current = request.requestId
+        try {
+          if (request.intent === 'discard') {
+            const stamp = markdownCloseStamp()
+            if (
+              !request.approved ||
+              stamp.source !== request.approved.source ||
+              stamp.revision !== request.approved.revision
+            )
+              throw new Error('The document changed after discard was approved.')
+          } else {
+            flushPending()
+            const alreadyClean =
+              canClose() &&
+              (!request.targetPath || request.targetPath === filePathRef.current) &&
+              mode === 'save'
+            if (request.intent === 'clean' && !alreadyClean)
+              throw new Error('The editor has pending changes; close needs a new decision.')
+            if (!alreadyClean && !(await doSave(mode))) return false
+            if (
+              request.requireClean &&
+              !(await saveMarkdownForClose(
+                {
+                  waitUntilIdle: async () => {
+                    while (savingRef.current)
+                      await new Promise((resolve) => setTimeout(resolve, 50))
+                  },
+                  isCurrent,
+                  flushPending,
+                  canClose,
+                  save: () => doSave('save'),
+                },
+                2,
+              ))
+            )
+              return false
+          }
+        } finally {
+          activeSaveRequestRef.current = undefined
+        }
+        if (!request.requireClean) return true
+        if (!request.closeLease) return false
+        if (request.intent === 'discard') {
+          redactDialogGenerationRef.current++
+          setRedactCloseEpoch((value) => value + 1)
+        }
+        const stamp = await barrier.acquire(
+          request.closeLease,
+          () =>
+            isCurrent() &&
+            settled() &&
+            (request.intent === 'discard'
+              ? !!request.approved &&
+                markdownCloseStamp().source === request.approved.source &&
+                markdownCloseStamp().revision === request.approved.revision
+              : canClose()),
+        )
+        if (!stamp) return false
+        held = { ticket: request.closeLease, stamp }
+        publishCloseRef.current()
+        return true
+      })().then(
+        (complete) =>
+          window.markdownApi.sendSaveRequestAck({
+            requestId: request.requestId,
+            published: publicationSequenceRef.current > beforePublication,
+            current: isCurrent(),
+            clean: complete && canClose(),
+            ...(held ? { closeLease: held } : {}),
+          }),
+        (error) =>
+          window.markdownApi.sendSaveRequestAck({
+            requestId: request.requestId,
+            published: publicationSequenceRef.current > beforePublication,
+            current: isCurrent(),
+            clean: false,
+            error: String(error),
+          }),
+      )
     })
     // MCP read of this open document: hand back the same serialization a save
     // would write, so unsaved edits are included. Staying silent while the
@@ -1071,7 +1423,11 @@ export default function App() {
           envelopeRef.current,
           current.state.doc,
           () => bodyMarkdown(current),
-          { original: originalSourceRef.current, clean: !dirtyRef.current, experimental: roundTripEnabled },
+          {
+            original: originalSourceRef.current,
+            clean: !dirtyRef.current,
+            experimental: roundTripEnabled,
+          },
         )
         window.markdownApi.sendReadTextResult({ text })
       } catch (err) {
@@ -1081,31 +1437,43 @@ export default function App() {
       }
     })
     const offClose = window.markdownApi.onCloseSaveRequest(() => {
-      void (async () => {
-        // A close-save arriving during an in-flight autosave must wait for it
-        // instead of failing (the old immediate `false` from `savingRef` made
-        // "Save and close" silently give up during a blur autosave — the same
-        // bug the docs app fixed with its save serializer).
-        while (savingRef.current) {
-          await new Promise((resolve) => setTimeout(resolve, 50))
-        }
-        // The in-flight save may have already persisted everything.
-        if (!dirtyRef.current) {
-          window.markdownApi.sendCloseSaveResult(true)
-          return
-        }
-        const ok = await doSave('save')
-        window.markdownApi.sendCloseSaveResult(ok)
-      })()
+      const generation = sourceGenerationRef.current
+      const isCurrent = () =>
+        sourceGenerationRef.current === generation &&
+        statusRef.current === 'ready' &&
+        !editorRef.current?.view.composing
+      const canClose = () => isCurrent() && !dirtyRef.current && pendingSourceRef.current === null
+      void saveMarkdownForClose({
+        waitUntilIdle: async () => {
+          while (savingRef.current) {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
+        },
+        isCurrent,
+        flushPending: () => {
+          const pending = pendingSourceRef.current !== null
+          flushSource()
+          // A raw-source edit can leave the visual model equal while changing
+          // the next serialized file. A prior save must not consume that edit.
+          if (pending) markDirty()
+        },
+        canClose,
+        save: () => doSave('save'),
+      }).then(
+        (ok) => window.markdownApi.sendCloseSaveResult(ok && canClose()),
+        () => window.markdownApi.sendCloseSaveResult(false),
+      )
     })
     const offDisk = window.markdownApi.onFileChangedOnDisk((changedPath) => {
       // the watcher keeps refusing saves until the change is acknowledged; a
       // change parked behind the bar stays unacknowledged until the user decides
       let awaitingUser = false
-      void (async () => {
+      void runMarkdownAsyncMutation(async (source) => {
         try {
           if (changedPath !== filePathRef.current || statusRef.current !== 'ready') return
-          const raw = await window.markdownApi.readFile(changedPath)
+          const loaded = await window.markdownApi.readPublication(changedPath),
+            raw = loaded.text
+          await beforeMarkdownMutation(source)
           if (changedPath !== filePathRef.current || raw === diskTextRef.current) return
           const dirtyNow = dirtyRef.current || savingRef.current
           if (dirtyNow) {
@@ -1114,39 +1482,44 @@ export default function App() {
             awaitingUser = true
             return
           }
-          reloadFromDisk(changedPath, raw)
+          reloadFromDisk(changedPath, raw, loaded.publicationId)
         } catch (err) {
           console.error('[markdown] reload after external change failed:', err)
         } finally {
           if (!awaitingUser) window.markdownApi.ackFileChangedOnDisk()
         }
-      })()
+      }).catch((error) => showToast(String(error), 'error'))
     })
     const offRenamed = window.markdownApi.onFileRenamed((newPath) => {
       // A rename that changes the extension changes what the file is, so the
       // open document has to follow it onto the matching surface. Reloading
       // throws away unsaved edits, so a dirty document is refused instead —
       // the file on disk is untouched and the tab stays open.
-      const action = renameAction(filePathRef.current, newPath, dirtyRef.current)
-      if (action === 'keep') {
-        setFilePath(newPath)
-        return
-      }
-      if (action === 'block-dirty') {
-        showToast(t('renameNeedsSave'), 'error')
-        return
-      }
-      void (async () => {
+      void runMarkdownAsyncMutation(async (source) => {
+        const action = renameAction(filePathRef.current, newPath, dirtyRef.current)
+        if (action === 'keep') {
+          mutateMarkdown(() => {
+            filePathRef.current = newPath
+            setFilePath(newPath)
+          }, source)
+          return
+        }
+        if (action === 'block-dirty') {
+          showToast(t('renameNeedsSave'), 'error')
+          return
+        }
         try {
-          const raw = await window.markdownApi.readFile(newPath)
+          const loaded = await window.markdownApi.readPublication(newPath),
+            raw = loaded.text
+          await beforeMarkdownMutation(source)
           // loadFromPath replaces the content with addToHistory off, so the
           // old surface's undo stack cannot walk back into a document that
           // has a different shape now
-          loadFromPath(newPath, raw)
+          loadFromPath(newPath, raw, loaded.publicationId)
         } catch (err) {
           console.error('[markdown] reload after rename failed:', err)
         }
-      })()
+      }).catch((error) => showToast(String(error), 'error'))
     })
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return
@@ -1189,7 +1562,20 @@ export default function App() {
       offRenamed()
       window.removeEventListener('keydown', onKeyDown, true)
     }
-  }, [doSave, printDoc, zoomIn, zoomOut, openFind, toggleSource, loadFromPath, reloadFromDisk, roundTripEnabled, t])
+  }, [
+    doSave,
+    printDoc,
+    zoomIn,
+    zoomOut,
+    openFind,
+    toggleSource,
+    loadFromPath,
+    reloadFromDisk,
+    roundTripEnabled,
+    flushSource,
+    markDirty,
+    t,
+  ])
 
   // Chromium reports trackpad pinch as ctrl+wheel. Also support Cmd/Ctrl+scroll
   // while the pointer is over the document canvas.
@@ -1214,9 +1600,9 @@ export default function App() {
   useEffect(() => {
     if (!autoSave || !filePath) return
     const tick = () => {
-      if (!dirtyRef.current) return
+      if (closeBarrierRef.current?.locked || !dirtyRef.current) return
       if (editorRef.current?.view.composing) return // don't interrupt IME input
-      void doSave('save')
+      void doSave('save', undefined, undefined, true)
     }
     const id = window.setInterval(tick, 30_000)
     window.addEventListener('blur', tick)
@@ -1232,13 +1618,22 @@ export default function App() {
   useEffect(() => {
     let pending = false
     const tick = async () => {
-      if (pending || !dirtyRef.current || statusRef.current !== 'ready' || editorRef.current?.view.composing) return
+      if (
+        closeBarrierRef.current?.locked ||
+        pending ||
+        !dirtyRef.current ||
+        statusRef.current !== 'ready' ||
+        editorRef.current?.view.composing
+      )
+        return
       flushSource()
-      const text = sourceMode ? writeSourceText(sourceTextRef.current, sourceFormatRef.current) : currentFileText()
+      const text = sourceMode
+        ? writeSourceText(sourceTextRef.current, sourceFormatRef.current)
+        : currentFileText()
       if (text === null) return
       pending = true
       try {
-        const result = await window.markdownApi.writeDraft(text)
+        const result = await window.markdownApi.writeDraft({ text, stamp: markdownCloseStamp() })
         if (!result.ok && !draftWarningRef.current) {
           draftWarningRef.current = true
           showToast(`Crash recovery could not record this draft: ${result.error}`, 'error')
@@ -1246,14 +1641,26 @@ export default function App() {
       } catch (error) {
         if (!draftWarningRef.current) {
           draftWarningRef.current = true
-          showToast(`Crash recovery is unavailable: ${error instanceof Error ? error.message : String(error)}`, 'error')
+          showToast(
+            `Crash recovery is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+            'error',
+          )
         }
-      } finally { pending = false }
+      } finally {
+        pending = false
+      }
     }
-    const interval = window.setInterval(() => { void tick() }, 15_000)
-    const blur = () => { void tick() }
+    const interval = window.setInterval(() => {
+      void tick()
+    }, 15_000)
+    const blur = () => {
+      void tick()
+    }
     window.addEventListener('blur', blur)
-    return () => { window.clearInterval(interval); window.removeEventListener('blur', blur) }
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('blur', blur)
+    }
   }, [flushSource, currentFileText, sourceMode])
 
   // ---- selection-scoped AI edit queue (anchors live in the editor as decorations) ----
@@ -1327,19 +1734,24 @@ export default function App() {
     // file-text round-trip) so a rollback also reverts set_frontmatter and
     // an untouched block restores byte-for-byte
     getSnapshot: () => ({
+      source: markdownCloseStamp().source,
       body: editorRef.current ? bodyMarkdown(editorRef.current) : '',
       frontmatter: envelopeRef.current.frontmatter,
     }),
     restoreSnapshot: (snapshot) => {
-      const current = editorRef.current
-      if (!current) return
-      envelopeRef.current.frontmatter = snapshot.frontmatter
-      const inner = frontmatterInner(snapshot.frontmatter)
-      setFmText(inner)
-      setFmOpen(inner !== '')
-      current.commands.setContent(snapshot.body, { contentType: 'markdown' })
-      sourceMapRef.current = buildSourceMap(current, current.state.doc, snapshot.body)
-      markDirty()
+      if (snapshot.source && snapshot.source !== markdownCloseStamp().source)
+        throw new Error('The source changed before AI rollback.')
+      mutateMarkdown(() => {
+        const current = editorRef.current
+        if (!current) return
+        envelopeRef.current.frontmatter = snapshot.frontmatter
+        const inner = frontmatterInner(snapshot.frontmatter)
+        setFmText(inner)
+        setFmOpen(inner !== '')
+        current.commands.setContent(snapshot.body, { contentType: 'markdown' })
+        sourceMapRef.current = buildSourceMap(current, current.state.doc, snapshot.body)
+        markDirty()
+      })
     },
     onRunDone: (mutated) => {
       // AI wrote into a never-saved document → name it from the content and save silently
@@ -1479,6 +1891,11 @@ export default function App() {
           <TagsPane onOpen={(path) => void window.markdownApi.openSourcePath(path)} />
         )}
         <div className="app-content">
+          {saveWarning && (
+            <div className="disk-notice" role="status">
+              <span>{saveWarning}</span>
+            </div>
+          )}
           {saveError && (
             <div className="disk-notice vantage-save-error" role="alert">
               <span>{saveError}</span>
@@ -1524,9 +1941,11 @@ export default function App() {
                 mode={textMode === 'json' ? 'json' : 'plain'}
                 spellcheck={spellcheck}
                 onChange={(text) => {
-                  sourceTextRef.current = text
-                  setSourceRev((n) => n + 1)
-                  markDirty()
+                  mutateMarkdown(() => {
+                    sourceTextRef.current = text
+                    setSourceRev((n) => n + 1)
+                    markDirty()
+                  })
                 }}
               />
             </div>
@@ -1537,7 +1956,13 @@ export default function App() {
                 ref={scrollRef}
               >
                 <div className="doc-page" style={{ zoom: zoom / 100 }}>
-                  {fmOpen && <FrontmatterPanel value={fmText} onChange={onFrontmatterChange} />}
+                  {fmOpen && (
+                    <FrontmatterPanel
+                      value={fmText}
+                      onChange={onFrontmatterChange}
+                      readOnly={closeLocked}
+                    />
+                  )}
                   <EditorContent editor={editor} />
                 </div>
               </div>
@@ -1614,7 +2039,16 @@ export default function App() {
           onDismiss={() => setWikiSuggestState(null)}
         />
       )}
-      <RedactMenu editor={editor} enabled={redactEnabled} />
+      <RedactMenu
+        key={renderedRedactSource + ':' + redactCloseEpoch}
+        editor={editor}
+        enabled={redactEnabled}
+        sourceCurrent={() =>
+          closeAliveRef.current &&
+          markdownCloseStamp().source === renderedRedactSource &&
+          redactDialogGenerationRef.current === renderedRedactGeneration
+        }
+      />
       <ToastHost />
       {graphOpen && (
         <GraphView

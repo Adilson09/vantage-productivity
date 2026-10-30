@@ -1,3 +1,4 @@
+import type { DocsCloseReceipt } from '../../docs/src/main/doc-native-close'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -8,8 +9,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * without Electron; only the six app-mains that own the prompts are faked.
  */
 
-const docsQueryDirty = vi.fn(() => Promise.resolve(false))
-const requestDocsClose = vi.fn(() => Promise.resolve(true))
+const docReceipt: DocsCloseReceipt = {
+  kind: 'lease' as const,
+  intent: 'save' as const,
+  published: false,
+  clean: true,
+  source: 'A',
+  closeLease: {
+    ticket: { id: 'test-close', sequence: 1, source: 'main-A' },
+    stamp: { source: 'renderer-A', revision: '1' },
+  },
+}
+const prepareDocsNativeClose = vi.fn<(...args: unknown[]) => Promise<DocsCloseReceipt | null>>(
+  async () => docReceipt,
+)
+const completeDocsClose = vi.fn((_contents: unknown, _receipt: unknown, remove: () => boolean) =>
+  remove(),
+)
+const cancelDocsClose = vi.fn(async () => {})
 const requestSheetsClose = vi.fn(() => Promise.resolve(true))
 const resetSheetsShuttingDown = vi.fn()
 const requestSlidesClose = vi.fn(() => Promise.resolve(true))
@@ -18,8 +35,9 @@ const requestMarkdownClose = vi.fn(() => Promise.resolve(true))
 const requestHtmlClose = vi.fn(() => Promise.resolve(true))
 
 vi.mock('../../docs/src/main/docs-main', () => ({
-  docsQueryDirty: (...args: unknown[]) => docsQueryDirty(...(args as [])),
-  requestDocsClose: (...args: unknown[]) => requestDocsClose(...(args as [])),
+  prepareDocsNativeClose: (...args: unknown[]) => prepareDocsNativeClose(...args),
+  completeDocsClose: (...args: Parameters<typeof completeDocsClose>) => completeDocsClose(...args),
+  cancelDocsClose: () => cancelDocsClose(),
 }))
 
 vi.mock('../../sheets/src/main/sheets-main', () => ({
@@ -135,9 +153,9 @@ let consoleError: ReturnType<typeof vi.spyOn>
 
 beforeEach(async () => {
   vi.clearAllMocks()
-  docsQueryDirty.mockImplementation(() => Promise.resolve(false))
+  prepareDocsNativeClose.mockImplementation(async () => docReceipt)
+  completeDocsClose.mockImplementation((_contents, _receipt, remove) => remove())
   for (const ask of [
-    requestDocsClose,
     requestSheetsClose,
     requestSlidesClose,
     requestPdfClose,
@@ -172,9 +190,11 @@ describe('clean fast path', () => {
     install(win as never, fakeManager({ docs: [docsTab] }) as never, fakeQuit())
     expect(win.requestClose()).toBe(true)
     await flush()
-    expect(docsQueryDirty).toHaveBeenCalledWith(docsTab.webContents)
-    // a clean docs tab passes through without a prompt and without activation
-    expect(requestDocsClose).not.toHaveBeenCalled()
+    expect(prepareDocsNativeClose).toHaveBeenCalledWith(docsTab.webContents, win, {
+      allowForce: false,
+    })
+    expect(completeDocsClose).toHaveBeenCalledTimes(1)
+    expect(cancelDocsClose).toHaveBeenCalledTimes(1)
     expect(win.destroyed).toBe(true)
   })
 })
@@ -283,8 +303,7 @@ describe('close that began as ⌘Q', () => {
   })
 
   it('a denied prompt leaves the quit cancelled', async () => {
-    requestDocsClose.mockResolvedValueOnce(false)
-    docsQueryDirty.mockResolvedValueOnce(true)
+    prepareDocsNativeClose.mockResolvedValueOnce(null)
     const win = new FakeWindow()
     const quit = fakeQuit(true)
     install(
@@ -299,7 +318,7 @@ describe('close that began as ⌘Q', () => {
     expect(win.destroyed).toBe(false)
   })
 
-  it('a plain window close still finishes with win.close()', async () => {
+  it('a Docs window close removes synchronously inside the held receipt', async () => {
     const win = new FakeWindow()
     const quit = fakeQuit(false)
     install(
@@ -310,7 +329,7 @@ describe('close that began as ⌘Q', () => {
     expect(win.requestClose()).toBe(true)
     await flush()
     expect(quit.quit).not.toHaveBeenCalled()
-    expect(win.closeCalls).toBe(1)
+    expect(win.closeCalls).toBe(0)
     expect(win.destroyed).toBe(true)
   })
 })
@@ -353,5 +372,42 @@ describe('failure in the prompt chain', () => {
     expect(win.requestClose()).toBe(true)
     await flush()
     expect(requestSheetsClose).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('Docs held actual-removal boundary', () => {
+  it('keeps the window when a ready receipt expires before commit and releases every receipt', async () => {
+    completeDocsClose.mockReturnValueOnce(false)
+    const win = new FakeWindow(),
+      quit = fakeQuit(true)
+    install(
+      win as never,
+      fakeManager({ docs: [{ id: 'd', webContents: { id: 1 } }] }) as never,
+      quit,
+    )
+    win.requestClose()
+    await flush()
+    expect(win.destroyed).toBe(false)
+    expect(quit.reset).toHaveBeenCalled()
+    expect(cancelDocsClose).toHaveBeenCalledTimes(1)
+  })
+  it('refuses whole-window force dispositions instead of carrying destructive approval across later prompts', async () => {
+    prepareDocsNativeClose.mockResolvedValueOnce({
+      kind: 'force',
+      id: 'force',
+      source: 'A',
+      published: false,
+      clean: false,
+    })
+    const win = new FakeWindow()
+    install(
+      win as never,
+      fakeManager({ docs: [{ id: 'd', webContents: { id: 1 } }] }) as never,
+      fakeQuit(),
+    )
+    win.requestClose()
+    await flush()
+    expect(win.destroyed).toBe(false)
+    expect(completeDocsClose).not.toHaveBeenCalled()
   })
 })

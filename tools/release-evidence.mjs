@@ -4,11 +4,27 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { createHash } from 'node:crypto'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import {
+  checkStatus,
+  desktopPlan,
+  reportExitCode,
+  summarizeTests,
+  verificationPlan,
+} from './release-evidence-plan.mjs'
+import { defaultCheckTimeoutMs, runEvidenceProcess } from './release-evidence-process.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
+const timeoutArg = args.indexOf('--check-timeout-ms')
+const checkTimeoutMs = timeoutArg < 0 ? defaultCheckTimeoutMs : Number(args[timeoutArg + 1])
+if (
+  !Number.isSafeInteger(checkTimeoutMs) ||
+  checkTimeoutMs < 1000 ||
+  checkTimeoutMs > 2 * 60 * 60 * 1000
+)
+  throw new Error('--check-timeout-ms must be between 1000 and 7200000')
 const outputArg = args.indexOf('--out')
 const out = path.resolve(
   outputArg >= 0 ? args[outputArg + 1] : path.join(root, 'validation', 'implementation'),
@@ -40,6 +56,14 @@ const report = {
     totalMemory: os.totalmem(),
   },
   checks: [],
+  checkTimeoutMs,
+  requestedModes: {
+    build: args.includes('--build'),
+    verify: args.includes('--verify'),
+    e2e: args.includes('--e2e'),
+  },
+  scopeNote:
+    'Targeted implementation gates. This command does not replace the full npm test suite, specialist runtime acceptance or release review.',
   artifacts: [],
   externalAcceptance: [
     {
@@ -74,6 +98,12 @@ const report = {
       reason:
         'Requires selected models, local weights or provider authorization and an independent rubric.',
     },
+    {
+      name: 'Optional specialist engine runtime and standards acceptance',
+      status: 'not-run',
+      reason:
+        'Manifest, staging and saved-report parser tests do not establish live LibreOffice or veraPDF acceptance. Missing qpdf in desktop tests is recorded as an exclusion, not structural acceptance.',
+    },
   ],
 }
 const write = () =>
@@ -81,107 +111,91 @@ const write = () =>
     path.join(out, 'Vantage-Implementation-Validation.json'),
     JSON.stringify(report, null, 2) + '\n',
   )
-async function run(name, command, commandArgs, cwd = root) {
+async function run(name, command, commandArgs, cwd = root, options = {}) {
   const logPath = path.join(out, `${name}.log`)
   const fd = fs.openSync(logPath, 'w')
   const started = Date.now()
-  const result = await new Promise((resolve) => {
-    const child = spawn(command, commandArgs, {
-      cwd,
-      windowsHide: true,
-      shell: false,
-      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=2048' },
-      stdio: ['ignore', fd, fd],
-    })
-    let done = false
-    const finish = (value) => {
-      if (!done) {
-        done = true
-        resolve(value)
-      }
-    }
-    child.on('error', (error) => finish({ status: 'unavailable', error: error.message }))
-    child.on('close', (code) =>
-      finish({ status: code === 0 ? 'passed' : 'failed', exitCode: code }),
-    )
+  const check = {
+    name,
+    status: 'running',
+    command,
+    args: commandArgs,
+    cwd,
+    logPath,
+    ...(options.requiredFiles?.length ? { requiredFiles: options.requiredFiles } : {}),
+  }
+  report.checks.push(check)
+  write()
+  if (options.summaryPath) fs.rmSync(options.summaryPath, { force: true })
+  const result = await runEvidenceProcess(command, commandArgs, {
+    cwd,
+    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=2048', ...options.env },
+    stdio: ['ignore', fd, fd],
+    timeoutMs: checkTimeoutMs,
   })
   fs.closeSync(fd)
-  report.checks.push({
-    name,
+  let testSummary
+  let summaryError
+  if (options.kind) {
+    try {
+      testSummary = summarizeTests(
+        options.kind,
+        fs.readFileSync(options.summaryPath || logPath, 'utf8'),
+        options.requiredFiles,
+      )
+    } catch (error) {
+      summaryError = error.message
+    }
+  }
+  const status =
+    result.status === 'passed' && summaryError ? 'incomplete' : checkStatus(result, testSummary)
+  Object.assign(check, {
     ...result,
+    status,
+    ...(testSummary ? { testSummary } : {}),
+    ...(summaryError ? { summaryError } : {}),
+    ...(options.summaryPath && fs.existsSync(options.summaryPath)
+      ? { summaryPath: options.summaryPath, summarySha256: hash(options.summaryPath) }
+      : {}),
     durationMs: Date.now() - started,
-    logPath,
     logSha256: hash(logPath),
   })
   write()
-  console.log(`${name}: ${result.status}`)
-  return result
+  console.log(`${name}: ${status}`)
+  return check
 }
 const npm =
   process.env.npm_execpath ||
   path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js')
-if (args.includes('--build')) await run('build-all', process.execPath, [npm, 'run', 'build:all'])
+let buildResult
+if (args.includes('--build'))
+  buildResult = await run('build-all', process.execPath, [npm, 'run', 'build:all'])
 if (args.includes('--verify')) {
-  const runtime = await run('runtime-capabilities', process.execPath, [
-    path.join(root, 'tools/check-runtime-capabilities.mjs'),
-  ])
-  if (runtime.status !== 'passed') {
-    report.finishedAt = new Date().toISOString()
-    write()
-    throw new Error(
-      'Use the Node 24 runtime pinned in .nvmrc before running implementation verification.',
-    )
+  for (const check of verificationPlan(root, process.execPath, npm, out)) {
+    const result = await run(check.name, check.command, check.args, check.cwd, check)
+    if (check.name === 'runtime-capabilities' && result.status !== 'passed') {
+      report.finishedAt = new Date().toISOString()
+      write()
+      throw new Error(
+        'Use the Node 24 runtime pinned in .nvmrc before running implementation verification.',
+      )
+    }
   }
-  await run(
-    'fixtures-sheets',
-    process.execPath,
-    [path.join(root, 'node_modules/tsx/dist/cli.mjs'), 'scripts/generate-fixtures.ts'],
-    path.join(root, 'apps/sheets'),
-  )
-  for (const name of [
-    'electron-utils',
-    'productivity-engine',
-    'ai-provider',
-    'shell',
-    'markdown',
-    'xlsx-gateway',
-    'cli',
-    'slides',
-  ]) {
-    await run(
-      `types-${name}`,
-      process.execPath,
-      [path.join(root, 'node_modules/typescript/bin/tsc'), '--noEmit'],
-      ['shell', 'markdown', 'slides'].includes(name)
-        ? path.join(root, 'apps', name)
-        : path.join(root, 'packages', name),
-    )
-    await run(
-      `tests-${name}`,
-      process.execPath,
-      [path.join(root, 'node_modules/vitest/vitest.mjs'), 'run', '--maxWorkers=1'],
-      ['shell', 'markdown', 'slides'].includes(name)
-        ? path.join(root, 'apps', name)
-        : path.join(root, 'packages', name),
-    )
-  }
-  await run('tests-engine-bridge', process.execPath, [
-    '--test',
-    'packages/engine-bridge/tests/bridge.test.mjs',
-  ])
 }
-if (args.includes('--e2e'))
-  await run('desktop-workflows', process.execPath, [
-    path.join(root, 'node_modules/@playwright/test/cli.js'),
-    'test',
-    '--config',
-    'e2e/playwright.config.ts',
-    'engineering-workspace.spec.ts',
-    'vantage-workspace.spec.ts',
-    'recovery-drafts.spec.ts',
-    'markdown-source-retention.spec.ts',
-    '--reporter=list',
-  ])
+if (args.includes('--e2e')) {
+  if (buildResult && buildResult.status !== 'passed') {
+    report.checks.push({
+      name: 'desktop-workflows',
+      status: 'not-run',
+      reason:
+        'The requested build did not pass; existing application outputs were not accepted as this candidate.',
+    })
+    write()
+  } else {
+    const check = desktopPlan(root, process.execPath, out)
+    await run(check.name, check.command, check.args, check.cwd, check)
+  }
+}
 for (const relative of [
   'package-lock.json',
   'apps/shell/out/main/index.js',
@@ -208,7 +222,8 @@ for (const name of ['docs', 'sheets', 'slides', 'pdf', 'markdown', 'html', 'cli'
 report.finishedAt = new Date().toISOString()
 report.completedChecksPassed =
   report.checks.length > 0 && report.checks.every((c) => c.status === 'passed')
+report.hasExclusions = report.checks.some((c) => c.status === 'passed-with-exclusions')
 report.releaseAccepted = false
 write()
 console.log(path.join(out, 'Vantage-Implementation-Validation.json'))
-if (report.checks.some((c) => c.status === 'failed')) process.exitCode = 1
+process.exitCode = reportExitCode(report.checks)

@@ -18,15 +18,38 @@ const recalcResultSchema = z
           row: z.number().int().nonnegative(),
           column: z.number().int().nonnegative(),
           formatted: z.string(),
+          value: z
+            .union([
+              z.number().finite(),
+              z.boolean(),
+              z.string(),
+              z.null(),
+              z.object({ error: z.string() }).strict(),
+            ])
+            .optional(),
           number: z.number().optional(),
           isError: z.boolean(),
           isFormula: z.boolean(),
         })
-        .strict(),
+        .strict()
+        // These legacy fixtures assert the original display contract. Typed
+        // values have their own native and host compatibility regressions.
+        .transform(({ value: _value, ...legacy }) => legacy),
     ),
     cached: z.boolean(),
+    cacheWritebackAllowed: z.boolean().optional(),
+    calculationCompleteness: z.enum(['complete', 'unverified']).optional(),
+    cacheWritebackReasons: z.array(z.string()).optional(),
   })
   .strict()
+  .transform(
+    ({
+      cacheWritebackAllowed: _allowed,
+      calculationCompleteness: _completeness,
+      cacheWritebackReasons: _reasons,
+      ...legacy
+    }) => legacy,
+  )
 
 // IronCalc's importer is strict: single-line XML (whitespace text nodes crash
 // it) and a styles.xml complete with cellStyleXfs/cellStyles. This mirrors

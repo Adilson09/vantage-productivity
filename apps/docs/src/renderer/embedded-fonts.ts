@@ -19,7 +19,15 @@ function sfntBuffer(data: Uint8Array): ArrayBuffer {
 export async function adoptEmbeddedFonts(
   fonts: readonly EmbeddedFont[] | undefined,
 ): Promise<boolean> {
-  if (typeof FontFace === 'undefined' || typeof document === 'undefined') return true
+  return (await prepareEmbeddedFonts(fonts)).commit()
+}
+
+/** Loading is isolated; only the final synchronous source-adoption commit revokes old faces. */
+export async function prepareEmbeddedFonts(
+  fonts: readonly EmbeddedFont[] | undefined,
+): Promise<{ commit(): boolean }> {
+  if (typeof FontFace === 'undefined' || typeof document === 'undefined')
+    return { commit: () => true }
   const my = ++generation
   const loaded = await Promise.all(
     (fonts ?? []).map(async (f) => {
@@ -35,25 +43,31 @@ export async function adoptEmbeddedFonts(
       }
     }),
   )
-  if (my !== generation) return false
-  const revoked = active
-  for (const face of revoked) document.fonts.delete(face)
-  active = []
-  const boxes: Array<{ styled: boolean; family: string } & EmbeddedFontLineMetrics> = []
-  loaded.forEach((face, i) => {
-    if (!face) return
-    document.fonts.add(face)
-    active.push(face)
-    const f = (fonts ?? [])[i]
-    if (f?.lineMetrics)
-      boxes.push({ styled: f.bold || f.italic, family: f.family, ...f.lineMetrics })
-  })
-  // the regular cut's box stands for the family
-  setEmbeddedLineMetrics(boxes.sort((a, b) => Number(a.styled) - Number(b.styled)))
-  if (revoked.length === 0 && active.length === 0) return true
-  noteEmbeddedFontsChanged([...revoked, ...active].map((f) => f.family))
-  // buffer-backed faces parse synchronously: the set never enters 'loading', so
-  // the measurement caches keyed on 'loadingdone' must be told by hand
-  document.fonts.dispatchEvent(new Event('loadingdone'))
-  return true
+  let committed = false
+  return {
+    commit: () => {
+      if (committed || my !== generation) return false
+      committed = true
+      const revoked = active
+      for (const face of revoked) document.fonts.delete(face)
+      active = []
+      const boxes: Array<{ styled: boolean; family: string } & EmbeddedFontLineMetrics> = []
+      loaded.forEach((face, i) => {
+        if (!face) return
+        document.fonts.add(face)
+        active.push(face)
+        const f = (fonts ?? [])[i]
+        if (f?.lineMetrics)
+          boxes.push({ styled: f.bold || f.italic, family: f.family, ...f.lineMetrics })
+      })
+      // the regular cut's box stands for the family
+      setEmbeddedLineMetrics(boxes.sort((a, b) => Number(a.styled) - Number(b.styled)))
+      if (revoked.length === 0 && active.length === 0) return true
+      noteEmbeddedFontsChanged([...revoked, ...active].map((f) => f.family))
+      // buffer-backed faces parse synchronously: the set never enters 'loading', so
+      // the measurement caches keyed on 'loadingdone' must be told by hand
+      document.fonts.dispatchEvent(new Event('loadingdone'))
+      return true
+    },
+  }
 }

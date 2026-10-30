@@ -531,4 +531,5 @@ export const zhTW = {
   appMergeSourceLoaded: '已載入資料來源 {name}（{n} 筆記錄）',
   appMergeWritten: '已寫出 {n} 個文件',
   appMergeNothingToWrite: '沒有可寫出的文件',
+  appRecoveryFailed: '草稿復原失敗：{error}',
 } satisfies Record<keyof typeof zh, string>

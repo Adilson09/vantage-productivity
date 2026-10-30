@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  usePdfEditorState,
+  consumePdfPendingEditor,
+  registerPdfPendingEditor,
+  pdfPendingContentChanged,
+} from './pdf-draft'
+import { runPdfAuthoredWork, pdfAuthoredSource, submitPdfAuthored } from './pdf-authored'
 import type { ChangeEvent, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import { cssRgb } from './DrawLayer'
 import type { TFunc } from './i18n/locale'
@@ -149,19 +156,58 @@ export function SignatureDialog({
   onCancel: () => void
   onConfirm: (sig: SignatureData) => void
 }): ReactElement {
-  const [mode, setMode] = useState<'draw' | 'type' | 'image'>('draw')
-  const [typed, setTyped] = useState('')
-  const [fontIdx, setFontIdx] = useState(0)
+  const [mode, setMode] = usePdfEditorState<'draw' | 'type' | 'image'>(
+    'signature-mode',
+    'signature',
+    'draw',
+  )
+  const [typed, setTyped] = usePdfEditorState('signature-typed', 'signature', '')
+  const [fontIdx, setFontIdx] = usePdfEditorState('signature-font', 'signature', 0)
+  const [imageData, setImageData] = usePdfEditorState<{
+    image: string
+    width: number
+    height: number
+  } | null>('signature-image', 'signature', null)
   const [imgCanvas, setImgCanvas] = useState<HTMLCanvasElement | null>(null)
-  const [bw, setBw] = useState(false)
+  const [bw, setBw] = usePdfEditorState('signature-bw', 'signature', false)
   /** Signatures persisted in userData; picking one skips creation and goes straight to placement */
   const [saved, setSaved] = useState<SavedSignature[]>([])
-  const [saveForReuse, setSaveForReuse] = useState(true)
+  const [saveForReuse, setSaveForReuse] = usePdfEditorState('signature-reuse', 'signature', true)
   const fileRef = useRef<HTMLInputElement>(null)
   const dialogRef = useModalDialog(onCancel)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const pathsRef = useRef<number[][]>([])
+  const pathsRef = useRef<number[][]>(
+    consumePdfPendingEditor<number[][]>('signature-strokes', 'signature') ?? [],
+  )
   const curRef = useRef<number[] | null>(null)
+  useLayoutEffect(
+    () =>
+      registerPdfPendingEditor('signature-strokes', 'signature', () =>
+        pathsRef.current.length ? pathsRef.current : undefined,
+      ),
+    [],
+  )
+  useEffect(() => {
+    if (!imageData) {
+      setImgCanvas(null)
+      return
+    }
+    let current = true
+    const image = new Image()
+    image.onload = () => {
+      if (!current) return
+      const canvas = document.createElement('canvas')
+      canvas.width = imageData.width
+      canvas.height = imageData.height
+      canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
+      setImgCanvas(canvas)
+    }
+    image.src = `data:image/png;base64,${imageData.image}`
+    return () => {
+      current = false
+      image.onload = null
+    }
+  }, [imageData])
 
   useEffect(() => {
     let alive = true
@@ -192,8 +238,17 @@ export function SignatureDialog({
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    const canvas = await fileToCanvas(file)
-    if (canvas) setImgCanvas(canvas)
+    const source = pdfAuthoredSource()
+    await runPdfAuthoredWork(async () => {
+      const canvas = await fileToCanvas(file)
+      if (source !== pdfAuthoredSource()) return
+      if (canvas)
+        setImageData({
+          image: canvas.toDataURL('image/png').split(',')[1] ?? '',
+          width: canvas.width,
+          height: canvas.height,
+        })
+    }, source)
   }
 
   const redraw = () => {
@@ -221,18 +276,22 @@ export function SignatureDialog({
   }
 
   const down = (e: ReactPointerEvent) => {
+    if (!submitPdfAuthored(() => {})) return
     e.currentTarget.setPointerCapture(e.pointerId)
     curRef.current = pos(e)
     pathsRef.current = [...pathsRef.current, curRef.current]
+    pdfPendingContentChanged()
   }
   const move = (e: ReactPointerEvent) => {
     if (!curRef.current) return
+    if (!submitPdfAuthored(() => {})) return
     const [x, y] = pos(e)
     curRef.current.push(x, y)
     redraw()
   }
   const up = () => {
     curRef.current = null
+    pdfPendingContentChanged()
   }
 
   const clear = () => {

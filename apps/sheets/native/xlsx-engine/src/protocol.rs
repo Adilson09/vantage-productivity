@@ -14,9 +14,11 @@ use crate::archive::{
 };
 use crate::find::FindCellsRequest;
 use crate::edit_backend::{CalculationStamp, OpenEditSession, source_fingerprint};
+use crate::document::{CheckpointCommand, DOCUMENT_API_VERSION};
+use crate::document_backend::OpenDocument;
 use crate::session::SessionError;
 use crate::transaction::TransactionCommand;
-use crate::recalc::{RecalcCache, RecalcEdit, RecalcRead, recalc_cells};
+use crate::recalc::{RecalcCache, RecalcEdit, RecalcRead, recalc_cells_with_limit};
 use crate::{CellRange, SidecarError, THREADS, WorkbookSessions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -112,6 +114,55 @@ pub enum Command {
     CommandResult(CommandResultRequest),
     RecalcSnapshot(RecalcSnapshotRequest),
     CloseEditSession(CloseEditSessionRequest),
+    OpenDocument(OpenDocument),
+    CheckpointDocument(CheckpointCommand),
+    DocumentSnapshot(DocumentSnapshotRequest),
+    DocumentCommandResult(DocumentCommandResultRequest),
+    CloseDocument(CloseDocumentRequest),
+    Capabilities,
+    AuditPreservation(AuditPreservationRequest),
+    RecalcDocument(RecalcDocumentRequest),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AuditPreservationRequest {
+    source_path: PathBuf,
+    target_path: PathBuf,
+    allowed_changed_entries: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecalcDocumentRequest {
+    api_version: u32,
+    document_id: String,
+    revision: u64,
+    reads: Vec<RecalcRead>,
+    materialized_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DocumentSnapshotRequest {
+    api_version: u32,
+    document_id: String,
+    revision: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DocumentCommandResultRequest {
+    api_version: u32,
+    document_id: String,
+    command_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CloseDocumentRequest {
+    api_version: u32,
+    document_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -293,7 +344,8 @@ impl RecalcWorker {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         self.drain_purges(&mut cache);
-        let response = match recalc_cells(&mut cache, path, edits, reads).and_then(to_json_value) {
+        let response = match recalc_cells_with_limit(&mut cache, path, edits, reads,
+            stamp.map_or(10_000, |stamp| stamp.max_edits)).and_then(to_json_value) {
             Ok(mut value) => {
                 if let Some(stamp) = stamp {
                     // Native API callers may supply a source outside the
@@ -554,6 +606,45 @@ impl Engine {
         };
         Some(serde_json::to_string(&response).unwrap_or_default())
     }
+
+    /// Blocking host call: calculation completes on the calling thread and
+    /// every response is returned to the caller rather than written to stdout.
+    #[cfg(feature = "native-ffi")]
+    pub fn handle_line_blocking(&mut self, line: &str) -> String {
+        let request = match serde_json::from_str::<Request>(line) {
+            Ok(request) => request,
+            Err(error) => return serde_json::to_string(&Response::failure(String::new(),
+                "invalid_json", format!("Invalid sidecar request: {error}"))).unwrap_or_default(),
+        };
+        let request_id = request.request_id;
+        self.in_flight.begin(&request_id);
+        let response = if request.version != PROTOCOL_VERSION {
+            Response::failure(request_id, "unsupported_version", "Unsupported sidecar protocol version.".into())
+        } else if self.cancelled.take(&request_id) {
+            Response::failure(request_id, "cancelled", "Request was cancelled by the client.".into())
+        } else {
+            match request.command {
+                Command::RecalcCells { path, edits, reads } =>
+                    self.recalc.run_stamped(request_id, &path, &edits, &reads, None),
+                Command::RecalcSnapshot(RecalcSnapshotRequest { api_version, workbook_id, revision, reads }) => {
+                    match require_edit_version(api_version).and_then(|()| self.sessions.edits.calculation(&workbook_id, revision)) {
+                        Ok(input) => self.recalc.run_stamped(request_id, &input.path, &input.edits, &reads, Some(&input.stamp)),
+                        Err(error) => Response::from_session_error(request_id, error),
+                    }
+                }
+                Command::RecalcDocument(RecalcDocumentRequest { api_version, document_id, revision, reads, materialized_path }) => {
+                    match require_edit_version(api_version).and_then(|()| self.sessions.documents.calculation(&document_id, revision, materialized_path)) {
+                        Ok(input) => self.recalc.run_stamped(request_id, &input.path, &input.edits, &reads, Some(&input.stamp)),
+                        Err(error) => Response::from_session_error(request_id, error),
+                    }
+                }
+                command => handle_request(Request { version: request.version, request_id, command },
+                    &mut self.sessions, &self.recalc, &self.cancelled, &self.in_flight, &self.output)
+                    .expect("Non-calculation requests always return an immediate response"),
+            }
+        };
+        serde_json::to_string(&response).unwrap_or_default()
+    }
 }
 
 impl Default for Engine {
@@ -609,6 +700,54 @@ pub fn handle_request(
 
     let request_id = request.request_id;
     let result = match request.command {
+        Command::Capabilities => {
+            return Some(edit_response(request_id, Ok(serde_json::json!({
+                "transportVersion": PROTOCOL_VERSION,
+                "editApiVersion": 1,
+                "documentApiVersion": DOCUMENT_API_VERSION,
+                "typedDocumentCheckpoints": true,
+                "revisionPinnedDocumentCalculation": true,
+                "packagePreservationAudit": true,
+                "durableDocuments": cfg!(not(target_arch = "wasm32")),
+                "pythonExecution": false,
+                "vbaExecution": false,
+                "comAutomation": false,
+                "savePlanner": "preserving-host-adapter",
+                "coordinates": "zero-based-half-open-sdk"
+            }))));
+        }
+        Command::OpenDocument(request) => {
+            return Some(edit_response(request_id, sessions.documents.open(request)));
+        }
+        Command::AuditPreservation(AuditPreservationRequest { source_path, target_path, allowed_changed_entries }) => {
+            crate::preservation::audit_preservation(&source_path, &target_path, &allowed_changed_entries)
+                .and_then(to_json_value)
+        }
+        Command::RecalcDocument(RecalcDocumentRequest { api_version, document_id, revision, reads, materialized_path }) => {
+            let prepared = require_edit_version(api_version)
+                .and_then(|()| sessions.documents.calculation(&document_id, revision, materialized_path));
+            return match prepared {
+                Ok(input) => recalc.dispatch_stamped(request_id, input.path, input.edits, reads, Some(input.stamp), output),
+                Err(error) => Some(Response::from_session_error(request_id, error)),
+            };
+        }
+        Command::CheckpointDocument(command) => {
+            return Some(edit_response(request_id, sessions.documents.apply(command)));
+        }
+        Command::DocumentSnapshot(DocumentSnapshotRequest { api_version, document_id, revision }) => {
+            return Some(edit_response(request_id, require_edit_version(api_version).and_then(|()| {
+                sessions.documents.snapshot(&document_id, revision)
+                    .and_then(|snapshot| serde_json::to_value(&*snapshot).map_err(edit_json_error))
+            })));
+        }
+        Command::DocumentCommandResult(DocumentCommandResultRequest { api_version, document_id, command_id }) => {
+            return Some(edit_response(request_id, require_edit_version(api_version)
+                .and_then(|()| sessions.documents.command_result(&document_id, &command_id))));
+        }
+        Command::CloseDocument(CloseDocumentRequest { api_version, document_id }) => {
+            return Some(edit_response(request_id, require_edit_version(api_version)
+                .map(|()| serde_json::json!({"closed": sessions.documents.close(&document_id)}))));
+        }
         Command::OpenEditSession(request) => {
             return Some(edit_response(request_id, sessions.edits.open(request)));
         }

@@ -1,6 +1,9 @@
 import type { zh } from './zh'
 
 export const vi = {
+  recoveryFailed: 'Không thể cập nhật bản phục hồi: {error}. Bản trước đó được giữ lại.',
+  recoveryRetry: 'Thử lại',
+  recoveryRemote: 'Bản này vẫn phụ thuộc vào {count} tài nguyên từ xa và có thể cần Internet.',
   redactMenuLabel: 'Ẩn phần đã chọn khỏi AI',
   redactDialogDesc:
     'Văn bản vẫn còn trong tài liệu và tệp; mô hình chỉ thấy placeholder bên dưới. Đặt tên để mô hình biết nó đại diện cho điều gì.',

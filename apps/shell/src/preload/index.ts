@@ -1,5 +1,6 @@
 // Vantage Productivity modification (2026): narrowly scoped local workspace bridge.
 import { VANTAGE_CHANNELS, type VantageApi } from '../shared/vantage-api'
+import { calendarDesktopApi } from './calendar'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import {
@@ -857,14 +858,27 @@ contextBridge.exposeInMainWorld('aiOfficeTabs', tabsApi)
 installDropOpenBridge()
 
 const vantageApi: VantageApi = {
+  ...calendarDesktopApi,
+  recoveryRuntimeStatus: () => ipcRenderer.invoke(VANTAGE_CHANNELS.recoveryRuntimeStatus),
   onSaveWarning: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, message: unknown) => {
       if (typeof message === 'string') listener(message.slice(0, 8192))
     }
     ipcRenderer.on(VANTAGE_CHANNELS.saveWarning, receive)
+    // Register the listener BEFORE announcing readiness; no did-finish-load race.
+    void ipcRenderer.invoke(VANTAGE_CHANNELS.recoveryRuntimeStatus).catch(() => {})
     return () => ipcRenderer.removeListener(VANTAGE_CHANNELS.saveWarning, receive)
   },
   draftList: () => ipcRenderer.invoke(VANTAGE_CHANNELS.draftList),
+  retainedRecoveryList: () => ipcRenderer.invoke(VANTAGE_CHANNELS.retainedRecoveryList),
+  recoverRetainedCopy: (selection) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.recoverRetainedCopy, selection),
+  removeRetainedCopy: (selection) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.removeRetainedCopy, selection),
+  retryRetainedRecovery: (selection) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.retryRetainedRecovery, selection),
+  keepRetainedOutput: (selection, outputId) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.keepRetainedOutput, selection, outputId),
   restoreDraft: (id) => ipcRenderer.invoke(VANTAGE_CHANNELS.restoreDraft, id),
   discardDraft: (id) => ipcRenderer.invoke(VANTAGE_CHANNELS.discardDraft, id),
   exportRecoveryBackup: (password) =>
@@ -877,7 +891,8 @@ const vantageApi: VantageApi = {
   engineeringStatus: () => ipcRenderer.invoke(VANTAGE_CHANNELS.engineeringStatus),
   updateNetworkPolicy: (value) => ipcRenderer.invoke(VANTAGE_CHANNELS.updateNetworkPolicy, value),
   convertDocument: () => ipcRenderer.invoke(VANTAGE_CHANNELS.convertDocument),
-  checkSpecialistPdf: (engine) => ipcRenderer.invoke(VANTAGE_CHANNELS.checkSpecialistPdf, engine),
+  checkSpecialistPdf: (engine, flavour) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.checkSpecialistPdf, engine, flavour),
   importCalendar: () => ipcRenderer.invoke(VANTAGE_CHANNELS.importCalendar),
   importContacts: () => ipcRenderer.invoke(VANTAGE_CHANNELS.importContacts),
   openDatabase: (create) => ipcRenderer.invoke(VANTAGE_CHANNELS.openDatabase, create),

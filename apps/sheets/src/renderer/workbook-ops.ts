@@ -6,6 +6,8 @@
  * every function receives its runtime and state explicitly.
  */
 import { isDefaultFormat, numfmt } from '@univerjs/core'
+import { admitJournalAuthored } from './workbook-authored-admission'
+import { enqueueWorkbookMutation } from './workbook-mutation-queue'
 import { DATE_1904_OFFSET, isCalendarDatePattern } from './numfmt-fix'
 import type {
   AddPivotOperation,
@@ -38,6 +40,7 @@ import {
   recordPivotCacheRefresh,
   recordPivotRefreshUpdate,
   recordTableAdd,
+  replaceSessionPivotJournalEntry,
   updateTableAdd,
 } from './edit-journal'
 import { planFileTableRegistrations } from './file-tables'
@@ -120,9 +123,10 @@ export function applyAiTableAdd(
   // Rendering is best-effort (the facade call is async); the journal entry
   // is what the save writes, and the gateway re-checks conflicts.
   const tableId = `ai-table-${state.editJournal.tableAdds.length + 1}-${Date.now().toString(36)}`
-  void Promise.resolve(worksheet.addTable(name, entry.area, tableId))
-    .then(() => applySessionTableTheme(worksheet, tableId, entry, state.file.themeColors))
-    .catch(() => undefined)
+  void enqueueWorkbookMutation(async () => {
+    await worksheet.addTable(name, entry.area, tableId)
+    applySessionTableTheme(worksheet, tableId, entry, state.file.themeColors)
+  }).catch(() => undefined)
   recordTableAdd(state.editJournal, entry)
 }
 
@@ -519,9 +523,8 @@ export function applyAiPivotAdd(
     ...layout.definition,
   }
   if (sessionTarget !== null) {
-    const at = state.editJournal.pivotAdds.findIndex((pivot) => pivot.name === sessionTarget)
-    if (at < 0) throw new Error(t('appSlicerPivotStale'))
-    state.editJournal.pivotAdds.splice(at, 1, additionPayload)
+    if (!replaceSessionPivotJournalEntry(state.editJournal, sessionTarget, additionPayload))
+      throw new Error(t('appSlicerPivotStale'))
     return { location, pageRows }
   }
   if (fileTarget !== null && relayout) {
@@ -679,40 +682,46 @@ export function renameChartRefsForSheet(
   oldName: string,
   newName: string,
 ): void {
-  const renameSeries = <
-    T extends {
-      valuesRef?: string | undefined
-      categoriesRef?: string | undefined
+  return admitJournalAuthored(
+    state.editJournal,
+    [oldName, newName] as const,
+    (oldName, newName) => {
+      const renameSeries = <
+        T extends {
+          valuesRef?: string | undefined
+          categoriesRef?: string | undefined
+        },
+      >(
+        entry: T,
+      ): T => ({
+        ...entry,
+        ...(entry.valuesRef === undefined
+          ? {}
+          : { valuesRef: renameRefSheet(entry.valuesRef, oldName, newName) }),
+        ...(entry.categoriesRef === undefined
+          ? {}
+          : { categoriesRef: renameRefSheet(entry.categoriesRef, oldName, newName) }),
+      })
+      const renameVisual = (visual: WorkbookVisualObject): WorkbookVisualObject =>
+        visual.chart
+          ? { ...visual, chart: { ...visual.chart, series: visual.chart.series.map(renameSeries) } }
+          : visual
+      state.file.visuals.forEach((visual, at) => {
+        state.file.visuals[at] = renameVisual(visual)
+      })
+      state.editJournal.visualAdds.forEach((visual, at) => {
+        state.editJournal.visualAdds[at] = renameVisual(visual)
+      })
+      for (const [chartPath, edit] of state.editJournal.chartEdits) {
+        if (edit.series === undefined && edit.seriesSet === undefined) continue
+        state.editJournal.chartEdits.set(chartPath, {
+          ...edit,
+          ...(edit.series === undefined ? {} : { series: edit.series.map(renameSeries) }),
+          ...(edit.seriesSet === undefined ? {} : { seriesSet: edit.seriesSet.map(renameSeries) }),
+        })
+      }
     },
-  >(
-    entry: T,
-  ): T => ({
-    ...entry,
-    ...(entry.valuesRef === undefined
-      ? {}
-      : { valuesRef: renameRefSheet(entry.valuesRef, oldName, newName) }),
-    ...(entry.categoriesRef === undefined
-      ? {}
-      : { categoriesRef: renameRefSheet(entry.categoriesRef, oldName, newName) }),
-  })
-  const renameVisual = (visual: WorkbookVisualObject): WorkbookVisualObject =>
-    visual.chart
-      ? { ...visual, chart: { ...visual.chart, series: visual.chart.series.map(renameSeries) } }
-      : visual
-  state.file.visuals.forEach((visual, at) => {
-    state.file.visuals[at] = renameVisual(visual)
-  })
-  state.editJournal.visualAdds.forEach((visual, at) => {
-    state.editJournal.visualAdds[at] = renameVisual(visual)
-  })
-  for (const [chartPath, edit] of state.editJournal.chartEdits) {
-    if (edit.series === undefined && edit.seriesSet === undefined) continue
-    state.editJournal.chartEdits.set(chartPath, {
-      ...edit,
-      ...(edit.series === undefined ? {} : { series: edit.series.map(renameSeries) }),
-      ...(edit.seriesSet === undefined ? {} : { seriesSet: edit.seriesSet.map(renameSeries) }),
-    })
-  }
+  )
 }
 
 export function pivotMemberCaption(

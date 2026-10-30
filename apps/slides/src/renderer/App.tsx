@@ -1,3 +1,6 @@
+import { SlidesAuthoredRuntime, configureSlidesAuthored } from './slides-authored'
+import { captureSlidesHistoryBatches } from './slides-history-batch'
+import { useSlidesAuthoredState } from './use-authored-state'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   GroupRenderNode,
@@ -43,6 +46,7 @@ import { paragraphsBlank } from './textbox-insert'
 import { SlideThumb } from './SlideThumb'
 import { useVisibleThumbs } from './use-visible-thumbs'
 import { MasterView } from './MasterView'
+import { NotesLoadGuard } from './notes-load'
 import {
   TextEditOverlay,
   firstFontFamily,
@@ -141,6 +145,8 @@ import { FIT_WIDTH } from './app-constants'
 import { StageRuler } from './components/StageRuler'
 import { formatRulerValue, type RulerUnit } from './ruler-ticks'
 import * as fileActions from './file-actions'
+import { SlidesRecoveryClient, configureSlidesRecovery } from './slides-recovery'
+import { captureSlidesPendingText, notifySlidesPendingChanged } from './slides-pending-edit'
 import * as clipboardActions from './clipboard-actions'
 import * as insertActions from './insert-actions'
 import * as model3dActions from './model3d/actions'
@@ -162,6 +168,7 @@ import { handleGlobalKeydown, slideRailHasFocus } from './keyboard-actions'
 import { clickSelection, currentAfterHistory, normalizeSelection } from '../shared/slide-selection'
 import {
   notesBaselineAfterFlush,
+  notesDraftAfterOwnFlush,
   notesDraftIndex,
   retargetNotesDraft,
   startNotesDraft,
@@ -360,12 +367,33 @@ function thumbBox(slide: RenderSlide, width: number) {
 
 export function App() {
   const { lang } = useI18n()
-  const [slides, setSlides] = useState<RenderSlide[]>([])
+  const authoredRef = useRef<SlidesAuthoredRuntime | null>(null)
+  if (!authoredRef.current) {
+    authoredRef.current = new SlidesAuthoredRuntime(window.slidesApi, (error) =>
+      showToast(String(error), 'error'),
+    )
+    configureSlidesAuthored(authoredRef.current)
+  }
+  const authored = authoredRef.current
+  useEffect(() => {
+    authored.attach()
+    configureSlidesAuthored(authored)
+    const off = authored.install(document),
+      retire = () => authored.retire()
+    window.addEventListener('pagehide', retire)
+    return () => {
+      off()
+      window.removeEventListener('pagehide', retire)
+      authored.suspend()
+      configureSlidesAuthored(null)
+    }
+  }, [authored])
+  const [slides, setSlides] = useSlidesAuthoredState<RenderSlide[]>(authored, 'slides', [])
   // Layouts may reference Office-private fonts (resolved in main); register them as FontFaces
   useEffect(() => {
     if (slides.length) void syncPrivateFonts()
   }, [slides])
-  const [path, setPath] = useState<string | null>(null)
+  const [path, setPath] = useSlidesAuthoredState<string | null>(authored, 'path', null)
   // Deck references catalog fonts that are missing locally → one-click download banner
   const [missingFonts, setMissingFonts] = useState<string[]>([])
   const [fontBannerBusy, setFontBannerBusy] = useState(false)
@@ -392,35 +420,75 @@ export function App() {
     [refreshMissingFonts],
   )
   const downloadMissingFonts = useCallback(async () => {
-    setFontBannerBusy(true)
-    try {
-      for (const f of missingFonts) await window.slidesApi.fontDownload?.(f)
-    } finally {
-      setFontBannerBusy(false)
-      refreshMissingFonts()
-    }
+    const slidesSource1 = authored.scope()
+    return authored.work(slidesSource1, async () => {
+      setFontBannerBusy(true)
+      try {
+        for (const f of missingFonts)
+          await authored.wait(slidesSource1, window.slidesApi.fontDownload?.(f))
+      } finally {
+        setFontBannerBusy(false)
+        refreshMissingFonts()
+      }
+    })
   }, [missingFonts, refreshMissingFonts])
   /** AiPanel reset key: incremented only on applyOpen (open/new file), not on draft path updates */
   const [aiPanelKey, setAiPanelKey] = useState(0)
   /** Theme body default font (fallback for the font box when the selection has no text element) */
-  const [defaultFont, setDefaultFont] = useState<string | null>(null)
-  const [current, setCurrent] = useState(0)
-  const [slideSelRaw, setSelectedSlides] = useState<number[]>([0])
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [defaultFont, setDefaultFont] = useSlidesAuthoredState<string | null>(
+    authored,
+    'defaultFont',
+    null,
+  )
+  const [current, setCurrent] = useSlidesAuthoredState(authored, 'current', 0)
+  const [slideSelRaw, setSelectedSlides] = useSlidesAuthoredState<number[]>(
+    authored,
+    'slideSelRaw',
+    [0],
+  )
+  const [selectedIds, setSelectedIds] = useSlidesAuthoredState<string[]>(
+    authored,
+    'selectedIds',
+    [],
+  )
   /** Group being edited from inside (double-click to enter, click outside/Esc to exit); the selection may contain its children */
-  const [enteredGroupId, setEnteredGroupId] = useState<string | null>(null)
-  const [ungroupedSets, setUngroupedSets] = useState<UngroupedSet[]>([])
+  const [enteredGroupId, setEnteredGroupId] = useSlidesAuthoredState<string | null>(
+    authored,
+    'enteredGroupId',
+    null,
+  )
+  const [ungroupedSets, setUngroupedSets] = useSlidesAuthoredState<UngroupedSet[]>(
+    authored,
+    'ungroupedSets',
+    [],
+  )
   const [contextTabRequest, setContextTabRequest] = useState<ContextTabRequest | null>(null)
   const openContextTab = useCallback(
     (tab: ContextTab) => setContextTabRequest((prev) => ({ tab, seq: (prev?.seq ?? 0) + 1 })),
     [],
   )
-  const [editing, setEditing] = useState<EditingState | null>(null)
-  const [editingCell, setEditingCell] = useState<EditingCellState | null>(null)
+  const [editing, setEditing] = useSlidesAuthoredState<EditingState | null>(
+    authored,
+    'editing',
+    null,
+  )
+  const [editingCell, setEditingCell] = useSlidesAuthoredState<EditingCellState | null>(
+    authored,
+    'editingCell',
+    null,
+  )
   /** Element-scoped AI edits waiting to be submitted (session-only, see the queue helpers below) */
-  const [editQueue, setEditQueue] = useState<EditQueueItem[]>([])
+  const [editQueue, setEditQueue] = useSlidesAuthoredState<EditQueueItem[]>(
+    authored,
+    'editQueue',
+    [],
+  )
   // Armed shape draw mode (ribbon gallery pick); null = normal selection behavior
-  const [drawKind, setDrawKind] = useState<InsertKind | null>(null)
+  const [drawKind, setDrawKind] = useSlidesAuthoredState<InsertKind | null>(
+    authored,
+    'drawKind',
+    null,
+  )
   /** Latest-state bundle for the extracted action modules; refreshed every render (see action-context.ts). */
   const ctxRef = useRef<ActionCtx>(null as unknown as ActionCtx)
   const [zoom, setZoom] = useState(1)
@@ -430,7 +498,7 @@ export function App() {
   const stageRelRef = useRef<HTMLDivElement | null>(null)
   const zoomBoxRef = useRef<HTMLDivElement | null>(null)
   const [scaleBox, setScaleBox] = useState<{ w: number; h: number } | null>(null)
-  const [dirty, setDirty] = useState(false)
+  const [dirty, setDirty] = useSlidesAuthoredState(authored, 'dirty', false)
   const [status, setStatus] = useState('')
   // Status messages auto-dismiss after 4s: operation feedback needs only a brief showing; persistent info (page number/file name) lives on the left and in the title bar
   useEffect(() => {
@@ -501,6 +569,7 @@ export function App() {
     slideShot?: boolean
   } | null>(null)
   const [_recent, setRecent] = useState<string[]>([])
+  const sourceOfferRef = useRef<{ id: string; source: string } | null>(null)
   const consumePendingRef = useRef<ReturnType<typeof window.slidesApi.consumePendingOpen> | null>(
     null,
   )
@@ -515,9 +584,17 @@ export function App() {
     window.addEventListener('focus', probe)
     return () => window.removeEventListener('focus', probe)
   }, [])
-  const [transition, setTransition] = useState<TransitionKind>('none')
+  const [transition, setTransition] = useSlidesAuthoredState<TransitionKind>(
+    authored,
+    'transition',
+    'none',
+  )
   // ── Animations tab: current page's animation list + pane/preview ─────────────
-  const [animations, setAnimations] = useState<AnimationItem[]>([])
+  const [animations, setAnimations] = useSlidesAuthoredState<AnimationItem[]>(
+    authored,
+    'animations',
+    [],
+  )
   const [showAnimPane, setShowAnimPane] = useState(false)
   /** Animation pane selection (the timing controls bind to it first); -1 = none */
   const [selAnim, setSelAnim] = useState(-1)
@@ -539,31 +616,62 @@ export function App() {
     y: number
   } | null>(null)
   // ── Sections: grouping data + collapsed state + renaming state ────────────────
-  const [sections, setSections] = useState<SectionInfo[]>([])
+  const [sections, setSections] = useSlidesAuthoredState<SectionInfo[]>(authored, 'sections', [])
   const [collapsedSecs, setCollapsedSecs] = useState<Set<string>>(new Set())
-  const [renamingSec, setRenamingSec] = useState<{ id: string; value: string } | null>(null)
+  const [renamingSec, setRenamingSec] = useSlidesAuthoredState<{
+    id: string
+    value: string
+  } | null>(authored, 'renamingSec', null)
   const stageWrapRef = useRef<HTMLDivElement | null>(null)
   const [stageViewportSize, setStageViewportSize] = useState({ w: 0, h: 0 })
   // ── View tab: view mode + display toggles ─────────────────────────────
-  const [viewMode, setViewMode] = useState<SlidesViewMode>('normal')
+  const [viewMode, setViewMode] = useSlidesAuthoredState<SlidesViewMode>(
+    authored,
+    'viewMode',
+    'normal',
+  )
   // Follow slide changes made outside the list (arrow keys, canvas paging); viewMode/showThumbs
   // re-run it because the list remounts at scroll 0 when the normal view returns
   useEffect(() => {
     thumbsListRef.current?.querySelector('.thumb.active')?.scrollIntoView({ block: 'nearest' })
   }, [current, showThumbs, viewMode])
-  const [masterItems, setMasterItems] = useState<MasterPartItem[] | null>(null)
+  const [masterItems, setMasterItems] = useSlidesAuthoredState<MasterPartItem[] | null>(
+    authored,
+    'masterItems',
+    null,
+  )
   // ── Slide show: when non-null, covers the whole window (startAt is the start page index;
   //    customOrder = custom show playback sequence; rehearse = rehearsal timing mode) ────────
-  const [slideShow, setSlideShow] = useState<SlideShowState | null>(null)
+  const [slideShow, setSlideShow] = useSlidesAuthoredState<SlideShowState | null>(
+    authored,
+    'slideShow',
+    null,
+  )
   /** Presenter view (single-window version; mutually exclusive with slideShow) */
-  const [presenter, setPresenter] = useState<{ startAt: number } | null>(null)
+  const [presenter, setPresenter] = useSlidesAuthoredState<{ startAt: number } | null>(
+    authored,
+    'presenter',
+    null,
+  )
   // ── Custom shows: document-level list (persisted to localStorage by file path) + management dialog ──
-  const [customShows, setCustomShows] = useState<CustomShow[]>([])
+  const [customShows, setCustomShows] = useSlidesAuthoredState<CustomShow[]>(
+    authored,
+    'customShows',
+    [],
+  )
   const [customShowDlgOpen, setCustomShowDlgOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   /** Per-page dwell seconds awaiting confirmation after rehearsal (non-null shows the "save?" confirmation dialog) */
-  const [pendingRehearse, setPendingRehearse] = useState<number[] | null>(null)
-  const [pendingRecording, setPendingRecording] = useState<NarrationTake | null>(null)
+  const [pendingRehearse, setPendingRehearse] = useSlidesAuthoredState<number[] | null>(
+    authored,
+    'pendingRehearse',
+    null,
+  )
+  const [pendingRecording, setPendingRecording] = useSlidesAuthoredState<NarrationTake | null>(
+    authored,
+    'pendingRecording',
+    null,
+  )
   const [showRuler, setShowRuler] = useState(false)
   const [showGrid, setShowGrid] = useState(false)
   const [showGuides, setShowGuides] = useState(false)
@@ -577,11 +685,70 @@ export function App() {
   // Notes buttons hide/show it entirely; drag its top edge to any height, all
   // the way down to hide.
   const [showNotes, setShowNotes] = useState(true)
-  const [notesText, setNotesText] = useState('')
+  const [notesText, setNotesText] = useSlidesAuthoredState(authored, 'notesText', '')
   /** Unsaved notes draft (flushed before page switch/save) */
   const notesDraftRef = useRef<NotesDraft | null>(null)
   /** Notes as last read from the document, so a draft knows what it started from */
   const notesLoadedRef = useRef<LoadedNotes | null>(null)
+  const notesLoadGuardRef = useRef(new NotesLoadGuard())
+  const notesReadyPartRef = useRef<string | null>(null)
+  const notesFlushRef = useRef<Promise<void> | null>(null)
+  const notesReconcileRef = useRef<Promise<void> | null>(null)
+  const notesReconcileRetryRef = useRef<(() => Promise<void>) | null>(null)
+  const notesReconcileFailedRef = useRef(false)
+  const notesReconcileEpochRef = useRef(0)
+  const notesHistoryEpochRef = useRef(0)
+  const [notesLoadState, setNotesLoadState] = useState<{
+    key: string
+    status: 'loading' | 'ready' | 'error'
+  }>({ key: '', status: 'loading' })
+  const notesPartPath = slides[current]?.partPath
+  const notesPartKey = `${notesLoadGuardRef.current.sourceGeneration}:${notesPartPath ?? `index:${current}`}`
+  const notesCanEdit = notesReadyPartRef.current === notesPartKey
+  const recoveryClientRef = useRef<SlidesRecoveryClient | null>(null)
+  if (!recoveryClientRef.current) {
+    recoveryClientRef.current = new SlidesRecoveryClient({
+      api: window.slidesApi,
+      sourceIdentity: () => authored.source(),
+      maySnapshot: () => !authored.barrier.locked && !authored.busy,
+      capturePending: () => {
+        const capture = captureSlidesPendingText()
+        const notes = notesDraftRef.current
+        return {
+          composing: capture.composing,
+          pending: {
+            ...(capture.text ? { text: capture.text } : {}),
+            ...(notes && notes.text !== notes.base
+              ? {
+                  notes: {
+                    slideIndex: notes.index,
+                    ...(notes.partPath ? { partPath: notes.partPath } : {}),
+                    text: notes.text,
+                    baseline: notes.base,
+                  },
+                }
+              : {}),
+          },
+        }
+      },
+      reportError: (error) => {
+        const message = `Recovery copy could not be saved: ${String(error)}`
+        setStatus(message)
+        showToast(message, 'error')
+      },
+      markPendingDirty: () => setDirty(true),
+    })
+    configureSlidesRecovery(recoveryClientRef.current)
+  }
+  useEffect(() => {
+    const client = recoveryClientRef.current
+    configureSlidesRecovery(client)
+    client?.start()
+    return () => {
+      client?.stop()
+      configureSlidesRecovery(null)
+    }
+  }, [])
   /** Notes pane height (px): default shows ~4 lines (PowerPoint-like), drag-resizable */
   const [notesHeight, setNotesHeight] = useState(100)
   const notesDragRef = useRef<{ startY: number; startH: number } | null>(null)
@@ -612,30 +779,57 @@ export function App() {
     window.addEventListener('mouseup', onUp)
   }, [])
   // ── Review tab: comments ────────────────────────────────────────────────
-  const [comments, setComments] = useState<SlideComment[]>([])
+  const [comments, setComments] = useSlidesAuthoredState<SlideComment[]>(authored, 'comments', [])
   const [showComments, setShowComments] = useState(false)
   const [commentsFocusNonce, setCommentsFocusNonce] = useState(0)
   /** Notes/comments must be re-fetched after undo/redo (they're not in RenderSlide) */
   const [annotationsNonce, setAnnotationsNonce] = useState(0)
   // ── Insert tab extensions: dialogs + screen recording ──────────────────────
-  const [linkDialog, setLinkDialog] = useState<LinkDialogState | null>(null)
-  const [redactDialog, setRedactDialog] = useState<RedactDialogState | null>(null)
-  const [hfDialog, setHfDialog] = useState<HfDialogState | null>(null)
-  const [eqDialogOpen, setEqDialogOpen] = useState(false)
+  const [linkDialog, setLinkDialog] = useSlidesAuthoredState<LinkDialogState | null>(
+    authored,
+    'linkDialog',
+    null,
+  )
+  const [redactDialog, setRedactDialog] = useSlidesAuthoredState<RedactDialogState | null>(
+    authored,
+    'redactDialog',
+    null,
+  )
+  const [hfDialog, setHfDialog] = useSlidesAuthoredState<HfDialogState | null>(
+    authored,
+    'hfDialog',
+    null,
+  )
+  const [eqDialogOpen, setEqDialogOpen] = useSlidesAuthoredState(authored, 'eqDialogOpen', false)
   const [zoomDialog, setZoomDialog] = useState<zoomActions.ZoomMode | null>(null)
   /** Design › Slide Size › Custom Size… open, with the deck size it opened on */
-  const [slideSizeDialog, setSlideSizeDialog] = useState<{ cx: number; cy: number } | null>(null)
+  const [slideSizeDialog, setSlideSizeDialog] = useSlidesAuthoredState<{
+    cx: number
+    cy: number
+  } | null>(authored, 'slideSizeDialog', null)
   const recorderRef = useRef<{ rec: MediaRecorder; stream: MediaStream } | null>(null)
-  const [recording, setRecording] = useState(false)
+  const [recording, setRecording] = useSlidesAuthoredState(authored, 'recording', false)
   // ── Layout picking: layout list + slide size (loaded after the file opens) ─────────────────
   const [layoutsResult, setLayoutsResult] = useState<GetLayoutsResult | null>(null)
   // ── Picture crop mode ─────────────────────────────────────────────────────
   /** Non-null enters crop mode */
-  const [cropTarget, setCropTarget] = useState<CropTargetState | null>(null)
-  const [editPointsTarget, setEditPointsTarget] = useState<EditPointsState | null>(null)
+  const [cropTarget, setCropTarget] = useSlidesAuthoredState<CropTargetState | null>(
+    authored,
+    'cropTarget',
+    null,
+  )
+  const [editPointsTarget, setEditPointsTarget] = useSlidesAuthoredState<EditPointsState | null>(
+    authored,
+    'editPointsTarget',
+    null,
+  )
   // ── Picture cutout (background removal) mode ───────────────────────────────
   /** Non-null opens the cutout dialog (dataUrl is the full original image data) */
-  const [cutoutTarget, setCutoutTarget] = useState<CutoutTargetState | null>(null)
+  const [cutoutTarget, setCutoutTarget] = useSlidesAuthoredState<CutoutTargetState | null>(
+    authored,
+    'cutoutTarget',
+    null,
+  )
   // ── Format painter ───────────────────────────────────────────────────────
   /** Copied format (null = nothing copied yet) */
   const [brushFormat, setBrushFormat] = useState<BrushFormat | null>(null)
@@ -683,17 +877,93 @@ export function App() {
   }, [slides])
 
   /** Write the notes draft back to the main process (called on page switch / blur / before save). */
-  const flushNotes = useCallback(async () => {
-    const pending = notesDraftRef.current
-    if (!pending) return
-    notesDraftRef.current = null
-    const ok = await window.slidesApi.setNotes({ slideIndex: pending.index, text: pending.text })
-    if (!ok) return
-    setDirty(true)
-    // read back: the document normalizes what it stores (trailing empty paragraphs), and the
-    // baseline must match what a later getNotes returns
-    const stored = await window.slidesApi.getNotes(pending.index)
-    notesLoadedRef.current = notesBaselineAfterFlush(notesLoadedRef.current, pending.index, stored)
+  const flushNotes = useCallback((): Promise<void> => {
+    const prior = notesFlushRef.current
+    const sourceGeneration = notesLoadGuardRef.current.sourceGeneration
+    const historyEpoch = notesHistoryEpochRef.current
+    const isCurrent = () =>
+      notesLoadGuardRef.current.sourceGeneration === sourceGeneration &&
+      notesHistoryEpochRef.current === historyEpoch
+    const operation = (async () => {
+      const slidesSource2 = authored.scope()
+      return authored.work(slidesSource2, async () => {
+        try {
+          if (prior) await authored.wait(slidesSource2, prior)
+          if (!isCurrent()) return
+          for (let pass = 0; notesReconcileRef.current; pass++) {
+            if (pass >= 8)
+              throw new Error(
+                'The presentation is still changing. Its pending speaker notes were kept.',
+              )
+            const retry = notesReconcileFailedRef.current ? notesReconcileRetryRef.current : null
+            await authored.wait(slidesSource2, retry ? retry() : notesReconcileRef.current)
+            if (!isCurrent()) return
+          }
+          const pending = notesDraftRef.current
+          if (!pending) return
+          notesDraftRef.current = null
+          let ok = false
+          try {
+            ok = await authored.wait(
+              slidesSource2,
+              window.slidesApi.setNotes({
+                slideIndex: pending.index,
+                ...(pending.partPath ? { partPath: pending.partPath } : {}),
+                text: pending.text,
+              }),
+            )
+          } catch (error) {
+            if (!isCurrent()) return
+            if (!notesDraftRef.current) notesDraftRef.current = pending
+            notifySlidesPendingChanged()
+            throw error
+          }
+          if (!isCurrent()) return
+          if (!ok) {
+            if (!notesDraftRef.current) notesDraftRef.current = pending
+            notifySlidesPendingChanged()
+            throw new Error('Speaker notes could not be applied; their pending text was kept.')
+          }
+          setDirty(true)
+          // read back: the document normalizes what it stores (trailing empty paragraphs), and the
+          // baseline must match what a later getNotes returns
+          const stored = await authored.wait(
+            slidesSource2,
+            window.slidesApi.getNotes(pending.index, pending.partPath),
+          )
+          if (!isCurrent()) return
+          if (typeof stored !== 'string')
+            throw new Error('The speaker notes receipt was invalid; its baseline was not replaced.')
+          notesDraftRef.current = notesDraftAfterOwnFlush(notesDraftRef.current, pending, stored)
+          const partKey = `${notesLoadGuardRef.current.sourceGeneration}:${pending.partPath ?? `index:${pending.index}`}`
+          if (notesReadyPartRef.current === partKey) {
+            const index = pending.partPath
+              ? ctxRef.current.slides.findIndex((slide) => slide.partPath === pending.partPath)
+              : pending.index
+            notesLoadedRef.current = { index: index < 0 ? pending.index : index, text: stored }
+          } else
+            notesLoadedRef.current = notesBaselineAfterFlush(
+              notesLoadedRef.current,
+              pending.index,
+              stored,
+            )
+          notifySlidesPendingChanged()
+        } catch (error) {
+          if (!isCurrent()) return
+          throw error
+        }
+      })
+    })()
+    notesFlushRef.current = operation
+    void operation.then(
+      () => {
+        if (notesFlushRef.current === operation) notesFlushRef.current = null
+      },
+      () => {
+        if (notesFlushRef.current === operation) notesFlushRef.current = null
+      },
+    )
+    return operation
   }, [])
 
   // Uncapped proportional fit ratio from the stage container's measured size
@@ -870,8 +1140,37 @@ export function App() {
   }, [hasDoc, fitZoom, rawFit, viewMode])
 
   const applyOpen = useCallback(
-    (result: { path: string; slides: RenderSlide[]; defaultFont?: string } | null) => {
+    (
+      result: {
+        path: string
+        slides: RenderSlide[]
+        defaultFont?: string
+        sourceCandidateId?: string
+      } | null,
+    ) => {
       if (!result) return
+      if (result.sourceCandidateId) {
+        sourceOfferRef.current = { id: result.sourceCandidateId, source: authored.source() }
+        const reason = authored.reason()
+        if (reason) showToast('The new presentation is ready. ' + reason, 'error')
+        authored.notifyReady()
+        return
+      }
+      sourceOfferRef.current = null
+      authored.adopt()
+      recoveryClientRef.current?.activate(result.path || null)
+      notesLoadGuardRef.current.reset()
+      notesReadyPartRef.current = null
+      notesFlushRef.current = null
+      notesReconcileEpochRef.current++
+      notesReconcileRef.current = null
+      notesReconcileRetryRef.current = null
+      notesReconcileFailedRef.current = false
+      setNotesLoadState({ key: '', status: 'loading' })
+      notesDraftRef.current = null
+      notesLoadedRef.current = null
+      setNotesText('')
+      setAnnotationsNonce((value) => value + 1)
       setSlides(result.slides)
       setDefaultFont(result.defaultFont ?? null)
       setPath(result.path)
@@ -879,12 +1178,27 @@ export function App() {
       setSelectedSlides([0])
       setSelectedIds([])
       setEditing(null)
+      setEditingCell(null)
       setDirty(false)
       setInkTool('select')
       setUngroupedSets([])
       setAiPanelKey((k) => k + 1)
       // Queue anchors belong to the deck that was open; another file invalidates them all
       setEditQueue([])
+      setMasterItems(null)
+      setCropTarget(null)
+      setEditPointsTarget(null)
+      setCutoutTarget(null)
+      setLinkDialog(null)
+      setRedactDialog(null)
+      setHfDialog(null)
+      setEqDialogOpen(false)
+      setChartDataDialogOpen(false)
+      setSlideSizeDialog(null)
+      setRenamingSec(null)
+      setPendingRecording(null)
+      setPendingRehearse(null)
+      setRecording(false)
       setAskState(null)
       needsFitRef.current = true
       setStatus(
@@ -900,6 +1214,23 @@ export function App() {
     },
     [fitZoom],
   )
+
+  useEffect(
+    () =>
+      authored.onReady(() => {
+        const offer = sourceOfferRef.current
+        if (!offer) return
+        sourceOfferRef.current = null
+        if (offer.source !== authored.source()) return
+        void window.slidesApi
+          .confirmSourceAdoption(offer.id)
+          .catch((error) => showToast(String(error), 'error'))
+      }),
+    [authored],
+  )
+  useEffect(() => {
+    authored.notifyReady()
+  })
 
   const setSelectedId = useCallback((id: string | null, additive = false) => {
     setSelectedIds((prev) => nextSelection(prev, id, additive))
@@ -936,8 +1267,11 @@ export function App() {
   )
 
   const openDialog = useCallback(async () => {
-    const r = await window.slidesApi.openPptx(FIT_WIDTH)
-    applyOpen(r)
+    const slidesSource3 = authored.scope()
+    return authored.work(slidesSource3, async () => {
+      const r = await authored.wait(slidesSource3, window.slidesApi.openPptx(FIT_WIDTH))
+      applyOpen(r)
+    })
   }, [applyOpen])
 
   // Save/export flows live in file-actions.ts; the editing-active flag lets ⌘S wait for the edit overlay to commit
@@ -951,6 +1285,29 @@ export function App() {
     [],
   )
 
+  useEffect(() => {
+    const release = window.slidesApi.onCloseRelease((ticket) => authored.barrier.release(ticket))
+    const request = window.slidesApi.onToolSaveRequest((value) => {
+      void fileActions
+        .saveForTool(() => ctxRef.current, value)
+        .then((result) => window.slidesApi.reportToolSaveResult(result))
+    })
+    const query = window.slidesApi.onCloseQuery((id) => {
+      window.slidesApi.reportCloseQuery({
+        id,
+        stamp: authored.barrier.snapshot(),
+        dirty: authored.read<boolean>('dirty'),
+        pending: recoveryClientRef.current?.hasPending() ?? true,
+        ...(authored.reason() ? { unsupported: authored.reason()! } : {}),
+      })
+    })
+    return () => {
+      release()
+      request()
+      query()
+    }
+  }, [authored])
+
   // Close guard (closing tab/window) chose "Save": run the full save flow and report the result
   useEffect(() => {
     return window.slidesApi.onCloseSaveRequest?.(() => {
@@ -960,6 +1317,18 @@ export function App() {
       )
     })
   }, [save])
+  useEffect(
+    () =>
+      window.slidesApi.onCloseFlushRequest?.(() => {
+        void fileActions
+          .flushForAliasClose(() => ctxRef.current)
+          .then(
+            (ok) => window.slidesApi.reportCloseFlushResult(ok),
+            () => window.slidesApi.reportCloseFlushResult(false),
+          )
+      }),
+    [],
+  )
 
   // Undo/redo stack occupancy pushed by the main process: the QAT buttons grey out when empty
   const [histState, setHistState] = useState({ canUndo: false, canRedo: false })
@@ -986,7 +1355,9 @@ export function App() {
         setCurrent((c) => Math.min(c, Math.max(0, (order?.length ?? all.length) - 1)))
         // The broadcast also fires for undo back to a clean state — ask the
         // session instead of assuming the change dirtied it
-        void window.slidesApi.isDirty?.().then((d) => setDirty(!!d))
+        void window.slidesApi
+          .isDirty?.()
+          .then((d) => setDirty(!!d || !!recoveryClientRef.current?.hasPending()))
       }),
     [],
   )
@@ -1012,9 +1383,11 @@ export function App() {
     if (!autoSave || !path) return
     let saving = false
     const tick = () => {
-      if (saving || editing || editingCell || mouseDownRef.current) return
+      if (authored.barrier.locked || saving || editing || editingCell || mouseDownRef.current)
+        return
+      const automaticSource = authored.source()
       void window.slidesApi.isDirty().then((d) => {
-        if (!d || saving) return
+        if (authored.barrier.locked || authored.source() !== automaticSource || !d || saving) return
         saving = true
         void save(true).finally(() => {
           saving = false
@@ -1042,25 +1415,31 @@ export function App() {
     if (headlessExportStartedRef.current) return
     headlessExportStartedRef.current = true
     void (async () => {
-      const outPath = await window.slidesApi.consumeHeadlessExport()
-      if (!outPath) return
-      const report = await runHeadlessPdfExport(
-        outPath,
-        () => {
-          // A failed open falls back to an untitled blank deck (path ''), and
-          // exporting that would hand the CLI a blank PDF and call it success.
-          const deck = ctxRef.current
-          const fromFile = typeof deck?.path === 'string' && deck.path !== ''
-          return {
-            slideCount: fromFile ? deck.slides.length : 0,
-            // no loader yet = the deck's image effect has not run; -1 keeps waiting
-            pendingImages: imageLoaderRef.current?.pending() ?? -1,
-            failed: deck?.path === '',
-          }
-        },
-        (target) => fileActions.exportPdf(ctxRef.current, target),
-      )
-      window.slidesApi.headlessExportDone(report)
+      const slidesSource4 = authored.scope()
+      return authored.work(slidesSource4, async () => {
+        const outPath = await authored.wait(slidesSource4, window.slidesApi.consumeHeadlessExport())
+        if (!outPath) return
+        const report = await authored.wait(
+          slidesSource4,
+          runHeadlessPdfExport(
+            outPath,
+            () => {
+              // A failed open falls back to an untitled blank deck (path ''), and
+              // exporting that would hand the CLI a blank PDF and call it success.
+              const deck = ctxRef.current
+              const fromFile = typeof deck?.path === 'string' && deck.path !== ''
+              return {
+                slideCount: fromFile ? deck.slides.length : 0,
+                // no loader yet = the deck's image effect has not run; -1 keeps waiting
+                pendingImages: imageLoaderRef.current?.pending() ?? -1,
+                failed: deck?.path === '',
+              }
+            },
+            (target) => fileActions.exportPdf(ctxRef.current, target),
+          ),
+        )
+        window.slidesApi.headlessExportDone(report)
+      })
     })()
   }, [])
 
@@ -1081,39 +1460,71 @@ export function App() {
   /** Apply the full slides set after undo/redo, keeping the current slide when it still exists. */
   const applyHistoryResult = useCallback(
     (r: RenderSlide[] | null, current: number, partPath?: string) => {
-      if (!r) return
-      setSlides(r)
-      setCurrent(currentAfterHistory(r, current, partPath))
-      setSelectedSlides([])
-      setSelectedIds([])
-      setEditing(null)
-      setPasteFloater(null) // The paste the floater refers to may have just been undone
-      notesDraftRef.current = null // Undo overrides the unsaved draft, avoiding writing an old draft back
-      setAnnotationsNonce((n) => n + 1) // Notes/comments aren't in RenderSlide; re-fetch
-      void window.slidesApi.isDirty().then(setDirty)
+      const acceptedSource = authored.scope()
+      return authored.mutate(acceptedSource, () => {
+        if (!r) return
+        notesHistoryEpochRef.current++
+        notesFlushRef.current = null
+        notesReadyPartRef.current = null
+        notesLoadedRef.current = null
+        setNotesText('')
+        const nextCurrent = currentAfterHistory(r, current, partPath)
+        const notesKey = `${notesLoadGuardRef.current.sourceGeneration}:${r[nextCurrent]?.partPath ?? `index:${nextCurrent}`}`
+        notesLoadGuardRef.current.begin(notesKey)
+        setNotesLoadState({ key: notesKey, status: 'loading' })
+        setSlides(r)
+        setCurrent(nextCurrent)
+        setSelectedSlides([])
+        setSelectedIds([])
+        setEditing(null)
+        setPasteFloater(null) // The paste the floater refers to may have just been undone
+        notesDraftRef.current = null // Undo overrides the unsaved draft, avoiding writing an old draft back
+        notesReconcileEpochRef.current++
+        notesReconcileRef.current = null
+        notesReconcileRetryRef.current = null
+        notesReconcileFailedRef.current = false
+        setAnnotationsNonce((n) => n + 1) // Notes/comments aren't in RenderSlide; re-fetch
+        void window.slidesApi
+          .isDirty()
+          .then((value) => setDirty(!!value || !!recoveryClientRef.current?.hasPending()))
+      })
     },
     [],
   )
 
   const undo = useCallback(async () => {
-    // Preserve native undo while typing. The cleared AI composer explicitly yields to deck undo.
-    const target = document.activeElement as HTMLElement | null
-    if (editing || (isTextUndoTarget(target) && !shouldRouteHistoryToDeck(target))) {
-      document.execCommand('undo')
-      return
-    }
-    const { current, slide } = ctxRef.current
-    applyHistoryResult(await window.slidesApi.undo(), current, slide?.partPath)
+    const slidesSource5 = authored.scope()
+    return authored.work(slidesSource5, async () => {
+      // Preserve native undo while typing. The cleared AI composer explicitly yields to deck undo.
+      const target = document.activeElement as HTMLElement | null
+      if (editing || (isTextUndoTarget(target) && !shouldRouteHistoryToDeck(target))) {
+        document.execCommand('undo')
+        return
+      }
+      const { current, slide } = ctxRef.current
+      applyHistoryResult(
+        await authored.wait(slidesSource5, window.slidesApi.undo()),
+        current,
+        slide?.partPath,
+      )
+    })
   }, [editing, applyHistoryResult])
 
   const redo = useCallback(async () => {
-    const target = document.activeElement as HTMLElement | null
-    if (editing || (isTextUndoTarget(target) && !shouldRouteHistoryToDeck(target))) {
-      document.execCommand('redo')
-      return
-    }
-    const { current, slide } = ctxRef.current
-    applyHistoryResult(await window.slidesApi.redo(), current, slide?.partPath)
+    const slidesSource6 = authored.scope()
+    return authored.work(slidesSource6, async () => {
+      const target = document.activeElement as HTMLElement | null
+      if (editing || (isTextUndoTarget(target) && !shouldRouteHistoryToDeck(target))) {
+        document.execCommand('redo')
+        return
+      }
+      const { current, slide } = ctxRef.current
+      applyHistoryResult(
+        await authored.wait(slidesSource6, window.slidesApi.redo()),
+        current,
+        slide?.partPath,
+      )
+    })
   }, [editing, applyHistoryResult])
 
   // Global shortcuts (keyboard-actions.ts): the handler reads the latest state via ctxRef, so attach once
@@ -1249,9 +1660,15 @@ export function App() {
   }, [hasDoc, viewMode, previewZoom, slides.length])
 
   const newBlank = useCallback(async () => {
-    const r = await window.slidesApi.newBlank(FIT_WIDTH, defaultNewSlideSize() ?? undefined)
-    applyOpen(r)
-    return r
+    const slidesSource7 = authored.scope()
+    return authored.work(slidesSource7, async () => {
+      const r = await authored.wait(
+        slidesSource7,
+        window.slidesApi.newBlank(FIT_WIDTH, defaultNewSlideSize() ?? undefined),
+      )
+      applyOpen(r)
+      return r
+    })
   }, [applyOpen])
 
   // Files are pushed open by the main process (double-click/command line); with no pending file the
@@ -1269,6 +1686,7 @@ export function App() {
         })
       })
     const off = window.slidesApi.onOpened((r) => applyOpen(r))
+    const adopted = window.slidesApi.onSourceAdopted((r) => applyOpen(r))
     consumePendingRef.current ??= window.slidesApi.consumePendingOpen(FIT_WIDTH)
     void consumePendingRef.current
       .then((r) => {
@@ -1283,7 +1701,10 @@ export function App() {
         bootHandledRef.current = true
         void bootBlank()
       })
-    return off
+    return () => {
+      off()
+      adopted()
+    }
   }, [applyOpen, newBlank])
 
   // Path changed outside this renderer (shell Home list rename, or an MCP save that
@@ -1292,8 +1713,34 @@ export function App() {
   useEffect(
     () =>
       window.slidesApi.onRenamed((p) => {
+        recoveryClientRef.current?.rename(p)
         setPath(p)
-        void window.slidesApi.isDirty().then(setDirty)
+        void window.slidesApi
+          .isDirty()
+          .then((value) => setDirty(!!value || !!recoveryClientRef.current?.hasPending()))
+      }),
+    [],
+  )
+  useEffect(
+    () =>
+      window.slidesApi.onDraftSourceChanged((p) => {
+        recoveryClientRef.current?.activate(p || null)
+        notesLoadGuardRef.current.reset()
+        notesReadyPartRef.current = null
+        notesFlushRef.current = null
+        notesReconcileEpochRef.current++
+        notesReconcileRef.current = null
+        notesReconcileRetryRef.current = null
+        notesReconcileFailedRef.current = false
+        setNotesLoadState({ key: '', status: 'loading' })
+        notesDraftRef.current = null
+        notesLoadedRef.current = null
+        setNotesText('')
+        setAnnotationsNonce((value) => value + 1)
+        setEditing(null)
+        setEditingCell(null)
+        setMasterItems(null)
+        setPath(p)
       }),
     [],
   )
@@ -1347,7 +1794,10 @@ export function App() {
   // document content, so nothing here is persisted with the file.
 
   /** Open annotation popover; ids are the canvas selection it was opened on */
-  const [askState, setAskState] = useState<{ ids: string[]; itemKey?: string } | null>(null)
+  const [askState, setAskState] = useSlidesAuthoredState<{
+    ids: string[]
+    itemKey?: string
+  } | null>(authored, 'askState', null)
   askOpenRef.current = askState !== null
   /** When the popover last dismissed itself — see the guard in openAskPopover */
   const askClosedAtRef = useRef(0)
@@ -1487,8 +1937,11 @@ export function App() {
   )
 
   const applySlide = useCallback((slideIndex: number, updated: RenderSlide) => {
-    setSlides((s) => s.map((sl, i) => (i === slideIndex ? updated : sl)))
-    setDirty(true)
+    const acceptedSource = authored.scope()
+    return authored.mutate(acceptedSource, () => {
+      setSlides((s) => s.map((sl, i) => (i === slideIndex ? updated : sl)))
+      setDirty(true)
+    })
   }, [])
 
   // Effect sliders fire continuously while dragging; each tick costs an IPC round trip
@@ -1561,29 +2014,101 @@ export function App() {
   )
 
   const applyDeck = useCallback((all: RenderSlide[], goTo?: number) => {
-    setSlides(all)
-    if (goTo != null) setCurrent(goTo)
-    setSelectedIds([])
-    setEditing(null)
-    setDirty(true)
-    // Notes/comments aren't part of RenderSlide, so the re-fetch below reads them back. A
-    // notes draft the user is typing survives unless the batch rewrote that slide's notes
-    // (or removed the slide): park it while the stored text is compared, so the re-fetch's
-    // flush can't write a stale draft over what the batch wrote via setNotes.
-    const draft = notesDraftRef.current
-    notesDraftRef.current = null
-    if (!draft) {
-      setAnnotationsNonce((n) => n + 1)
-      return
-    }
-    const index = notesDraftIndex(draft, all)
-    void (index < 0 ? Promise.resolve('') : window.slidesApi.getNotes(index)).then((stored) => {
-      const kept = retargetNotesDraft(draft, all, stored)
-      const typedSince = notesDraftRef.current
-      if (kept && (!typedSince || typedSince.index === draft.index)) {
-        notesDraftRef.current = typedSince ? { ...typedSince, index: kept.index } : kept
+    const acceptedSource = authored.scope()
+    return authored.mutate(acceptedSource, () => {
+      setSlides(all)
+      if (goTo != null) setCurrent(goTo)
+      setSelectedIds([])
+      setEditing(null)
+      setDirty(true)
+      // Notes/comments aren't part of RenderSlide. Keep pending text visible to
+      // recovery and close/save while its baseline is
+      // compared. Flushes wait for this comparison rather than hiding the draft.
+      const draft = notesDraftRef.current
+      const epoch = ++notesReconcileEpochRef.current
+      if (!draft) {
+        notesReconcileRef.current = null
+        notesReconcileRetryRef.current = null
+        notesReconcileFailedRef.current = false
+        setAnnotationsNonce((n) => n + 1)
+        return
       }
-      setAnnotationsNonce((n) => n + 1)
+      const guard = notesLoadGuardRef.current
+      const sourceGeneration = guard.sourceGeneration
+      const editGeneration = guard.editGeneration
+      const index = notesDraftIndex(draft, all)
+      const compare = (): Promise<void> => {
+        const operation = (async () => {
+          const slidesSource8 = authored.scope()
+          return authored.work(slidesSource8, async () => {
+            try {
+              const stored =
+                index < 0
+                  ? ''
+                  : await authored.wait(
+                      slidesSource8,
+                      window.slidesApi.getNotes(index, draft.partPath),
+                    )
+              if (
+                guard.sourceGeneration !== sourceGeneration ||
+                notesReconcileEpochRef.current !== epoch
+              )
+                return
+              if (typeof stored !== 'string')
+                throw new Error('The speaker notes comparison returned an invalid receipt.')
+              const kept = retargetNotesDraft(draft, all, stored)
+              const typedSince = notesDraftRef.current
+              const samePart =
+                typedSince &&
+                (typedSince.partPath && draft.partPath
+                  ? typedSince.partPath === draft.partPath
+                  : typedSince.index === draft.index)
+              if (typedSince && samePart && typedSince.text === typedSince.base) {
+                notesDraftRef.current = null
+                notifySlidesPendingChanged()
+                setAnnotationsNonce((n) => n + 1)
+                return
+              }
+              if (index >= 0 && typedSince && samePart && stored !== typedSince.base)
+                throw new Error(
+                  'Speaker notes changed in the presentation. Your pending notes were kept; resolve the baseline conflict before saving.',
+                )
+              if (typedSince === draft && guard.editGeneration === editGeneration)
+                notesDraftRef.current = kept
+              else if (kept && typedSince && samePart)
+                notesDraftRef.current = { ...typedSince, index: kept.index }
+              notifySlidesPendingChanged()
+              setAnnotationsNonce((n) => n + 1)
+            } catch (error) {
+              if (
+                guard.sourceGeneration !== sourceGeneration ||
+                notesReconcileEpochRef.current !== epoch
+              )
+                return
+              // The pending ref was never hidden; newer or different-part edits stay untouched.
+              recoveryClientRef.current?.reportFailure(error)
+              throw error
+            }
+          })
+        })()
+        notesReconcileRef.current = operation
+        notesReconcileFailedRef.current = false
+        void operation.then(
+          () => {
+            if (notesReconcileRef.current !== operation) return
+            notesReconcileRef.current = null
+            notesReconcileRetryRef.current = null
+            notesReconcileFailedRef.current = false
+          },
+          () => {
+            // Retain this fence: a later Save/blur must retry the comparison first.
+            if (notesReconcileRef.current === operation) notesReconcileFailedRef.current = true
+          },
+        )
+        return operation
+      }
+      notesReconcileRetryRef.current = compare
+      void compare()
     })
   }, [])
 
@@ -1998,31 +2523,81 @@ export function App() {
   // collapsed add-notes bar shows the current slide's first note line
   useEffect(() => {
     if (!hasDoc) return
-    let cancelled = false
-    void flushNotes()
-      .then(() => window.slidesApi.getNotes(current))
-      .then((t) => {
-        if (cancelled) return
-        notesLoadedRef.current = { index: current, text: t }
-        setNotesText(t)
+    const guard = notesLoadGuardRef.current
+    const ticket = guard.begin(notesPartKey)
+    setNotesLoadState({ key: notesPartKey, status: 'loading' })
+    const visiblePending = notesDraftRef.current
+    const pendingIsCurrent =
+      visiblePending &&
+      (visiblePending.partPath && notesPartPath
+        ? visiblePending.partPath === notesPartPath
+        : visiblePending.index === current)
+    if (pendingIsCurrent && visiblePending) setNotesText(visiblePending.text)
+    else if (notesReadyPartRef.current !== notesPartKey) setNotesText('')
+    void (async () => {
+      const slidesSource9 = authored.scope()
+      return authored.work(slidesSource9, async () => {
+        for (let pass = 0; pass < 4; pass++) {
+          await authored.wait(slidesSource9, flushNotes())
+          if (!guard.isCurrent(ticket)) return
+          const pending = notesDraftRef.current
+          const samePart =
+            pending &&
+            (pending.partPath && notesPartPath
+              ? pending.partPath === notesPartPath
+              : pending.index === current)
+          if (!pending || samePart) break
+          if (pass === 3)
+            throw new Error(
+              'The earlier speaker notes edit has not finished. Its pending text was kept.',
+            )
+        }
+        const text = await authored.wait(
+          slidesSource9,
+          window.slidesApi.getNotes(current, notesPartPath),
+        )
+        if (!guard.isCurrent(ticket)) return
+        if (typeof text !== 'string')
+          throw new Error('Speaker notes could not be loaded; no initial baseline was accepted.')
+        const pending = notesDraftRef.current
+        if (guard.mayReplace(ticket) && !pending) {
+          notesLoadedRef.current = { index: current, text }
+          notesReadyPartRef.current = notesPartKey
+          setNotesText(text)
+        }
+        setNotesLoadState({
+          key: notesPartKey,
+          status: notesReadyPartRef.current === notesPartKey ? 'ready' : 'error',
+        })
       })
-    return () => {
-      cancelled = true
-    }
-  }, [hasDoc, current, path, annotationsNonce, flushNotes])
+    })().catch((error) => {
+      if (!guard.isCurrent(ticket)) return
+      setNotesLoadState({ key: notesPartKey, status: 'error' })
+      recoveryClientRef.current?.reportFailure(error)
+    })
+    return () => guard.cancel(ticket)
+  }, [hasDoc, current, path, notesPartKey, notesPartPath, annotationsNonce, flushNotes])
 
   const onNotesChange = useCallback(
     (text: string) => {
-      setNotesText(text)
-      notesDraftRef.current = startNotesDraft(
-        notesDraftRef.current,
-        notesLoadedRef.current,
-        current,
-        text,
-        ctxRef.current.slides[current]?.partPath,
-      )
+      const acceptedSource = authored.scope()
+      return authored.mutate(acceptedSource, () => {
+        if (notesReadyPartRef.current !== notesPartKey) return
+        notesLoadGuardRef.current.edited()
+        setNotesText(text)
+        const previous = notesDraftRef.current
+        const samePart = previous?.partPath && notesPartPath && previous.partPath === notesPartPath
+        notesDraftRef.current = startNotesDraft(
+          samePart && previous ? { ...previous, index: current } : previous,
+          notesLoadedRef.current ? { ...notesLoadedRef.current, index: current } : null,
+          current,
+          text,
+          notesPartPath,
+        )
+        notifySlidesPendingChanged()
+      })
     },
-    [current],
+    [current, notesPartKey, notesPartPath],
   )
 
   // ── Comments: fetch the current page's list on page switch/document change/undo (the ribbon badge uses it too) ──────────
@@ -2042,27 +2617,39 @@ export function App() {
 
   const addComment = useCallback(
     async (text: string) => {
-      const r = await window.slidesApi.addComment({ slideIndex: current, text })
-      if (r) {
-        setComments(r)
-        setDirty(true)
-        setStatus(t('appStatusCommentAdded'))
-      }
+      const slidesSource10 = authored.scope()
+      return authored.work(slidesSource10, async () => {
+        const r = await authored.wait(
+          slidesSource10,
+          window.slidesApi.addComment({ slideIndex: current, text }),
+        )
+        if (r) {
+          setComments(r)
+          setDirty(true)
+          setStatus(t('appStatusCommentAdded'))
+        }
+      })
     },
     [current],
   )
 
   const deleteComment = useCallback(
     async (c: SlideComment) => {
-      const r = await window.slidesApi.deleteComment({
-        slideIndex: current,
-        authorId: c.authorId,
-        idx: c.idx,
+      const slidesSource11 = authored.scope()
+      return authored.work(slidesSource11, async () => {
+        const r = await authored.wait(
+          slidesSource11,
+          window.slidesApi.deleteComment({
+            slideIndex: current,
+            authorId: c.authorId,
+            idx: c.idx,
+          }),
+        )
+        if (r) {
+          setComments(r)
+          setDirty(true)
+        }
       })
-      if (r) {
-        setComments(r)
-        setDirty(true)
-      }
     },
     [current],
   )
@@ -2085,24 +2672,45 @@ export function App() {
 
   // ── Master editing view (full-screen overlay; edits go through slides:master-* IPC) ────────────
   const enterMasterView = useCallback(async () => {
-    if (!hasDoc) return
-    setEditing(null)
-    setEditingCell(null)
-    setSelectedIds([])
-    setCtxMenu(null)
-    const r = await window.slidesApi.masterEnter(FIT_WIDTH)
-    if (r?.items.length) setMasterItems(r.items)
-  }, [hasDoc])
+    const slidesSource12 = authored.scope()
+    return authored.work(slidesSource12, async () => {
+      if (!hasDoc) return
+      try {
+        await authored.wait(slidesSource12, fileActions.flushActiveEdit(ctxRef.current))
+        await authored.wait(slidesSource12, flushNotes())
+      } catch (error) {
+        recoveryClientRef.current?.reportFailure(error)
+        return
+      }
+      setEditing(null)
+      setEditingCell(null)
+      setSelectedIds([])
+      setCtxMenu(null)
+      const r = await authored.wait(slidesSource12, window.slidesApi.masterEnter(FIT_WIDTH))
+      if (r?.items.length) setMasterItems(r.items)
+    })
+  }, [hasDoc, flushNotes])
 
   const closeMasterView = useCallback(async () => {
-    const all = await window.slidesApi.masterClose()
-    setMasterItems(null)
-    if (all) {
-      // The inheritance chain changed: replace the whole render tree (all-new element ids)
-      setSlides(all)
-      setSelectedIds([])
-    }
-    void window.slidesApi.isDirty().then(setDirty)
+    const slidesSource13 = authored.scope()
+    return authored.work(slidesSource13, async () => {
+      try {
+        await authored.wait(slidesSource13, fileActions.flushActiveEdit(ctxRef.current))
+      } catch (error) {
+        recoveryClientRef.current?.reportFailure(error)
+        return
+      }
+      const all = await authored.wait(slidesSource13, window.slidesApi.masterClose())
+      setMasterItems(null)
+      if (all) {
+        // The inheritance chain changed: replace the whole render tree (all-new element ids)
+        setSlides(all)
+        setSelectedIds([])
+      }
+      void window.slidesApi
+        .isDirty()
+        .then((value) => setDirty(!!value || !!recoveryClientRef.current?.hasPending()))
+    })
   }, [])
 
   const zoomToFit = useCallback(() => {
@@ -2456,9 +3064,12 @@ export function App() {
 
   const startEdit = useCallback(
     (sourceId: string, caret?: EditCaret) => {
-      if (brushMode) return // the click already applied the format brush
-      const isChild = enteredGroupNode?.children.some((c) => c.sourceId === sourceId)
-      setEditing({ sourceId, caret, ...(isChild ? { groupId: enteredGroupNode!.sourceId } : {}) })
+      const acceptedSource = authored.scope()
+      return authored.mutate(acceptedSource, () => {
+        if (brushMode) return // the click already applied the format brush
+        const isChild = enteredGroupNode?.children.some((c) => c.sourceId === sourceId)
+        setEditing({ sourceId, caret, ...(isChild ? { groupId: enteredGroupNode!.sourceId } : {}) })
+      })
     },
     [enteredGroupNode, brushMode],
   )
@@ -2472,8 +3083,14 @@ export function App() {
   useEffect(() => setMediaPlay(null), [current])
   const startMediaPlayback = useCallback(
     async (sourceId: string) => {
-      const r = await window.slidesApi.getMediaData(current, sourceId)
-      if (r) setMediaPlay({ sourceId, ...r })
+      const slidesSource14 = authored.scope()
+      return authored.work(slidesSource14, async () => {
+        const r = await authored.wait(
+          slidesSource14,
+          window.slidesApi.getMediaData(current, sourceId),
+        )
+        if (r) setMediaPlay({ sourceId, ...r })
+      })
     },
     [current],
   )
@@ -2494,8 +3111,11 @@ export function App() {
   const overlayOpen = useEscOverlayOpen()
 
   const startEditCell = useCallback((sourceId: string, row: number, col: number) => {
-    setEditing(null)
-    setEditingCell({ sourceId, row, col })
+    const acceptedSource = authored.scope()
+    return authored.mutate(acceptedSource, () => {
+      setEditing(null)
+      setEditingCell({ sourceId, row, col })
+    })
   }, [])
 
   /** Pseudo-node for the cell edit overlay: table box + cell local box → absolute page box */
@@ -2545,32 +3165,47 @@ export function App() {
 
   // PowerPoint drops a click-to-type text box the user leaves without typing
   const discardEmptyTextBox = useCallback(async () => {
-    if (!editing) return
-    const updated = await window.slidesApi.deleteElement({
-      slideIndex: current,
-      sourceId: editing.sourceId,
+    const slidesSource15 = authored.scope()
+    return authored.work(slidesSource15, async () => {
+      if (!editing) return
+      const updated = await authored.wait(
+        slidesSource15,
+        window.slidesApi.deleteElement({
+          slideIndex: current,
+          sourceId: editing.sourceId,
+        }),
+      )
+      if (updated) applySlide(current, updated)
+      setEditing(null)
+      setSelectedIds([])
     })
-    if (updated) applySlide(current, updated)
-    setEditing(null)
-    setSelectedIds([])
   }, [editing, current, applySlide])
 
   const commitEdit = useCallback(
     async (paragraphs: EditParagraph[]) => {
-      if (!editing) return
-      if (editing.discardIfEmpty && paragraphsBlank(paragraphs)) return discardEmptyTextBox()
-      const updated = await window.slidesApi.editText({
-        slideIndex: current,
-        sourceId: editing.sourceId,
-        paragraphs,
-        ...(editing.groupId ? { groupId: editing.groupId } : {}),
+      const slidesSource16 = authored.scope()
+      return authored.work(slidesSource16, async () => {
+        if (!editing) return
+        const client = recoveryClientRef.current
+        const ticket = client?.beginSave()
+        if (editing.discardIfEmpty && paragraphsBlank(paragraphs)) return discardEmptyTextBox()
+        const updated = await authored.wait(
+          slidesSource16,
+          window.slidesApi.editText({
+            slideIndex: current,
+            sourceId: editing.sourceId,
+            paragraphs,
+            ...(editing.groupId ? { groupId: editing.groupId } : {}),
+          }),
+        )
+        if (ticket && client && !client.isCurrent(ticket)) return
+        if (updated) {
+          setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
+          setDirty(true)
+        } else throw new Error('Text changes could not be applied; the text editor was kept open.')
+        setEditing(null)
+        setSelectedIds([editing.sourceId]) // Back to shape-selected state after committing
       })
-      if (updated) {
-        setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
-        setDirty(true)
-      }
-      setEditing(null)
-      setSelectedIds([editing.sourceId]) // Back to shape-selected state after committing
     },
     [editing, current, discardEmptyTextBox],
   )
@@ -2610,22 +3245,28 @@ export function App() {
       preview?: boolean,
       groupId?: string,
     ) => {
-      const updated = await window.slidesApi.editTransform({
-        slideIndex: current,
-        sourceId,
-        xPx: box.x,
-        yPx: box.y,
-        wPx: box.w,
-        hPx: box.h,
-        rotationDeg: box.rotationDeg,
-        fitWidthPx: FIT_WIDTH,
-        ...(preview ? { preview: true } : {}),
-        ...(groupId ? { groupId } : {}),
+      const slidesSource17 = authored.scope()
+      return authored.work(slidesSource17, async () => {
+        const updated = await authored.wait(
+          slidesSource17,
+          window.slidesApi.editTransform({
+            slideIndex: current,
+            sourceId,
+            xPx: box.x,
+            yPx: box.y,
+            wPx: box.w,
+            hPx: box.h,
+            rotationDeg: box.rotationDeg,
+            fitWidthPx: FIT_WIDTH,
+            ...(preview ? { preview: true } : {}),
+            ...(groupId ? { groupId } : {}),
+          }),
+        )
+        if (updated) {
+          setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
+          setDirty(true)
+        }
       })
-      if (updated) {
-        setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
-        setDirty(true)
-      }
     },
     [current],
   )
@@ -2638,32 +3279,46 @@ export function App() {
         box: { x: number; y: number; w: number; h: number; rotationDeg: number }
       }>,
     ) => {
-      const updated = await window.slidesApi.editTransformMulti({
-        slideIndex: current,
-        fitWidthPx: FIT_WIDTH,
-        items: items.map((it) => ({
-          sourceId: it.sourceId,
-          ...(it.groupId ? { groupId: it.groupId } : {}),
-          xPx: it.box.x,
-          yPx: it.box.y,
-          wPx: it.box.w,
-          hPx: it.box.h,
-          rotationDeg: it.box.rotationDeg,
-        })),
+      const slidesSource18 = authored.scope()
+      return authored.work(slidesSource18, async () => {
+        const updated = await authored.wait(
+          slidesSource18,
+          window.slidesApi.editTransformMulti({
+            slideIndex: current,
+            fitWidthPx: FIT_WIDTH,
+            items: items.map((it) => ({
+              sourceId: it.sourceId,
+              ...(it.groupId ? { groupId: it.groupId } : {}),
+              xPx: it.box.x,
+              yPx: it.box.y,
+              wPx: it.box.w,
+              hPx: it.box.h,
+              rotationDeg: it.box.rotationDeg,
+            })),
+          }),
+        )
+        if (updated) {
+          setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
+          setDirty(true)
+        }
       })
-      if (updated) {
-        setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
-        setDirty(true)
-      }
     },
     [current],
   )
 
   const onTransformCancel = useCallback(async () => {
-    const updated = await window.slidesApi.cancelTransformPreview({ slideIndex: current })
-    if (updated) setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
-    // Preview frames marked the deck dirty; the rollback may have made it clean again
-    void window.slidesApi.isDirty().then(setDirty)
+    const slidesSource19 = authored.scope()
+    return authored.work(slidesSource19, async () => {
+      const updated = await authored.wait(
+        slidesSource19,
+        window.slidesApi.cancelTransformPreview({ slideIndex: current }),
+      )
+      if (updated) setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
+      // Preview frames marked the deck dirty; the rollback may have made it clean again
+      void window.slidesApi
+        .isDirty()
+        .then((value) => setDirty(!!value || !!recoveryClientRef.current?.hasPending()))
+    })
   }, [current])
 
   // Yellow adjust-handle drag: throttled preview commits keep the geometry live,
@@ -2754,21 +3409,27 @@ export function App() {
         end?: { targetId: string; idx: number } | null
       },
     ) => {
-      const updated = await window.slidesApi.editConnectorEndpoints({
-        slideIndex: current,
-        sourceId,
-        x1Px: ep.x1,
-        y1Px: ep.y1,
-        x2Px: ep.x2,
-        y2Px: ep.y2,
-        fitWidthPx: FIT_WIDTH,
-        ...(ep.start !== undefined ? { start: ep.start } : {}),
-        ...(ep.end !== undefined ? { end: ep.end } : {}),
+      const slidesSource20 = authored.scope()
+      return authored.work(slidesSource20, async () => {
+        const updated = await authored.wait(
+          slidesSource20,
+          window.slidesApi.editConnectorEndpoints({
+            slideIndex: current,
+            sourceId,
+            x1Px: ep.x1,
+            y1Px: ep.y1,
+            x2Px: ep.x2,
+            y2Px: ep.y2,
+            fitWidthPx: FIT_WIDTH,
+            ...(ep.start !== undefined ? { start: ep.start } : {}),
+            ...(ep.end !== undefined ? { end: ep.end } : {}),
+          }),
+        )
+        if (updated) {
+          setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
+          setDirty(true)
+        }
       })
-      if (updated) {
-        setSlides((s) => s.map((sl, i) => (i === current ? updated : sl)))
-        setDirty(true)
-      }
     },
     [current],
   )
@@ -2993,13 +3654,17 @@ export function App() {
   )
 
   /** Open the chart data edit dialog */
-  const [chartDataDialogOpen, setChartDataDialogOpen] = useState(false)
-  const [chartDataDialogInit, setChartDataDialogInit] = useState<{
+  const [chartDataDialogOpen, setChartDataDialogOpen] = useSlidesAuthoredState(
+    authored,
+    'chartDataDialogOpen',
+    false,
+  )
+  const [chartDataDialogInit, setChartDataDialogInit] = useSlidesAuthoredState<{
     kind: string
     title: string
     categories: string[]
     series: Array<{ name: string; values: number[] }>
-  } | null>(null)
+  } | null>(authored, 'chartDataDialogInit', null)
 
   const openChartDataDialog = useCallback(
     () => styleActions.openChartDataDialog(ctxRef.current),
@@ -3104,6 +3769,9 @@ export function App() {
 
   // Refresh the action-module context every render so extracted actions never see stale state
   ctxRef.current = {
+    api: authored.bindApi(window.slidesApi),
+    closeScope: authored.scope(),
+    historyBatches: captureSlidesHistoryBatches(window.slidesApi, authored, authored.scope()),
     slides,
     setSlides,
     current,
@@ -3212,6 +3880,79 @@ export function App() {
     newComment: () => openComments(true),
     openChangeShape: (targetId, x, y) => setShapeGalleryAt({ targetId, x, y }),
   }
+
+  // Canonical getters are read synchronously before React projects a setter.
+  const closeScope = authored.scope()
+  const ctx = ctxRef.current
+  ctx.api = authored.bindApi(window.slidesApi, closeScope)
+  ctx.closeScope = closeScope
+  ctx.historyBatches = captureSlidesHistoryBatches(window.slidesApi, authored, closeScope)
+  for (const field of [
+    'slides',
+    'current',
+    'path',
+    'selectedIds',
+    'editing',
+    'editingCell',
+    'enteredGroupId',
+    'ungroupedSets',
+    'animations',
+    'sections',
+    'viewMode',
+    'masterItems',
+    'pendingRehearse',
+    'pendingRecording',
+    'renamingSec',
+    'cropTarget',
+    'cutoutTarget',
+    'editPointsTarget',
+    'linkDialog',
+    'redactDialog',
+  ] as const)
+    Object.defineProperty(ctx, field, { configurable: true, get: () => authored.read(field) })
+  Object.defineProperty(ctx, 'slide', {
+    configurable: true,
+    get: () => authored.read<RenderSlide[]>('slides')[authored.read<number>('current')],
+  })
+  for (const key of Object.keys(ctx))
+    if (
+      key.startsWith('set') &&
+      typeof (ctx as unknown as Record<string, unknown>)[key] === 'function'
+    )
+      (ctx as unknown as Record<string, unknown>)[key] = authored.bindSetter(
+        (ctx as unknown as Record<string, (...args: unknown[]) => void>)[key]!,
+        closeScope,
+      )
+  authored.onPendingCanceled(() => {
+    setAiPanelKey((k) => k + 1)
+    setAnnotationsNonce((k) => k + 1)
+  })
+  authored.participants(() => {
+    if (notesFlushRef.current || notesReconcileRef.current || notesReconcileFailedRef.current)
+      return 'Speaker notes are still being reconciled; resolve them before closing.'
+    if (
+      authored.read('recording') ||
+      authored.read('pendingRecording') ||
+      authored.read('pendingRehearse')
+    )
+      return 'Finish or cancel recording/rehearsal before Save and Close.'
+    for (const name of [
+      'linkDialog',
+      'redactDialog',
+      'hfDialog',
+      'eqDialogOpen',
+      'slideSizeDialog',
+      'cropTarget',
+      'editPointsTarget',
+      'cutoutTarget',
+      'chartDataDialogOpen',
+      'renamingSec',
+      'askState',
+    ])
+      if (authored.read(name))
+        return 'Finish or cancel the pending ' + name + ' editor before Save and Close.'
+    return null
+  })
 
   // Context menu items (context-menu-items.ts); the deps list covers all state the builder reads
   const ctxItems = useMemo(
@@ -3352,10 +4093,8 @@ export function App() {
         onFindReplace={() => setFindOpen(true)}
         animByParagraph={animByParagraph}
         onToggleAnimByParagraph={() => setAnimByParagraph((v) => !v)}
-        onSetLayout={(layoutPath) =>
-          void slideActions.setSlideLayoutAt(ctxRef.current, current, layoutPath)
-        }
-        onResetLayout={() => void slideActions.setSlideLayoutAt(ctxRef.current, current)}
+        onSetLayout={(layoutPath) => void slideActions.setSlideLayoutAt(ctx, current, layoutPath)}
+        onResetLayout={() => void slideActions.setSlideLayoutAt(ctx, current)}
         onSlideSize={applySlideSize}
         getSlideSize={() => window.slidesApi.getSlideSize()}
         onCustomSlideSize={() =>
@@ -3447,7 +4186,7 @@ export function App() {
           model3dNode
             ? (rot) =>
                 void model3dActions.storeModel3dView(
-                  ctxRef.current,
+                  ctx,
                   model3dNode.sourceId,
                   model3dNode.box,
                   rot,
@@ -3503,84 +4242,110 @@ export function App() {
           // edits rewrite the same slide XML in the main process); a selected group
           // pierces one level down to its shape members (PowerPoint semantics)
           void (async () => {
-            const applyTo = async (shape: ShapeRenderNode, groupId?: string) => {
-              const st = shape.stroke
-              const stroke = { color: s.stroke, widthPt: st?.widthPt ?? 1, dash: s.dash ?? 'solid' }
-              if (groupId) {
-                const r1 = await window.slidesApi.editFill({
-                  slideIndex: current,
-                  sourceId: shape.sourceId,
-                  fill: s.fill,
-                  groupId,
-                })
-                if (r1) applySlide(current, r1)
-                const r2 = await window.slidesApi.editStroke({
-                  slideIndex: current,
-                  sourceId: shape.sourceId,
-                  stroke,
-                  groupId,
-                })
-                if (r2) applySlide(current, r2)
-              } else {
-                await onFill(shape.sourceId, s.fill)
-                await onStroke(shape.sourceId, stroke)
-              }
-            }
-            for (const id of selectedIds) {
-              const n = findNodeCtx(id)?.node
-              if (n?.type === 'shape') {
-                await applyTo(n as ShapeRenderNode)
-              } else if (n?.type === 'group') {
-                for (const c of (n as GroupRenderNode).children) {
-                  if (c.type === 'shape') await applyTo(c as ShapeRenderNode, n.sourceId)
+            const slidesSource21 = authored.scope()
+            return authored.work(slidesSource21, async () => {
+              const applyTo = async (shape: ShapeRenderNode, groupId?: string) => {
+                const st = shape.stroke
+                const stroke = {
+                  color: s.stroke,
+                  widthPt: st?.widthPt ?? 1,
+                  dash: s.dash ?? 'solid',
+                }
+                if (groupId) {
+                  const r1 = await authored.wait(
+                    slidesSource21,
+                    window.slidesApi.editFill({
+                      slideIndex: current,
+                      sourceId: shape.sourceId,
+                      fill: s.fill,
+                      groupId,
+                    }),
+                  )
+                  if (r1) applySlide(current, r1)
+                  const r2 = await authored.wait(
+                    slidesSource21,
+                    window.slidesApi.editStroke({
+                      slideIndex: current,
+                      sourceId: shape.sourceId,
+                      stroke,
+                      groupId,
+                    }),
+                  )
+                  if (r2) applySlide(current, r2)
+                } else {
+                  await authored.wait(slidesSource21, onFill(shape.sourceId, s.fill))
+                  await authored.wait(slidesSource21, onStroke(shape.sourceId, stroke))
                 }
               }
-            }
+              for (const id of selectedIds) {
+                const n = findNodeCtx(id)?.node
+                if (n?.type === 'shape') {
+                  await authored.wait(slidesSource21, applyTo(n as ShapeRenderNode))
+                } else if (n?.type === 'group') {
+                  for (const c of (n as GroupRenderNode).children) {
+                    if (c.type === 'shape')
+                      await authored.wait(slidesSource21, applyTo(c as ShapeRenderNode, n.sourceId))
+                  }
+                }
+              }
+            })
           })()
         }}
         onShapeFill={(fill) => {
           void (async () => {
-            for (const id of selectedIds) {
-              const n = findNodeCtx(id)?.node
-              if (n?.type === 'shape') {
-                await onFill(id, fill)
-              } else if (n?.type === 'group') {
-                for (const c of (n as GroupRenderNode).children) {
-                  if (c.type !== 'shape') continue
-                  const r = await window.slidesApi.editFill({
-                    slideIndex: current,
-                    sourceId: c.sourceId,
-                    fill,
-                    groupId: n.sourceId,
-                  })
-                  if (r) applySlide(current, r)
+            const slidesSource22 = authored.scope()
+            return authored.work(slidesSource22, async () => {
+              for (const id of selectedIds) {
+                const n = findNodeCtx(id)?.node
+                if (n?.type === 'shape') {
+                  await authored.wait(slidesSource22, onFill(id, fill))
+                } else if (n?.type === 'group') {
+                  for (const c of (n as GroupRenderNode).children) {
+                    if (c.type !== 'shape') continue
+                    const r = await authored.wait(
+                      slidesSource22,
+                      window.slidesApi.editFill({
+                        slideIndex: current,
+                        sourceId: c.sourceId,
+                        fill,
+                        groupId: n.sourceId,
+                      }),
+                    )
+                    if (r) applySlide(current, r)
+                  }
                 }
               }
-            }
+            })
           })()
         }}
         onShapeFillImage={(mode, source) => {
           void (async () => {
-            const targets: Array<{ sourceId: string; groupId?: string }> = []
-            for (const id of selectedIds) {
-              const n = findNodeCtx(id)?.node
-              if (n?.type === 'shape') {
-                targets.push({ sourceId: id })
-              } else if (n?.type === 'group') {
-                for (const c of (n as GroupRenderNode).children) {
-                  if (c.type === 'shape')
-                    targets.push({ sourceId: c.sourceId, groupId: n.sourceId })
+            const slidesSource23 = authored.scope()
+            return authored.work(slidesSource23, async () => {
+              const targets: Array<{ sourceId: string; groupId?: string }> = []
+              for (const id of selectedIds) {
+                const n = findNodeCtx(id)?.node
+                if (n?.type === 'shape') {
+                  targets.push({ sourceId: id })
+                } else if (n?.type === 'group') {
+                  for (const c of (n as GroupRenderNode).children) {
+                    if (c.type === 'shape')
+                      targets.push({ sourceId: c.sourceId, groupId: n.sourceId })
+                  }
                 }
               }
-            }
-            if (targets.length === 0) return
-            const r = await window.slidesApi.editImageFill({
-              slideIndex: current,
-              targets,
-              mode,
-              ...(source ? { source } : {}),
+              if (targets.length === 0) return
+              const r = await authored.wait(
+                slidesSource23,
+                window.slidesApi.editImageFill({
+                  slideIndex: current,
+                  targets,
+                  mode,
+                  ...(source ? { source } : {}),
+                }),
+              )
+              if (r) applySlide(current, r)
             })
-            if (r) applySlide(current, r)
           })()
         }}
         contextShapeFill={
@@ -4229,6 +4994,13 @@ export function App() {
                             {editing && editNode && (
                               <TextEditOverlay
                                 node={editNode}
+                                recoveryTarget={{
+                                  kind: 'text',
+                                  slideIndex: current,
+                                  ...(slide.partPath ? { partPath: slide.partPath } : {}),
+                                  sourceId: editing.sourceId,
+                                  ...(editing.groupId ? { groupId: editing.groupId } : {}),
+                                }}
                                 scale={slide.scale}
                                 caretPoint={editing.caret}
                                 replaceWith={editing.replaceWith}
@@ -4257,6 +5029,14 @@ export function App() {
                             {editingCell && cellEditNode && (
                               <TextEditOverlay
                                 node={cellEditNode}
+                                recoveryTarget={{
+                                  kind: 'table',
+                                  slideIndex: current,
+                                  ...(slide.partPath ? { partPath: slide.partPath } : {}),
+                                  sourceId: editingCell.sourceId,
+                                  row: editingCell.row,
+                                  col: editingCell.col,
+                                }}
                                 scale={slide.scale}
                                 onCommit={commitCellEdit}
                                 onCancel={() => setEditingCell(null)}
@@ -4274,7 +5054,7 @@ export function App() {
                                 slideIndex={current}
                                 onTurn={(rot, view) =>
                                   model3dActions.storeModel3dView(
-                                    ctxRef.current,
+                                    ctx,
                                     model3dNode.sourceId,
                                     model3dNode.box,
                                     rot,
@@ -4413,11 +5193,27 @@ export function App() {
                       />
                       <textarea
                         value={notesText}
+                        aria-label="Speaker notes"
+                        aria-busy={
+                          notesLoadState.key === notesPartKey && notesLoadState.status === 'loading'
+                        }
+                        disabled={!notesCanEdit}
                         placeholder={
-                          notesHeight < 60 ? t('appNotesClickToAdd') : t('appNotesPlaceholder')
+                          !notesCanEdit
+                            ? notesLoadState.key === notesPartKey &&
+                              notesLoadState.status === 'error'
+                              ? 'Speaker notes could not be loaded. Select the slide again to retry.'
+                              : 'Loading speaker notes…'
+                            : notesHeight < 60
+                              ? t('appNotesClickToAdd')
+                              : t('appNotesPlaceholder')
                         }
                         onChange={(e) => onNotesChange(e.target.value)}
-                        onBlur={() => void flushNotes()}
+                        onBlur={() =>
+                          void flushNotes().catch((error) =>
+                            recoveryClientRef.current?.reportFailure(error),
+                          )
+                        }
                       />
                     </div>
                   )}

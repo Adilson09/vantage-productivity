@@ -1,3 +1,4 @@
+import { docMutationSource } from '../doc-close-lease'
 import type { Editor } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
@@ -99,6 +100,10 @@ export const DRAFT_META = 'aiDraft'
  * giving one undo step and normal revision marks.
  */
 export class DraftLanding {
+  private readonly source = docMutationSource()
+  private isCurrent(): boolean {
+    return this.source === docMutationSource()
+  }
   private from: number
   private to: number
   /** the text of the last tick that parsed and rendered */
@@ -128,7 +133,7 @@ export class DraftLanding {
 
   /** latest cumulative fragment; rendered on the next tick */
   update(html: string): void {
-    if (this.closed) return
+    if (this.closed || !this.isCurrent()) return
     this.pending = html
     if (this.timer === null) this.timer = setTimeout(() => this.flush(), DRAFT_TICK_MS)
   }
@@ -154,10 +159,10 @@ export class DraftLanding {
     if (this.closed) return this.rendered
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
-    this.flush()
+    if (this.isCurrent()) this.flush()
     this.closed = true
     this.editor.off('transaction', this.onTransaction)
-    if (this.to > this.from && !this.editor.isDestroyed) {
+    if (this.isCurrent() && this.to > this.from && !this.editor.isDestroyed) {
       this.editor.view.dispatch(this.draftTr().delete(this.from, this.to))
     }
     this.to = this.from
@@ -184,7 +189,7 @@ export class DraftLanding {
 
   private flush(): void {
     this.timer = null
-    if (this.closed || this.pending === null || this.editor.isDestroyed) return
+    if (this.closed || !this.isCurrent() || this.pending === null || this.editor.isDestroyed) return
     const html = this.pending
     this.pending = null
     let next: ProseMirrorNode[]

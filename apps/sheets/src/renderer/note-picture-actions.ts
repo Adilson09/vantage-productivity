@@ -23,7 +23,11 @@ import type { UniverRuntime } from './univer-state'
 const MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif'])
 
 /// Picks a picture and puts it into the note at the selection.
-export function handleInsertNotePicture(ctx: RibbonCommandContext, runtime: UniverRuntime): void {
+export async function handleInsertNotePicture(
+  ctx: RibbonCommandContext,
+  runtime: UniverRuntime,
+): Promise<void> {
+  const acceptedState = ctx.lazyWorkbookRef.current
   const workbook = runtime.univerAPI.getActiveWorkbook()
   const sheet = workbook?.getActiveSheet()
   const active = workbook?.getActiveRange()
@@ -40,11 +44,20 @@ export function handleInsertNotePicture(ctx: RibbonCommandContext, runtime: Univ
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/png,image/jpeg,image/gif'
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (file) void insertNotePictureFile(ctx, runtime, sheetId, row, column, file)
-  }
-  input.click()
+  const file = await new Promise<File | null>((resolve) => {
+    input.onchange = () => resolve(input.files?.[0] ?? null)
+    input.addEventListener('cancel', () => resolve(null), { once: true })
+    input.click()
+  })
+  if (!file) return
+  if (
+    !acceptedState ||
+    ctx.lazyWorkbookRef.current !== acceptedState ||
+    ctx.univerRef.current !== runtime ||
+    runtime.univerAPI.getActiveWorkbook()?.getId() !== workbook?.getId()
+  )
+    throw new Error('The note-picture target changed while choosing its file.')
+  await insertNotePictureFile(ctx, runtime, sheetId, row, column, file)
 }
 
 /// Takes the picture off a note, leaving its text alone.
@@ -89,10 +102,14 @@ async function insertNotePictureFile(
   const dataUrl = await readAsDataUrl(file)
   if (!dataUrl) return
   const size = await measureImage(dataUrl)
+  if (ctx.lazyWorkbookRef.current !== state || ctx.univerRef.current !== runtime)
+    throw new Error('The note-picture target changed while reading image bytes.')
   // The picture is painted onto the note's shape, so the note has to be there.
   // A note with nothing but a picture is what Excel's own picture-in-a-popup
   // is, so an empty note is made rather than refused.
   await ensureNote(ctx, runtime, sheetId, row, column)
+  if (ctx.lazyWorkbookRef.current !== state || ctx.univerRef.current !== runtime)
+    throw new Error('The note-picture target changed before its picture was committed.')
   recordNotePicture(state.editJournal, {
     sheetId,
     row,
@@ -120,13 +137,14 @@ async function ensureNote(
   column: number,
 ): Promise<void> {
   const sheet = runtime.univerAPI.getActiveWorkbook()?.getSheetBySheetId(sheetId)
-  if (!sheet) return
+  if (!sheet) throw new Error('The selected note-picture sheet is no longer present.')
   const hasNote = sheet.getNotes().some((note) => note.row === row && note.col === column)
   if (hasNote) return
-  await ctx.runOps(
+  const outcome = await ctx.runOps(
     [{ op: 'set_note', sheetId, address: formatAddress(row, column), text: '' }],
     null,
   )
+  if (!outcome.ok) throw new Error(outcome.reason ?? 'The note could not be created.')
 }
 
 function readAsDataUrl(file: File): Promise<string | null> {

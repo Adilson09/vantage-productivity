@@ -1,0 +1,130 @@
+// @vitest-environment node
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { HtmlDraftController, type HtmlDraftDependencies } from '../src/main/html-draft-controller'
+import {
+  readDraftJournal,
+  writeDraftJournal,
+} from '../../../packages/electron-utils/src/draft-journal'
+const directories: string[] = []
+afterEach(async () => {
+  for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true })
+})
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+async function fixture(overrides: Partial<HtmlDraftDependencies> = {}) {
+  const directory = await mkdtemp(
+    join(process.env.VANTAGE_VALIDATION_TEMP || tmpdir(), 'html-close-custody-'),
+  )
+  directories.push(directory)
+  const root = join(directory, 'recovery'),
+    live = new Set([1])
+  const controller = new HtmlDraftController({
+    recoveryRoot: () => root,
+    isLive: (owner) => live.has(owner),
+    canWritePath: () => true,
+    prepare: (_owner, _path, bytes) => ({ bytes, remoteReferences: 0 }),
+    ...overrides,
+  })
+  const snapshot = (token: string, sequence: number, revision: number, text: string) =>
+    controller.snapshot(1, {
+      token,
+      sequence,
+      revision,
+      documentPath: null,
+      data: Uint8Array.from(Buffer.from(text)).buffer,
+    })
+  return { root, controller, snapshot, live }
+}
+describe('HTML close keeps the last complete durable journal until actual removal', () => {
+  it('retains prior complete bytes when a canceled discard has newer unrepresentable UI', async () => {
+    const f = await fixture(),
+      token = f.controller.activate(1, null)
+    await f.snapshot(token, 1, 1, 'last complete')
+    f.controller.changed(1, { token, revision: 2, dirty: true })
+    const stage = f.controller.stageClose(1, {
+      token,
+      documentPath: null,
+      revision: 2,
+      throughSequence: 2,
+      clean: false,
+    })
+    await stage.drain
+    expect((await readDraftJournal(f.root, token)).bytes.toString()).toBe('last complete')
+    stage.cancel()
+    expect(f.controller.isActivation(1, token)).toBe(true)
+    expect((await f.snapshot(token, 2, 2, 'allocated before close')).written).toBe(false)
+    expect((await f.snapshot(token, 3, 2, 'new complete after cancellation')).written).toBe(true)
+  })
+  it('drains an accepted real write without deleting it and rejects later old-producer commits', async () => {
+    const gate = deferred(),
+      entered = deferred()
+    let delay = false
+    const f = await fixture({
+        write: async (...args) => {
+          if (delay) {
+            entered.resolve()
+            await gate.promise
+          }
+          return writeDraftJournal(...args)
+        },
+      }),
+      token = f.controller.activate(1, null)
+    await f.snapshot(token, 1, 1, 'first')
+    delay = true
+    const writing = f.snapshot(token, 2, 2, 'accepted second')
+    await entered.promise
+    const stage = f.controller.stageClose(1, {
+      token,
+      documentPath: null,
+      revision: 2,
+      throughSequence: 2,
+      clean: false,
+    })
+    let drained = false
+    void stage.drain.then(() => {
+      drained = true
+    })
+    await Promise.resolve()
+    expect(drained).toBe(false)
+    gate.resolve()
+    await writing
+    await stage.drain
+    expect((await readDraftJournal(f.root, token)).bytes.toString()).toBe('accepted second')
+    await expect(f.snapshot(token, 3, 3, 'obsolete producer')).rejects.toThrow(
+      'different document activation',
+    )
+  })
+  it('a late cancellation cannot rearm a replacement activation or destroyed owner', async () => {
+    const f = await fixture(),
+      token = f.controller.activate(1, null)
+    const stage = f.controller.stageClose(1, {
+      token,
+      documentPath: null,
+      revision: 0,
+      throughSequence: 0,
+      clean: false,
+    })
+    const replacement = f.controller.activate(1, null)
+    stage.cancel()
+    expect(f.controller.isActivation(1, token)).toBe(false)
+    expect(f.controller.isActivation(1, replacement)).toBe(true)
+    const dead = f.controller.stageClose(1, {
+      token: replacement,
+      documentPath: null,
+      revision: 0,
+      throughSequence: 0,
+      clean: false,
+    })
+    f.live.delete(1)
+    dead.cancel()
+    expect(f.controller.isActivation(1, replacement)).toBe(false)
+  })
+})

@@ -70,7 +70,7 @@ export function HeaderFooterDialog({
   readonly initialHeader: HeaderFooterParts | null
   readonly initialFooter: HeaderFooterParts | null
   /// Returns an error message, or null on success.
-  readonly onApply: (result: HeaderFooterResult) => string | null
+  readonly onApply: (result: HeaderFooterResult) => string | null | Promise<string | null>
   readonly onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -83,10 +83,16 @@ export function HeaderFooterDialog({
     'footer-right': initialFooter?.right ?? '',
   })
   const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
   const focusedKey = useRef<SectionKey>('header-center')
   const inputs = useRef(new Map<SectionKey, HTMLInputElement>())
+  const close = (): void => {
+    if (!pendingRef.current) onClose()
+  }
 
   const insertCode = (code: string): void => {
+    if (pendingRef.current) return
     const key = focusedKey.current
     const input = inputs.current.get(key)
     const value = values[key]
@@ -100,14 +106,34 @@ export function HeaderFooterDialog({
     })
   }
 
-  const modal = useModalDialog(onClose)
+  const apply = async (): Promise<void> => {
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setPending(true)
+    setError(null)
+    try {
+      const failure = await onApply({
+        header: toParts(values['header-left'], values['header-center'], values['header-right']),
+        footer: toParts(values['footer-left'], values['footer-center'], values['footer-right']),
+      })
+      setError(failure)
+      if (failure === null) onClose()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      pendingRef.current = false
+      setPending(false)
+    }
+  }
+  const modal = useModalDialog(close)
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
+    <div className="dialog-backdrop" onClick={close}>
       <div
         className="format-cells-dialog"
         role="dialog"
         {...modal}
         aria-label={t('dlgHfTitle')}
+        aria-busy={pending}
         onClick={(event) => event.stopPropagation()}
       >
         <header>{t('dlgHfTitle')}</header>
@@ -116,6 +142,7 @@ export function HeaderFooterDialog({
             <label key={key}>
               {t(SECTION_LABELS[key])}
               <input
+                disabled={pending}
                 value={values[key]}
                 ref={(element) => {
                   if (element) inputs.current.set(key, element)
@@ -136,6 +163,7 @@ export function HeaderFooterDialog({
               <button
                 key={field.code}
                 className="secondary"
+                disabled={pending}
                 data-tip={t('dlgHfInsertCode', { code: field.code })}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => insertCode(field.code)}
@@ -152,28 +180,10 @@ export function HeaderFooterDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button className="secondary" onClick={onClose}>
+          <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
-          <button
-            className="primary-action"
-            onClick={() => {
-              const failure = onApply({
-                header: toParts(
-                  values['header-left'],
-                  values['header-center'],
-                  values['header-right'],
-                ),
-                footer: toParts(
-                  values['footer-left'],
-                  values['footer-center'],
-                  values['footer-right'],
-                ),
-              })
-              setError(failure)
-              if (failure === null) onClose()
-            }}
-          >
+          <button className="primary-action" disabled={pending} onClick={() => void apply()}>
             {t('dlgOk')}
           </button>
         </div>

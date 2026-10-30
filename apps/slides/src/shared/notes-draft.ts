@@ -41,6 +41,25 @@ export function notesBaselineAfterFlush(
   return { index, text: storedText }
 }
 
+/** Rebase typing resumed during our own acknowledged write, without blessing a peer edit. */
+export function notesDraftAfterOwnFlush(
+  current: NotesDraft | null,
+  flushed: NotesDraft,
+  storedText: string,
+): NotesDraft | null {
+  if (
+    !current ||
+    current === flushed ||
+    !current.partPath ||
+    !flushed.partPath ||
+    current.partPath !== flushed.partPath ||
+    current.base !== flushed.base ||
+    storedText !== flushed.text
+  )
+    return current
+  return { ...current, base: storedText }
+}
+
 /** Index of the draft's slide in a replaced deck, or -1 when it is gone. */
 export function notesDraftIndex(
   draft: Pick<NotesDraft, 'index' | 'partPath'>,

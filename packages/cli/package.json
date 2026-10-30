@@ -17,6 +17,7 @@
     "vantage": "./bin/vantage"
   },
   "scripts": {
+    "pretest": "node ../../tools/build-query-worker.mjs",
     "build": "node build.mjs && node collect-deps.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
