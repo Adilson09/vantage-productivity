@@ -8,7 +8,6 @@ import {
   UNIT_GROUPS,
   commandInvocation,
   findNpmCli,
-  groupPlan,
   parseCommand,
   runGroup,
   validateManifest,
