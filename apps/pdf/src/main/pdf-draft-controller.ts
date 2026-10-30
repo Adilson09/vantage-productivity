@@ -607,9 +607,7 @@ export class PdfDraftController {
     this.tokenOwners.delete(id)
     return true
   }
-  source(
-    owner: number,
-  ): {
+  source(owner: number): {
     mode: 'native' | 'workspace'
     path: string
     helperPath: string

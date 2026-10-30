@@ -85,7 +85,11 @@ beforeAll(() => {
   Element.prototype.scrollTo ??= () => {}
 })
 
-const ownedHistoryApi: Pick<SlidesApi, 'beginOwnedHistoryBatch' | 'finishOwnedHistoryBatch'> = {
+const ownedHistoryApi: Pick<
+  SlidesApi,
+  'beginOwnedHistoryBatch' | 'finishOwnedHistoryBatch' | 'aiGskStatus'
+> = {
+  aiGskStatus: vi.fn(async () => ({ loggedIn: false })),
   beginOwnedHistoryBatch: vi.fn(async () => {
     throw new Error('Collapse fixture must not begin a native history batch')
   }),

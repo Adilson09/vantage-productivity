@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once, EventEmitter } from 'node:events'
-import { runBoundedCleanup } from './cleanup-harness'
+import { observeChildClose, runBoundedCleanup, type ChildCloseObservation } from './cleanup-harness'
 
 const budgets = {
   evaluateMs: 80,
@@ -12,11 +12,19 @@ const budgets = {
 }
 const never = () => new Promise<never>(() => {})
 
+const observations = new WeakMap<ChildProcess, ChildCloseObservation>()
+function closeObservation(child: ChildProcess): ChildCloseObservation {
+  const observed = observations.get(child)
+  if (!observed) throw new Error('Owned child close observer was not installed.')
+  return observed
+}
+
 async function ownedChild(): Promise<ChildProcess> {
   const child = spawn(process.execPath, [
     '-e',
     "setInterval(() => {}, 1000); process.stdout.write('ready')",
   ])
+  observations.set(child, observeChildClose(child))
   const timer = setTimeout(() => child.kill('SIGKILL'), 10_000)
   try {
     await Promise.race([
@@ -32,18 +40,19 @@ async function ownedChild(): Promise<ChildProcess> {
 }
 
 async function closeChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return
-  const exited = once(child, 'exit')
-  child.kill('SIGKILL')
-  await exited
+  const observed = closeObservation(child)
+  if (observed.isClosed()) return
+  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  await observed.actualClose
 }
 
-test('normal cleanup labels all phases and confirms actual owned process exit', async () => {
+test('normal cleanup labels all phases and confirms actual owned process close', async () => {
   const child = await ownedChild()
   try {
     const receipt = await runBoundedCleanup(
       {
         child,
+        closeObservation: closeObservation(child),
         evaluate: async () => {},
         close: () => closeChild(child),
         saveVideo: async () => 'recording.webm',
@@ -72,6 +81,7 @@ for (const blockedPhase of ['evaluate', 'app.close', 'video.saveAs'] as const) {
       const receipt = await runBoundedCleanup(
         {
           child,
+          closeObservation: closeObservation(child),
           evaluate: blockedPhase === 'evaluate' ? never : async () => {},
           close: async () => {
             closeCalled = true
@@ -107,7 +117,7 @@ test('watchdog is active during the first unresolved Electron RPC', async () => 
   const child = await ownedChild()
   try {
     const receipt = await runBoundedCleanup(
-      { child, evaluate: never, close: never },
+      { child, closeObservation: closeObservation(child), evaluate: never, close: never },
       { ...budgets, evaluateMs: 150, processDeadlineMs: 20 },
     )
     expect(receipt.events.find((e) => e.state === 'kill-requested')?.detail).toBe(
@@ -126,15 +136,17 @@ test('unconfirmed process termination stays incomplete without hanging the calle
     signalCode: null,
     kill: () => true,
   }) as unknown as ChildProcess
+  observations.set(child, observeChildClose(child))
   const receipt = await runBoundedCleanup(
-    { child, evaluate: never, close: never },
+    { child, closeObservation: closeObservation(child), evaluate: never, close: never },
     { ...budgets, exitWaitMs: 30 },
   )
   expect(receipt.termination).toEqual({ requested: true, confirmed: false })
   expect(receipt.failures).toContain(
-    'Owned process exit remains unconfirmed; cleanup is incomplete.',
+    'Owned process close remains unconfirmed; cleanup is incomplete.',
   )
   expect(child.listenerCount('exit')).toBe(0)
+  expect(closeObservation(child).isClosed()).toBe(false)
 })
 
 test('cleanup receipts do not replace an assertion unwinding through finally', async () => {
@@ -146,8 +158,12 @@ test('cleanup receipts do not replace an assertion unwinding through finally', a
     try {
       throw original
     } finally {
-      cleanupFailures = (await runBoundedCleanup({ child, evaluate: never, close: never }, budgets))
-        .failures
+      cleanupFailures = (
+        await runBoundedCleanup(
+          { child, closeObservation: closeObservation(child), evaluate: never, close: never },
+          budgets,
+        )
+      ).failures
     }
   } catch (error) {
     caught = error
@@ -164,6 +180,7 @@ test('rejected optional recording is reported with its exact cleanup phase', asy
     const receipt = await runBoundedCleanup(
       {
         child,
+        closeObservation: closeObservation(child),
         evaluate: async () => {},
         close: () => closeChild(child),
         saveVideo: async () => {

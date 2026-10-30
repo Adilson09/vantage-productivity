@@ -19,7 +19,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
-import { runBoundedCleanup } from './cleanup-harness'
+import { observeChildClose, runBoundedCleanup, type ChildCloseObservation } from './cleanup-harness'
 
 export const SHELL_DIR = resolve(__dirname, '../apps/shell')
 export const ARTIFACTS_DIR = resolve(__dirname, 'artifacts')
@@ -49,6 +49,7 @@ export interface LaunchedApp {
   app: ElectronApplication
   page: Page
   userDataDir: string
+  closeObservation: ChildCloseObservation
 }
 
 export async function launchShell(options: LaunchOptions): Promise<LaunchedApp> {
@@ -107,6 +108,7 @@ export async function launchShell(options: LaunchOptions): Promise<LaunchedApp> 
             size: { width: 1280, height: 800 },
           },
   })
+  const closeObservation = observeChildClose(app.process())
   await app.firstWindow()
   const page = await waitForPageWithUrl(app, '/shell/out/')
   const startupErrors: string[] = []
@@ -120,7 +122,7 @@ export async function launchShell(options: LaunchOptions): Promise<LaunchedApp> 
       throw new Error(`Workspace did not become ready at ${page.url()}. ${startupErrors.join(' ')}`)
     }
   }
-  return { app, page, userDataDir }
+  return { app, page, userDataDir, closeObservation }
 }
 
 /**
@@ -173,7 +175,8 @@ export async function closeAndSaveVideo(
   const video = launched.page.video()
   const target = join(ARTIFACTS_DIR, 'videos', `${name}.webm`)
   const receipt = await runBoundedCleanup({
-    child: launched.app.process(),
+    child: launched.closeObservation.child,
+    closeObservation: launched.closeObservation,
     evaluate: () =>
       launched.app.evaluate(({ dialog }) => {
         dialog.showMessageBox = (async () => ({
