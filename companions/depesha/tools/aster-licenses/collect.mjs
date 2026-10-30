@@ -348,7 +348,11 @@ export async function collect({
     missing,
     components: components.map(({ files, ...component }) => ({
       ...component,
-      files: files.map(({ text, ...file }) => file),
+      files: files.map((file) => {
+        const metadata = { ...file }
+        delete metadata.text
+        return metadata
+      }),
     })),
   }
   await fs.writeFile(

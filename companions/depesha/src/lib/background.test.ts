@@ -77,7 +77,9 @@ describe('closing the window, asked', () => {
     expect(api.windowHide).not.toHaveBeenCalled()
     expect(api.appQuit).not.toHaveBeenCalled()
   })
+})
 
+describe('closing the window without a tray', () => {
   it('without a tray warns, and works on without the icon only when told so', async () => {
     const s = await started()
     emit('close-asked', { no_tray: true })
