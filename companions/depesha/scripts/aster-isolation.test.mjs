@@ -9,7 +9,7 @@ const config = JSON.parse(readFileSync(new URL('src-tauri/tauri.conf.json', root
 test('the companion has its own application and executable identity', () => {
   assert.equal(config.identifier, 'org.asteroffice.mail')
   assert.equal(config.productName, 'Vantage Mail')
-  assert.equal(config.mainBinaryName, 'aster-mail')
+  assert.equal(config.mainBinaryName, 'vantage-mail')
   const windows = JSON.parse(
     readFileSync(new URL('src-tauri/tauri.windows.conf.json', root), 'utf8'),
   )
@@ -17,7 +17,7 @@ test('the companion has its own application and executable identity', () => {
 })
 
 test('links cannot register the upstream protocol', () => {
-  assert.deepEqual(config.plugins['deep-link'].desktop.schemes, ['aster-mail'])
+  assert.deepEqual(config.plugins['deep-link'].desktop.schemes, ['vantage-mail', 'aster-mail'])
 })
 
 test('no upstream updater key, endpoint, artifact, or registered plugin is bundled', () => {
