@@ -1,5 +1,7 @@
 // Repo-wide lint config (lint only — no formatter, so no whole-repo format diff).
 // Rules are tuned so the current codebase passes cleanly; tighten incrementally.
+// The root command selects this file explicitly: ESLint 10 otherwise loads
+// nested companion configs whose separate dependencies are not installed by npm ci.
 import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
