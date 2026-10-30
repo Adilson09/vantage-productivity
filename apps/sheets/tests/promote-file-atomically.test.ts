@@ -26,9 +26,11 @@ afterEach(async () => {
   if (!dir.startsWith(prefix)) throw new Error('Unexpected test folder')
   await rm(dir, { recursive: true, force: true })
 })
-const failure = (code: string) => Object.assign(new Error(`${code}: injected publication refusal`), { code })
+const failure = (code: string) =>
+  Object.assign(new Error(`${code}: injected publication refusal`), { code })
 async function fixture() {
-  const temporary = join(dir, 'new.tmp.xlsx'), target = join(dir, 'book.xlsx')
+  const temporary = join(dir, 'new.tmp.xlsx'),
+    target = join(dir, 'book.xlsx')
   await writeFile(temporary, 'complete new workbook')
   await writeFile(target, 'original workbook')
   return { temporary, target }
@@ -43,38 +45,55 @@ describe('native completed-file publication', () => {
   })
   it('retries transient Windows locks and publishes after the lock is released', async () => {
     const { temporary, target } = await fixture()
-    vi.mocked(rename).mockRejectedValueOnce(failure('EPERM')).mockRejectedValueOnce(failure('EBUSY'))
+    vi.mocked(rename)
+      .mockRejectedValueOnce(failure('EPERM'))
+      .mockRejectedValueOnce(failure('EBUSY'))
     await promoteFileAtomically(temporary, target)
     expect(rename).toHaveBeenCalledTimes(3)
     expect(copyFile).not.toHaveBeenCalled()
     expect(await readFile(target, 'utf8')).toBe('complete new workbook')
   })
-  it.each(['EPERM', 'EACCES', 'EBUSY'])('retains complete rescue bytes and preserves the original after persistent %s', async (code) => {
-    const { temporary, target } = await fixture()
-    vi.mocked(rename).mockRejectedValue(failure(code))
-    const error = await promoteFileAtomically(temporary, target).catch((error: unknown) => error)
-    expect(error).toBeInstanceOf(AtomicSaveError)
-    expect(error).toMatchObject({ targetPath: target, recoveryPath: temporary, code, vantageCode: 'SAVE_NOT_PUBLISHED' })
-    expect(await readFile(target, 'utf8')).toBe('original workbook')
-    expect(await readFile(temporary, 'utf8')).toBe('complete new workbook')
-    expect(copyFile).not.toHaveBeenCalled()
-    expect(rename).toHaveBeenCalledTimes(5)
-  })
+  it.each(['EPERM', 'EACCES', 'EBUSY'])(
+    'retains complete rescue bytes and preserves the original after persistent %s',
+    async (code) => {
+      const { temporary, target } = await fixture()
+      vi.mocked(rename).mockRejectedValue(failure(code))
+      const error = await promoteFileAtomically(temporary, target).catch((error: unknown) => error)
+      expect(error).toBeInstanceOf(AtomicSaveError)
+      expect(error).toMatchObject({
+        targetPath: target,
+        recoveryPath: temporary,
+        code,
+        vantageCode: 'SAVE_NOT_PUBLISHED',
+      })
+      expect(await readFile(target, 'utf8')).toBe('original workbook')
+      expect(await readFile(temporary, 'utf8')).toBe('complete new workbook')
+      expect(copyFile).not.toHaveBeenCalled()
+      expect(rename).toHaveBeenCalledTimes(5)
+    },
+  )
   it('retains the completed file on non-retryable publication failure too', async () => {
     const { temporary, target } = await fixture()
     vi.mocked(rename).mockRejectedValue(failure('EIO'))
-    await expect(promoteFileAtomically(temporary, target)).rejects.toMatchObject({ code: 'EIO', recoveryPath: temporary })
+    await expect(promoteFileAtomically(temporary, target)).rejects.toMatchObject({
+      code: 'EIO',
+      recoveryPath: temporary,
+    })
     expect(rename).toHaveBeenCalledTimes(1)
     expect(await readFile(target, 'utf8')).toBe('original workbook')
     expect(await readFile(temporary, 'utf8')).toBe('complete new workbook')
   })
   it('does not advertise a missing temporary file as completed recovery data', async () => {
-    await expect(promoteFileAtomically(join(dir, 'missing.tmp'), join(dir, 'book.xlsx'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(
+      promoteFileAtomically(join(dir, 'missing.tmp'), join(dir, 'book.xlsx')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
     expect(rename).not.toHaveBeenCalled()
   })
   it('rejects a temporary file outside the destination folder', async () => {
     const { temporary } = await fixture()
-    await expect(promoteFileAtomically(temporary, join(dir, 'other', 'book.xlsx'))).rejects.toThrow('beside')
+    await expect(promoteFileAtomically(temporary, join(dir, 'other', 'book.xlsx'))).rejects.toThrow(
+      'beside',
+    )
     expect(await readFile(temporary, 'utf8')).toBe('complete new workbook')
   })
 })

@@ -20,9 +20,12 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      unit-groups: ${{ steps.partition.outputs.groups }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,6 +64,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate unit coverage and runner
+        id: partition
+        run: |
+          node tools/run-ci-unit-group.mjs --validate
+          npm run test:ci:tooling
+          node tools/run-ci-unit-group.mjs --matrix >> "$GITHUB_OUTPUT"
 
       - name: Check dependency licenses
         run: npm run licenses
@@ -147,20 +157,115 @@ jobs:
       - name: Check committed fixtures match the generator
         run: git diff --exit-code -- fixtures/generated
 
-      # pptx-engine's OOXML schema gate validates saved decks with xmllint
-      # (tools/ooxml-validate); the runner image is not guaranteed to have it.
+  unit:
+    name: Unit (${{ matrix.group }})
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Derived from the validated scripts.test partition; omitting a group
+        # from a separate hand-maintained workflow list is impossible.
+        group: ${{ fromJSON(needs.checks.outputs.unit-groups) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07
+        with:
+          toolchain: stable
+
+      - name: Cache cargo (xlsx-sidecar)
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: apps/sheets/native/xlsx-engine
+
+      - name: Cache electron binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/electron
+          key: electron-bin-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-bin-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Preserve the original OOXML schema-test environment in every group.
       - name: Install xmllint
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxml2-utils
 
-      - name: Test
-        run: npm test
+      # Each job starts with a fresh checkout; checks' generated/untracked
+      # fixtures are not present here and must be rebuilt before unit tests.
+      - name: Regenerate test fixtures for this checkout
+        run: npm run fixtures
 
-      # Preservation gate: a no-op-adjacent edit through the OOXML gateway must
-      # leave every untouched package entry byte-identical (fails closed otherwise).
-      - name: Sheets compatibility gate
+      # Sheets fixtures/compatibility run only after its unit/native suite passes.
+      # The runner records dependent gates as not-run on failure and fails the job.
+      - name: Run complete unit group
+        run: npm run test:ci:${{ matrix.group }} -- --report .ci-results/${{ matrix.group }}.json
+
+      - name: Upload unit group report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unit-${{ matrix.group }}
+          path: .ci-results/${{ matrix.group }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    name: test
+    if: always()
+    needs: [checks, unit, mail-frontend, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every check and unit group
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+          MAIL_RESULT: ${{ needs.mail-frontend.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
-          npm run fixtures -w @vantage/sheets
-          npm run compat -w @vantage/sheets
+          for result in "$CHECKS_RESULT" "$UNIT_RESULT" "$MAIL_RESULT" "$E2E_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "Required CI work did not succeed: $result"
+              exit 1
+            fi
+          done
+
+  mail-frontend:
+    name: Mail frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: companions/depesha
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: companions/depesha/package-lock.json
+      - name: Install Mail frontend dependencies
+        run: npm ci
+      - name: Mail frontend types
+        run: npm run check
+      - name: Mail frontend lint
+        run: npm run lint
+      - name: Mail frontend unit tests
+        run: npm test
 
   e2e:
     # 22.04, not -latest: 24.04's AppArmor hardening blocks Electron renderer

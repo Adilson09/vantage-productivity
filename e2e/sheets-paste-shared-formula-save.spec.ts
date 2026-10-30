@@ -1,7 +1,7 @@
 // Vantage Productivity modification (2026): use named real editor launchers.
 import { test, expect } from '@playwright/test'
 import { execSync } from 'node:child_process'
-import { mkdtemp, readdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl } from './helpers'
@@ -19,17 +19,16 @@ process.env.VANTAGE_DEBUG_HOOKS = '1'
 test.describe('sheets: tiled paste of formulas survives save', () => {
   test('followers keep their (shifted) formula in the saved xlsx', async () => {
     const scratch = await mkdtemp(join(tmpdir(), 'vantage-paste-save-'))
+    const saveDir = join(scratch, 'Vantage')
+    await mkdir(saveDir, { recursive: true })
     const launched = await launchShell({
       onboardingSeen: true,
+      settings: { defaultSaveDir: saveDir },
       videoDir: 'sheets-paste-shared-formula-save',
     })
     try {
       const { app, page } = launched
-      await app.evaluate(({ app: electronApp }, dir) => {
-        electronApp.setPath('documents', dir)
-      }, scratch)
-      const saveDir = join(scratch, 'Vantage')
-      // the workbook has no file yet: Save answers the Save As picker (vantage#1036)
+      // Plain first Save uses the configured folder; keep Save As local too.
       await app.evaluate(
         ({ dialog }, target) => {
           dialog.showSaveDialog = async () => ({ canceled: false, filePath: target })

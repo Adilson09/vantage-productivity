@@ -58,8 +58,8 @@ Sous **Serveur HTTP local**, l’application peut aussi lancer le serveur elle-m
 
 ## Aide-mémoire de la ligne de commande
 
-| Commande           | Ce qu’elle fait                 |
-| ------------------ | ------------------------------- |
+| Commande         | Ce qu’elle fait                 |
+| ---------------- | ------------------------------- |
 | `vantage <file>` | ouvrir un fichier               |
 | `vantage mcp`    | démarrer le serveur MCP local   |
 | `vantage --help` | toutes les commandes et options |

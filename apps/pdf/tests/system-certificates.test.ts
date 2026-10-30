@@ -242,9 +242,7 @@ describe.skipIf(!hasNss || process.platform !== 'linux')('against a real NSS dat
 
   it('leaves no key material behind in the temp directory', async () => {
     const before = new Set(
-      (await import('node:fs'))
-        .readdirSync(tmpdir())
-        .filter((n) => n.startsWith('vantage-cert-')),
+      (await import('node:fs')).readdirSync(tmpdir()).filter((n) => n.startsWith('vantage-cert-')),
     )
     const listing = await listSystemCertificates(undefined, env())
     await openSystemSigner(listing.certs[0]!.ref, undefined, env())

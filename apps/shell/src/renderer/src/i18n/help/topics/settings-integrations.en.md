@@ -58,8 +58,8 @@ Under **Local HTTP server** the app can run the server itself — an enable swit
 
 ## Command-line cheat sheet
 
-| Command            | What it does               |
-| ------------------ | -------------------------- |
+| Command          | What it does               |
+| ---------------- | -------------------------- |
 | `vantage <file>` | open a file                |
 | `vantage mcp`    | start the local MCP server |
 | `vantage --help` | every command and flag     |

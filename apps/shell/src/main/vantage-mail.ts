@@ -13,7 +13,9 @@ export interface MailLocation {
 
 export function mailExecutablePath(location: MailLocation): string {
   if (location.platform !== 'win32') {
-    throw new Error('Vantage Mail is currently included in the Windows version of Vantage Productivity.')
+    throw new Error(
+      'Vantage Mail is currently included in the Windows version of Vantage Productivity.',
+    )
   }
   return location.isPackaged
     ? join(location.resourcesPath, 'mail', 'vantage-mail.exe')
@@ -80,7 +82,8 @@ export async function openVantageMail(
         } else {
           finish({
             opened: false,
-            error: 'Vantage Mail closed before opening. Microsoft Edge WebView2 Runtime is required.',
+            error:
+              'Vantage Mail closed before opening. Microsoft Edge WebView2 Runtime is required.',
           })
         }
       })

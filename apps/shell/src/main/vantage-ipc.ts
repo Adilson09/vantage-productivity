@@ -55,16 +55,20 @@ export function registerVantageIpc(getHost: () => BrowserWindow | null): void {
         'An inspection is already running. Cancel it before choosing another document.',
       )
     choosingInspection = true
-    const selected = await dialog.showOpenDialog(host, {
-      title: 'Inspect a document locally',
-      properties: ['openFile'],
-      filters: [
-        {
-          name: 'Supported documents',
-          extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'md', 'markdown', 'html', 'htm'],
-        },
-      ],
-    }).finally(() => { choosingInspection = false })
+    const selected = await dialog
+      .showOpenDialog(host, {
+        title: 'Inspect a document locally',
+        properties: ['openFile'],
+        filters: [
+          {
+            name: 'Supported documents',
+            extensions: ['docx', 'xlsx', 'pptx', 'pdf', 'md', 'markdown', 'html', 'htm'],
+          },
+        ],
+      })
+      .finally(() => {
+        choosingInspection = false
+      })
     if (selected.canceled || !selected.filePaths[0]) return null
     const controller = new AbortController()
     inspection = controller

@@ -1,9 +1,12 @@
 import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
-import { discardDraftJournal, writeDraftJournal } from '../../../../packages/electron-utils/src/draft-journal'
+import {
+  discardDraftJournal,
+  writeDraftJournal,
+} from '../../../../packages/electron-utils/src/draft-journal'
 import {
   BrowserWindow,
   WebContentsView,
@@ -433,7 +436,8 @@ const diskWatcherByWc = new Map<number, DocumentDiskWatcher>()
 /** Unsaved-changes flags mirrored from the renderer; drives the save prompt before closing a tab/window */
 const dirtyByWc = new Set<number>()
 const draftByWc = new Map<number, string>()
-const draftRoot = () => process.env.VANTAGE_RECOVERY_ROOT || join(app.getPath('userData'), 'recovery')
+const draftRoot = () =>
+  process.env.VANTAGE_RECOVERY_ROOT || join(app.getPath('userData'), 'recovery')
 async function clearMarkdownDraft(wcId: number): Promise<void> {
   const id = draftByWc.get(wcId)
   if (id) await discardDraftJournal(draftRoot(), id)
@@ -1316,22 +1320,36 @@ function registerMarkdownIpc(): void {
   ipcMain.handle(MARKDOWN_CHANNELS.writeDraft, async (event, text: unknown) => {
     try {
       const id = draftByWc.get(event.sender.id)
-      if (!id || event.sender.isDestroyed()) throw new Error('Draft recording is unavailable for this view')
-      if (typeof text !== 'string' || text.length > 16 * 1024 * 1024) throw new Error('Draft exceeds its 16 MiB limit')
+      if (!id || event.sender.isDestroyed())
+        throw new Error('Draft recording is unavailable for this view')
+      if (typeof text !== 'string' || text.length > 16 * 1024 * 1024)
+        throw new Error('Draft exceeds its 16 MiB limit')
       if (!dirtyByWc.has(event.sender.id)) return { ok: true }
       const documentPath = savePathByWc.get(event.sender.id) ?? null
-      const extension = documentPath && ['.txt', '.json'].includes(extname(documentPath).toLowerCase())
-        ? extname(documentPath).toLowerCase() : '.md'
-      await writeDraftJournal(draftRoot(), { id, module: 'markdown', documentPath, extension, bytes: Buffer.from(text, 'utf8') })
+      const extension =
+        documentPath && ['.txt', '.json'].includes(extname(documentPath).toLowerCase())
+          ? extname(documentPath).toLowerCase()
+          : '.md'
+      await writeDraftJournal(draftRoot(), {
+        id,
+        module: 'markdown',
+        documentPath,
+        extension,
+        bytes: Buffer.from(text, 'utf8'),
+      })
       return { ok: true }
-    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 
   ipcMain.on(MARKDOWN_CHANNELS.dirtyChanged, (e, dirty: unknown) => {
     if (dirty === true) dirtyByWc.add(e.sender.id)
     else {
       dirtyByWc.delete(e.sender.id)
-      void clearMarkdownDraft(e.sender.id).catch((error) => console.warn('[markdown] draft cleanup:', error))
+      void clearMarkdownDraft(e.sender.id).catch((error) =>
+        console.warn('[markdown] draft cleanup:', error),
+      )
     }
   })
 

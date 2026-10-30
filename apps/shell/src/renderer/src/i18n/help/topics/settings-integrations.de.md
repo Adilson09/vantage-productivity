@@ -58,8 +58,8 @@ Unter **Lokaler HTTP-Server** kann die App den Server auch selbst betreiben — 
 
 ## Spickzettel für die Kommandozeile
 
-| Befehl             | Was er bewirkt             |
-| ------------------ | -------------------------- |
+| Befehl           | Was er bewirkt             |
+| ---------------- | -------------------------- |
 | `vantage <file>` | eine Datei öffnen          |
 | `vantage mcp`    | lokalen MCP-Server starten |
 | `vantage --help` | alle Befehle und Optionen  |

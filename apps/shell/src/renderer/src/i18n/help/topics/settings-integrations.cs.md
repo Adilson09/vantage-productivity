@@ -58,8 +58,8 @@ Pod **Místní HTTP server** umí aplikace server spustit sama — přepínač z
 
 ## Přehled příkazů
 
-| Příkaz               | Co dělá                     |
-| -------------------- | --------------------------- |
+| Příkaz             | Co dělá                     |
+| ------------------ | --------------------------- |
 | `vantage <soubor>` | otevře soubor               |
 | `vantage mcp`      | spustí místní server MCP    |
 | `vantage --help`   | všechny příkazy a přepínače |

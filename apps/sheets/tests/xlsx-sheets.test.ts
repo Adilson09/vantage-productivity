@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest'
 import {
   applyCellEditsToXlsx,
   assertOnlyTouchedEntriesChanged,
+  createBufferEntrySource,
+  inspectMacroPreservation,
+  MacroPreservationError,
 } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 import { relsPathFor, resolveRelTarget } from '@vantage/xlsx-gateway/gateway/xlsx-drawing-add'
 import {
@@ -338,7 +341,12 @@ describe('sheet remove save', () => {
   })
 
   it('cascade-removes the drawings, charts, images, comments, VML, and tables the sheet owns', async () => {
-    const mutation = await applyCellEditsToXlsx(await buildSatelliteSheetFixture(), [], [], [], {
+    const source = await buildSatelliteSheetFixture()
+    const inventory = await inspectMacroPreservation(await createBufferEntrySource(source))
+    expect(inventory.vbaProject).toBe(false)
+    expect(inventory.macroSheets).toBe(false)
+    expect(inventory.preservedParts).toEqual([])
+    const mutation = await applyCellEditsToXlsx(source, [], [], [], {
       renames: [],
       additions: [],
       removals: ['Deco'],
@@ -371,6 +379,54 @@ describe('sheet remove save', () => {
     }
     const workbook = await entryText(mutation.buffer, 'xl/workbook.xml')
     expect(workbook).not.toContain('name="Deco"')
+  })
+
+  it.each([
+    'unknown VML',
+    'VML button',
+    'mixed VML',
+    'note with macro binding',
+    'ActiveX',
+  ] as const)('still refuses cascade deletion when %s carries protected bindings', async (kind) => {
+    const zip = await JSZip.loadAsync(await buildSatelliteSheetFixture())
+    const path = 'xl/drawings/vmlDrawing1.vml'
+    const note = await zip.file(path)!.async('text')
+    const button =
+      '<v:shape id="button"><x:ClientData ObjectType="Button"><x:FmlaMacro>[0]!Synthetic_Click</x:FmlaMacro></x:ClientData></v:shape>'
+    if (kind === 'unknown VML') {
+      zip.file(
+        path,
+        '<xml xmlns:v="urn:schemas-microsoft-com:vml"><v:shape id="unknown" type="#_x0000_t202"/></xml>',
+      )
+    } else if (kind === 'VML button') {
+      zip.file(
+        path,
+        `<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:x="urn:schemas-microsoft-com:office:excel">${button}</xml>`,
+      )
+    } else if (kind === 'mixed VML') {
+      zip.file(path, note.replace('</xml>', `${button}</xml>`))
+    } else if (kind === 'note with macro binding') {
+      zip.file(
+        path,
+        note.replace('ObjectType="Note"', 'ObjectType="Note" onClick="Synthetic_Click"'),
+      )
+    } else {
+      zip.file(
+        'xl/activeX/activeX1.xml',
+        '<ocx xmlns="http://schemas.microsoft.com/office/2006/activeX" classid="inert-test-sentinel"/>',
+      )
+    }
+    const source = await zip.generateAsync({ type: 'nodebuffer' })
+    const before = Buffer.from(source)
+    await expect(
+      applyCellEditsToXlsx(source, [], [], [], {
+        renames: [],
+        additions: [],
+        removals: ['Deco'],
+        order: ['Keep'],
+      }),
+    ).rejects.toBeInstanceOf(MacroPreservationError)
+    expect(source).toEqual(before)
   })
 
   it('keeps an image a surviving sheet still references', async () => {

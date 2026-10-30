@@ -41,8 +41,7 @@ rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
 for (const dir of seen) {
   const rel = relative(rootModules, dir)
-  if (rel.startsWith('..'))
-    throw new Error(`vantage deps: ${dir} is outside the root node_modules`)
+  if (rel.startsWith('..')) throw new Error(`vantage deps: ${dir} is outside the root node_modules`)
   cpSync(dir, join(out, rel), {
     recursive: true,
     dereference: true,

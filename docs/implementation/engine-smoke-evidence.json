@@ -8,10 +8,7 @@
       "reason": "The configured executable did not complete its version probe.",
       "license": "MPL-2.0 and bundled component licenses",
       "url": "https://www.libreoffice.org/about-us/licenses/",
-      "capabilities": [
-        "convert-local",
-        "render-reference-pdf"
-      ],
+      "capabilities": ["convert-local", "render-reference-pdf"],
       "validation": {
         "detail": "Version probe succeeded; real DOCX conversion timed out at60s during resource pressure; later retry with software raster/no restore flags pending",
         "status": "conversion-unvalidated"
@@ -26,9 +23,7 @@
       "version": "qpdf version 12.4.2\r\nRun qpdf --copyright to see copyright and license information.",
       "license": "Apache-2.0 (verify installed version notices)",
       "url": "https://qpdf.readthedocs.io/en/stable/",
-      "capabilities": [
-        "pdf-structural-check"
-      ],
+      "capabilities": ["pdf-structural-check"],
       "validation": {
         "detail": "Valid review PDF accepted, malformed PDF rejected",
         "status": "structural-smoke-passed"
@@ -41,9 +36,7 @@
       "reason": "Not installed or not found. Configure VANTAGE_VERAPDF_PATH with a local executable path.",
       "license": "GPL-3.0-or-later / MPL-2.0 (verify selected distribution)",
       "url": "https://docs.verapdf.org/cli/validation/",
-      "capabilities": [
-        "pdf-conformance-report"
-      ]
+      "capabilities": ["pdf-conformance-report"]
     }
   ],
   "cases": [

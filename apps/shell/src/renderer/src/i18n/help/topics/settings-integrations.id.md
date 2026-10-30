@@ -58,8 +58,8 @@ Di bawah **Server HTTP lokal**, aplikasi juga bisa menjalankan server itu sendir
 
 ## Lembar pintasan baris perintah
 
-| Perintah           | Fungsinya                |
-| ------------------ | ------------------------ |
+| Perintah         | Fungsinya                |
+| ---------------- | ------------------------ |
 | `vantage <file>` | membuka sebuah file      |
 | `vantage mcp`    | memulai server MCP lokal |
 | `vantage --help` | semua perintah dan opsi  |

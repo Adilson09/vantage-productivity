@@ -51,7 +51,11 @@ import {
 } from '../src/main/imported-skills'
 
 /** a scratch tree: <root>/save/skills/<name>/SKILL.md (ours) and <root>/src/<name>/… (to import) */
-function scaffold(ours: Record<string, string> = {}, picked: Record<string, string> = {}, base = tmpdir()) {
+function scaffold(
+  ours: Record<string, string> = {},
+  picked: Record<string, string> = {},
+  base = tmpdir(),
+) {
   const prefix = join(base, 'skills-import-')
   const root = mkdtempSync(prefix)
   const save = join(root, 'save')
@@ -66,17 +70,30 @@ function scaffold(ours: Record<string, string> = {}, picked: Record<string, stri
   }
   put(join(save, 'skills'), ours)
   put(src, picked)
-  return { root, save, src, cleanup: () => {
-    if (!root.startsWith(prefix)) throw new Error('Unexpected skill fixture directory')
-    rmSync(root, { recursive: true, force: true })
-  } }
+  return {
+    root,
+    save,
+    src,
+    cleanup: () => {
+      if (!root.startsWith(prefix)) throw new Error('Unexpected skill fixture directory')
+      rmSync(root, { recursive: true, force: true })
+    },
+  }
 }
 
 // TEMP may point at a removable exFAT volume, which cannot host symlinks.
 // Keep the two tiny link fixtures on the Windows profile's native volume.
-const linkFixtureBase = () => process.platform === 'win32'
-  ? join(homedir(), 'AppData', 'Local', 'Temp') : tmpdir()
-const unsupportedLinks = new Set(['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EINVAL', 'EISDIR'])
+const linkFixtureBase = () =>
+  process.platform === 'win32' ? join(homedir(), 'AppData', 'Local', 'Temp') : tmpdir()
+const unsupportedLinks = new Set([
+  'EPERM',
+  'EACCES',
+  'ENOSYS',
+  'ENOTSUP',
+  'EOPNOTSUPP',
+  'EINVAL',
+  'EISDIR',
+])
 
 const SKILL = (name: string, description: string, body = 'Do the thing.') =>
   `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`
@@ -178,33 +195,53 @@ describe('importSkillDir', () => {
   })
 
   it('refuses a skill directory that is itself a symlink', (context) => {
-    const { save, src, cleanup } = scaffold({}, { real: SKILL('real', 'A docx thing') }, linkFixtureBase())
+    const { save, src, cleanup } = scaffold(
+      {},
+      { real: SKILL('real', 'A docx thing') },
+      linkFixtureBase(),
+    )
     try {
-      try { symlinkSync(join(src, 'real'), join(src, 'linked'), process.platform === 'win32' ? 'junction' : 'dir') }
-      catch (error) {
+      try {
+        symlinkSync(
+          join(src, 'real'),
+          join(src, 'linked'),
+          process.platform === 'win32' ? 'junction' : 'dir',
+        )
+      } catch (error) {
         const code = (error as NodeJS.ErrnoException)?.code
-        if (unsupportedLinks.has(code ?? '')) context.skip(`Filesystem or account does not support directory links (${code})`)
+        if (unsupportedLinks.has(code ?? ''))
+          context.skip(`Filesystem or account does not support directory links (${code})`)
         throw error
       }
       expect(() => importSkillDir(join(src, 'linked'), save)).toThrow('symlink')
       expect(existsSync(join(save, 'skills', 'linked'))).toBe(false)
-    } finally { cleanup() }
+    } finally {
+      cleanup()
+    }
   })
 
   it('refuses a skill that ships a symlink instead of copying the reach-through', (context) => {
-    const { save, src, cleanup } = scaffold({}, { linked: SKILL('linked', 'A docx thing') }, linkFixtureBase())
+    const { save, src, cleanup } = scaffold(
+      {},
+      { linked: SKILL('linked', 'A docx thing') },
+      linkFixtureBase(),
+    )
     const dir = join(src, 'linked')
     writeFileSync(join(dir, 'outside.md'), 'somewhere else')
     try {
-      try { symlinkSync(join(dir, 'outside.md'), join(dir, 'reference.md'), 'file') }
-      catch (error) {
+      try {
+        symlinkSync(join(dir, 'outside.md'), join(dir, 'reference.md'), 'file')
+      } catch (error) {
         const code = (error as NodeJS.ErrnoException)?.code
-        if (unsupportedLinks.has(code ?? '')) context.skip(`Filesystem or account does not support file symlinks (${code})`)
+        if (unsupportedLinks.has(code ?? ''))
+          context.skip(`Filesystem or account does not support file symlinks (${code})`)
         throw error
       }
       expect(() => importSkillDir(dir, save)).toThrow('symlink')
       expect(existsSync(join(save, 'skills', 'linked'))).toBe(false)
-    } finally { cleanup() }
+    } finally {
+      cleanup()
+    }
   })
 
   it('refuses a skill over the import size cap', () => {

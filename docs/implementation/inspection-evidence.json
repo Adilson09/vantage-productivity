@@ -1,15 +1,6 @@
 {
   "updatedAt": "2026-10-29T16:52:28.4800686Z",
-  "reviewItems": [
-    "02",
-    "03",
-    "04",
-    "05",
-    "18",
-    "19",
-    "20",
-    "32"
-  ],
+  "reviewItems": ["02", "03", "04", "05", "18", "19", "20", "32"],
   "implemented": [
     "Callable local LibreOffice conversion and qpdf/veraPDF adapter APIs plus CLI",
     "Direct native executable invocation with deadlines, bounded output and cancellation; Windows timeout terminates only owned process tree",

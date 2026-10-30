@@ -3,11 +3,9 @@ import { registerVantageIpc } from './vantage-ipc'
 import { currentNetworkPolicy, installPrivacyRuntime } from './privacy-runtime'
 import { execSync, spawn } from 'node:child_process'
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   statSync,
@@ -438,7 +436,10 @@ const vantageProfileOverride = process.env.VANTAGE_USER_DATA
 app.setPath(
   'userData',
   vantageProfileOverride ||
-    join(app.getPath('appData'), app.isPackaged ? 'VantageProductivity' : 'VantageProductivity-Dev'),
+    join(
+      app.getPath('appData'),
+      app.isPackaged ? 'VantageProductivity' : 'VantageProductivity-Dev',
+    ),
 )
 process.env.VANTAGE_RECOVERY_ROOT = join(app.getPath('userData'), 'recovery')
 process.env.VANTAGE_RECOVERY_EXCLUDE_ROOT = app.getPath('userData')
@@ -719,7 +720,10 @@ function initAnalytics(): void {
     analytics = createAnalytics({
       keys: resolveAnalyticsKeys(),
       getClientId: () => getClientState().clientId,
-      isEnabled: () => !currentNetworkPolicy().localOnly && currentNetworkPolicy().features.telemetry && analyticsEnabled(),
+      isEnabled: () =>
+        !currentNetworkPolicy().localOnly &&
+        currentNetworkPolicy().features.telemetry &&
+        analyticsEnabled(),
       shouldTrackFirstLaunch: () => getClientState().firstLaunchPending,
       onFirstLaunchSent: () => markAnalyticsFirstLaunchSent(APP_SETTINGS_PATH()),
       // Country-only approximation from OS regional settings. This avoids an

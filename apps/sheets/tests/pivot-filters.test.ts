@@ -4,10 +4,7 @@ import {
   allowedByValueFilter,
   matchesLabelFilter,
 } from '@vantage/xlsx-gateway/domain/pivot-filters'
-import {
-  growPivotDefinition,
-  recomputePivotData,
-} from '@vantage/xlsx-gateway/domain/pivot-engine'
+import { growPivotDefinition, recomputePivotData } from '@vantage/xlsx-gateway/domain/pivot-engine'
 import { parsePivotDefinition } from '@vantage/xlsx-gateway/gateway/xlsx-pivot'
 
 describe('pivot filter primitives', () => {

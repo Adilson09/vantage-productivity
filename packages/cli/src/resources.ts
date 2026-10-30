@@ -32,7 +32,9 @@ export function repoRoot(): string | null {
     const pkg = join(dir, 'package.json')
     if (existsSync(pkg)) {
       try {
-        if (['vantage-productivity', 'vantage'].includes(JSON.parse(readFileSync(pkg, 'utf-8')).name)) {
+        if (
+          ['vantage-productivity', 'vantage'].includes(JSON.parse(readFileSync(pkg, 'utf-8')).name)
+        ) {
           cachedRepo = dir
           return dir
         }
@@ -125,7 +127,10 @@ function installedAppBinaries(
       return [
         ...(shipped ? [shipped] : []),
         '/Applications/Vantage Productivity.app/Contents/MacOS/Vantage Productivity',
-        join(homedir(), 'Applications/Vantage Productivity.app/Contents/MacOS/Vantage Productivity'),
+        join(
+          homedir(),
+          'Applications/Vantage Productivity.app/Contents/MacOS/Vantage Productivity',
+        ),
       ]
     case 'win32':
       return [
@@ -133,7 +138,9 @@ function installedAppBinaries(
         env.LOCALAPPDATA
           ? join(env.LOCALAPPDATA, 'Programs', 'Vantage Productivity', 'Vantage Productivity.exe')
           : '',
-        env.ProgramFiles ? join(env.ProgramFiles, 'Vantage Productivity', 'Vantage Productivity.exe') : '',
+        env.ProgramFiles
+          ? join(env.ProgramFiles, 'Vantage Productivity', 'Vantage Productivity.exe')
+          : '',
       ].filter(Boolean)
     default:
       return [...(shipped ? [shipped] : []), '/opt/Vantage/vantage', '/usr/bin/vantage']

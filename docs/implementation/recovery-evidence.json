@@ -1,13 +1,6 @@
 {
   "workstream": "Save integrity, history, encryption, backup and drafts",
-  "reviewItems": [
-    6,
-    7,
-    8,
-    9,
-    10,
-    13
-  ],
+  "reviewItems": [6, 7, 8, 9, 10, 13],
   "implementationStatus": "implemented",
   "verificationStatus": "current-contract-editor-and-desktop-workflows-passed",
   "contract": "docs/implementation/save-recovery-contract.md",

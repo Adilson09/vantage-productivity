@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,10 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const permission = vi.hoisted(() => ({ refusedPath: '' }))
 vi.mock('node:fs', async (original) => {
   const real = await original<typeof import('node:fs')>()
-  return { ...real, accessSync: (...args: Parameters<typeof real.accessSync>) => {
-    if (String(args[0]) === permission.refusedPath) throw Object.assign(new Error('Permission denied'), { code: 'EACCES' })
-    return real.accessSync(...args)
-  } }
+  return {
+    ...real,
+    accessSync: (...args: Parameters<typeof real.accessSync>) => {
+      if (String(args[0]) === permission.refusedPath)
+        throw Object.assign(new Error('Permission denied'), { code: 'EACCES' })
+      return real.accessSync(...args)
+    },
+  }
 })
 
 import {

@@ -6,7 +6,7 @@ This package adds working database, calendar/contact, document checkout and opti
 
 `VantageDatabase` creates versioned `.vdb` SQLite files. It supports typed tables, transactional record imports, optimistic record update/delete versions, parameterized read-only queries, saved form definitions, escaped form rendering, escaped HTML reports and quoted CSV exports. New database creation is exclusive; opening an unrelated SQLite database is refused. SQLite is the open source database engine, exposed through the bundled Node runtime's `node:sqlite` binding.
 
-Interactive SQL should use `queryDatabaseIsolated`: an independent Node process enforces a deadline, a 64 MiB SQLite allocator ceiling, a 96 MiB JavaScript heap ceiling, read-only file access, bounded results and bounded output. The synchronous `query` method is for trusted caller-controlled queries and has no CPU time limit. Node 22.13 is supported; runtimes predating `Statement.columns()` cannot report column names for an empty result. This is a Vantage database application model, without Access form/report/VBA file compatibility.
+Interactive SQL should use `queryDatabaseIsolated`: a separate native `vantage-query-worker` uses the existing pinned rusqlite/bundled SQLite engine. It enables SQLite memory accounting before initialization, then applies a 64 MiB SQLite allocator limit. Input is limited to 256 KiB including framing, SQL to 32 KiB, rows to 10,000 and the complete JSON response to 2 MiB. Large database files remain paged; there is no database-file size cap. Cells are inspected before copying or base64 encoding. A deadline and held-open cancellation pipe bound each owned query; parent EOF terminates the helper independently of the query and stdout flush locks. This is a SQLite allocation limit, not a total Rust/process RSS limit or an OS sandbox. No Node SQLite query fallback runs when the native helper is missing. The synchronous `query` method remains for trusted caller-controlled queries and has no CPU time limit. The application runtime is Node 24.19; native compile/tests are an explicit build prerequisite. This is a Vantage database application model, without Access form/report/VBA file compatibility.
 
 ## Calendar and contacts
 
@@ -33,7 +33,9 @@ Primary API references:
 - [Gmail history](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)
 - [Google Calendar synchronization](https://developers.google.com/workspace/calendar/api/guides/sync)
 - [ICAL.js upstream and license](https://github.com/kewisch/ical.js)
-- [Node SQLite](https://nodejs.org/api/sqlite.html)
+- [Node SQLite for trusted database CRUD](https://nodejs.org/api/sqlite.html)
+- [SQLite hard heap limits and required memory accounting](https://www.sqlite.org/c3ref/hard_heap_limit64.html)
+- [Pinned native rusqlite provider](https://docs.rs/rusqlite/0.40.2/rusqlite/)
 
 ## Examples
 

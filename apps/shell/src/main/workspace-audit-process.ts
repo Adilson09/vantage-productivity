@@ -81,13 +81,35 @@ export function auditFileIsolated(
         }
         if (!parsed.ok || !parsed.result)
           throw new Error(parsed.error || 'The parser did not establish a result.')
-        if (code !== 0 || signal) throw new Error('The inspection process did not complete successfully. The check is incomplete.')
+        if (code !== 0 || signal)
+          throw new Error(
+            'The inspection process did not complete successfully. The check is incomplete.',
+          )
         const result = parsed.result
-        if (typeof result.fileName !== 'string' || typeof result.filePath !== 'string' || typeof result.scope !== 'string' ||
-            typeof result.scannedAt !== 'string' || !['docx', 'xlsx', 'pptx', 'pdf', 'md', 'html'].includes(result.kind) ||
-            !Number.isFinite(result.bytes) || result.bytes < 0 || !Array.isArray(result.checks) ||
-            !result.checks.every(check => check && typeof check.id === 'string' && typeof check.title === 'string' && typeof check.detail === 'string' && ['pass','warning','fail','info'].includes(check.status)) ||
-            !result.summary || !['passed','warnings','failed','informational'].every(key => Number.isFinite(result.summary[key as keyof typeof result.summary]) && result.summary[key as keyof typeof result.summary] >= 0))
+        if (
+          typeof result.fileName !== 'string' ||
+          typeof result.filePath !== 'string' ||
+          typeof result.scope !== 'string' ||
+          typeof result.scannedAt !== 'string' ||
+          !['docx', 'xlsx', 'pptx', 'pdf', 'md', 'html'].includes(result.kind) ||
+          !Number.isFinite(result.bytes) ||
+          result.bytes < 0 ||
+          !Array.isArray(result.checks) ||
+          !result.checks.every(
+            (check) =>
+              check &&
+              typeof check.id === 'string' &&
+              typeof check.title === 'string' &&
+              typeof check.detail === 'string' &&
+              ['pass', 'warning', 'fail', 'info'].includes(check.status),
+          ) ||
+          !result.summary ||
+          !['passed', 'warnings', 'failed', 'informational'].every(
+            (key) =>
+              Number.isFinite(result.summary[key as keyof typeof result.summary]) &&
+              result.summary[key as keyof typeof result.summary] >= 0,
+          )
+        )
           throw new Error('The inspection process returned an incomplete report.')
         resolve(parsed.result)
       } catch (error) {

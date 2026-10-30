@@ -58,8 +58,8 @@ Em **Servidor HTTP local**, a aplicação também pode arrancar o servidor por s
 
 ## Folha de referência da linha de comandos
 
-| Comando            | O que faz                    |
-| ------------------ | ---------------------------- |
+| Comando          | O que faz                    |
+| ---------------- | ---------------------------- |
 | `vantage <file>` | abrir um ficheiro            |
 | `vantage mcp`    | iniciar o servidor MCP local |
 | `vantage --help` | todos os comandos e opções   |

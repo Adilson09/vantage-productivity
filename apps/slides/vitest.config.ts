@@ -13,10 +13,7 @@ export default defineConfig({
         here,
         '../../packages/pptx-engine/src/table-grid.ts',
       ),
-      '@vantage/pptx-engine/identity': resolve(
-        here,
-        '../../packages/pptx-engine/src/identity.ts',
-      ),
+      '@vantage/pptx-engine/identity': resolve(here, '../../packages/pptx-engine/src/identity.ts'),
       '@vantage/pptx-engine/named-action': resolve(
         here,
         '../../packages/pptx-engine/src/named-action.ts',
@@ -25,10 +22,7 @@ export default defineConfig({
         here,
         '../../packages/pptx-engine/src/background-promote.ts',
       ),
-      '@vantage/pptx-engine/custgeom': resolve(
-        here,
-        '../../packages/pptx-engine/src/custgeom.ts',
-      ),
+      '@vantage/pptx-engine/custgeom': resolve(here, '../../packages/pptx-engine/src/custgeom.ts'),
       '@vantage/pptx-engine/model3d': resolve(here, '../../packages/pptx-engine/src/model3d.ts'),
       '@vantage/pptx-engine/chart-workbook': resolve(
         here,
@@ -48,10 +42,7 @@ export default defineConfig({
         '../../packages/pipelines/src/slides/layout-audit.ts',
       ),
       '@vantage/pipelines/slides': resolve(here, '../../packages/pipelines/src/slides/index.ts'),
-      '@vantage/docx-engine/metafile': resolve(
-        here,
-        '../../packages/docx-engine/src/metafile.ts',
-      ),
+      '@vantage/docx-engine/metafile': resolve(here, '../../packages/docx-engine/src/metafile.ts'),
     },
   },
   test: {

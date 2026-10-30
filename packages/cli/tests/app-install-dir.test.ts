@@ -20,7 +20,10 @@ describe('appBinaryForResources', () => {
 
   it('finds the app in a custom macOS bundle location', () => {
     expect(
-      appBinaryForResources(join('/Volumes/Work/Vantage Productivity.app/Contents/Resources'), 'darwin'),
+      appBinaryForResources(
+        join('/Volumes/Work/Vantage Productivity.app/Contents/Resources'),
+        'darwin',
+      ),
     ).toBe(join('/Volumes/Work/Vantage Productivity.app/Contents/MacOS/Vantage Productivity'))
   })
 

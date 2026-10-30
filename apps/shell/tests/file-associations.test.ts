@@ -14,7 +14,9 @@ runInNewContext(readFileSync(resolve(import.meta.dirname, '../electron-builder.c
   __dirname: resolve(import.meta.dirname, '..'),
   process: { platform: 'linux', arch: 'x64', env: {} },
   require: (id: string) =>
-    id === 'node:fs' ? { ...require(id), existsSync: () => true } : require(id),
+    id === 'node:fs'
+      ? { ...require(id), existsSync: () => true, realpathSync: (path: string) => path }
+      : require(id),
 })
 const config = configModule.exports
 

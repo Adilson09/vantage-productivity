@@ -149,13 +149,19 @@ describe('the ai: channels', () => {
     expect(runnerRun).toHaveBeenCalledWith(['convert', 'a.docx', '--to', 'pdf'], {
       timeoutMs: 120_000,
       cwd: resolve('/docs/open'),
-      env: { VANTAGE_ALLOWED_ROOTS: ['/home/u/Vantage', '/docs/open'].map((path) => resolve(path)).join(delimiter) },
+      env: {
+        VANTAGE_ALLOWED_ROOTS: ['/home/u/Vantage', '/docs/open']
+          .map((path) => resolve(path))
+          .join(delimiter),
+      },
     })
     await expect(invoke('ai:run-cli', ['--version'])).rejects.toThrow('not available here')
   })
 
   it('confines a window without a file to the folder roots alone', () => {
-    expect(allowedRootsFor(['/a', '/b'], undefined)).toBe(['/a', '/b'].map((path) => resolve(path)).join(delimiter))
+    expect(allowedRootsFor(['/a', '/b'], undefined)).toBe(
+      ['/a', '/b'].map((path) => resolve(path)).join(delimiter),
+    )
     expect(cliCwdFor(['/a', '/b'], undefined)).toBe(resolve('/a'))
     expect(cliCwdFor([], undefined)).toBeUndefined()
   })

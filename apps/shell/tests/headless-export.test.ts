@@ -93,8 +93,10 @@ describe('validateHeadlessPaths', () => {
   it('rejects an output path that is the input file, also through a symlink', () => {
     const fs = {
       ...fsWith(['/docs/a.docx', '/docs', '/link/a.docx', '/link']),
-      realpath: (path: string) => path === resolve('/link') || path.startsWith(resolve('/link') + sep)
-        ? join(resolve('/docs'), relative(resolve('/link'), path)) : path,
+      realpath: (path: string) =>
+        path === resolve('/link') || path.startsWith(resolve('/link') + sep)
+          ? join(resolve('/docs'), relative(resolve('/link'), path))
+          : path,
     }
     expect(
       validateHeadlessPaths(request('/docs/a.docx', '/docs/a.docx', 'html'), fs),
@@ -109,7 +111,8 @@ describe('validateHeadlessPaths', () => {
 
   it('rejects an output path that is an existing directory (exit 1)', () => {
     const fs = {
-      exists: (path: string) => ['/docs/a.docx', '/out', '/out/a.pdf'].some((candidate) => resolve(candidate) === path),
+      exists: (path: string) =>
+        ['/docs/a.docx', '/out', '/out/a.pdf'].some((candidate) => resolve(candidate) === path),
       isFile: (path: string) => path === resolve('/docs/a.docx'),
     }
     expect(validateHeadlessPaths(request('/docs/a.docx', '/out/a.pdf'), fs)).toMatchObject({
@@ -124,7 +127,11 @@ describe('validateHeadlessPaths', () => {
       request('/docs/a.docx', '/gone/a.pdf'),
       fsWith(['/docs/a.docx']),
     )
-    expect(result).toMatchObject({ ok: false, code: 1, message: expect.stringContaining(resolve('/gone')) })
+    expect(result).toMatchObject({
+      ok: false,
+      code: 1,
+      message: expect.stringContaining(resolve('/gone')),
+    })
   })
 })
 
@@ -137,7 +144,11 @@ describe('runHeadlessExport', () => {
       fsWith(['/decks/a.pptx', '/out', '/out/a.pdf']),
     )
     expect(calls).toEqual([`slides:${resolve('/decks/a.pptx')}->${resolve('/out/a.pdf')}:pdf`])
-    expect(outcome).toEqual({ ok: true, input: resolve('/decks/a.pptx'), outPath: resolve('/out/a.pdf') })
+    expect(outcome).toEqual({
+      ok: true,
+      input: resolve('/decks/a.pptx'),
+      outPath: resolve('/out/a.pdf'),
+    })
   })
 
   it.each([

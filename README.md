@@ -25,9 +25,11 @@ npm exec -w @vantage/shell -- electron-builder --win zip --x64 --publish never
 
 A Mail build also requires its own toolchain and dependency setup; see companions/depesha and tools/build-mail.mjs. The internal workspace namespace and CLI are **@vantage** and **vantage**. Windows is the validated delivery target for this preview; inherited Linux/macOS deployment recipes require separate release configuration and validation.
 
+The root lint command uses the workspace configuration. CI installs Mail's separate locked frontend dependencies and runs its type, lint and unit checks in the `Mail frontend checks` job. Native Mail builds and provider interoperability have separate validation requirements.
+
 ## Review and next implementation choices
 
-The delivered **Vantage-Productivity-Review.html** maps every requirement in the requested review to alternatives, tradeoffs, recommended order, official sources, and acceptance criteria. Those feature changes are proposals for later selection. This release implements the branding change.
+The delivered **Vantage-Productivity-Review.html** maps the review requirements to alternatives, tradeoffs, official sources and acceptance criteria. The preview implements the subsets recorded in [implementation choices](docs/implementation/choices.json), which also lists the remaining acceptance work for each area.
 
 ## Licenses and source provenance
 

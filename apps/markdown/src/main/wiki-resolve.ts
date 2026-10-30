@@ -235,7 +235,9 @@ export async function resolveWikiLinks(
             const index = NOTE_EXTS.indexOf(extname(file).toLowerCase())
             return index < 0 ? NOTE_EXTS.length : index
           }
-          const files = [...listing.files].sort((a, b) => extensionRank(a) - extensionRank(b) || a.localeCompare(b))
+          const files = [...listing.files].sort(
+            (a, b) => extensionRank(a) - extensionRank(b) || a.localeCompare(b),
+          )
           for (const file of files) {
             // indexed under both spellings: a bare `[[Name]]` matches the stem,
             // an explicit `[[Figure 1.png]]` has to match the file as written

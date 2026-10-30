@@ -160,7 +160,9 @@ export async function discoverEngines(options = {}) {
       }
     } catch (error) {
       if (error.code !== 'ENOENT')
-        throw new Error('Cannot load local engine configuration: ' + error.message)
+        throw new Error('Cannot load local engine configuration: ' + error.message, {
+          cause: error,
+        })
     }
   }
   return Promise.all(

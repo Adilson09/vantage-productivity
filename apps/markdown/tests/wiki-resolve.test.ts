@@ -103,12 +103,18 @@ describe('resolveWikiLinks', () => {
   })
 
   it.each(['root document', 'untitled document', 'another folder'])(
-    'prefers .md over .txt for a bare name from %s', async (location) => {
-    const fromPath = location === 'untitled document' ? '' : location === 'another folder'
-      ? join(root, 'sub', 'note.md') : join(root, 'note.md')
-    const map = await resolve(['Beta'], fromPath)
-    expect(map.get('Beta')?.path).toBe(join(root, 'Beta.md'))
-  })
+    'prefers .md over .txt for a bare name from %s',
+    async (location) => {
+      const fromPath =
+        location === 'untitled document'
+          ? ''
+          : location === 'another folder'
+            ? join(root, 'sub', 'note.md')
+            : join(root, 'note.md')
+      const map = await resolve(['Beta'], fromPath)
+      expect(map.get('Beta')?.path).toBe(join(root, 'Beta.md'))
+    },
+  )
 
   it('an explicit extension is taken literally, spaces and all', async () => {
     const map = await resolve(['Figure 1.png'], join(root, 'note.md'))

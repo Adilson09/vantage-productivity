@@ -16,12 +16,7 @@ export default defineConfig({
   main: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: [
-          '@vantage/i18n',
-          'pdf-lib',
-          '@vantage/electron-utils',
-          '@vantage/font-metrics',
-        ],
+        exclude: ['@vantage/i18n', 'pdf-lib', '@vantage/electron-utils', '@vantage/font-metrics'],
       }),
     ],
   },

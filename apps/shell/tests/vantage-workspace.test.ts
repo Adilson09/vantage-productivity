@@ -73,7 +73,10 @@ describe('Vantage command discovery', () => {
   })
   it('preserves discoverability for localized labels without requiring an English title', () => {
     expect(
-      matchesVantageCommand({ title: '新建文档', detail: '.docx', keywords: 'new document' }, '文档'),
+      matchesVantageCommand(
+        { title: '新建文档', detail: '.docx', keywords: 'new document' },
+        '文档',
+      ),
     ).toBe(true)
     expect(
       matchesVantageCommand(

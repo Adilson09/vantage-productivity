@@ -13,11 +13,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 let dir = ''
 
-afterEach(() => {
+afterEach(async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  vi.mocked(rename).mockReset().mockImplementation(actual.rename)
+  vi.mocked(writeFile).mockReset().mockImplementation(actual.writeFile)
   if (dir) rmSync(dir, { recursive: true, force: true })
   dir = ''
-  vi.mocked(rename).mockClear()
-  vi.mocked(writeFile).mockClear()
 })
 
 const epermError = () =>
@@ -48,42 +49,46 @@ describe('atomicWriteFile', () => {
     expect(readdirSync(dir)).toEqual(['data.csv'])
   })
 
-  it('falls back to an in-place write when the rename stays locked', async () => {
+  it('keeps the original and completed rescue file when the rename stays locked', async () => {
     dir = mkdtempSync(join(tmpdir(), 'sheets-aw-'))
     const target = join(dir, 'data.csv')
     writeFileSync(target, 'old')
     for (let attempt = 0; attempt < 5; attempt += 1) {
       vi.mocked(rename).mockRejectedValueOnce(epermError())
     }
-
-    await atomicWriteFile(target, Buffer.from('new'))
-
-    expect(readFileSync(target, 'utf8')).toBe('new')
-    expect(readdirSync(dir)).toEqual(['data.csv'])
-  })
-
-  it('preserves the completed temp file when the fallback write fails', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'sheets-aw-'))
-    const target = join(dir, 'data.csv')
-    writeFileSync(target, 'old')
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      vi.mocked(rename).mockRejectedValueOnce(epermError())
-    }
-    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
-    const fallbackError = Object.assign(new Error('EIO: fallback write failed'), { code: 'EIO' })
-    vi.mocked(writeFile)
-      .mockImplementationOnce(actual.writeFile)
-      .mockRejectedValueOnce(fallbackError)
 
     await expect(atomicWriteFile(target, Buffer.from('new'))).rejects.toThrow(
-      'fallback write failed',
+      'The existing destination was not overwritten',
     )
 
+    expect(readFileSync(target, 'utf8')).toBe('old')
     const files = readdirSync(dir)
-    expect(files).toContain('data.csv')
+    expect(files).toHaveLength(2)
     const temp = files.find((file) => file !== 'data.csv')
-    expect(temp).toBeDefined()
+    expect(temp).toMatch(/^data\.csv\.[^.]+\.tmp$/)
     expect(readFileSync(join(dir, temp!), 'utf8')).toBe('new')
+    expect(vi.mocked(writeFile)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(writeFile).mock.calls[0]?.[0]).not.toBe(target)
+  })
+
+  it('preserves the original and removes an incomplete temp when writing fails', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'sheets-aw-'))
+    const target = join(dir, 'data.csv')
+    writeFileSync(target, 'old')
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    const incompleteError = Object.assign(new Error('EIO: incomplete temp write'), { code: 'EIO' })
+    vi.mocked(writeFile).mockImplementationOnce(async (file, _data, options) => {
+      await actual.writeFile(file, Buffer.from('partial'), options)
+      throw incompleteError
+    })
+
+    await expect(atomicWriteFile(target, Buffer.from('new'))).rejects.toThrow(
+      'incomplete temp write',
+    )
+
+    expect(readFileSync(target, 'utf8')).toBe('old')
+    expect(readdirSync(dir)).toEqual(['data.csv'])
+    expect(vi.mocked(rename)).not.toHaveBeenCalled()
   })
 
   it('uses distinct temp files for concurrent writes to one target', async () => {

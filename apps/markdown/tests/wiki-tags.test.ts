@@ -38,7 +38,10 @@ describe('wikiTags', () => {
       '/vault/C.md': 'no tags here',
     })
     const tags = await wikiTags('/vault', fs)
-    expect(tags[0]).toEqual({ tag: 'work', files: [join('/vault', 'A.md'), join('/vault', 'B.md')] })
+    expect(tags[0]).toEqual({
+      tag: 'work',
+      files: [join('/vault', 'A.md'), join('/vault', 'B.md')],
+    })
     expect(tags[1]!.tag).toBe('urgent')
   })
 })

@@ -7,7 +7,13 @@ import { publishExclusiveCopy } from '../src/publish-exclusive'
 
 vi.mock('node:fs/promises', async (original) => {
   const real = await original<typeof import('node:fs/promises')>()
-  return { ...real, link: vi.fn(async () => { throw Object.assign(new Error('No hardlinks'), { code: 'EISDIR' }) }), copyFile: vi.fn(real.copyFile) }
+  return {
+    ...real,
+    link: vi.fn(async () => {
+      throw Object.assign(new Error('No hardlinks'), { code: 'EISDIR' })
+    }),
+    copyFile: vi.fn(real.copyFile),
+  }
 })
 const prefix = join(tmpdir(), 'vantage-exclusive-copy-')
 let root: string
@@ -21,23 +27,32 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 const content = Buffer.from('complete verified recovery bytes')
-const expected = { bytes: content.length, sha256: createHash('sha256').update(content).digest('hex') }
+const expected = {
+  bytes: content.length,
+  sha256: createHash('sha256').update(content).digest('hex'),
+}
 it('supports a filesystem without hardlinks through exclusive copy and hash verification', async () => {
-  const source = join(root, 'complete.tmp'), destination = join(root, 'restored.md')
+  const source = join(root, 'complete.tmp'),
+    destination = join(root, 'restored.md')
   await writeFile(source, content)
   expect(await publishExclusiveCopy(source, destination, expected)).toEqual({ atomic: false })
   expect(await readFile(destination)).toEqual(content)
   expect(await readFile(source)).toEqual(content)
 })
 it('never overwrites an existing destination when hardlinks are unavailable', async () => {
-  const source = join(root, 'complete.tmp'), destination = join(root, 'occupied.md')
-  await writeFile(source, content); await writeFile(destination, 'keep this original')
-  await expect(publishExclusiveCopy(source, destination, expected)).rejects.toMatchObject({ code: 'EEXIST' })
+  const source = join(root, 'complete.tmp'),
+    destination = join(root, 'occupied.md')
+  await writeFile(source, content)
+  await writeFile(destination, 'keep this original')
+  await expect(publishExclusiveCopy(source, destination, expected)).rejects.toMatchObject({
+    code: 'EEXIST',
+  })
   expect(await readFile(destination, 'utf8')).toBe('keep this original')
   expect(await readFile(source)).toEqual(content)
 })
 it('removes its own newly published destination if byte verification detects damage', async () => {
-  const source = join(root, 'complete.tmp'), destination = join(root, 'restored.md')
+  const source = join(root, 'complete.tmp'),
+    destination = join(root, 'restored.md')
   await writeFile(source, content)
   const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
   vi.mocked(copyFile).mockImplementationOnce(async (...args) => {

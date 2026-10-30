@@ -1,10 +1,7 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 
-import {
-  applyCellEditsToXlsx,
-  readBasicWorkbook,
-} from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
+import { applyCellEditsToXlsx, readBasicWorkbook } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 import { decodeXlsxEscapes, encodeXlsxEscapes } from '@vantage/xlsx-gateway/gateway/xlsx-escapes'
 
 describe('_xHHHH_ cell text escapes (ECMA-376 22.4.2.4)', () => {

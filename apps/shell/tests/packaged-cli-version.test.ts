@@ -51,6 +51,7 @@ function loadConfig(opts: {
         return {
           ...require(id),
           existsSync: () => true,
+          realpathSync: (path: string) => path,
           readFileSync: (path: string, encoding: string) => {
             if (String(path).endsWith('vantage.cjs')) {
               return `const __cliAppVersion = ${JSON.stringify(baked)};\n`

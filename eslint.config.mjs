@@ -1,5 +1,7 @@
 // Repo-wide lint config (lint only — no formatter, so no whole-repo format diff).
 // Rules are tuned so the current codebase passes cleanly; tighten incrementally.
+// The root command selects this file explicitly for the npm workspaces.
+// Mail has its own pinned ESLint/Svelte toolchain and a separate CI job.
 import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
@@ -15,6 +17,7 @@ export default tseslint.config(
       '**/release/**',
       '**/target/**',
       '**/coverage/**',
+      'companions/depesha/**',
       'scripts/drivers/**',
       'apps/*/build/**',
       'packages/*/src/vendor/**',

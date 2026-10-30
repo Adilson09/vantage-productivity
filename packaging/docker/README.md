@@ -42,15 +42,15 @@ upstream error envelopes).
 
 ## Knobs (environment variables)
 
-| variable                                  | default   | meaning                                                                                                                                                                |
-| ----------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VANTAGE_INPUT_DIR`                     | `/data`   | input volume                                                                                                                                                           |
-| `VANTAGE_OUTPUT_DIR`                    | `/output` | output volume                                                                                                                                                          |
-| `VANTAGE_TO`                            | `pdf`     | export target — the image only wires up `pdf` (the app also exports docs to html and html to docx); anything else is rejected with exit 1 rather than silently ignored |
-| `VANTAGE_PARALLEL`                      | `1`       | concurrent conversions (each is its own Electron process; 2-4 helps on large hosts)                                                                                    |
+| variable                              | default   | meaning                                                                                                                                                                |
+| ------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VANTAGE_INPUT_DIR`                   | `/data`   | input volume                                                                                                                                                           |
+| `VANTAGE_OUTPUT_DIR`                  | `/output` | output volume                                                                                                                                                          |
+| `VANTAGE_TO`                          | `pdf`     | export target — the image only wires up `pdf` (the app also exports docs to html and html to docx); anything else is rejected with exit 1 rather than silently ignored |
+| `VANTAGE_PARALLEL`                    | `1`       | concurrent conversions (each is its own Electron process; 2-4 helps on large hosts)                                                                                    |
 | `VANTAGE_INCLUDE` / `VANTAGE_EXCLUDE` | —         | optional `grep -E` filters on `/data`-relative paths                                                                                                                   |
-| `VANTAGE_FLAGS`                         | —         | extra flags passed through to `--headless-export`                                                                                                                      |
-| `VANTAGE_XVFB`                          | `1`       | set `0` when you provide the display yourself (e.g. wrap with `xvfb-run`)                                                                                              |
+| `VANTAGE_FLAGS`                       | —         | extra flags passed through to `--headless-export`                                                                                                                      |
+| `VANTAGE_XVFB`                        | `1`       | set `0` when you provide the display yourself (e.g. wrap with `xvfb-run`)                                                                                              |
 
 Examples:
 

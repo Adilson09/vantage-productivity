@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-30T05:03:22.497Z",
+  "status": "Linux allocation enforcement verified; complete native and packaged acceptance pending",
+  "scope": "Isolated CI branch; no primary integration or release artifacts. Publication and current runs recorded separately.",
+  "problem": {
+    "receipt": "D:/Codex-builds/vantage-next-validation/sqlite-allocation-cap-probe.cjs",
+    "observedBy": "root",
+    "configuredPragmaBytes": 67108864,
+    "requestedAllocationBytes": 100000000,
+    "observed": "Node24 query succeeded with a 100 MB BLOB despite pragma readback; this is the rejected prior provider. No root-cause build-flag assertion is made."
+  },
+  "implementation": {
+    "binary": "vantage-query-worker",
+    "source": "apps/sheets/native/xlsx-engine/src/bin/vantage-query-worker.rs",
+    "client": "packages/productivity-engine/src/database-isolated.ts",
+    "sqliteHeapBytes": 67108864,
+    "allocationEnforcement": "Fresh native process calls sqlite3_config(SQLITE_CONFIG_MEMSTATUS,1) before sqlite3_initialize, checks return values, applies hard_heap_limit64, verifies active accounting. Actual SQLITE_NOMEM proof remains pending.",
+    "readOnly": [
+      "SQLITE_OPEN_READ_ONLY",
+      "extensions disabled",
+      "trusted_schema disabled",
+      "query_only",
+      "DQS_DML/DQS_DDL disabled",
+      "defensive mode",
+      "mmap_size 0",
+      "temp_store MEMORY",
+      "one prepared readonly SELECT/WITH statement",
+      "scalar parameter binding"
+    ],
+    "transport": {
+      "inputBytesIncludingNewline": 262144,
+      "sqlBytes": 32768,
+      "rows": 10000,
+      "outputBytes": 2097152,
+      "stderrBytes": 4096,
+      "protocol": 1,
+      "nonce": "matching UUID",
+      "utf8": "fatal strict decoder",
+      "cellCopy": "Inspect text/Blob lengths and predicted JSON/base64 size before owned copying/encoding",
+      "rowShape": "Exactly the unique advertised column keys; duplicate SELECT aliases can collapse to one key as in the prior record API"
+    },
+    "lifetime": {
+      "clientDeadlineMs": "100..30000",
+      "nativeWatchdogMs": 32000,
+      "cancel": "Held stdin closes on abort/deadline/parent exit. Helper EOF reader exits its own process even while query or stdout write blocks.",
+      "selfExit": "Unix _exit / Windows TerminateProcess(GetCurrentProcess) avoid atexit pipe-flush locks",
+      "uncertainCleanup": "Caller settles after 1000ms grace with cleanupPending; unref/destroy pipes without claiming child exit, and retain each of two ownership slots until close."
+    },
+    "limitsBoundary": "64 MiB is SQLite allocator memory, not total Rust process RSS or an OS sandbox. Rust input/result buffers are separately bounded. Large database files remain paged, without a file-size cap.",
+    "fallback": "No Node SQLite query fallback. Missing helper returns QUERY_RUNTIME_UNAVAILABLE. Trusted synchronous CRUD/query API remains outside this isolated interactive query cap."
+  },
+  "integration": {
+    "build": "Existing cargo native:build compiles all bins; explicit tools/build-query-worker.mjs is pretest for Productivity and CLI groups; mac universal helper built/lipo-checked alongside sidecar.",
+    "locators": [
+      "Electron resourcesPath/native",
+      "plain packaged runtime sibling resources/native and mac Resources/native",
+      "bundled CLI module ../native",
+      "configured target directory/triple and development target/release",
+      "trusted absolute explicit/env or XLSX_SIDECAR_PATH sibling"
+    ],
+    "packaging": "Mandatory beforePack helper/source/notice presence checks; no native compile or execution at config evaluation. Source retained at legal/query-worker/src/bin/vantage-query-worker.rs matching Cargo.toml.",
+    "sourceBundleBoundary": "Small legal/query-worker folder is not a complete reproducible native project; full matching release source archive is still required.",
+    "windowsSigning": "Current CI branch has no release/signing workflow, only ci.yml and implementation-acceptance.yml. Existing builder comment now names helper; actual matching release workflow must sign this extraResources executable under the same existing credential conditions before packaging."
+  },
+  "dependencies": [
+    {
+      "name": "rusqlite",
+      "version": "0.40.2",
+      "license": "MIT",
+      "crateSha256": "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+    },
+    {
+      "name": "libsqlite3-sys",
+      "version": "0.38.2",
+      "license": "MIT (binding); SQLite core public domain",
+      "crateSha256": "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+    },
+    {
+      "name": "base64",
+      "version": "0.22.1",
+      "crateSha256": "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.150",
+      "crateSha256": "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
+    }
+  ],
+  "validation": {
+    "scopedPrettier": "exit0",
+    "javascriptSyntax": "node --check exit0: build-query-worker.mjs, gen-third-party-notices.mjs, build-sidecar-universal.mjs, electron-builder.cjs",
+    "rustfmt": "UNAVAILABLE: configured portable toolchain has no rustfmt.exe; no download performed",
+    "nativeCompile": "Passed in GitHub application builds on 6c4617c3 and preceding 81ab99fc, Linux.",
+    "nativeTests": "On 6c4617c3, nine of ten native tests passed. The 100 MB randomblob returned QUERY_MEMORY_LIMIT with SQLite code 7. Large-file paging, cancellation and SQL/source guards passed. The sole failure assumed 100 MB zeroblob stayed lazy; SQLite instead materialized/refused it safely. A 16 MiB output-budget case is prepared and awaits rerun. Production source is unchanged.",
+    "nodeTests": "The GitHub 6c4617c3 editor group passed, including all 166 Productivity tests and strict native allocation-error/protocol cases. The relocated CLI/core-docs group is still running.",
+    "types": "All workspace typechecks passed on GitHub 6c4617c3.",
+    "gui": "NOT RUN",
+    "package": "NOT RUN",
+    "cargoMetadata": "cargo metadata --offline --locked --no-deps exit0: library + original sidecar + native helper + separate query_worker integration target recognized; no compile."
+  },
+  "authoredAcceptance": {
+    "nativeBlackbox": "apps/sheets/native/xlsx-engine/tests/query_worker.rs: real SQL/params, read-only/multiple-statement refusal, actual randomblob(100000000) must yield QUERY_MEMORY_LIMIT/sqliteCode7 with 30s deadline, >64MiB paged source, oversized cell/output cap, extension/DQS refusal, format refusal, native progress deadline, parent EOF while stdout blocked.",
+    "nodeProtocol": "database-query-protocol.test.ts: literal argv, nonce/schema/UTF8/exit/row refusal, exact framing limit, mandatory native error7, pipe failures, output cap, cancel, retained cleanup slots, missing provider.",
+    "locator": "database-query-locator.test.ts: real fixed resolver uses simulated Electron resources and configured Cargo triple; fixtures are not executable runtime proof.",
+    "relocatedCli": "packages/cli/tests/query-worker-package.test.ts: bundle actual client with existing esbuild dependency, copy exact real compiled helper bytes with hash match, invoke plain Node without process.resourcesPath from unrelated cwd and paths with spaces, real saved DB SQL and source hash unchanged.",
+    "packageGates": "apps/shell/tests/query-worker-resources.test.ts: every desktop resource entry/source path, config laziness, missing helper/notice refusal before package commands."
+  },
+  "primarySources": [
+    "https://www.sqlite.org/c3ref/hard_heap_limit64.html",
+    "https://www.sqlite.org/c3ref/c_config_covering_index_scan.html",
+    "https://docs.rs/rusqlite/0.40.2/rusqlite/struct.Connection.html",
+    "https://raw.githubusercontent.com/rusqlite/rusqlite/v0.40.2/LICENSE",
+    "https://www.sqlite.org/copyright.html"
+  ]
+}

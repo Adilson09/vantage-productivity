@@ -67,8 +67,8 @@ chain order; advances are 1.0em everywhere, so line breaking is unchanged.
 
 ## Korean fallback
 
-| Font                                 | Role                                                        |
-| ------------------------------------ | ----------------------------------------------------------- |
+| Font                               | Role                                                        |
+| ---------------------------------- | ----------------------------------------------------------- |
 | Vantage Serif KR (subset woff2)    | Batang-metric stand-in for Korean serif families            |
 | Vantage Sans KR (subset woff2)     | fallback for Korean sans families (Malgun etc.)             |
 | Vantage Che Latin KR (ASCII woff2) | half-width Latin for BatangChe/GulimChe/DotumChe/GungsuhChe |
@@ -107,8 +107,8 @@ copyright (Adobe 2017–2024), and full OFL 1.1 text are in `LICENSE-OFL.txt`.
 
 ### Vantage Gothic KR
 
-| Font                               | Role                                            |
-| ---------------------------------- | ----------------------------------------------- |
+| Font                             | Role                                            |
+| -------------------------------- | ----------------------------------------------- |
 | Vantage Gothic KR (subset woff2) | real-metric face for NanumGothic-declaring docs |
 
 Source: NanumGothic Regular from [google/fonts](https://github.com/google/fonts/tree/main/ofl/nanumgothic)
@@ -124,10 +124,16 @@ Reserved Font Names include "Nanum" and "NanumGothic"; subsetting is a
 modification). The exact NHN copyright/Reserved Font Name notice and the full
 OFL 1.1 text are in `LICENSE-OFL.txt`.
 
+`tools/repair-gothic-kr-metadata.py` aligns an existing subset's internal names
+with the generator without rebuilding its outlines. It refuses publication if
+any decoded table other than `name` or the `head` checksum changes, or if style,
+copyright, license, glyph mapping or advance data changes. Pass `--report` to
+record the before/after hashes and verification details.
+
 ### Vantage UI Kana JP
 
-| Font                                      | Role                                                |
-| ----------------------------------------- | --------------------------------------------------- |
+| Font                                    | Role                                                |
+| --------------------------------------- | --------------------------------------------------- |
 | Vantage UI Kana JP (Regular/Bold woff2) | Meiryo UI-advance kana/JP punctuation for the alias |
 
 Source: Noto Sans JP variable font from [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk)
@@ -145,8 +151,8 @@ outlines are modified).
 
 ## Poppins (M365 cloud font)
 
-| Font                             | Role                                 |
-| -------------------------------- | ------------------------------------ |
+| Font                           | Role                                 |
+| ------------------------------ | ------------------------------------ |
 | Vantage Poppins (subset woff2) | real face for Poppins-declaring docs |
 
 Source: Poppins Regular/Bold from [google/fonts](https://github.com/google/fonts/tree/main/ofl/poppins)
@@ -163,8 +169,8 @@ order. Italic synthesizes oblique from these faces.
 
 ## DM Sans (Google Fonts)
 
-| Font                             | Role                                 |
-| -------------------------------- | ------------------------------------ |
+| Font                           | Role                                 |
+| ------------------------------ | ------------------------------------ |
 | Vantage DM Sans (subset woff2) | real face for DM Sans-declaring docs |
 
 Source: DM Sans 1.200 Regular/Bold statics from [google/fonts](https://github.com/google/fonts/tree/af0704e25dfad3e8999a2955cbbdfa2b28099617/ofl/dmsans)
@@ -182,8 +188,8 @@ Italic synthesizes oblique from these faces.
 
 ## Tamil fallback
 
-| Font                    | Role                                     |
-| ----------------------- | ---------------------------------------- |
+| Font                  | Role                                     |
+| --------------------- | ---------------------------------------- |
 | Vantage Tamil (woff2) | Latha-metric stand-in for Tamil families |
 
 Source: Noto Sans Tamil Regular from [notofonts](https://github.com/notofonts/notofonts.github.io)
@@ -199,8 +205,8 @@ per OFL ("Noto" is a Reserved Font Name; advances are modified).
 
 ## Bengali fallback
 
-| Font                      | Role                                         |
-| ------------------------- | -------------------------------------------- |
+| Font                    | Role                                         |
+| ----------------------- | -------------------------------------------- |
 | Vantage Bengali (woff2) | Nirmala UI-metric stand-in, Regular and Bold |
 
 Source: Noto Sans Bengali Regular/Bold from [notofonts](https://github.com/notofonts/notofonts.github.io)
@@ -234,8 +240,8 @@ serif, so unknown Arabic families default to the Naskh chain.
 
 ## PUA blanker
 
-| Font                              | Role                                             |
-| --------------------------------- | ------------------------------------------------ |
+| Font                            | Role                                             |
+| ------------------------------- | ------------------------------------------------ |
 | Vantage PUA Blank (woff2, 312B) | blank 1em glyph for all of U+E000-F8FF (BMP PUA) |
 
 Generated from scratch by `tools/build-pua-blank-font.py` (no upstream font;

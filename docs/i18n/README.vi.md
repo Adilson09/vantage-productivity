@@ -455,11 +455,11 @@ OpenCode và Windsurf ngay từ đầu, bất kỳ agent nào đọc được sk
 
 ### Cài skill
 
-| Cách                                       | Điều gì xảy ra                                                                                                                                                      |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cách                                       | Điều gì xảy ra                                                                                                                                                    |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Settings → Integrations** trong ứng dụng | Liệt kê các agent tìm thấy trên máy này; một cú bấm ghi skill vào từng agent bạn chọn. Nút **Update** xuất hiện khi một bản phát hành Vantage mang skill mới hơn. |
-| **Download as zip** trên cùng trang        | Đúng cấu trúc claude.ai, ứng dụng Claude desktop và các trợ lý khác chấp nhận như skill tải lên.                                                                    |
-| `npx skills add genspark-ai/vantage`     | Cài từ kho lưu trữ này vào bất kỳ agent tương thích skills nào.                                                                                                     |
+| **Download as zip** trên cùng trang        | Đúng cấu trúc claude.ai, ứng dụng Claude desktop và các trợ lý khác chấp nhận như skill tải lên.                                                                  |
+| `npx skills add genspark-ai/vantage`       | Cài từ kho lưu trữ này vào bất kỳ agent tương thích skills nào.                                                                                                   |
 
 Sau đó mở một cuộc trò chuyện mới và yêu cầu một tài liệu. Skill dạy agent
 khi nào nên dùng tới `vantage`, cách đọc tệp trước khi sửa, và cách tự
@@ -516,11 +516,11 @@ không chạy được terminal hoặc mà bạn không muốn trao terminal. C�
 vào, cả hai đều có snippet sao-chép-ngay trong **Settings → Integrations →
 MCP**:
 
-| Cách                                  | Là gì                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Cách                                | Là gì                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **A · `vantage mcp`** (khuyến nghị) | Một máy chủ stdio trợ lý tự khởi động; Vantage không cần mở. Một công cụ cho mỗi lệnh (`info`, `convert`, `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf`, `docs_read` / `docs_apply` / `docs_check`, `sheet_*`, `slides_*`, `render`, `guide`, `search`, `image`, `media`, `open`) cùng luồng deck theo giai đoạn `deck_start` → `deck_page` → `deck_build` → `deck_replace`. Ops, spec và Markdown được truyền inline, nên client không có hệ thống tệp vẫn dùng được. |
-| **B · Máy chủ HTTP cục bộ**           | Chạy bên trong ứng dụng Vantage tại `http://127.0.0.1:3093/mcp` (Streamable HTTP, kèm SSE kiểu cũ). Các công cụ của nó điều khiển một tab trình soạn thảo Word hiện rõ: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, và bạn xem tài liệu thành hình. Mặc định tắt; bật trong cùng pane cài đặt.                                                                                                                             |
-| **C · `vantage mcp --http`**        | Bộ công cụ stdio dưới dạng máy chủ Streamable HTTP cho client trên máy khác: một container, một sandbox, một máy dùng chung trong mạng của bạn. Tệp đi cùng lời gọi: `PUT /files/<name>` tải lên một tệp và trả về URL, mọi tham số `file` nhận URL http(s), và công cụ ghi tệp trả lại dưới dạng URL tải xuống cùng, khi tệp nhỏ, các byte dưới dạng MCP resource. `--host 0.0.0.0` mở ra mạng, `--token` bảo vệ nó.                                                                |
+| **B · Máy chủ HTTP cục bộ**         | Chạy bên trong ứng dụng Vantage tại `http://127.0.0.1:3093/mcp` (Streamable HTTP, kèm SSE kiểu cũ). Các công cụ của nó điều khiển một tab trình soạn thảo Word hiện rõ: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, và bạn xem tài liệu thành hình. Mặc định tắt; bật trong cùng pane cài đặt.                                                                                                                             |
+| **C · `vantage mcp --http`**        | Bộ công cụ stdio dưới dạng máy chủ Streamable HTTP cho client trên máy khác: một container, một sandbox, một máy dùng chung trong mạng của bạn. Tệp đi cùng lời gọi: `PUT /files/<name>` tải lên một tệp và trả về URL, mọi tham số `file` nhận URL http(s), và công cụ ghi tệp trả lại dưới dạng URL tải xuống cùng, khi tệp nhỏ, các byte dưới dạng MCP resource. `--host 0.0.0.0` mở ra mạng, `--token` bảo vệ nó.                                                              |
 
 ```bash
 # Claude Code
@@ -586,8 +586,8 @@ hình trong Vantage.
 
 ## Tải xuống
 
-| Nền tảng                             | Yêu cầu                                               | Tải xuống                                                                                   |
-| ------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Nền tảng                             | Yêu cầu                                               | Tải xuống                                                                                    |
+| ------------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | **macOS** — Apple Silicon (arm64)    | macOS 11+                                             | [`.dmg` mới nhất (arm64)](https://github.com/Adilson09/aster-office/releases/latest)         |
 | **macOS** — Intel (x64)              | macOS 11+                                             | [`.dmg` mới nhất (x64)](https://github.com/Adilson09/aster-office/releases/latest)           |
 | **Windows** (x64, đa số máy tính)    | Windows 10+, Intel/AMD                                | [Trình cài `-x64.exe` mới nhất](https://github.com/Adilson09/aster-office/releases/latest)   |

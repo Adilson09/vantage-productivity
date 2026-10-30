@@ -306,11 +306,11 @@ cliente MCP.
 
 ### Instalar o skill
 
-| Como                                   | O que acontece                                                                                                                                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Como                                   | O que acontece                                                                                                                                                                            |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Configurações → Integrações** no app | Lista os agentes encontrados neste computador; um clique grava o skill em cada um que você escolher. Um botão **Atualizar** aparece quando uma versão do Vantage traz um skill mais novo. |
-| **Baixar como zip** na mesma página    | O formato que o claude.ai, os aplicativos desktop do Claude e outros assistentes aceitam como skill enviado.                                                                                |
-| `npx skills add genspark-ai/vantage` | Instala a partir deste repositório em qualquer agente compatível com skills.                                                                                                                |
+| **Baixar como zip** na mesma página    | O formato que o claude.ai, os aplicativos desktop do Claude e outros assistentes aceitam como skill enviado.                                                                              |
+| `npx skills add genspark-ai/vantage`   | Instala a partir deste repositório em qualquer agente compatível com skills.                                                                                                              |
 
 Depois, abra um novo chat e peça um documento. O skill ensina ao agente
 quando recorrer ao `vantage`, como ler um arquivo antes de editá-lo e como
@@ -370,10 +370,10 @@ que não conseguem rodar um terminal ou aos quais você prefere não dar um.
 Há duas formas de entrada, ambas mostradas com trechos prontos para copiar
 em **Configurações → Integrações → MCP**:
 
-| Forma                                 | O que é                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Forma                               | O que é                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **A · `vantage mcp`** (recomendado) | Um servidor stdio que o próprio assistente inicia; o Vantage não precisa estar aberto. Uma ferramenta por comando (`info`, `convert`, `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf`, `docs_read` / `docs_apply` / `docs_check`, `sheet_*`, `slides_*`, `render`, `guide`, `search`, `image`, `media`, `open`) mais o fluxo de apresentação em etapas `deck_start` → `deck_page` → `deck_build` → `deck_replace`. Operações, especificações e Markdown são passados inline, então um cliente sem sistema de arquivos também funciona. |
-| **B · Servidor HTTP local**           | Roda dentro do aplicativo Vantage em `http://127.0.0.1:3093/mcp` (Streamable HTTP, com SSE legado). Suas ferramentas comandam uma aba de editor de Word visível: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, e você observa o documento tomar forma. Desativado por padrão; ative-o no mesmo painel de configurações.                                                                                                                                                                    |
+| **B · Servidor HTTP local**         | Roda dentro do aplicativo Vantage em `http://127.0.0.1:3093/mcp` (Streamable HTTP, com SSE legado). Suas ferramentas comandam uma aba de editor de Word visível: `create_session`, `insert_content`, `replace_blocks`, `apply_ops`, `read_document`, `save_session`, e você observa o documento tomar forma. Desativado por padrão; ative-o no mesmo painel de configurações.                                                                                                                                                                    |
 
 ```bash
 # Claude Code
@@ -424,8 +424,8 @@ Vantage.
 
 ## Download
 
-| Plataforma                           | Requisitos                                            | Download                                                                                         |
-| ------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Plataforma                           | Requisitos                                            | Download                                                                                          |
+| ------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **macOS** — Apple Silicon (arm64)    | macOS 11+                                             | [`.dmg` mais recente (arm64)](https://github.com/Adilson09/aster-office/releases/latest)          |
 | **macOS** — Intel (x64)              | macOS 11+                                             | [`.dmg` mais recente (x64)](https://github.com/Adilson09/aster-office/releases/latest)            |
 | **Windows** (x64, maioria dos PCs)   | Windows 10+, Intel/AMD                                | [Instalador `-x64.exe` mais recente](https://github.com/Adilson09/aster-office/releases/latest)   |

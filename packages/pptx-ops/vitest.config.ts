@@ -15,10 +15,7 @@ export default defineConfig({
         here,
         '../pptx-engine/src/background-promote.ts',
       ),
-      '@vantage/pptx-engine/chart-workbook': resolve(
-        here,
-        '../pptx-engine/src/chart-workbook.ts',
-      ),
+      '@vantage/pptx-engine/chart-workbook': resolve(here, '../pptx-engine/src/chart-workbook.ts'),
       '@vantage/pptx-engine': resolve(here, '../pptx-engine/src/index.ts'),
       '@vantage/docx-engine/math': resolve(here, '../docx-engine/src/math.ts'),
     },

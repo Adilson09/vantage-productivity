@@ -482,9 +482,7 @@ export default function App() {
     window.addEventListener('pointerup', onUp)
   }
   // Persisted so a closed AI panel stays closed on next launch (docs/slides parity)
-  const [aiCollapsed, setAiCollapsed] = useState(
-    () => !aiPanelInitiallyOpen('vantage-pdf-show-ai'),
-  )
+  const [aiCollapsed, setAiCollapsed] = useState(() => !aiPanelInitiallyOpen('vantage-pdf-show-ai'))
   /** the panel setter in the "true = visible" sense the sidebar hook expects */
   const setAiOpen = useCallback((open: boolean) => setAiCollapsed(!open), [])
   // the sidebar switch is a soft hide; it closes the panel when it turns off

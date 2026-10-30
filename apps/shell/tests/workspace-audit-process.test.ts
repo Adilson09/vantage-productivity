@@ -17,13 +17,30 @@ afterEach(async () => {
 })
 describe('isolated workspace parser lifecycle', () => {
   it('accepts a complete successful report, but refuses a forged success or nonzero exit', async () => {
-    const report = { fileName: 'sample.md', filePath: 'sample.md', kind: 'md', scannedAt: new Date().toISOString(), bytes: 0, scope: 'Local check', checks: [], summary: { passed: 0, warnings: 0, failed: 0, informational: 0 } }
-    const valid = await worker(`process.stdout.write(${JSON.stringify(JSON.stringify({ok:true,result:report}))})`)
+    const report = {
+      fileName: 'sample.md',
+      filePath: 'sample.md',
+      kind: 'md',
+      scannedAt: new Date().toISOString(),
+      bytes: 0,
+      scope: 'Local check',
+      checks: [],
+      summary: { passed: 0, warnings: 0, failed: 0, informational: 0 },
+    }
+    const valid = await worker(
+      `process.stdout.write(${JSON.stringify(JSON.stringify({ ok: true, result: report }))})`,
+    )
     expect(await auditFileIsolated('sample.md', { workerPath: valid })).toEqual(report)
-    const failedExit = await worker(`process.stdout.write(${JSON.stringify(JSON.stringify({ok:true,result:report}))},()=>process.exit(7))`)
-    await expect(auditFileIsolated('sample.md', { workerPath: failedExit })).rejects.toThrow('did not complete successfully')
+    const failedExit = await worker(
+      `process.stdout.write(${JSON.stringify(JSON.stringify({ ok: true, result: report }))},()=>process.exit(7))`,
+    )
+    await expect(auditFileIsolated('sample.md', { workerPath: failedExit })).rejects.toThrow(
+      'did not complete successfully',
+    )
     const malformed = await worker('process.stdout.write(JSON.stringify({ok:true,result:{}}))')
-    await expect(auditFileIsolated('sample.md', { workerPath: malformed })).rejects.toThrow('incomplete report')
+    await expect(auditFileIsolated('sample.md', { workerPath: malformed })).rejects.toThrow(
+      'incomplete report',
+    )
   })
   it('rejects a process that exceeds its deadline and closes its handle', async () => {
     const workerPath = await worker('setInterval(()=>{},1000)')
