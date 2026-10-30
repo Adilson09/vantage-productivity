@@ -93,8 +93,8 @@ afterEach(() => {
   operationHook.beforeAtomicWrite = null
 })
 
-describe('in-place PDF page operation writes', () => {
-  it('keeps the original when an insert-page rename and in-place fallback both fail', async () => {
+describe('PDF page operation publication', () => {
+  it('keeps the original and replacement directory when the page-operation target changes', async () => {
     dir = mkdtempSync(join(tmpdir(), 'pdf-page-write-'))
     const path = join(dir, 'doc.pdf')
     const doc = await PDFDocument.create()
@@ -104,7 +104,7 @@ describe('in-place PDF page operation writes', () => {
     createPdfView(path)
 
     // Simulate another process replacing the target with a directory after the
-    // operation reads it, so the helper's final file-over-directory rename fails.
+    // operation reads it, before the shared writer inspects the destination.
     const preserved = join(dir, 'preserved.pdf')
     operationHook.beforeAtomicWrite = () => {
       renameSync(path, preserved)
@@ -118,7 +118,13 @@ describe('in-place PDF page operation writes', () => {
 
     expect(result.ok).toBe(false)
     expect(readFileSync(preserved)).toEqual(original)
-    // The shared writer keeps the finished temp beside the target so the new bytes survive
-    expect(readdirSync(dir).filter((name) => name.endsWith('.tmp'))).toHaveLength(1)
+    expect(readdirSync(path)).toEqual(['occupied'])
+    expect(readFileSync(join(path, 'occupied'), 'utf8')).toBe('x')
+    // The target can be refused before staging. Any retained rescue must contain
+    // the complete new document rather than a partial replacement.
+    for (const name of readdirSync(dir).filter((entry) => entry.endsWith('.tmp'))) {
+      const rescue = await PDFDocument.load(readFileSync(join(dir, name)))
+      expect(rescue.getPageCount()).toBe(2)
+    }
   })
 })

@@ -75,10 +75,16 @@ describe('note removal', () => {
       [{ sheetName: 'Data', notes: [] }],
       await buildKitchenSinkFixture(),
     )
-    const vml = plan.replaced.get('xl/drawings/vmlDrawing1.vml')
-    expect(vml).toBeDefined()
-    expect(vml).not.toContain('<v:shape ')
-    expect(vml).not.toContain('ObjectType="Note"')
+    expect(plan.removedEntries).toEqual(
+      expect.arrayContaining(['xl/comments1.xml', 'xl/drawings/vmlDrawing1.vml']),
+    )
+    const worksheet = plan.replaced.get('xl/worksheets/sheet1.xml')
+    const relationships = plan.replaced.get('xl/worksheets/_rels/sheet1.xml.rels')
+    expect(worksheet).toBeDefined()
+    expect(relationships).toBeDefined()
+    expect(worksheet).not.toContain('<legacyDrawing')
+    expect(relationships).not.toContain('/relationships/comments')
+    expect(relationships).not.toContain('/relationships/vmlDrawing')
   })
 })
 
