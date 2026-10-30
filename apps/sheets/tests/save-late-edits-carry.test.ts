@@ -4,12 +4,14 @@
  * dropping it with the old session.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { handleSave, type SaveContext } from '../src/renderer/save-actions'
+import { handleSave, collectWorkbookDocumentPayload, type SaveContext } from '../src/renderer/save-actions'
+import { serializeWorkbookDocumentPayload } from '../src/shared/document-payload-canonical'
 import {
   carryLateJournalCells,
   createEditJournal,
   recordSetRangeValues,
   recordStructuralOp,
+  recordPageSetup,
   snapshotJournalCells,
   type EditJournal,
 } from '../src/renderer/edit-journal'
@@ -128,5 +130,31 @@ describe('handleSave keeps edits made while the save IPC is pending', () => {
     await expect(handleSave(ctx, 'save')).resolves.toMatchObject({ ok: true })
     expect(reopened.editJournal.cells.size).toBe(0)
     expect(setPendingEdits).toHaveBeenLastCalledWith(0)
+  })
+
+  it('keeps late non-cell metadata on its old coherent source instead of rebasing it away', async () => {
+    const { ctx } = run(false)
+    const original = ctx.lazyWorkbookRef.current!
+    const atSnapshot = serializeWorkbookDocumentPayload(collectWorkbookDocumentPayload(ctx).payload)
+    const rejected = vi.fn(async () => {})
+    ;(window.desktopApi as unknown as { rejectWorkbookPublication: typeof rejected }).rejectWorkbookPublication = rejected
+    ctx.requireOwnedAdoption = true
+    ctx.publicationFence = {
+      source: { lineage: 'same-document', sessionId: original.file.sessionId,
+        openedSha256: 'a'.repeat(64), documentPath: '/tmp/a.xlsx' },
+      stamp: { source: 'renderer-epoch', revision: '1' }, payloadSha256: 'c'.repeat(64),
+      canAdopt: () => serializeWorkbookDocumentPayload(collectWorkbookDocumentPayload(ctx).payload) === atSnapshot,
+    }
+    saveWorkbookEdits.mockImplementation(async () => {
+      recordPageSetup(original.editJournal, 'sheet-1', { orientation: 'landscape' })
+      return { canceled: false, file: { sessionId: '22222222-2222-4222-8222-222222222222',
+        path: '/tmp/a.xlsx', sha256: 'b'.repeat(64) },
+        ownedPublication: { id: 'offered-save', source: ctx.publicationFence!.source } }
+    })
+    await expect(handleSave(ctx, 'save')).resolves.toMatchObject({ ok: false, published: true, adopted: false, clean: false })
+    expect(ctx.openLazyWorkbook).not.toHaveBeenCalled()
+    expect(ctx.lazyWorkbookRef.current).toBe(original)
+    expect(original.editJournal.pageSetup.get('sheet-1')?.orientation).toBe('landscape')
+    expect(rejected).toHaveBeenCalledWith('offered-save')
   })
 })

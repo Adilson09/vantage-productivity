@@ -1,3 +1,4 @@
+import { beforeMarkdownMutation, runMarkdownAsyncMutation, markdownCloseStamp } from '../close-lease'
 import type { JSONContent } from '@tiptap/core'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
@@ -94,10 +95,11 @@ function imageFileIn(data: DataTransfer | null): File | null {
   return null
 }
 
-async function persistAndInsert(
+async function persistAndInsertUntracked(
   editor: import('@tiptap/core').Editor,
   file: File,
   pos: number,
+  source: string,
 ): Promise<void> {
   if (file.size > MAX_PASTED_IMAGE_BYTES) {
     showToast(t('imageTooLarge', { mb: Math.round(MAX_PASTED_IMAGE_BYTES / 1024 / 1024) }), 'error')
@@ -114,13 +116,16 @@ async function persistAndInsert(
   // assets/ copy is the fallback when it is disabled or the upload fails, so
   // the note stays self-contained even offline
   const host = await getImageHostConfig()
+  await beforeMarkdownMutation(source)
   if (host) {
     const up = await window.markdownApi.uploadImage({
       base64,
       ext: EXT_BY_MIME[file.type]!,
-      name: file.name,
+      name: file.name, closeSource:markdownCloseStamp(),
     })
     if (up.ok && up.url) {
+      await beforeMarkdownMutation(source)
+      if (editor.isDestroyed) throw new Error('The image target editor closed.')
       editor
         .chain()
         .focus()
@@ -130,17 +135,24 @@ async function persistAndInsert(
     }
     showToast(t('imageHostFallback', { error: up.error ?? '' }), 'error')
   }
-  const rel = await window.markdownApi.saveImage({ base64, ext: EXT_BY_MIME[file.type]! })
+  await beforeMarkdownMutation(source)
+  const rel = await window.markdownApi.saveImage({ base64, ext: EXT_BY_MIME[file.type]!, closeSource:markdownCloseStamp() })
   // untitled documents have no assets/ directory yet — tell the user to save first
   if (!rel) {
     showToast(t('imageNeedsSavedDocument'), 'error')
     return
   }
+  await beforeMarkdownMutation(source)
+  if (editor.isDestroyed) throw new Error('The image target editor closed.')
   editor
     .chain()
     .focus()
     .insertContentAt(pos, { type: 'image', attrs: { src: rel, alt } })
     .run()
+}
+
+function persistAndInsert(editor: import('@tiptap/core').Editor, file: File, pos: number): Promise<void> {
+  return runMarkdownAsyncMutation(source => persistAndInsertUntracked(editor, file, pos, source)).catch(error => { showToast(error instanceof Error ? error.message : String(error), 'error') })
 }
 
 const attr = (value: unknown) =>

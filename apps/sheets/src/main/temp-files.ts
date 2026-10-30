@@ -1,10 +1,11 @@
 import { lstat, readdir, rm, unlink } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 
+import { cleanupSessionSnapshot } from './session-snapshot-directory'
+
 export const PASTED_FILE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
-const SESSION_SNAPSHOT_NAME = new RegExp(`^${UUID}\\.xlsx$`, 'i')
 const IMPORT_DIRECTORY_NAME = new RegExp(`^${UUID}$`, 'i')
 const OWNED_PASTED_FILE = /^pasted-[0-9]{8}-[0-9]{6}-[0-9]+\.(?:png|jpe?g|gif|webp)$/i
 
@@ -36,10 +37,7 @@ export async function cleanupSessionResources(
   } catch {
     // Continue with owned temp cleanup even when the sidecar is already gone.
   }
-  const snapshotRoot = join(options.tempRoot, 'vantage-sheets-sessions')
-  if (isDirectOwnedChild(options.snapshotPath, snapshotRoot, SESSION_SNAPSHOT_NAME)) {
-    await rm(options.snapshotPath, { force: true }).catch(() => undefined)
-  }
+  await cleanupSessionSnapshot(options.tempRoot, options.snapshotPath)
   if (options.importTempDir !== undefined) {
     await cleanupImportTempDirectory(options.tempRoot, options.importTempDir)
   }

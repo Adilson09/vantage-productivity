@@ -544,4 +544,5 @@ export const hi = {
   appMergeSourceLoaded: '{name} लोड हुई ({n} रिकॉर्ड)',
   appMergeWritten: '{n} दस्तावेज़ लिखे गए',
   appMergeNothingToWrite: 'लिखने के लिए कुछ नहीं है',
+  appRecoveryFailed: 'ड्राफ़्ट पुनर्प्राप्ति विफल रही: {error}',
 } satisfies Record<keyof typeof zh, string>

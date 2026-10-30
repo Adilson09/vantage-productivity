@@ -918,6 +918,26 @@
   width: 100%;
   border-collapse: collapse;
 }
+.vantage-calendar-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+.vantage-calendar-workspace fieldset {
+  min-width: 0;
+}
+.vantage-calendar-workspace .vantage-panel-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.vantage-calendar-outbox {
+  padding-inline-start: 20px;
+}
+.vantage-calendar-outbox > li {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--border);
+}
 .vantage-engine-results th,
 .vantage-engine-results td {
   padding: 8px;
@@ -936,3 +956,11 @@
     border-color: CanvasText;
   }
 }
+
+.vantage-retained-recovery { margin-block: 22px; padding-block: 18px; border-block: 1px solid var(--border); }
+.vantage-retained-recovery > h3 { margin: 0 0 8px; font-size: 14px; }
+.vantage-retained-recovery > p { font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+.vantage-retained-recovery-list { list-style: none; padding: 0; margin: 0; }
+.vantage-retained-recovery-list > li { padding: 16px 0; border-top: 1px solid var(--border); font-size: 12px; overflow-wrap: anywhere; }
+.vantage-retained-recovery-list > li > p { margin: 7px 0; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
+.vantage-retained-recovery-list .vantage-panel-toolbar { flex-wrap: wrap; gap: 8px; }

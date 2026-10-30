@@ -28,6 +28,8 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "../slides/src/main/env.d.ts",
+    "../pdf/src/renderer/env.d.ts",
+    "../html/src/shared/css-tree.d.ts",
     "../../packages/pdf2docx/src/bidi-js.d.ts",
     "../../packages/html2docx/src/raw.d.ts"
   ]

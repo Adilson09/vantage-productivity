@@ -1,6 +1,9 @@
 import type { zh } from './zh'
 
 export const zhTW = {
+  recoveryFailed: '無法更新復原副本：{error}。已保留先前的副本。',
+  recoveryRetry: '重試復原',
+  recoveryRemote: '此復原副本仍依賴 {count} 個遠端資源，可能需要網路連線。',
   redactMenuLabel: '把選中的內容對 AI 隱藏',
   redactDialogDesc:
     '這段文字會留在文件裡，AI 讀到的卻是下面的標記。給它起個名字，AI 才知道它是什麼。',

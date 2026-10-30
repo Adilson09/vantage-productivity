@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { Editor } from '@tiptap/core'
@@ -6,13 +6,18 @@ import type { CommentInfo } from '@vantage/docx-engine'
 import { editorExtensions } from '../src/renderer/editor/extensions'
 import { LocaleProvider, setModuleLang } from '../src/renderer/i18n/locale'
 import { CommentsPanel } from '../src/renderer/components/CommentsPanel'
+import { adoptCommentDraftRecovery } from '../src/renderer/comment-draft-recovery'
 
 Object.assign(window, { desktop: { onLanguageChanged: () => () => undefined } })
 setModuleLang('en')
 
 const noop = () => {}
+const refuse = () => false
+const editors: Editor[] = []
+afterEach(() => { for (const editor of editors.splice(0)) editor.destroy() })
 
 function mount(onDelete = noop): { root: Root; container: HTMLElement } {
+  adoptCommentDraftRecovery()
   const editor = new Editor({
     element: document.createElement('div'),
     extensions: editorExtensions,
@@ -21,6 +26,7 @@ function mount(onDelete = noop): { root: Root; container: HTMLElement } {
       content: [{ type: 'docParagraph', content: [{ type: 'text', text: 'hello' }] }],
     },
   })
+  editors.push(editor)
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -31,9 +37,10 @@ function mount(onDelete = noop): { root: Root; container: HTMLElement } {
     ] as CommentInfo[],
     docNode: editor.state.doc,
     composing: false,
-    onSubmitNew: noop,
-    onReply: noop,
-    onEdit: noop,
+    onSubmitNew: refuse,
+    onReply: refuse,
+    onEdit: refuse,
+    selectionAnchor: () => undefined,
     onResolve: noop,
     onCancelNew: noop,
     onDelete,

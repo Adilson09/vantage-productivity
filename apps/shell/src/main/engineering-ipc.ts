@@ -1,3 +1,5 @@
+import { discardActiveSlidesDraft } from '../../../slides/src/main/slides-main'
+import { registerRetainedRecoveryIpc } from './retained-recovery-ipc'
 import {
   app,
   dialog,
@@ -16,10 +18,13 @@ import {
 } from '../../../../packages/engine-bridge/src/index.mjs'
 import {
   createCalendar,
-  expandCalendar,
   parseContacts,
 } from '../../../../packages/productivity-engine/src/calendar'
+import { expandCalendarSourceIsolated } from '../../../../packages/productivity-engine/src/calendar-isolated'
 import { atomicWriteFile } from '../../../../packages/electron-utils/src/atomic-write'
+import { discardActiveHtmlDraft } from '../../../html/src/main/html-main'
+import { discardActiveDocsDraft } from '../../../docs/src/main/docs-main'
+import { discardActivePdfDraft, preparePdfJournalRecovery } from '../../../pdf/src/main/pdf-main'
 import {
   listDraftJournal,
   restoreDraftCopy,
@@ -39,6 +44,7 @@ import {
 import { enableRecoveryEncryption } from '../../../../packages/electron-utils/src/recovery-encryption'
 import { currentNetworkPolicy, saveNetworkPolicy } from './privacy-runtime'
 import { VANTAGE_CHANNELS } from '../shared/vantage-api'
+import { registerCalendarIpc } from './calendar-ipc'
 
 async function readBoundedText(path: string): Promise<string> {
   const file = await open(path, 'r')
@@ -64,6 +70,7 @@ async function readBoundedText(path: string): Promise<string> {
 
 export function registerEngineeringIpc(
   hostFor: (event: IpcMainInvokeEvent) => BrowserWindow,
+  openRestored?: (path: string) => boolean,
 ): void {
   const engineOptions = () => ({
     manifestPath:
@@ -79,6 +86,8 @@ export function registerEngineeringIpc(
     : Promise.resolve()
   // Retain rejection for actions to display, without an unhandled startup rejection.
   void recoveryReady.catch(() => {})
+  registerCalendarIpc(hostFor, () => recoveryReady)
+  registerRetainedRecoveryIpc(hostFor, () => recoveryReady)
   const databases = new Map<number, VantageDatabase>()
   const selectedBackups = new Map<number, string>()
   const observedSenders = new Set<number>()
@@ -140,15 +149,27 @@ export function registerEngineeringIpc(
     const destination = await dialog.showSaveDialog(host, {
       title: 'Recover a draft to a new file',
       defaultPath: `Recovered draft${item.extension}`,
+      ...(item.extension === '.vpdfdraft' ? { filters: [{ name: 'Vantage PDF recovery workspace', extensions: ['vpdfdraft'] }] } : {}),
     })
     if (destination.canceled || !destination.filePath) return null
-    await restoreDraftCopy(recoveryRoot, identifier, destination.filePath)
-    return destination.filePath
+    let restoredPath = destination.filePath
+    if (item.extension === '.vpdfdraft' && !/\.vpdfdraft$/i.test(destination.filePath)) throw new Error('Recover this complete PDF workspace to a new .vpdfdraft file. Save a real PDF copy from its editor afterwards.')
+    if (item.extension === '.vpdfdraft') {
+      const held = await preparePdfJournalRecovery(identifier, destination.filePath)
+      restoredPath = held.destination
+      try {
+        hostFor(event)
+        if (!openRestored?.(held.destination)) throw new Error('The recovered workspace was saved, but could not be opened automatically. Review the retained restoration output before opening the new .vpdfdraft file manually.')
+      } catch (error) { held.cancel(String(error)); throw error }
+    } else await restoreDraftCopy(recoveryRoot, identifier, destination.filePath)
+    return restoredPath
   })
   ipcMain.handle(VANTAGE_CHANNELS.discardDraft, async (event, id: unknown) => {
     hostFor(event)
     await recoveryReady
-    await discardDraftJournal(recoveryRoot, validatedId(id))
+    const draftId = validatedId(id)
+    if (!(await discardActiveDocsDraft(draftId)) && !(await discardActiveHtmlDraft(draftId)) && !(await discardActiveSlidesDraft(draftId)) && !(await discardActivePdfDraft(draftId)))
+      await discardDraftJournal(recoveryRoot, draftId)
   })
   ipcMain.handle(VANTAGE_CHANNELS.exportRecoveryBackup, async (event, value: unknown) => {
     const host = hostFor(event)
@@ -275,19 +296,35 @@ export function registerEngineeringIpc(
     if (output.canceled || !output.filePath) return null
     return convertDocument(source, output.filePath, engineOptions())
   })
-  ipcMain.handle(VANTAGE_CHANNELS.checkSpecialistPdf, async (event, engine: unknown) => {
-    const host = hostFor(event)
-    if (engine !== 'qpdf' && engine !== 'verapdf')
-      throw new Error('Choose qpdf or veraPDF for this check.')
-    const input = await dialog.showOpenDialog(host, {
-      title:
-        engine === 'qpdf' ? 'Check PDF structure with qpdf' : 'Validate a PDF conformance profile',
-      properties: ['openFile'],
-      filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    })
-    if (input.canceled || !input.filePaths[0]) return null
-    return checkPdf(input.filePaths[0], { ...engineOptions(), engine })
-  })
+  ipcMain.handle(
+    VANTAGE_CHANNELS.checkSpecialistPdf,
+    async (event, engine: unknown, flavour: unknown) => {
+      const host = hostFor(event)
+      if (engine !== 'qpdf' && engine !== 'verapdf')
+        throw new Error('Choose qpdf or veraPDF for this check.')
+      if (
+        flavour !== undefined &&
+        (engine !== 'verapdf' ||
+          typeof flavour !== 'string' ||
+          !/^(?:1[ab]|2[abu]|3[abu]|4[ef]?|ua[12])$/.test(flavour))
+      )
+        throw new Error('Choose a supported PDF/A or PDF/UA validation profile.')
+      const input = await dialog.showOpenDialog(host, {
+        title:
+          engine === 'qpdf'
+            ? 'Check PDF structure with qpdf'
+            : 'Validate a PDF conformance profile',
+        properties: ['openFile'],
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      })
+      if (input.canceled || !input.filePaths[0]) return null
+      return checkPdf(input.filePaths[0], {
+        ...engineOptions(),
+        engine,
+        flavour: flavour as string | undefined,
+      })
+    },
+  )
   ipcMain.handle(VANTAGE_CHANNELS.importCalendar, async (event) => {
     const host = hostFor(event)
     const input = await dialog.showOpenDialog(host, {
@@ -301,12 +338,22 @@ export function registerEngineeringIpc(
     const end = new Date(start.getTime() + 90 * 86400000)
     return {
       fileName: basename(input.filePaths[0]),
-      ...expandCalendar(await readBoundedText(input.filePaths[0]), {
-        start: start.toISOString(),
-        end: end.toISOString(),
-        maxOccurrences: 500,
-        maxIterations: 20_000,
-      }),
+      ...(await expandCalendarSourceIsolated(
+        await readBoundedText(input.filePaths[0]),
+        {
+          start: start.toISOString(),
+          end: end.toISOString(),
+          maxOccurrences: 500,
+          maxIterations: 20_000,
+        },
+        {
+          workerPath: join(__dirname, 'calendar-child.js'),
+          executable: process.execPath,
+          deadlineMs: 5000,
+          maxHeapMb: 256,
+          maxOutputBytes: 8 * 1024 * 1024,
+        },
+      )),
     }
   })
   ipcMain.handle(VANTAGE_CHANNELS.importContacts, async (event) => {

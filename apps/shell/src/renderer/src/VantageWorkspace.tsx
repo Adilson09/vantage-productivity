@@ -11,6 +11,7 @@ import type {
 import { FileBadge } from './file-badge'
 import './VantageWorkspace.css'
 import { EngineeringPanel } from './EngineeringPanel'
+import { RetainedRecoveryPanel } from './RetainedRecoveryPanel'
 
 export interface VantageCreateItem {
   ext: string
@@ -742,14 +743,60 @@ function VantageToolPanel({
   onClose: () => void
   onOpenPath?: (path: string) => Promise<void>
 }) {
+  const [calendarDirty, setCalendarDirty] = useState(false)
+  const [confirmCalendarClose, setConfirmCalendarClose] = useState(false)
+  const keepEditing = useRef<HTMLButtonElement>(null)
+  const previousCalendarFocus = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (confirmCalendarClose) keepEditing.current?.focus()
+    else if (previousCalendarFocus.current?.isConnected) previousCalendarFocus.current.focus()
+  }, [confirmCalendarClose])
+  const closeEngineering = () => {
+    if (confirmCalendarClose) {
+      setConfirmCalendarClose(false)
+      return
+    }
+    if (!calendarDirty) {
+      onClose()
+      return
+    }
+    previousCalendarFocus.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setConfirmCalendarClose(true)
+  }
   if (tool === 'engineering')
     return (
       <Modal
         title="Tools and privacy"
         description="Build on Vantage's engines with local specialist tools and your choice of remote services."
-        onClose={onClose}
+        onClose={closeEngineering}
       >
-        <EngineeringPanel />
+        {confirmCalendarClose && (
+          <div
+            role="alertdialog"
+            aria-label="Unsaved calendar changes"
+            className="vantage-engine-field"
+          >
+            <p>
+              There are unsaved calendar changes. Keep editing, or discard them and close these
+              tools.
+            </p>
+            <div className="vantage-panel-toolbar">
+              <button
+                type="button"
+                className="vantage-primary-button"
+                ref={keepEditing}
+                onClick={() => setConfirmCalendarClose(false)}
+              >
+                Keep editing calendar
+              </button>
+              <button type="button" className="vantage-secondary-button" onClick={onClose}>
+                Discard calendar changes and close
+              </button>
+            </div>
+          </div>
+        )}
+        <EngineeringPanel onCalendarDirty={setCalendarDirty} />
       </Modal>
     )
   return tool === 'quality' ? (
@@ -1074,6 +1121,7 @@ function RecoveryPanel({
           )}
         </div>
       )}
+      <RetainedRecoveryPanel api={desktopBridge()} onOpenPath={onOpenPath} />
       {entries.length > 0 && (
         <label className="vantage-recovery-search">
           <span>Find a snapshot</span>

@@ -96,6 +96,27 @@ pub trait SessionStore: Send {
         expected_revision: Option<u64>,
         workbook: &StoredWorkbook,
     ) -> Result<(), StoreError>;
+    /// Append one revision and its receipt atomically. Stores may override this
+    /// path to avoid loading or rewriting the immutable receipt history.
+    fn append(
+        &mut self,
+        expected_revision: u64,
+        snapshot: &WorkbookSnapshot,
+        command: &CommandRecord,
+    ) -> Result<(), StoreError> {
+        let mut workbook = self.load(&snapshot.workbook_id)?.ok_or(StoreError::Conflict)?;
+        validate_stored(&workbook).map_err(|error| StoreError::Storage(error.to_string()))?;
+        validate_append(expected_revision, &workbook.snapshot, snapshot, command)?;
+        if command.result.durable != self.is_durable() {
+            return Err(StoreError::Storage("The receipt does not match the store's durability guarantee.".into()));
+        }
+        if workbook.commands.iter().any(|record| record.command_id == command.command_id) {
+            return Err(StoreError::Conflict);
+        }
+        workbook.snapshot = snapshot.clone();
+        workbook.commands.push(command.clone());
+        self.commit(Some(expected_revision), &workbook)
+    }
     fn is_durable(&self) -> bool;
 }
 
@@ -103,7 +124,12 @@ pub trait SessionStore: Send {
 /// Clones share state, but this store never claims durable acknowledgement.
 #[derive(Clone, Default)]
 pub struct MemorySessionStore {
-    workbooks: Arc<Mutex<BTreeMap<String, StoredWorkbook>>>,
+    workbooks: Arc<Mutex<BTreeMap<String, MemoryWorkbook>>>,
+}
+
+struct MemoryWorkbook {
+    stored: StoredWorkbook,
+    command_index: BTreeMap<String, usize>,
 }
 
 impl SessionStore for MemorySessionStore {
@@ -111,7 +137,7 @@ impl SessionStore for MemorySessionStore {
         let workbooks = self.workbooks.lock().map_err(|_| {
             StoreError::Storage("The memory session store is unavailable.".into())
         })?;
-        Ok(workbooks.get(workbook_id).cloned())
+        Ok(workbooks.get(workbook_id).map(|workbook| workbook.stored.clone()))
     }
 
     fn commit(
@@ -119,14 +145,64 @@ impl SessionStore for MemorySessionStore {
         expected_revision: Option<u64>,
         workbook: &StoredWorkbook,
     ) -> Result<(), StoreError> {
+        validate_stored(workbook).map_err(|error| StoreError::Storage(error.to_string()))?;
         let mut workbooks = self.workbooks.lock().map_err(|_| {
             StoreError::Storage("The memory session store is unavailable.".into())
         })?;
-        let current = workbooks.get(&workbook.snapshot.workbook_id).map(|value| value.snapshot.revision);
+        let existing = workbooks.get(&workbook.snapshot.workbook_id);
+        let current = existing.map(|value| value.stored.snapshot.revision);
         if current != expected_revision {
             return Err(StoreError::Conflict);
         }
-        workbooks.insert(workbook.snapshot.workbook_id.clone(), workbook.clone());
+        if let Some(existing) = existing {
+            let receipt = workbook.commands.last().ok_or_else(|| {
+                StoreError::Storage("A revision requires its new command receipt.".into())
+            })?;
+            validate_append(
+                existing.stored.snapshot.revision,
+                &existing.stored.snapshot,
+                &workbook.snapshot,
+                receipt,
+            )?;
+            if workbook.commands.len() != existing.stored.commands.len() + 1
+                || workbook.commands.get(..existing.stored.commands.len())
+                    != Some(existing.stored.commands.as_slice())
+            {
+                return Err(StoreError::Storage("A commit cannot rewrite existing command receipts.".into()));
+            }
+        } else if workbook.snapshot.revision != 0 || !workbook.commands.is_empty() {
+            return Err(StoreError::Storage("A new workbook must start at revision zero.".into()));
+        }
+        workbooks.insert(workbook.snapshot.workbook_id.clone(), MemoryWorkbook {
+            stored: workbook.clone(),
+            command_index: command_index(&workbook.commands),
+        });
+        Ok(())
+    }
+
+    fn append(
+        &mut self,
+        expected_revision: u64,
+        snapshot: &WorkbookSnapshot,
+        command: &CommandRecord,
+    ) -> Result<(), StoreError> {
+        let mut workbooks = self.workbooks.lock().map_err(|_| {
+            StoreError::Storage("The memory session store is unavailable.".into())
+        })?;
+        let workbook = workbooks.get_mut(&snapshot.workbook_id).ok_or(StoreError::Conflict)?;
+        validate_append(expected_revision, &workbook.stored.snapshot, snapshot, command)?;
+        if command.result.durable {
+            return Err(StoreError::Storage("A memory session cannot acknowledge a durable edit.".into()));
+        }
+        if workbook.command_index.contains_key(&command.command_id) {
+            return Err(StoreError::Conflict);
+        }
+        let snapshot = snapshot.clone();
+        let command = command.clone();
+        let index = workbook.stored.commands.len();
+        workbook.command_index.insert(command.command_id.clone(), index);
+        workbook.stored.commands.push(command);
+        workbook.stored.snapshot = snapshot;
         Ok(())
     }
 
@@ -154,6 +230,7 @@ pub struct SessionInfo {
 
 struct LiveSession {
     stored: StoredWorkbook,
+    command_index: BTreeMap<String, usize>,
     snapshots: BTreeMap<u64, Arc<WorkbookSnapshot>>,
     recovered: bool,
 }
@@ -162,7 +239,8 @@ impl LiveSession {
     fn from_stored(stored: StoredWorkbook, recovered: bool) -> Self {
         let snapshot = Arc::new(stored.snapshot.clone());
         let snapshots = BTreeMap::from([(snapshot.revision, snapshot)]);
-        Self { stored, snapshots, recovered }
+        let command_index = command_index(&stored.commands);
+        Self { stored, command_index, snapshots, recovered }
     }
 
     fn info(&self) -> SessionInfo {
@@ -231,7 +309,8 @@ impl SessionAuthority {
 
         // Replays precede the expected-revision check: an acknowledged command
         // remains the same command after subsequent edits or process recovery.
-        if let Some(record) = live.stored.commands.iter().find(|record| record.command_id == command.command_id) {
+        if let Some(index) = live.command_index.get(&command.command_id) {
+            let record = &live.stored.commands[*index];
             return if record.request_hash == hash {
                 Ok(record.result.clone())
             } else {
@@ -257,24 +336,32 @@ impl SessionAuthority {
             changed,
             durable: self.store.is_durable(),
         };
-        let mut candidate = live.stored.clone();
-        candidate.snapshot.revision = revision;
-        candidate.snapshot.inputs = inputs;
-        candidate.commands.push(CommandRecord {
+        let candidate = WorkbookSnapshot {
+            api_version: live.stored.snapshot.api_version,
+            workbook_id: live.stored.snapshot.workbook_id.clone(),
+            revision,
+            source_fingerprint: live.stored.snapshot.source_fingerprint.clone(),
+            sheets: live.stored.snapshot.sheets.clone(),
+            inputs,
+        };
+        let record = CommandRecord {
             command_id: command.command_id,
             request_hash: hash,
             result: result.clone(),
-        });
+        };
+        let published = Arc::new(candidate.clone());
 
         // The persisted snapshot, command ID and original response are a single
         // unit. A failed write cannot publish either inputs or a new revision.
-        self.store.commit(Some(current), &candidate).map_err(store_error)?;
+        self.store.append(current, &candidate, &record).map_err(store_error)?;
         let live = self.sessions.get_mut(&command.workbook_id).ok_or_else(not_open)?;
-        live.snapshots.insert(revision, Arc::new(candidate.snapshot.clone()));
+        live.command_index.insert(record.command_id.clone(), live.stored.commands.len());
+        live.stored.commands.push(record);
+        live.stored.snapshot = candidate;
+        live.snapshots.insert(revision, published);
         while live.snapshots.len() > MAX_RETAINED_SNAPSHOTS {
             live.snapshots.pop_first();
         }
-        live.stored = candidate;
         Ok(result)
     }
 
@@ -300,8 +387,8 @@ impl SessionAuthority {
         command_id: &str,
     ) -> Result<Option<TransactionResult>, SessionError> {
         let live = self.sessions.get(workbook_id).ok_or_else(not_open)?;
-        Ok(live.stored.commands.iter().find(|record| record.command_id == command_id)
-            .map(|record| record.result.clone()))
+        Ok(live.command_index.get(command_id)
+            .map(|index| live.stored.commands[*index].result.clone()))
     }
 
     pub fn close(&mut self, workbook_id: &str) -> bool {
@@ -357,6 +444,45 @@ fn ensure_source(snapshot: &WorkbookSnapshot, request: &OpenSessionRequest) -> R
     Ok(())
 }
 
+fn command_index(commands: &[CommandRecord]) -> BTreeMap<String, usize> {
+    commands.iter().enumerate()
+        .map(|(index, command)| (command.command_id.clone(), index))
+        .collect()
+}
+
+/// Validate the bounded new material and its immutable source binding. Receipt
+/// uniqueness belongs to the store's index/constraint, not a history scan here.
+pub(crate) fn validate_append(
+    expected_revision: u64,
+    previous: &WorkbookSnapshot,
+    next: &WorkbookSnapshot,
+    command: &CommandRecord,
+) -> Result<(), StoreError> {
+    if previous.revision != expected_revision {
+        return Err(StoreError::Conflict);
+    }
+    let invalid = || StoreError::Storage("The appended snapshot and command receipt are inconsistent.".into());
+    if previous.api_version != SESSION_API_VERSION
+        || next.api_version != SESSION_API_VERSION
+        || previous.workbook_id != next.workbook_id
+        || previous.source_fingerprint != next.source_fingerprint
+        || previous.sheets != next.sheets
+        || expected_revision.checked_add(1) != Some(next.revision)
+        || command.result.api_version != SESSION_API_VERSION
+        || command.result.workbook_id != next.workbook_id
+        || command.result.command_id != command.command_id
+        || command.result.revision != next.revision
+        || command.result.changed > 2 * crate::transaction::MAX_SESSION_INPUTS
+        || command.request_hash.len() != 64
+        || !command.request_hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(invalid());
+    }
+    validate_identifier(&command.command_id, "Command ID", 512).map_err(|_| invalid())?;
+    validate_inputs(&next.inputs, next).map_err(|_| invalid())?;
+    Ok(())
+}
+
 fn validate_stored(stored: &StoredWorkbook) -> Result<(), SessionError> {
     let invalid = || SessionError::new("invalid_store", "The saved editing session is inconsistent or uses an unsupported schema.");
     if stored.api_version != SESSION_API_VERSION || stored.snapshot.api_version != SESSION_API_VERSION {
@@ -391,7 +517,7 @@ fn validate_stored(stored: &StoredWorkbook) -> Result<(), SessionError> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::*;
     use crate::snapshot::{CellInput, SdkRange};
@@ -606,6 +732,144 @@ mod tests {
     }
 
     #[test]
+    fn failed_append_preserves_existing_receipt_index_snapshot_and_history() {
+        let fail = Arc::new(AtomicBool::new(false));
+        let shared = MemorySessionStore::default();
+        let mut authority = SessionAuthority::new(Box::new(FailingStore {
+            inner: shared.clone(), fail: fail.clone(),
+        }));
+        authority.open(open_request()).unwrap();
+        let first_command = command("one", 0, vec![set("1")]);
+        let first_result = authority.apply(first_command.clone()).unwrap();
+        let pinned = authority.snapshot("workbook", None).unwrap();
+        let second = command("two", 1, vec![set("2")]);
+        fail.store(true, Ordering::SeqCst);
+        assert_eq!(authority.apply(second.clone()).unwrap_err().code, "storage_error");
+        assert_eq!(authority.snapshot("workbook", None).unwrap(), pinned);
+        let live = &authority.sessions["workbook"];
+        assert_eq!(live.stored.commands.len(), 1);
+        assert_eq!(live.command_index.len(), 1);
+        assert!(live.command_index.contains_key("one"));
+        assert!(!live.command_index.contains_key("two"));
+        assert_eq!(authority.apply(first_command).unwrap(), first_result);
+        let persisted = shared.clone().load("workbook").unwrap().unwrap();
+        assert_eq!(persisted.snapshot.revision, 1);
+        assert_eq!(persisted.commands.len(), 1);
+        fail.store(false, Ordering::SeqCst);
+        assert_eq!(authority.apply(second).unwrap().revision, 2);
+        assert_eq!(authority.sessions["workbook"].command_index.len(), 2);
+    }
+
+    #[test]
+    fn memory_append_rejects_duplicates_stale_heads_and_source_changes_without_rewriting_prefix() {
+        let mut shared = MemorySessionStore::default();
+        let mut authority = SessionAuthority::new(Box::new(shared.clone()));
+        authority.open(open_request()).unwrap();
+        authority.apply(command("one", 0, vec![set("1")])).unwrap();
+        let before = shared.load("workbook").unwrap().unwrap();
+        let mut next = before.snapshot.clone();
+        next.revision = 2;
+        next.inputs[0].input = "2".into();
+        let mut receipt = before.commands[0].clone();
+        receipt.result.revision = 2;
+        assert_eq!(shared.append(1, &next, &receipt), Err(StoreError::Conflict));
+        assert_eq!(shared.load("workbook").unwrap().unwrap(), before);
+        receipt.command_id = "two".into();
+        receipt.result.command_id = "two".into();
+        receipt.request_hash = "b".repeat(64);
+        assert_eq!(shared.append(0, &next, &receipt), Err(StoreError::Conflict));
+        let mut wrong_source = next.clone();
+        wrong_source.source_fingerprint = "another-base".into();
+        assert!(matches!(shared.append(1, &wrong_source, &receipt), Err(StoreError::Storage(_))));
+        assert_eq!(shared.load("workbook").unwrap().unwrap(), before);
+        shared.append(1, &next, &receipt).unwrap();
+        let after = shared.load("workbook").unwrap().unwrap();
+        assert_eq!(after.snapshot, next);
+        assert_eq!(after.commands, vec![before.commands[0].clone(), receipt]);
+
+        // The compatibility full-commit path also protects already-issued
+        // receipts; callers cannot use it to change an original replay result.
+        let mut rewrite = after.clone();
+        rewrite.snapshot.revision = 3;
+        rewrite.commands[0].result.changed = 9;
+        let mut third = rewrite.commands[1].clone();
+        third.command_id = "three".into();
+        third.result.command_id = "three".into();
+        third.result.revision = 3;
+        rewrite.commands.push(third);
+        assert!(matches!(shared.commit(Some(2), &rewrite), Err(StoreError::Storage(_))));
+        assert_eq!(shared.load("workbook").unwrap().unwrap(), after);
+    }
+
+    struct AppendCountingStore {
+        inner: MemorySessionStore,
+        loads: Arc<AtomicUsize>,
+        commits: Arc<AtomicUsize>,
+        appends: Arc<AtomicUsize>,
+    }
+
+    impl SessionStore for AppendCountingStore {
+        fn load(&mut self, id: &str) -> Result<Option<StoredWorkbook>, StoreError> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            self.inner.load(id)
+        }
+        fn commit(&mut self, expected: Option<u64>, workbook: &StoredWorkbook) -> Result<(), StoreError> {
+            self.commits.fetch_add(1, Ordering::SeqCst);
+            self.inner.commit(expected, workbook)
+        }
+        fn append(&mut self, expected: u64, snapshot: &WorkbookSnapshot, receipt: &CommandRecord) -> Result<(), StoreError> {
+            self.appends.fetch_add(1, Ordering::SeqCst);
+            self.inner.append(expected, snapshot, receipt)
+        }
+        fn is_durable(&self) -> bool { false }
+    }
+
+    #[test]
+    fn append_store_keeps_original_receipts_across_a_thousand_edits_and_recovery() {
+        let shared = MemorySessionStore::default();
+        let loads = Arc::new(AtomicUsize::new(0));
+        let commits = Arc::new(AtomicUsize::new(0));
+        let appends = Arc::new(AtomicUsize::new(0));
+        let store = || Box::new(AppendCountingStore {
+            inner: shared.clone(), loads: loads.clone(),
+            commits: commits.clone(), appends: appends.clone(),
+        });
+        let first_command = command("first", 0, vec![set("1")]);
+        let original;
+        {
+            let mut authority = SessionAuthority::new(store());
+            authority.open(open_request()).unwrap();
+            original = authority.apply(first_command.clone()).unwrap();
+            for revision in 1..1_000 {
+                authority.apply(command(
+                    &format!("command-{revision}"), revision,
+                    vec![set(&(revision + 1).to_string())],
+                )).unwrap();
+            }
+            assert_eq!(authority.snapshot("workbook", None).unwrap().revision, 1_000);
+            assert_eq!(authority.apply(first_command.clone()).unwrap(), original);
+            assert_eq!(authority.command_result("workbook", "first").unwrap(), Some(original.clone()));
+            assert_eq!(loads.load(Ordering::SeqCst), 1);
+            assert_eq!(commits.load(Ordering::SeqCst), 1);
+            assert_eq!(appends.load(Ordering::SeqCst), 1_000);
+            assert_eq!(authority.sessions["workbook"].command_index.len(), 1_000);
+            assert_eq!(authority.sessions["workbook"].snapshots.len(), MAX_RETAINED_SNAPSHOTS);
+        }
+        let mut recovered = SessionAuthority::new(store());
+        assert_eq!(recovered.open(open_request()).unwrap().revision, 1_000);
+        assert_eq!(recovered.apply(first_command).unwrap(), original);
+        assert_eq!(loads.load(Ordering::SeqCst), 2);
+        assert_eq!(commits.load(Ordering::SeqCst), 1);
+        assert_eq!(appends.load(Ordering::SeqCst), 1_000);
+        let mut conflicting = command("first", 0, vec![set("different")]);
+        assert_eq!(recovered.apply(conflicting.clone()).unwrap_err().code, "idempotency_conflict");
+        conflicting.command_id = "new-command".into();
+        conflicting.expected_revision = 1_000;
+        assert_eq!(recovered.apply(conflicting).unwrap().revision, 1_001);
+        assert_eq!(appends.load(Ordering::SeqCst), 1_001);
+    }
+
+    #[test]
     fn separate_authorities_cannot_overwrite_a_concurrent_commit() {
         let shared = MemorySessionStore::default();
         let mut first = SessionAuthority::new(Box::new(shared.clone()));
@@ -627,7 +891,7 @@ mod tests {
         let mut authority = SessionAuthority::new(Box::new(shared.clone()));
         authority.open(open_request()).unwrap();
         authority.apply(command("one", 0, vec![set("1")])).unwrap();
-        shared.workbooks.lock().unwrap().get_mut("workbook").unwrap().commands.clear();
+        shared.workbooks.lock().unwrap().get_mut("workbook").unwrap().stored.commands.clear();
         let mut recovered = SessionAuthority::new(Box::new(shared));
         assert_eq!(recovered.open(open_request()).unwrap_err().code, "invalid_store");
         assert!(recovered.snapshot("workbook", None).is_err());

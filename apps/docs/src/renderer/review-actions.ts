@@ -161,21 +161,21 @@ export function startNewComment(ctx: ReviewContext): void {
   ctx.setCommentComposing(true)
 }
 
-export function submitNewComment(ctx: ReviewContext, text: string): void {
-  if (!ctx.editor) return
-  setPendingCommentRange(ctx, null)
+export function submitNewComment(ctx: ReviewContext, text: string, range?:{from:number;to:number}): boolean {
+  if (!ctx.editor) return false
   const id = nextCommentId(ctx.comments)
-  if (!addCommentToSelection(ctx.editor, id)) {
+  if (!(range?addCommentToRange(ctx.editor,range.from,range.to,id):addCommentToSelection(ctx.editor, id))) {
     ctx.setStatus(t('appCommentSelectionLost'))
-    ctx.setCommentComposing(false)
-    return
+    return false
   }
+  setPendingCommentRange(ctx, null)
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   ctx.setComments((prev) => [...prev, { id, author: authorName(), date: now, text }])
   ctx.setCommentsDirty(true)
   ctx.setCommentComposing(false)
   ctx.dirtyRef.current = true
   ctx.setStatus(t('appCommentAdded'))
+  return true
 }
 
 /** New thread on an explicit range (AI add_comment); the new id, null when the range holds no text */
@@ -222,11 +222,14 @@ export function replyToComment(
 }
 
 /** Word: comment text edits in place; the author, date and anchor stay */
-export function editComment(ctx: ReviewContext, id: string, text: string): void {
+export function editComment(ctx: ReviewContext, id: string, text: string): boolean {
+  const target=ctx.comments.find(comment=>comment.id===id)
+  if (!ctx.editor || !target || !commentAnchors(ctx.editor.state.doc).some(anchor=>anchor.id===(target.parentId??id))) return false
   ctx.setComments((prev) => prev.map((c) => (c.id === id ? { ...c, text } : c)))
   ctx.setCommentsDirty(true)
   ctx.dirtyRef.current = true
   ctx.setStatus(t('appCommentEdited'))
+  return true
 }
 
 /** Resolve/reopen: the whole thread (parent + replies) gets done set together */

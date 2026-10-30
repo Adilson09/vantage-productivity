@@ -7,9 +7,8 @@ import {
 import type { WorkbookSharedFormulaGroup } from '../src/shared/desktop-api'
 import type { LazyWorkbookState } from '../src/renderer/univer-state'
 
-/// The save aborts when a formula references only a deleted row/column span;
-/// this apply-time precheck runs the same rewrite so the batch fails loud
-/// with the workbook untouched instead of at ⌘S.
+/// The apply-time precheck shares the writer's A1 reference policy: deleted
+/// references become #REF! and unsupported range forms still fail safely.
 
 function state(overrides: Record<string, unknown> = {}): LazyWorkbookState {
   return {
@@ -64,14 +63,12 @@ afterEach(() => {
 })
 
 describe('structuralDeleteFormulaError', () => {
-  it('flags a formula referencing only the deleted column', async () => {
+  it('allows a formula referencing only the deleted column', async () => {
     stubFormulas({ sh1: ['=SUM($D$7:$D$9)'] })
-    const error = await structuralDeleteFormulaError(state(), workbook, delD)
-    expect(error).toContain('deleted columns')
-    expect(error).toContain('$D$7:$D$9')
+    expect(await structuralDeleteFormulaError(state(), workbook, delD)).toBeNull()
   })
 
-  it('flags a shared-formula follower whose shifted refs sit in the deleted column', async () => {
+  it('allows a shared-formula follower whose shifted refs sit in the deleted column', async () => {
     // master B1 =SUM(C7:C9) is fine; the follower in C1 reads SUM(D7:D9)
     stubFormulas(
       { sh1: [] },
@@ -87,8 +84,7 @@ describe('structuralDeleteFormulaError', () => {
         ],
       },
     )
-    const error = await structuralDeleteFormulaError(state(), workbook, delD)
-    expect(error).toContain('D7:D9')
+    expect(await structuralDeleteFormulaError(state(), workbook, delD)).toBeNull()
   })
 
   it('passes formulas that merely shift or shrink', async () => {
@@ -96,7 +92,7 @@ describe('structuralDeleteFormulaError', () => {
     expect(await structuralDeleteFormulaError(state(), workbook, delD)).toBeNull()
   })
 
-  it('flags deleted rows the same way', async () => {
+  it('allows fully deleted row references too', async () => {
     stubFormulas({ sh1: ['=SUM($A$7:$C$7)'] })
     const error = await structuralDeleteFormulaError(state(), workbook, {
       op: 'delete_rows',
@@ -104,18 +100,33 @@ describe('structuralDeleteFormulaError', () => {
       row: 7,
       count: 1,
     })
-    expect(error).toContain('deleted rows')
+    expect(error).toBeNull()
   })
 
   it('only considers qualified references on other sheets', async () => {
     stubFormulas({ sh1: [], sh2: ['=SUM(D7:D9)'] })
     expect(await structuralDeleteFormulaError(state(), workbook, delD)).toBeNull()
     stubFormulas({ sh1: [], sh2: ['=SUM(Data!$D$7:$D$9)'] })
-    expect(await structuralDeleteFormulaError(state(), workbook, delD)).not.toBeNull()
+    expect(await structuralDeleteFormulaError(state(), workbook, delD)).toBeNull()
+  })
+
+  it.each(['=SUM(D7:OFFSET(D9,0,0))', '=SUM(Table1[Q1]:D9)', '=Data!D7#', '=Data:Other!D7'])(
+    'still refuses a formula that the writer cannot safely transform: %s',
+    async (formula) => {
+      stubFormulas({ sh1: [formula] })
+      const error = await structuralDeleteFormulaError(state(), workbook, delD)
+      expect(error).toContain('cannot be updated safely')
+      expect(error).toContain(formula)
+    },
+  )
+
+  it('preserves string literals, external references, and table headers', async () => {
+    stubFormulas({ sh1: ['=SUM(Table1[D7])+[Book]Data!D7+"Data!D7"'] })
+    expect(await structuralDeleteFormulaError(state(), workbook, delD)).toBeNull()
   })
 
   it('a style-only journal entry does not hide the file formula', async () => {
-    stubFormulas({ sh1: ['=SUM($D$7:$D$9)'] })
+    stubFormulas({ sh1: ['=SUM($D$7:OFFSET($D$9,0,0))'] })
     const styled = state({
       editJournal: {
         cells: new Map([
@@ -147,7 +158,10 @@ describe('structuralDeleteFormulaError', () => {
     const journaled = state({
       editJournal: {
         cells: new Map([
-          ['sh1', new Map([['1:1', { row: 1, column: 1, formula: '=SUM($D$7:$D$9)' }]])],
+          [
+            'sh1',
+            new Map([['1:1', { row: 1, column: 1, formula: '=SUM($D$7:OFFSET($D$9,0,0))' }]]),
+          ],
         ]),
         structuralOps: new Map(),
         sheets: { added: new Set(), removed: new Set() },
@@ -195,17 +209,19 @@ describe('structuralDeleteFormulaErrorSync (UI gate)', () => {
   }
 
   it('scans the live model in full-load mode', () => {
-    const wb = syncWorkbook({ sh1: [['', '=SUM($D$7:$D$9)']], sh2: [[]] })
+    const wb = syncWorkbook({ sh1: [['', '=SUM($D$7:OFFSET($D$9,0,0))']], sh2: [[]] })
     const full = state({ formulaMode: true })
-    expect(structuralDeleteFormulaErrorSync(full, wb, delD)).toContain('deleted columns')
+    expect(structuralDeleteFormulaErrorSync(full, wb, delD)).toContain('cannot be updated safely')
     const wbOk = syncWorkbook({ sh1: [['', '=SUM(E7:E9)']], sh2: [[]] })
     expect(structuralDeleteFormulaErrorSync(full, wbOk, delD)).toBeNull()
+    const wbDeleted = syncWorkbook({ sh1: [['', '=SUM($D$7:$D$9)']], sh2: [[]] })
+    expect(structuralDeleteFormulaErrorSync(full, wbDeleted, delD)).toBeNull()
   })
 
   it('keeps checking in full-load mode after session structural edits', () => {
     // the live model already reflects the shift — only the streamed
     // harvested-index path must fall back to the save-time guard
-    const wb = syncWorkbook({ sh1: [['', '=SUM($D$7:$D$9)']], sh2: [[]] })
+    const wb = syncWorkbook({ sh1: [['', '=SUM($D$7:OFFSET($D$9,0,0))']], sh2: [[]] })
     const shifted = state({
       formulaMode: true,
       editJournal: {
@@ -214,10 +230,12 @@ describe('structuralDeleteFormulaErrorSync (UI gate)', () => {
         sheets: { added: new Set(), removed: new Set() },
       },
     })
-    expect(structuralDeleteFormulaErrorSync(shifted, wb, delD)).toContain('deleted columns')
+    expect(structuralDeleteFormulaErrorSync(shifted, wb, delD)).toContain(
+      'cannot be updated safely',
+    )
     const streamedShifted = state({
       formulaMode: false,
-      formulaText: new Map([['sh1', new Map([['6:0', '=SUM($D$7:$D$9)']])]]),
+      formulaText: new Map([['sh1', new Map([['6:0', '=SUM($D$7:OFFSET($D$9,0,0))']])]]),
       sharedFormulaGroups: new Map(),
       editJournal: {
         cells: new Map(),
@@ -232,14 +250,16 @@ describe('structuralDeleteFormulaErrorSync (UI gate)', () => {
     const wb = syncWorkbook({ sh1: [[]], sh2: [[]] })
     const streamed = state({
       formulaMode: false,
-      formulaText: new Map([['sh1', new Map([['6:0', '=SUM($D$7:$D$9)']])]]),
+      formulaText: new Map([['sh1', new Map([['6:0', '=SUM($D$7:OFFSET($D$9,0,0))']])]]),
       sharedFormulaGroups: new Map(),
     })
-    expect(structuralDeleteFormulaErrorSync(streamed, wb, delD)).toContain('deleted columns')
+    expect(structuralDeleteFormulaErrorSync(streamed, wb, delD)).toContain(
+      'cannot be updated safely',
+    )
     // a content overwrite at that cell supersedes the harvested text
     const overwritten = state({
       formulaMode: false,
-      formulaText: new Map([['sh1', new Map([['6:0', '=SUM($D$7:$D$9)']])]]),
+      formulaText: new Map([['sh1', new Map([['6:0', '=SUM($D$7:OFFSET($D$9,0,0))']])]]),
       sharedFormulaGroups: new Map(),
       editJournal: {
         cells: new Map([

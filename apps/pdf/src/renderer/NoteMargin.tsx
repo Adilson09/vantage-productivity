@@ -95,6 +95,8 @@ function NoteCard({
   setEl,
   onActivate,
   onReply,
+  replyText,
+  onReplyChange,
   editingKey,
   editingText,
   onEditStart,
@@ -112,7 +114,9 @@ function NoteCard({
   t: TFunc
   setEl: (el: HTMLDivElement | null) => void
   onActivate: () => void
-  onReply: (text: string) => void
+  onReply: (text: string) => boolean | void
+  replyText: string
+  onReplyChange: (text: string) => void
   /** Key of the comment whose body is an edit box; state lives in App so a save can
       fold the in-progress text in before the post-save reload unmounts this card */
   editingKey: string | null
@@ -124,14 +128,14 @@ function NoteCard({
   onDeleteItem: (item: NoteThreadItem) => void
   onClose: () => void
 }): ReactElement {
-  const [text, setText] = useState('')
+  const text = replyText
+  const setText = onReplyChange
   const items = flattenThread(thread.root)
 
   const submit = () => {
     const trimmed = text.trim()
     if (!trimmed) return
-    setText('')
-    onReply(trimmed)
+    if (onReply(trimmed) !== false) setText('')
   }
 
   return (
@@ -265,6 +269,9 @@ function NoteCard({
 
 /** Empty card with a textarea for the note just placed on the page */
 function NoteDraftCard({
+  text,
+  onTextChange,
+  createdMs,
   author,
   color,
   top,
@@ -274,6 +281,9 @@ function NoteDraftCard({
   onConfirm,
   onCancel,
 }: {
+  text: string
+  onTextChange: (text: string) => void
+  createdMs: number
   author: string
   color: [number, number, number]
   top: number
@@ -283,8 +293,7 @@ function NoteDraftCard({
   onConfirm: (text: string) => void
   onCancel: () => void
 }): ReactElement {
-  const [text, setText] = useState('')
-  const [createdMs] = useState(() => Date.now())
+  const setText = onTextChange
 
   const submit = () => {
     const trimmed = text.trim()
@@ -342,6 +351,11 @@ function NoteDraftCard({
  * card activates its thread (which also highlights the pin on the page).
  */
 export function NoteMarginColumn({
+  newBody,
+  createdMs,
+  replies,
+  onNewBody,
+  onReplyChange,
   width,
   threads,
   draft,
@@ -363,6 +377,11 @@ export function NoteMarginColumn({
   onDraftConfirm,
   onDraftCancel,
 }: {
+  newBody: string
+  createdMs: number
+  replies: ReadonlyMap<string, string>
+  onNewBody: (text: string) => void
+  onReplyChange: (key: string, text: string) => void
   width: number
   threads: NoteMarginThread[]
   draft: NoteMarginDraft | null
@@ -374,7 +393,7 @@ export function NoteMarginColumn({
   readOnly: boolean
   t: TFunc
   onActivate: (thread: NoteMarginThread) => void
-  onReply: (thread: NoteMarginThread, text: string) => void
+  onReply: (thread: NoteMarginThread, text: string) => boolean | void
   /** Comment currently being rewritten (App-held so saves can flush it) */
   editingKey: string | null
   editingText: string
@@ -465,6 +484,8 @@ export function NoteMarginColumn({
           setEl={setEl(th.root.key)}
           onActivate={() => onActivate(th)}
           onReply={(text) => onReply(th, text)}
+          replyText={replies.get(th.root.key) ?? ''}
+          onReplyChange={(text) => onReplyChange(th.root.key, text)}
           editingKey={editingKey}
           editingText={editingText}
           onEditStart={(item) => onEditStart(th, item)}
@@ -477,6 +498,9 @@ export function NoteMarginColumn({
       ))}
       {draft && (
         <NoteDraftCard
+          text={newBody}
+          onTextChange={onNewBody}
+          createdMs={createdMs}
           key={draft.placementKey}
           author={author}
           color={draft.color}

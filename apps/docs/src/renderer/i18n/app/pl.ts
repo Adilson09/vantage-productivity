@@ -550,4 +550,5 @@ export const pl = {
   appMergeSourceLoaded: 'Wczytano {name} ({n} rekordów)',
   appMergeWritten: 'Zapisano dokumentów: {n}',
   appMergeNothingToWrite: 'Nie ma czego zapisać',
+  appRecoveryFailed: 'Odzyskiwanie wersji roboczej nie powiodło się: {error}',
 } satisfies Record<keyof typeof zh, string>

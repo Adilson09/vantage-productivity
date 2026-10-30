@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { usePdfEditorState } from './pdf-draft'
 import type { ReactElement } from 'react'
 import type { TFunc } from './i18n/locale'
 import { useModalDialog } from './modal-dialog'
@@ -25,8 +25,10 @@ export function LinkDialog({
   onCancel: () => void
   onApply: (target: { url: string } | { destPage: number }) => void
 }): ReactElement {
-  const [url, setUrl] = useState('')
-  const [page, setPage] = useState('')
+  const [pending, setPending] = usePdfEditorState('link-target', 'link', { url: '', page: '' })
+  const { url, page } = pending
+  const setUrl = (value: string) => setPending(previous => ({ ...previous, url: value }))
+  const setPage = (value: string) => setPending(previous => ({ ...previous, page: value }))
   const dialogRef = useModalDialog(onCancel)
 
   const pageNum = Number(page)

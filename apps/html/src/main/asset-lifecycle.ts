@@ -1,3 +1,4 @@
+import { withFilePublication } from '../../../../packages/electron-utils/src/file-publication-exclusion'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import {
@@ -33,6 +34,14 @@ export interface OwnedAssetManifest {
 export interface AssetRewrite {
   from: string
   to: string
+}
+
+export interface AssetRetentionOptions {
+  /** Main-only loaded session/source/path proof, checked immediately before admission. */
+  assertCurrent?:()=>void
+  /** Filename ownership cannot prove that another live copy/history has released this file. */
+  retainUnproven?:boolean
+  onRetained?:(names:readonly string[])=>void
 }
 
 export interface ReconcileResult {
@@ -302,35 +311,47 @@ async function createOwnedAsset(
   documentPath: string,
   preferredName: string,
   create: (target: string) => Promise<void>,
+  options:AssetRetentionOptions={},
+  inputPaths:readonly string[]=[],
 ): Promise<string> {
+  options.assertCurrent?.()
+  return withFilePublication({targetPath:assetsDirFor(documentPath),targetKind:'directory',additionalTargetPaths:[documentPath],sourcePaths:inputPaths},async()=>{
   const assetsDir = await ensureAssetsDir(documentPath)
+  options.assertCurrent?.()
   const base = sanitizeAssetName(preferredName)
   for (let suffix = 0; suffix < 100_000; suffix++) {
     const name = nameWithSuffix(base, suffix)
     const target = join(assetsDir, name)
     try {
+      options.assertCurrent?.()
       await create(target)
     } catch (error) {
       if (errorCode(error) === 'EEXIST') continue
       throw error
     }
     try {
+      options.assertCurrent?.()
       await addOwnedRecord(documentPath, { name, sha256: await sha256File(target) })
       return `assets/${name}`
     } catch (error) {
+      if(options.retainUnproven){options.onRetained?.([name]);throw new Error((error instanceof Error?error.message:String(error))+' The image file was kept because exclusive creation/claim ownership cannot be established.',{cause:error})}
       await rm(target, { force: true }).catch(() => {})
       throw error
     }
   }
   throw new Error('html asset name space exhausted')
+  })
 }
 
 export async function copyImageIntoOwnedAssets(
   documentPath: string,
   sourcePath: string,
+  options:AssetRetentionOptions={},
 ): Promise<string> {
   return createOwnedAsset(documentPath, basename(sourcePath), (target) =>
     copyFile(sourcePath, target, constants.COPYFILE_EXCL),
+    options,
+    [sourcePath],
   )
 }
 
@@ -338,9 +359,11 @@ export async function writeImageIntoOwnedAssets(
   documentPath: string,
   preferredName: string,
   bytes: Buffer,
+  options:AssetRetentionOptions={},
 ): Promise<string> {
   return createOwnedAsset(documentPath, preferredName, (target) =>
     writeFile(target, bytes, { flag: 'wx' }),
+    options,
   )
 }
 
@@ -1019,7 +1042,10 @@ export async function prepareAssetsForSaveAs(
   targetDocumentPath: string,
   text: string,
   imageSources: readonly string[],
+  options:AssetRetentionOptions={},
 ): Promise<PreparedSaveAsAssets> {
+  options.assertCurrent?.()
+  return withFilePublication({targetPath:assetsDirFor(targetDocumentPath),targetKind:'directory',additionalTargetPaths:[targetDocumentPath,sourceDocumentPath,assetsDirFor(sourceDocumentPath)]},async()=>{
   const allImageSources = [...imageSources]
   const knownSources = new Set(allImageSources)
   for (const source of extractHtmlImageSources(text)) {
@@ -1038,11 +1064,13 @@ export async function prepareAssetsForSaveAs(
   }
 
   const created: OwnedAssetRecord[] = []
+  const createdNames=new Set<string>()
   const rewrites = new Map<string, string>()
   const targetAssetsDir = await ensureAssetsDir(targetDocumentPath)
   try {
     await withManifestLock(targetDocumentPath, async () => {
       const manifest = await readManifestUnlocked(targetDocumentPath)
+      options.assertCurrent?.()
       const reservedNames = new Set(manifest.files.map((file) => file.name))
       const copiedByRealPath = new Map<string, string>()
       for (const source of allImageSources) {
@@ -1062,8 +1090,12 @@ export async function prepareAssetsForSaveAs(
           if (reservedNames.has(name)) continue
           const target = join(targetAssetsDir, name)
           try {
-            await copyFile(safeSource, target, constants.COPYFILE_EXCL)
-            copied = { name, sha256: await sha256File(target) }
+            options.assertCurrent?.()
+            copied=await withFilePublication({targetPath:target,sourcePaths:[safeSource]},async()=>{
+              await copyFile(safeSource,target,constants.COPYFILE_EXCL)
+              createdNames.add(name)
+              return {name,sha256:await sha256File(target)}
+            })
             break
           } catch (error) {
             if (errorCode(error) === 'EEXIST') continue
@@ -1090,10 +1122,12 @@ export async function prepareAssetsForSaveAs(
           throw new Error('could not safely rewrite a Markdown image during Save As')
         }
       }
+      options.assertCurrent?.()
       await writeManifestUnlocked(targetDocumentPath, manifest)
     })
   } catch (error) {
-    for (const record of created) {
+    if(options.retainUnproven)options.onRetained?.([...createdNames])
+    else for (const record of created) {
       await rm(join(targetAssetsDir, record.name), { force: true }).catch(() => {})
     }
     throw error
@@ -1107,9 +1141,11 @@ export async function prepareAssetsForSaveAs(
     rewrites: rewriteList,
     created,
   }
+  })
 }
 
-export async function rollbackPreparedSaveAsAssets(plan: PreparedSaveAsAssets): Promise<void> {
+export async function rollbackPreparedSaveAsAssets(plan: PreparedSaveAsAssets,options:AssetRetentionOptions={}): Promise<void> {
+  if(options.retainUnproven){options.onRetained?.(plan.created.map(record=>record.name));return}
   await removeCreatedRecords(plan.targetDocumentPath, plan.created)
 }
 
@@ -1127,6 +1163,7 @@ export async function pendingOwnedAssetsForDocument(documentPath: string): Promi
 async function resolvePendingOwnedAssets(
   documentPath: string,
   pendingAtOperationStart?: readonly string[],
+  options:AssetRetentionOptions={},
 ): Promise<ReconcileResult> {
   const result: ReconcileResult = { deleted: [], preserved: [], errors: [] }
   try {
@@ -1137,6 +1174,7 @@ async function resolvePendingOwnedAssets(
       const requested = new Set(pendingAtOperationStart ?? currentPending)
       const pendingNames = new Set(currentPending.filter((name) => requested.has(name)))
       if (pendingNames.size === 0) return result
+      if(options.retainUnproven){result.preserved.push(...pendingNames);options.onRetained?.([...pendingNames]);return result}
       manifest.pending[key] = currentPending.filter((name) => !pendingNames.has(name))
       if (manifest.pending[key]!.length === 0) delete manifest.pending[key]
 
@@ -1207,8 +1245,8 @@ async function resolvePendingOwnedAssets(
  * The user explicitly discarded unsaved edits. Remove only this document's
  * pending app-owned files; saved/shared references and changed files survive.
  */
-export async function discardPendingOwnedAssets(documentPath: string): Promise<ReconcileResult> {
-  return resolvePendingOwnedAssets(documentPath)
+export async function discardPendingOwnedAssets(documentPath: string,options:AssetRetentionOptions={}): Promise<ReconcileResult> {
+  return resolvePendingOwnedAssets(documentPath,undefined,options)
 }
 
 /**
@@ -1218,14 +1256,15 @@ export async function discardPendingOwnedAssets(documentPath: string): Promise<R
 export async function resolveSourcePendingAfterSaveAs(
   sourceDocumentPath: string,
   pendingAtSaveStart: readonly string[],
+  options:AssetRetentionOptions={},
 ): Promise<ReconcileResult> {
-  return resolvePendingOwnedAssets(sourceDocumentPath, pendingAtSaveStart)
+  return resolvePendingOwnedAssets(sourceDocumentPath, pendingAtSaveStart,options)
 }
 
 export async function reconcileOwnedAssets(
   documentPath: string,
   imageSources: readonly string[],
-  options: { pendingNames?: readonly string[] } = {},
+  options: AssetRetentionOptions & { pendingNames?: readonly string[] } = {},
 ): Promise<ReconcileResult> {
   const result: ReconcileResult = { deleted: [], preserved: [], errors: [] }
   try {
@@ -1287,7 +1326,7 @@ export async function reconcileOwnedAssets(
       } else {
         delete manifest.documents[key]
       }
-      const pendingToResolve = new Set(options.pendingNames ?? manifest.pending[key] ?? [])
+      const pendingToResolve = new Set(options.retainUnproven?[]:options.pendingNames ?? manifest.pending[key] ?? [])
       manifest.pending[key] = (manifest.pending[key] ?? []).filter(
         (name) => !pendingToResolve.has(name),
       )
@@ -1303,6 +1342,7 @@ export async function reconcileOwnedAssets(
       const deleted = new Set<string>()
       for (const record of validRecords) {
         if (referenced.has(record.name)) continue
+        if(options.retainUnproven){result.preserved.push(record.name);options.onRetained?.([record.name]);continue}
         const path = join(assetsDir, record.name)
         try {
           const info = await lstat(path)

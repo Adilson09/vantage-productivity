@@ -68,6 +68,14 @@ export class PackageArchive {
     readonly originalHash: string,
   ) {}
 
+  /** Independent part bytes for a serializer that must not mutate a live editor. */
+  clone(): PackageArchive {
+    return new PackageArchive(
+      new Map([...this.entries].map(([name, bytes]) => [name, Uint8Array.from(bytes)])),
+      this.originalHash,
+    )
+  }
+
   static async open(bytes: Uint8Array): Promise<PackageArchive> {
     const originalHash = createHash('sha256').update(bytes).digest('hex')
     // The declared-size pass below is advisory; this metered gate is the one

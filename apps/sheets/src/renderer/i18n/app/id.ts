@@ -322,7 +322,7 @@ export const id = {
     'Rumus ini mengevaluasi rentang besar per elemen — perhitungannya akan membekukan aplikasi, jadi dibatalkan. Persempit rentang yang dirujuk lalu coba lagi.',
   appPivotSheetNoStructural: 'Lembar ini berisi PivotTable — perubahan struktur belum didukung.',
   appDeleteSpanFormulas:
-    'Ada rumus yang hanya merujuk baris/kolom yang dihapus — perbarui atau hapus rumus itu dahulu.',
+    'Rumus tidak dapat diperbarui dengan aman setelah penghapusan ini. Ubah atau hapus rumus tersebut terlebih dahulu.',
   appIconSetUnsupported: 'Kombinasi ikon ini tidak dapat disimpan ke xlsx — pilih set ikon lain.',
   appFullLoadFilterTitle: 'Tindakan ini memerlukan buku kerja lengkap',
   appFullLoadFilterBody:

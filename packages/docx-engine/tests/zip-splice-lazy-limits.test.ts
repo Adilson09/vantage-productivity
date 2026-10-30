@@ -1,11 +1,18 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { crc32 } from 'node:zlib'
+import { crc32, deflateRawSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { DOCX_ZIP_LIMITS } from '../src/zip-load'
 import { lazyMediaPlaceholder } from '../src/lazy-media'
-import { bufferSource, openZipFile, readZipEntries, slimDocx, writeZip } from '../src/zip-splice'
+import {
+  bufferSource,
+  lazyMediaHashesIn,
+  openZipFile,
+  readZipEntries,
+  slimDocx,
+  writeZip,
+} from '../src/zip-splice'
 
 const KB = 1024
 const MB = 1024 * KB
@@ -50,6 +57,49 @@ async function tempDocx(bytes: Buffer): Promise<string> {
 }
 
 describe('the lazy-media entry reader inherits the shared zip limits', () => {
+  it('bounds actual inflation when a media part lies about its placeholder size', async () => {
+    const payload = Buffer.alloc(8 * MB, 65)
+    const compressed = deflateRawSync(payload)
+    const forged = entry('word/media/image1.png', compressed, {
+      usize: Buffer.byteLength(lazyMediaPlaceholder('c'.repeat(64))),
+    })
+    forged.meta.method = 8
+    // Placeholder detection used to trust usize and inflate the entire payload.
+    await expect(lazyMediaHashesIn(writeZip([docEntry(), forged]))).rejects.toThrow()
+  })
+
+  it.each([0, 8])(
+    'rejects a short placeholder claiming a different actual size (method %s)',
+    async (method) => {
+      const placeholder = Buffer.from(lazyMediaPlaceholder('c'.repeat(64)))
+      const short = placeholder.subarray(0, placeholder.length - 1)
+      const part = entry('word/media/image1.png', method === 8 ? deflateRawSync(short) : short, {
+        usize: placeholder.length,
+      })
+      part.meta.method = method
+      await expect(lazyMediaHashesIn(writeZip([docEntry(), part]))).rejects.toThrow(/size mismatch/)
+    },
+  )
+
+  it.each([0, 8])(
+    'accepts an honest placeholder and ordinary media (method %s)',
+    async (method) => {
+      const placeholder = Buffer.from(lazyMediaPlaceholder('c'.repeat(64)))
+      const part = entry(
+        'word/media/image1.png',
+        method === 8 ? deflateRawSync(placeholder) : placeholder,
+        {
+          usize: placeholder.length,
+        },
+      )
+      part.meta.method = method
+      expect(
+        await lazyMediaHashesIn(
+          writeZip([docEntry(), part, pngEntry('word/media/ordinary.png', 1024)]),
+        ),
+      ).toEqual(new Set(['c'.repeat(64)]))
+    },
+  )
   it('rejects a central directory declaring too many parts', async () => {
     const archive = writeZip(
       Array.from({ length: LIMITS.maxParts + 1 }, (_, i) => docEntry(`word/p${i}.xml`)),

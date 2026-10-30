@@ -1,0 +1,504 @@
+{
+  "generatedBy": "Unmodified veraPDF1.30.3 CLI, official signed release",
+  "corpus": "https://github.com/veraPDF/veraPDF-corpus/tree/bb75f4f0073d9350dfd058c0162a367e6fadf25e",
+  "corpusLicense": "CC-BY-4.0",
+  "normalization": "Only itemDetails.name replaced with /fixtures/<name>; malformed fixture is authored locally.",
+  "cases": [
+    {
+      "name": "pdfa-1b-pass.pdf",
+      "flavour": "1b",
+      "code": 0,
+      "expectedCompliant": true,
+      "sourceSha256": "0a578e09d02ca14e2b669cae84e66056d646d47680688f62468d527bc4c9e222",
+      "report": {
+        "report": {
+          "buildInformation": {
+            "releaseDetails": [
+              {
+                "id": "core",
+                "version": "1.30.3",
+                "buildDate": 1791381720000
+              },
+              {
+                "id": "validation-model",
+                "version": "1.30.3",
+                "buildDate": 1791395040000
+              },
+              {
+                "id": "apps",
+                "version": "1.30.3",
+                "buildDate": 1791395520000
+              }
+            ]
+          },
+          "jobs": [
+            {
+              "itemDetails": {
+                "name": "/fixtures/pdfa-1b-pass.pdf",
+                "size": 10231
+              },
+              "validationResult": [
+                {
+                  "details": {
+                    "passedRules": 129,
+                    "failedRules": 0,
+                    "passedChecks": 553,
+                    "failedChecks": 0,
+                    "ruleSummaries": []
+                  },
+                  "jobEndStatus": "normal",
+                  "profileName": "PDF/A-1b validation profile",
+                  "statement": "PDF file is compliant with Validation Profile requirements.",
+                  "compliant": true
+                }
+              ],
+              "processingTime": {
+                "start": 1793308597823,
+                "finish": 1793308603645,
+                "difference": 5822,
+                "duration": "00:00:05.822"
+              }
+            }
+          ],
+          "batchSummary": {
+            "duration": {
+              "start": 1793308595827,
+              "finish": 1793308603849,
+              "difference": 8022,
+              "duration": "00:00:08.022"
+            },
+            "totalJobs": 1,
+            "outOfMemory": 0,
+            "veraExceptions": 0,
+            "failedParsingJobs": 0,
+            "validationSummary": {
+              "nonCompliantPdfaCount": 0,
+              "failedJobCount": 0,
+              "totalJobCount": 1,
+              "compliantPdfaCount": 1,
+              "successfulJobCount": 1
+            },
+            "failedEncryptedJobs": 0,
+            "featuresSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            },
+            "repairSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            },
+            "multiJob": false
+          }
+        }
+      }
+    },
+    {
+      "name": "pdfa-1b-fail.pdf",
+      "flavour": "1b",
+      "code": 1,
+      "expectedCompliant": false,
+      "sourceSha256": "ee0792dbe6a3802a31e9e73abe7bb372e01d21d738c7abc785d46d8521bb5643",
+      "report": {
+        "report": {
+          "buildInformation": {
+            "releaseDetails": [
+              {
+                "id": "core",
+                "version": "1.30.3",
+                "buildDate": 1791381720000
+              },
+              {
+                "id": "validation-model",
+                "version": "1.30.3",
+                "buildDate": 1791395040000
+              },
+              {
+                "id": "apps",
+                "version": "1.30.3",
+                "buildDate": 1791395520000
+              }
+            ]
+          },
+          "jobs": [
+            {
+              "itemDetails": {
+                "name": "/fixtures/pdfa-1b-fail.pdf",
+                "size": 6213
+              },
+              "validationResult": [
+                {
+                  "details": {
+                    "passedRules": 128,
+                    "failedRules": 1,
+                    "passedChecks": 387,
+                    "failedChecks": 1,
+                    "ruleSummaries": [
+                      {
+                        "ruleStatus": "FAILED",
+                        "specification": "ISO 19005-1:2005",
+                        "clause": "6.6.1",
+                        "testNumber": 1,
+                        "status": "failed",
+                        "failedChecks": 1,
+                        "description": "The Launch, Sound, Movie, ResetForm, ImportData and JavaScript actions shall not be permitted. Additionally, the deprecated set-state and no-op actions shall not be permitted. The Hide action shall not be permitted (Corrigendum 2)",
+                        "object": "PDAction",
+                        "test": "S == \"GoTo\" || S == \"GoToR\" || S == \"Thread\" || S == \"URI\" || S == \"Named\" || S == \"SubmitForm\"",
+                        "checks": [
+                          {
+                            "status": "failed",
+                            "context": "root/document[0]/OpenAction[0](5 0 obj PDAction)",
+                            "errorMessage": "Unknown or not permitted Action type Hide",
+                            "errorArguments": [
+                              "Hide"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "jobEndStatus": "normal",
+                  "profileName": "PDF/A-1b validation profile",
+                  "statement": "PDF file is not compliant with Validation Profile requirements.",
+                  "compliant": false
+                }
+              ],
+              "processingTime": {
+                "start": 1793308625656,
+                "finish": 1793308629410,
+                "duration": "00:00:03.754",
+                "difference": 3754
+              }
+            }
+          ],
+          "batchSummary": {
+            "duration": {
+              "start": 1793308624703,
+              "finish": 1793308629723,
+              "duration": "00:00:05.020",
+              "difference": 5020
+            },
+            "totalJobs": 1,
+            "outOfMemory": 0,
+            "veraExceptions": 0,
+            "failedEncryptedJobs": 0,
+            "failedParsingJobs": 0,
+            "validationSummary": {
+              "compliantPdfaCount": 0,
+              "nonCompliantPdfaCount": 1,
+              "failedJobCount": 0,
+              "totalJobCount": 1,
+              "successfulJobCount": 1
+            },
+            "multiJob": false,
+            "repairSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            },
+            "featuresSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pdfua-1-pass.pdf",
+      "flavour": "ua1",
+      "code": 0,
+      "expectedCompliant": true,
+      "sourceSha256": "853fc52f5dca32dd257cac1da4ca9c1702623e357b48a361f835c4f271bd2c68",
+      "report": {
+        "report": {
+          "buildInformation": {
+            "releaseDetails": [
+              {
+                "id": "core",
+                "version": "1.30.3",
+                "buildDate": 1791381720000
+              },
+              {
+                "id": "validation-model",
+                "version": "1.30.3",
+                "buildDate": 1791395040000
+              },
+              {
+                "id": "apps",
+                "version": "1.30.3",
+                "buildDate": 1791395520000
+              }
+            ]
+          },
+          "jobs": [
+            {
+              "itemDetails": {
+                "name": "/fixtures/pdfua-1-pass.pdf",
+                "size": 42497
+              },
+              "validationResult": [
+                {
+                  "details": {
+                    "passedRules": 106,
+                    "failedRules": 0,
+                    "passedChecks": 905,
+                    "failedChecks": 0,
+                    "ruleSummaries": []
+                  },
+                  "jobEndStatus": "normal",
+                  "profileName": "PDF/UA-1 validation profile",
+                  "statement": "PDF file is compliant with Validation Profile requirements.",
+                  "compliant": true
+                }
+              ],
+              "processingTime": {
+                "start": 1793308647793,
+                "finish": 1793308652640,
+                "difference": 4847,
+                "duration": "00:00:04.847"
+              }
+            }
+          ],
+          "batchSummary": {
+            "duration": {
+              "start": 1793308646641,
+              "finish": 1793308652831,
+              "difference": 6190,
+              "duration": "00:00:06.190"
+            },
+            "totalJobs": 1,
+            "outOfMemory": 0,
+            "veraExceptions": 0,
+            "failedParsingJobs": 0,
+            "failedEncryptedJobs": 0,
+            "validationSummary": {
+              "compliantPdfaCount": 1,
+              "nonCompliantPdfaCount": 0,
+              "failedJobCount": 0,
+              "totalJobCount": 1,
+              "successfulJobCount": 1
+            },
+            "repairSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            },
+            "featuresSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            },
+            "multiJob": false
+          }
+        }
+      }
+    },
+    {
+      "name": "pdfua-1-fail.pdf",
+      "flavour": "ua1",
+      "code": 1,
+      "expectedCompliant": false,
+      "sourceSha256": "33d9008d84746cb8cf7cf11f50d8e67a97b3640978d845050e18ee47bfb95310",
+      "report": {
+        "report": {
+          "buildInformation": {
+            "releaseDetails": [
+              {
+                "id": "core",
+                "version": "1.30.3",
+                "buildDate": 1791381720000
+              },
+              {
+                "id": "validation-model",
+                "version": "1.30.3",
+                "buildDate": 1791395040000
+              },
+              {
+                "id": "apps",
+                "version": "1.30.3",
+                "buildDate": 1791395520000
+              }
+            ]
+          },
+          "jobs": [
+            {
+              "itemDetails": {
+                "name": "/fixtures/pdfua-1-fail.pdf",
+                "size": 38394
+              },
+              "validationResult": [
+                {
+                  "details": {
+                    "passedRules": 105,
+                    "failedRules": 1,
+                    "passedChecks": 900,
+                    "failedChecks": 1,
+                    "tags": [
+                      "metadata"
+                    ],
+                    "ruleSummaries": [
+                      {
+                        "ruleStatus": "FAILED",
+                        "specification": "ISO 14289-1:2014",
+                        "clause": "5",
+                        "testNumber": 1,
+                        "status": "failed",
+                        "failedChecks": 1,
+                        "tags": [
+                          "metadata"
+                        ],
+                        "description": "The PDF/UA version and conformance level of a file shall be specified using the PDF/UA Identification extension schema",
+                        "object": "MainXMPPackage",
+                        "test": "containsPDFUAIdentification == true",
+                        "checks": [
+                          {
+                            "status": "failed",
+                            "context": "root/document[0]/metadata[0](3 0 obj PDMetadata)/XMPPackage[0]",
+                            "errorMessage": "The document metadata stream doesn't contain PDF/UA Identification Schema",
+                            "errorArguments": []
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "jobEndStatus": "normal",
+                  "profileName": "PDF/UA-1 validation profile",
+                  "statement": "PDF file is not compliant with Validation Profile requirements.",
+                  "compliant": false
+                }
+              ],
+              "processingTime": {
+                "start": 1793308670790,
+                "finish": 1793308675558,
+                "duration": "00:00:04.768",
+                "difference": 4768
+              }
+            }
+          ],
+          "batchSummary": {
+            "duration": {
+              "start": 1793308669691,
+              "finish": 1793308675997,
+              "duration": "00:00:06.306",
+              "difference": 6306
+            },
+            "totalJobs": 1,
+            "outOfMemory": 0,
+            "veraExceptions": 0,
+            "failedEncryptedJobs": 0,
+            "validationSummary": {
+              "nonCompliantPdfaCount": 1,
+              "failedJobCount": 0,
+              "totalJobCount": 1,
+              "compliantPdfaCount": 0,
+              "successfulJobCount": 1
+            },
+            "failedParsingJobs": 0,
+            "multiJob": false,
+            "featuresSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            },
+            "repairSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "malformed.pdf",
+      "flavour": "1b",
+      "code": 7,
+      "expectedCompliant": null,
+      "sourceSha256": "a64b9f188761528efee789979dca5c673feaa09e4b00c368c8e60827f241fa7f",
+      "report": {
+        "report": {
+          "buildInformation": {
+            "releaseDetails": [
+              {
+                "id": "core",
+                "version": "1.30.3",
+                "buildDate": 1791381720000
+              },
+              {
+                "id": "validation-model",
+                "version": "1.30.3",
+                "buildDate": 1791395040000
+              },
+              {
+                "id": "apps",
+                "version": "1.30.3",
+                "buildDate": 1791395520000
+              }
+            ]
+          },
+          "jobs": [
+            {
+              "itemDetails": {
+                "name": "/fixtures/malformed.pdf",
+                "size": 65
+              },
+              "taskException": {
+                "exception": "Couldn't parse stream",
+                "type": "PARSE",
+                "duration": {
+                  "start": 1793308694257,
+                  "finish": 1793308694779,
+                  "duration": "00:00:00.522",
+                  "difference": 522
+                },
+                "exceptionMessage": "Exception: Couldn't parse stream caused by exception: Document doesn't contain startxref keyword",
+                "success": false,
+                "executed": true
+              },
+              "processingTime": {
+                "start": 1793308694257,
+                "finish": 1793308694779,
+                "duration": "00:00:00.522",
+                "difference": 522
+              }
+            }
+          ],
+          "batchSummary": {
+            "duration": {
+              "start": 1793308693795,
+              "finish": 1793308694923,
+              "duration": "00:00:01.128",
+              "difference": 1128
+            },
+            "totalJobs": 1,
+            "outOfMemory": 0,
+            "veraExceptions": 0,
+            "multiJob": false,
+            "failedParsingJobs": 1,
+            "validationSummary": {
+              "compliantPdfaCount": 0,
+              "nonCompliantPdfaCount": 0,
+              "failedJobCount": 1,
+              "totalJobCount": 1,
+              "successfulJobCount": 0
+            },
+            "failedEncryptedJobs": 0,
+            "featuresSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            },
+            "repairSummary": {
+              "failedJobCount": 0,
+              "totalJobCount": 0,
+              "successfulJobCount": 0
+            }
+          }
+        }
+      }
+    }
+  ]
+}

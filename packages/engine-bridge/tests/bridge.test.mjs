@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, readFile, rm, copyFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoverEngines, runBounded, convertDocument, checkPdf } from '../src/index.mjs'
+import { waitForExecutableCleanup } from '../src/process-supervision.mjs'
 
 test('subprocess reports stdout, stderr and exit code without a shell', async () => {
   const result = await runBounded(process.execPath, [
@@ -23,6 +24,13 @@ test('untrusted argument remains a literal subprocess argument', async () => {
   ])
   assert.equal(result.stdout, payload)
 })
+test('preserves UTF-8 text split between native process output chunks', async () => {
+  const result = await runBounded(process.execPath, [
+    '-e',
+    'const b=Buffer.from("文😀");let i=0;const t=setInterval(()=>{process.stdout.write(b.subarray(i,i+1));if(++i===b.length)clearInterval(t)},30)',
+  ])
+  assert.equal(result.stdout, '文😀')
+})
 test('enforces deadline on a stalled process', async () => {
   const start = Date.now()
   const result = await runBounded(process.execPath, ['-e', 'setInterval(()=>{},100)'], {
@@ -30,6 +38,7 @@ test('enforces deadline on a stalled process', async () => {
   })
   assert.equal(result.stopped, 'timeout')
   assert.ok(Date.now() - start < 8000)
+  assert.equal(await waitForExecutableCleanup(process.execPath), true)
 })
 test('stops processes exceeding combined output budget', async () => {
   const result = await runBounded(
@@ -39,6 +48,7 @@ test('stops processes exceeding combined output budget', async () => {
   )
   assert.equal(result.stopped, 'output-limit')
   assert.ok(result.stdout.length <= 1000)
+  assert.equal(await waitForExecutableCleanup(process.execPath), true)
 })
 test('cancelled request does not start an engine', async () => {
   const controller = new AbortController()
@@ -55,6 +65,7 @@ test('supports cancellation during an active operation', async () => {
   })
   setTimeout(() => controller.abort(), 100)
   assert.equal((await promise).stopped, 'cancelled')
+  assert.equal(await waitForExecutableCleanup(process.execPath), true)
 })
 test('enforces explicit executable path and resource ceiling', () => {
   assert.throws(() => runBounded('qpdf', []), /absolute/)
@@ -111,9 +122,14 @@ test('PDF diagnostics rejects non-PDF input before invoking a tool', async () =>
 
 test('portable manifest resolves relative executables and enforces pinned bytes before probing', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'vantage-bridge-test-'))
+  const exe = join(dir, process.platform === 'win32' ? 'node.exe' : 'node')
   try {
-    const exe = join(dir, process.platform === 'win32' ? 'node.exe' : 'node')
     await copyFile(process.execPath, exe)
+    // Preparing a newly copied executable can be slow under first-run scanning.
+    // Preparation is separate from the unchanged five-second discovery gate.
+    const prepared = await runBounded(exe, ['--version'], { timeoutMs: 120000 })
+    assert.equal(prepared.code, 0)
+    assert.equal(prepared.stopped, undefined)
     const manifestPath = join(dir, 'engines.json')
     await writeFile(
       manifestPath,
@@ -151,6 +167,7 @@ test('portable manifest resolves relative executables and enforces pinned bytes 
       /leaves the engine manifest directory/,
     )
   } finally {
+    assert.equal(await waitForExecutableCleanup(exe), true)
     await rm(dir, { recursive: true, force: true })
   }
 })

@@ -72,7 +72,7 @@ describe('handleTableDesignCommand parsing', () => {
       setPendingEdits: () => undefined,
       refreshSelection: () => undefined,
     }
-    expect(handleTableDesignCommand(ctx, 'table-create:A1:D10:0')).toBe(true)
+    expect(await handleTableDesignCommand(ctx, 'table-create:A1:D10:0')).toBe(true)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(messages).toEqual([t('appTablesNeedFile')])
   })

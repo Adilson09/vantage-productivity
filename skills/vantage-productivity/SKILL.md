@@ -2,7 +2,7 @@
 name: vantage-productivity
 description: Create, convert, read and edit Office documents locally with Vantage Productivity's command line. Build a new presentation (pptx) from a brief through a checked outline, per-page spec and render pipeline, a new spreadsheet (xlsx) from CSV or JSON data with formulas, a new Word document (docx) from Markdown or HTML, or a PDF; convert between pdf, docx, xlsx, pptx, md, html and csv; read the structure and text of an existing file (including the user's own docx / xlsx / pptx as source material) and apply structured edits to it. Use whenever the user asks for a slide deck, presentation, spreadsheet, workbook, report, Word document or any real Office file, a format conversion, a rewrite of part of an existing document, or wants the result opened in the Vantage Productivity editor. Document workflows run locally; search/image/media use configured providers, and explicit provider sync reads authorized mail or calendar metadata.
 metadata:
-  version: 2.68.0
+  version: 2.69.0
   cli: '>=0.9.0'
 ---
 
@@ -55,7 +55,7 @@ Always add `--json` when a program reads the output: one JSON object on stdout, 
 
 ## Local data and optional account reads
 
-Use `vantage calendar`, `vantage contacts` and `vantage database` for local ICS/vCard/SQLite workflows. Run `vantage help <command>` for each complete schema. Calendar expansion needs an explicit UTC-offset range and supports embedded time zones plus bounded daily/weekly/monthly/yearly recurrence; exhausted limits are errors. Database queries run read-only in a process with time/memory bounds. New exports refuse existing files. These are Vantage workflows, without full Outlook/Access or macro-runtime compatibility.
+Use `vantage calendar`, `vantage contacts` and `vantage database` for local ICS/vCard/SQLite workflows. Run `vantage help <command>` for each complete schema. Calendar expansion needs an explicit UTC-offset range and supports embedded definitions, all 597 pinned IANA names/aliases and all seven bounded RFC recurrence frequencies; exhausted limits are errors. Use `--view-time-zone` to filter floating/all-day values in the user's display zone. Database queries run read-only in a process with time/memory bounds. New exports refuse existing files; `workspace-export --expected-origin-sha` permits only an explicitly acknowledged matching destination. These workflows do not claim full Outlook/Access or macro-runtime compatibility.
 
 ```text
 vantage calendar read calendar.ics --json
@@ -63,6 +63,25 @@ vantage calendar expand calendar.ics --start 2026-10-29T00:00:00Z --end 2026-11-
 vantage calendar create events.json --out new-calendar.ics
 vantage calendar update calendar.ics --uid event-id --summary "Planning" --location "Room 2" --out edited-calendar.ics
 vantage calendar export calendar.ics --out unchanged-calendar.ics
+vantage calendar zones --json
+vantage calendar expand calendar.ics --start 2026-10-29T04:00:00Z --end 2026-10-30T04:00:00Z --view-time-zone America/Toronto --deadline 2000
+vantage calendar update calendar.ics --uid event-id --recurrence-id 2026-10-30T13:00:00Z --scope instance --patch patch.json --out moved-instance.ics
+vantage calendar mutate calendar.ics --mutation mutation.json --out changed-calendar.ics
+vantage calendar workspace-create calendar.sqlite --name "My calendar" --json
+vantage calendar workspace-list calendar.sqlite --json
+vantage calendar workspace-import calendar.sqlite --ics calendar.ics --name "Imported" --json
+vantage calendar agenda calendar.sqlite --calendar calendar-id --start 2026-10-29T00:00:00Z --end 2026-11-29T00:00:00Z --view-time-zone America/Toronto --limit 500 --deadline 2000 --json
+vantage calendar event calendar.sqlite --calendar calendar-id --uid event-id --scope series --json
+vantage calendar workspace-mutate calendar.sqlite --calendar calendar-id --revision 1 --mutation mutation.json --queue-method REQUEST --json
+vantage calendar workspace-apply calendar.sqlite --calendar calendar-id --revision 2 --ics local-reply.ics --json
+vantage calendar workspace-export calendar.sqlite --calendar calendar-id --revision 3 --out exported.ics
+vantage calendar workspace-export calendar.sqlite --calendar calendar-id --revision 3 --out existing.ics --expected-origin-sha CURRENT_SHA256
+vantage calendar workspace-rename calendar.sqlite --calendar calendar-id --revision 3 --name "Renamed" --json
+vantage calendar outbox calendar.sqlite --calendar calendar-id --state pending --json
+vantage calendar outbox-export calendar.sqlite --item outbox-id --out prepared.ics
+vantage calendar outbox-discard calendar.sqlite --item outbox-id --json
+vantage calendar outbox-test calendar.sqlite --out new-local-test-directory --limit 1 --json
+vantage calendar workspace-remove calendar.sqlite --calendar calendar-id --revision 4 --json
 vantage contacts read contacts.vcf --json
 vantage contacts export contacts.json --out new-contacts.vcf
 vantage database create records.vdb --schema tables.json
@@ -84,7 +103,9 @@ vantage provider sync gmail-mail --enable --out gmail-changes.json --checkpoint-
 vantage provider sync google-calendar --enable --calendar primary --out events-changes.json --checkpoint-out calendar-state.json
 ```
 
-Calendar event JSON is an array of `{uid?,summary,start,end,description?,location?,recurrence?}`; new timestamps are UTC whole seconds or all-day dates. Contact JSON is `{uid,name,emails,phones,organization}[]`. Database schemas are `{name,columns:[{name,type,required?}]}[]` with `TEXT`, `INTEGER` or `REAL`; record JSON is an array of field/value objects, and a form definition is `{name,table,fields}`. Checkouts coordinate participating writers through one SQLite registry. Private lease JSON contains a bearer token (never printed; optional `VANTAGE_CHECKOUT_TOKEN` override); preserve it for reconnect and never publish its contents. A source conflict creates a separate copy and reports `partial`; desktop saves do not automatically join this protocol.
+Calendar event JSON is an array of `{uid?,summary,start,end,timeZone?,disambiguation?,description?,location?,recurrence?,organizer?,attendees?}`. Use UTC whole seconds, date-only all-day values (exclusive end), or explicit local wall times with an IANA `timeZone`; choose daylight-saving disambiguation only after resolving the user's intent. A later-fold nonrecurring instant is stored as UTC; ambiguous recurring starts need an explicit UTC series or a separate exception. Workspace IDs/revisions come from `workspace-list`; original instance IDs come from `agenda`. A mutation file is `{type:"create",event}`, `{type:"update",uid,recurrenceId?,scope?,patch}`, `{type:"delete",uid,recurrenceId?,scope?}` or `{type:"respond",uid,recurrenceId?,attendee,participation}`. Changing series rules/times with detached overrides requires an explicit split; unsupported future-range rule/zone changes refuse. Calendar imports/edits preserve unknown properties and components. Separate exports retain the imported origin fingerprint.
+
+The calendar outbox is local only. Preparing `--queue-method REQUEST` (or PUBLISH/REPLY/CANCEL) does not send, notify or grant account permission. Export bytes for review, or discard them. `outbox-test` is an explicitly selected filesystem-only transport; its delivered count means local test files, not sent invitations. Never represent a queued/exported message as received by another person. See [the backend calendar contract](../../packages/productivity-engine/README.md#persistent-local-calendar-workspaces) for limits and scheduling semantics. Contact JSON is `{uid,name,emails,phones,organization}[]`. Database schemas are `{name,columns:[{name,type,required?}]}[]` with `TEXT`, `INTEGER` or `REAL`; record JSON is an array of field/value objects, and a form definition is `{name,table,fields}`. Checkouts coordinate participating writers through one SQLite registry. Private lease JSON contains a bearer token (never printed; optional `VANTAGE_CHECKOUT_TOKEN` override); preserve it for reconnect and never publish its contents. A source conflict creates a separate copy and reports `partial`; desktop saves do not automatically join this protocol.
 
 `provider info` is local discovery. The skill grants no permission to read an account: obtain the user's authorization for the intended read, then use `provider sync --enable` with a consented token in `VANTAGE_GRAPH_TOKEN`, `VANTAGE_GMAIL_TOKEN` or `VANTAGE_GOOGLE_CALENDAR_TOKEN`. Never put tokens in arguments or output. The adapters make bounded read-only requests and checkpoint only complete syncs; on `partial`, keep the previous checkpoint. Mail/calendar metadata belongs in private output files. OAuth registration/refresh and live-provider acceptance remain separate; no message sending, invitation updates, native Mail profile migration or background sync is implied.
 

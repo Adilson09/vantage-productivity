@@ -1,4 +1,7 @@
+export interface DocReplacementApproval { stamp: CloseLeaseStamp; intent: 'save' | 'discard' | 'clean' }
+
 export interface OpenFileResult {
+  replacementApproval?: DocReplacementApproval
   path: string
   name: string
   /** one-shot URL serving the docx bytes (fetch it exactly once) */
@@ -361,6 +364,27 @@ export interface McpCommandResult {
   error?: string
 }
 
+/** Internal save/close options; public tool Save keeps publication semantics. */
+export interface DocMcpSaveInput {
+  path?: string
+  overwrite?: boolean
+  requireClean?: boolean
+  sourcePath?: string | null
+  closeTicket?: CloseLeaseTicket
+}
+
+/** A saved older revision and a current editor safe to close are separate facts. */
+export interface DocMcpSaveCompletion {
+  throughSequence:number
+  ok: true
+  published: boolean
+  current: boolean
+  clean: boolean
+  path?: string
+  error?: string
+  closeLease?: { ticket: CloseLeaseTicket; stamp: CloseLeaseStamp }
+}
+
 export interface McpSaveResult {
   ok: boolean
   path?: string
@@ -395,6 +419,40 @@ export interface PrintJobOptions {
 export interface PrinterInfo {
   name: string
   displayName: string
+}
+
+export interface DocCloseEnvelope { ticket: CloseLeaseTicket; stamp: CloseLeaseStamp }
+export interface DocNativeCloseRequest {
+  ticket: CloseLeaseTicket
+  intent: 'save' | 'discard'
+  sourcePath: string | null
+  approvedStamp?: CloseLeaseStamp
+}
+export interface DocNativeCloseResult {
+  throughSequence:number
+  published: boolean
+  current: boolean
+  clean: boolean
+  intent: 'save' | 'discard'
+  closeLease?: DocCloseEnvelope
+}
+/** A rejected renderer preparation has no captured cleanup floor or removal proof. */
+export interface DocNativeCloseFailure {
+  published: false
+  current: false
+  clean: false
+  intent: 'save' | 'discard'
+  throughSequence?: never
+  closeLease?: never
+}
+export type DocNativeCloseReply = DocNativeCloseResult | DocNativeCloseFailure
+export interface DocCloseCheck {
+  busy: boolean
+  requestId: string
+  dirty: boolean
+  autoSave: boolean
+  filePath?: string | null
+  stamp: CloseLeaseStamp
 }
 
 export interface DesktopApi {
@@ -436,13 +494,14 @@ export interface DesktopApi {
   openDocx(): Promise<OpenDocxResult>
   openDocxPath(path: string): Promise<OpenDocxResult>
   confirmDocumentReplace(): Promise<boolean>
+  confirmDocumentReplaceSnapshot(): Promise<DocReplacementApproval | null>
   /** decrypt-and-open a password-protected docx (path from a needsPassword result) */
   openDocxDecrypt(path: string, password: string): Promise<DecryptOpenResult>
   /** w:altChunk HTML rendered through html2docx in a hidden window; null when conversion fails */
   convertAltChunkHtml(html: string): Promise<Uint8Array | null>
   /** Review > Protect: set (or clear with null) the desired next-save password;
    *  filePath null = document not saved yet, applied on its first successful save */
-  setDocPassword(filePath: string | null, password: string | null): Promise<{ ok: boolean }>
+  setDocPassword(filePath: string | null, password: string | null, sourceIdentity?: string): Promise<{ ok: boolean; error?: string }>
   /** snapshot the current intent sequence before replacement cleanup is queued */
   docPasswordIntentRevision(): Promise<number>
   /** discard prior-document intents through a captured revision */
@@ -454,7 +513,9 @@ export interface DesktopApi {
   /** AI-authored content queued for this tab by create_document; one-shot, null when none */
   consumeAiDocContent(): Promise<AiDocContent | null>
   /** Headless export mode: the path and format this hidden renderer must export, null in normal use */
-  consumeHeadlessExport(): Promise<HeadlessExportTarget | null>
+  consumeHeadlessExport(): Promise<(HeadlessExportTarget &{selectionId:string}) | null>
+  /** Real pre-materialization pin for the explicitly configured fidelity export namespace. */
+  pinConfiguredExportTarget(path:string,format:'pdf'|'html'|'md'):Promise<string|null>
   /** Headless export mode: report the export outcome so the main process can quit */
   headlessExportDone(result: { ok: boolean; error?: string }): void
   /** AI create_document: build a new standalone file and open it in a new tab */
@@ -470,18 +531,28 @@ export interface DesktopApi {
     path: string,
     data: ArrayBuffer,
     auto?: boolean,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
   ): Promise<{
     ok: boolean
     error?: string
-    reason?: 'external-modified'
+    reason?: 'external-modified'|'close-pending'
     /** a newer password choice arrived after this save's snapshot */
     passwordIntentPending?: boolean
     /** one-shot URL of the saved document in full when an encrypted save absorbed
      *  lazily served pictures: the renderer reparses from it and leaves lazy mode */
     dataUrl?: string
   }>
-  /** crash-recovery copy of a dirty document, stored under userData */
-  writeRecoveryCopy(path: string, data: ArrayBuffer): Promise<{ ok: boolean }>
+  /** A new identity only after the renderer successfully activates a document. */
+  activateDocDraft(documentPath: string | null, sourceIdentity?: string): Promise<import('./doc-draft').DocDraftActivation>
+  /** Complete-package journal; never publishes an unnamed document as a normal file. */
+  writeRecoveryCopy(
+    request: import('./doc-draft').DocDraftWriteRequest,
+  ): Promise<import('./doc-draft').DocDraftResult>
+  acknowledgeDocDraftSave(
+    request: import('./doc-draft').DocDraftSaveAcknowledgment,
+  ): Promise<import('./doc-draft').DocDraftResult>
+  onDocDraftDiscarded(handler: (token: string) => void): () => void
+  onDocDraftWarning(handler: (message: string) => void): () => void
   /** tab closed but webContents kept alive (shell freeze workaround) — stop background timers */
   onTeardown(handler: () => void): () => void
   /** one trusted space keystroke into this webContents — the only thing that
@@ -513,6 +584,7 @@ export interface DesktopApi {
     defaultName: string,
     data: ArrayBuffer,
     sourcePath?: string | null,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
   ): Promise<{
     ok: boolean
     path?: string
@@ -524,6 +596,7 @@ export interface DesktopApi {
   saveDocxNew(
     defaultName: string,
     data: ArrayBuffer,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
   ): Promise<{
     ok: boolean
     path?: string
@@ -533,13 +606,16 @@ export interface DesktopApi {
   }>
   /** MCP-driven output: write the current document to an explicit absolute path
    *  with no dialog; refuses to replace an existing file unless overwrite is true */
-  saveDocxTo(path: string, data: ArrayBuffer, overwrite: boolean): Promise<McpSaveResult>
+  saveDocxTo(path: string, data: ArrayBuffer, overwrite: boolean, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket): Promise<McpSaveResult>
   /** MCP bridge: receive an editor command pushed by the shell main process */
   onMcpCommand(handler: (message: McpCommandMessage) => void): () => void
   /** MCP bridge: report a command's outcome back to the shell main process */
   reportMcpResult(result: McpCommandResult): void
   /** MCP bridge: announce that this tab's editor is ready for commands */
   signalMcpReady(): void
+  claimDocCloseLease(ticket: CloseLeaseTicket): Promise<boolean>
+  cancelDocCloseLease(ticket: CloseLeaseTicket, reason?: string): Promise<void>
+  onDocCloseRelease(handler: (ticket: CloseLeaseTicket) => void): () => void
   getRecentFiles(): Promise<string[]>
   pickImage(): Promise<PickImageResult | null>
   /** Mailings tab: pick a local .xlsx or .csv and read it as a recipient list */
@@ -572,18 +648,21 @@ export interface DesktopApi {
     outPath?: string,
     scale?: number,
     links?: PdfInternalLink[],
-  ): Promise<{ ok: boolean; path?: string; error?: string }>
+    selectionId?:string,
+  ): Promise<{ ok: boolean; path?: string; error?: string;selectionId?:string }>
   exportHtml(
     defaultName: string,
     html: string,
     outPath?: string,
-  ): Promise<{ ok: boolean; path?: string; error?: string }>
+    selectionId?:string,
+  ): Promise<{ ok: boolean; path?: string; error?: string;selectionId?:string }>
   exportMarkdown(
     defaultName: string,
     markdown: string,
     images: MarkdownImage[],
     outPath?: string,
-  ): Promise<{ ok: boolean; path?: string; error?: string; imagesDropped?: number }>
+    selectionId?:string,
+  ): Promise<{ ok: boolean; path?: string; error?: string; imagesDropped?: number;selectionId?:string }>
   /** Mixed paper-size export: produce a set of PDF bytes (base64) at given sizes per the current print layout */
   printPdfBuffer(
     pageWidthTwips: number,
@@ -597,10 +676,11 @@ export interface DesktopApi {
     base64Parts: string[],
     outPath?: string,
     links?: PdfInternalLink[],
-  ): Promise<{ ok: boolean; path?: string; error?: string }>
+    selectionId?:string,
+  ): Promise<{ ok: boolean; path?: string; error?: string;selectionId?:string }>
   /** Export as images: the folder picker plus a pre-authorized temp PDF path the
    *  regular PDF export writes to silently (no reveal, no open) */
-  pickExportImagesTarget(): Promise<{ dir: string; pdfPath: string } | null>
+  pickExportImagesTarget(): Promise<{ dir: string; pdfPath: string;selectionId:string;pdfSelectionId:string } | null>
   /** Read back and delete the temp PDF written for an image export */
   takeExportPdf(pdfPath: string): Promise<{ ok: boolean; base64?: string; error?: string }>
   /** Write one page PNG into the folder chosen by pickExportImagesTarget */
@@ -608,6 +688,7 @@ export interface DesktopApi {
     dir: string,
     fileName: string,
     pngBase64: string,
+    selectionId:string,
   ): Promise<{ ok: boolean; path?: string; error?: string }>
   /** Save a picture the renderer displays (data URL) through a Save dialog */
   saveImageAs(src: string): Promise<{ ok: boolean; path?: string; error?: string }>
@@ -707,11 +788,13 @@ export interface DesktopApi {
   /** subscribe to native menu commands; returns unsubscribe */
   onMenuCommand(handler: (command: MenuCommand, payload?: string) => void): () => void
   /** Close guard: main process queries pre-close state (dirty flag + autosave switch; if autosave is on, save silently without a dialog) */
-  onCloseCheck(handler: () => void): () => void
-  reportCloseCheck(state: { dirty: boolean; autoSave: boolean; filePath?: string | null }): void
+  onCloseCheck(handler: (requestId: string) => void): () => void
+  reportCloseCheck(state: DocCloseCheck): void
+  onPrepareDocClose(handler: (request: DocNativeCloseRequest) => void): () => void
+  reportPreparedDocClose(requestId: string, result: DocNativeCloseReply): void
   /** Close guard chose "Save": main process asks the renderer to run the full save flow */
   onCloseSaveRequest(handler: () => void): () => void
-  reportCloseSaveResult(ok: boolean): void
+  reportCloseSaveResult(result: boolean | {ok:boolean;stamp?:CloseLeaseStamp}): void
   /** keep the native View menu's checkbox items in sync with renderer state */
   reportViewMenuState(state: { aiSidebar: boolean; darkCanvas: boolean }): void
   /** the skills the user installed (userData/skills), for the AI panel's skills skill */
@@ -750,3 +833,5 @@ export interface UserCliRun {
 
 /** mirrors VIEW_IMAGE_CHANNEL in @vantage/electron-utils (kept literal so the preload stays free of main-only deps) */
 export const VIEW_IMAGE_CHANNEL = 'vantage:view-image'
+import type { CloseLeaseTicket, CloseLeaseStamp } from '../../../../packages/electron-utils/src/close-lease'
+

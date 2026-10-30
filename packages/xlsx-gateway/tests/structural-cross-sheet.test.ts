@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  shiftCrossSheetFormulas,
-  StructuralShiftError,
-  type StructuralOp,
-} from '../src/gateway/xlsx-structure'
+import { shiftCrossSheetFormulas, type StructuralOp } from '../src/gateway/xlsx-structure'
 
 const EDITED = 'Data'
 
@@ -54,12 +50,22 @@ describe('cross-sheet replay of qualified targets', () => {
     expect(xml).toContain('location="Report!$A$5"')
   })
 
-  it('fails closed when a target is deleted outright', () => {
-    expect(() =>
-      shiftCrossSheetFormulas(otherWorksheet('Data!$A$1'), EDITED, [
-        { kind: 'remove-cols', index: 0, count: 1 },
-      ]),
-    ).toThrow(StructuralShiftError)
+  it('marks a fully deleted target with #REF! in every reference family', () => {
+    const xml = shiftCrossSheetFormulas(otherWorksheet('Data!$A$1'), EDITED, [
+      { kind: 'remove-cols', index: 0, count: 1 },
+    ])
+    expect(xml).toContain('<f>Data!#REF!+Report!$A$1</f>')
+    expect(xml).toContain('<formula>Data!#REF!&gt;3</formula>')
+    expect(xml).toContain('<formula1>Data!#REF!</formula1>')
+    expect(xml).toContain('location="Data!#REF!"')
+  })
+
+  it('decodes numeric character references before matching a qualified target', () => {
+    const xml = shiftCrossSheetFormulas(otherWorksheet('&#39;&#68;ata&#39;!$A$1'), EDITED, [
+      { kind: 'remove-rows', index: 0, count: 1 },
+    ])
+    expect(xml).toContain("<f>'Data'!#REF!+Report!$A$1</f>")
+    expect(xml).toContain("<formula1>'Data'!#REF!</formula1>")
   })
 })
 

@@ -1,3 +1,4 @@
+import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
 /**
  * Picture crop and cutout (background removal) actions. Extracted from
  * App.tsx; functions read the latest App state through ActionCtx.
@@ -40,6 +41,8 @@ export async function commitCrop(
   ctx: ActionCtx,
   rect: { l: number; t: number; r: number; b: number } | null,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.cropTarget) return
   const { sourceId, srcRect: prev, fullBox } = ctx.cropTarget
   ctx.setCropTarget(null)
@@ -49,7 +52,7 @@ export async function commitCrop(
   // The element frame moves/resizes to the on-screen crop frame in the same atomic
   // edit: the kept region stays exactly where it was framed (PowerPoint semantics),
   // dragging outward restores original content, and one undo reverts everything.
-  const updated = await window.slidesApi.editPictureSrcRect({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editPictureSrcRect({
     slideIndex: ctx.current,
     sourceId,
     srcRect: rect,
@@ -62,12 +65,14 @@ export async function commitCrop(
         }
       : { x: fullBox.x, y: fullBox.y, w: fullBox.w, h: fullBox.h }, // full frame = original restored
     fitWidthPx: FIT_WIDTH,
-  })
+  }))
   if (updated) {
     ctx.applySlide(ctx.current, updated)
     ctx.setDirty(true)
     ctx.setStatus(rect ? t('appStatusCropApplied') : t('appStatusCropRemoved'))
   }
+
+  })
 }
 
 export function cancelCrop(ctx: ActionCtx): void {
@@ -100,6 +105,8 @@ export function startCutout(ctx: ActionCtx): void {
  * PNG shares the source image's pixel geometry.
  */
 export async function applyCutout(ctx: ActionCtx, pngDataUrl: string): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.cutoutTarget || !ctx.slide) return
   const targetId = ctx.cutoutTarget.sourceId
   const node = ctx.slide.nodes.find((n) => n.sourceId === targetId)
@@ -110,13 +117,13 @@ export async function applyCutout(ctx: ActionCtx, pngDataUrl: string): Promise<v
     ctx.setStatus(t('appStatusCutoutEncodeFailed'))
     return
   }
-  const updated = await window.slidesApi.replacePictureBytes({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).replacePictureBytes({
     slideIndex: ctx.current,
     sourceId: targetId,
     base64,
     ext: 'png',
     keepSrcRect: true,
-  })
+  }))
   if (!updated || 'error' in updated) {
     ctx.setStatus(t('appStatusCutoutInsertFailed'))
     return
@@ -125,22 +132,26 @@ export async function applyCutout(ctx: ActionCtx, pngDataUrl: string): Promise<v
   ctx.setSelectedIds([targetId])
   ctx.setDirty(true)
   ctx.setStatus(t('appStatusCutoutDone'))
+
+  })
 }
 
 /** Replace the selected picture's image with a file from disk; frame, z-order and effects survive */
 export async function replacePicture(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide || ctx.selectedIds.length !== 1) return
   const targetId = ctx.selectedIds[0]!
   const node = ctx.slide.nodes.find((n) => n.sourceId === targetId)
   if (!node || node.type !== 'picture') return
-  const picked = await window.slidesApi.pickPictureFile()
+  const picked = await slidesActionWait(ctx, slidesActionApi(ctx).pickPictureFile())
   if (!picked) return
-  const updated = await window.slidesApi.replacePictureBytes({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).replacePictureBytes({
     slideIndex: ctx.current,
     sourceId: targetId,
     base64: picked.base64,
     ext: picked.ext,
-  })
+  }))
   if (!updated) return
   if ('error' in updated) {
     ctx.setStatus(t('appStatusImageUnsupported', { ext: updated.ext }))
@@ -149,6 +160,8 @@ export async function replacePicture(ctx: ActionCtx): Promise<void> {
   ctx.applySlide(ctx.current, updated)
   ctx.setSelectedIds([targetId])
   ctx.setDirty(true)
+
+  })
 }
 
 /** Only top-level slide nodes render into the selection PNG, so an entered group's children cannot be saved */
@@ -170,16 +183,20 @@ export async function saveSelectionAsPicture(
   ctx: ActionCtx,
   sourceIds: readonly string[] = ctx.selectedIds,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide || !canSaveAsPicture(ctx, sourceIds)) return
   try {
-    const pngBase64 = await renderSelectionToPngBase64(ctx.slide, sourceIds, ctx.images)
-    const r = await window.slidesApi.savePicture({
+    const pngBase64 = await slidesActionWait(ctx, renderSelectionToPngBase64(ctx.slide, sourceIds, ctx.images))
+    const r = await slidesActionWait(ctx, slidesActionApi(ctx).savePicture({
       pngBase64,
       defaultName: pictureFileName(ctx, sourceIds),
-    })
+    }))
     if (r.ok && r.path) ctx.setStatus(t('appStatusPictureSaved', { path: r.path }))
     else if (r.error) ctx.setStatus(t('appStatusPictureSaveFailed', { error: r.error }))
   } catch (err) {
     ctx.setStatus(t('appStatusPictureSaveFailed', { error: String(err) }))
   }
+
+  })
 }

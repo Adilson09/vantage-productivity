@@ -8,12 +8,26 @@ import { AI_CHANNELS, HTML_CHANNELS } from '../shared/ipc'
 import type { AutoSaveDefault, ExportFormat, HtmlApi, SaveMode, UiTheme } from '../shared/ipc'
 
 const api: HtmlApi = {
+  readReloadSource: (request) => ipcRenderer.invoke(HTML_CHANNELS.draftReloadRead, request),
+  applyDraftReload: (request) => ipcRenderer.invoke(HTML_CHANNELS.draftReloadApplied, request),
+  activateDraft: (path, revision) =>
+    ipcRenderer.invoke(HTML_CHANNELS.draftActivate, path, revision),
+  draftChanged: (change) => ipcRenderer.send(HTML_CHANNELS.draftChanged, change),
+  writeDraft: (request) => ipcRenderer.invoke(HTML_CHANNELS.draftWrite, request),
+  acknowledgeDraftSaved: (request) => ipcRenderer.invoke(HTML_CHANNELS.draftSaved, request),
+  onDraftDiscarded: (handler) => {
+    const listener = (_event: Electron.IpcRendererEvent, token: string) => handler(token)
+    ipcRenderer.on(HTML_CHANNELS.draftDiscarded, listener)
+    return () => ipcRenderer.removeListener(HTML_CHANNELS.draftDiscarded, listener)
+  },
   consumePending: () => ipcRenderer.invoke(HTML_CHANNELS.consumePending),
   openSourcePath: (path: string) => ipcRenderer.invoke('home:open-path', path),
   consumeHeadlessExport: () => ipcRenderer.invoke(HTML_CHANNELS.consumeHeadlessExport),
   headlessExportDone: (result: { ok: boolean; error?: string }) =>
     ipcRenderer.send(HTML_CHANNELS.headlessExportDone, result),
   readFile: (path) => ipcRenderer.invoke(HTML_CHANNELS.readFile, path),
+  readPublication: (path,reload) => ipcRenderer.invoke(HTML_CHANNELS.readPublication,path,reload),
+  publicationLoaded: request => ipcRenderer.send(HTML_CHANNELS.publicationLoaded,request),
   updatePreview: (text) => ipcRenderer.send(HTML_CHANNELS.previewUpdate, text),
   getPreviewInfo: () => ipcRenderer.invoke(HTML_CHANNELS.previewInfo),
   setPresentFullScreen: (on) => ipcRenderer.invoke(HTML_CHANNELS.presentFullScreen, on),
@@ -21,7 +35,13 @@ const api: HtmlApi = {
   save: (request) => ipcRenderer.invoke(HTML_CHANNELS.save, request),
   setDirty: (dirty) => ipcRenderer.send(HTML_CHANNELS.dirtyChanged, dirty),
   onSaveRequest: (handler) => {
-    const listener = (_e: Electron.IpcRendererEvent, mode: SaveMode) => handler(mode)
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      mode: SaveMode,
+      requestId: string,
+      targetPath?: string,
+      ticket?:import('../shared/ipc').HtmlSaveTicket,
+    ) => handler(mode, requestId, targetPath,ticket)
     ipcRenderer.on(HTML_CHANNELS.saveRequest, listener)
     return () => ipcRenderer.removeListener(HTML_CHANNELS.saveRequest, listener)
   },
@@ -30,8 +50,18 @@ const api: HtmlApi = {
     ipcRenderer.on(HTML_CHANNELS.closeSaveRequest, listener)
     return () => ipcRenderer.removeListener(HTML_CHANNELS.closeSaveRequest, listener)
   },
+  isCloseFrameRetired:request=>ipcRenderer.invoke(HTML_CHANNELS.closeFrameRetired,request),
+  confirmCloseFrame:request=>ipcRenderer.invoke(HTML_CHANNELS.closeFrameAttested,request),
+  publishPreview:request=>ipcRenderer.invoke(HTML_CHANNELS.previewPublish,request),
+  retirePreview:id=>ipcRenderer.invoke(HTML_CHANNELS.previewRetire,id),
+  validateCloseSource:request=>ipcRenderer.invoke(HTML_CHANNELS.closeSourceCheck,request),
+  closeSourceState:state=>ipcRenderer.send(HTML_CHANNELS.closeSourceState,state),
+  claimCloseLease:ticket=>ipcRenderer.invoke(HTML_CHANNELS.closeLeaseClaim,ticket),
+  cancelCloseLease:(ticket,reason)=>ipcRenderer.invoke(HTML_CHANNELS.closeLeaseCancel,ticket,reason),
+  onCloseLeaseRelease:handler=>{const listener=(_event:Electron.IpcRendererEvent,ticket:import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket)=>handler(ticket);ipcRenderer.on(HTML_CHANNELS.closeLeaseRelease,listener);return()=>ipcRenderer.removeListener(HTML_CHANNELS.closeLeaseRelease,listener)},
   sendCloseSaveResult: (ok) => ipcRenderer.send(HTML_CHANNELS.closeSaveResult, ok),
-  sendSaveRequestAck: (ok) => ipcRenderer.send(HTML_CHANNELS.saveRequestAck, ok),
+  sendSaveRequestAck: (requestId, result) =>
+    ipcRenderer.send(HTML_CHANNELS.saveRequestAck, requestId, result),
   onReadTextRequest: (handler) => {
     const listener = () => handler()
     ipcRenderer.on(HTML_CHANNELS.readTextRequest, listener)
@@ -50,7 +80,7 @@ const api: HtmlApi = {
   },
   ackFileChangedOnDisk: () => ipcRenderer.send(HTML_CHANNELS.ackFileChangedOnDisk),
   setProvisionalTitle: (title) => ipcRenderer.send(HTML_CHANNELS.provisionalTitle, title),
-  pickImage: () => ipcRenderer.invoke(HTML_CHANNELS.pickImage),
+  pickImage: (source) => ipcRenderer.invoke(HTML_CHANNELS.pickImage,source),
   saveImage: (data) => ipcRenderer.invoke(HTML_CHANNELS.saveImage, data),
   readImage: (src) => ipcRenderer.invoke(HTML_CHANNELS.readImage, src),
   pickAttachments: () => ipcRenderer.invoke(HTML_CHANNELS.filesPick),

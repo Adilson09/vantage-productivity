@@ -16,6 +16,51 @@ const depsWith = (incompletePasses: number, hasPath = true) => {
 }
 
 describe('saveUntilPersisted', () => {
+  it('does not close newer typing after the final save acknowledgment', async () => {
+    let release!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { release = resolve })
+    let dirty = false
+    const publication = vi.fn(async () => { await acknowledgment; return true })
+    const close = saveUntilPersisted({
+      save: publication,
+      wasIncomplete: () => false,
+      hasPath: () => true,
+      canClose: () => !dirty,
+      maxPasses: 1,
+    })
+    dirty = true
+    release()
+    await expect(close).resolves.toBe(false)
+    expect(publication).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries a close request into a replacement activation', async () => {
+    let release!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { release = resolve })
+    let current = true
+    const publication = vi.fn(async () => { await acknowledgment; return true })
+    const close = saveUntilPersisted({
+      save: publication,
+      wasIncomplete: () => false,
+      hasPath: () => true,
+      isCurrent: () => current,
+      canClose: () => true,
+    })
+    current = false
+    release()
+    await expect(close).resolves.toBe(false)
+    expect(publication).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a pathless close when a pending surface is still unrepresented', async () => {
+    await expect(saveUntilPersisted({
+      save: async () => true,
+      wasIncomplete: () => false,
+      hasPath: () => false,
+      canClose: () => false,
+    })).resolves.toBe(false)
+  })
+
   it('reports success after a single fully persisted save', async () => {
     const deps = depsWith(0)
     await expect(saveUntilPersisted(deps)).resolves.toBe(true)

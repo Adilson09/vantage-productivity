@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -61,6 +61,72 @@ describe('session temporary resources', () => {
     await cleanupImportTempDirectory(root, arbitrary)
 
     expect(existsSync(join(arbitrary, 'keep.txt'))).toBe(true)
+  })
+
+  it('removes a nested current-process snapshot after close and keeps the cached directory and other snapshots', async () => {
+    const root = await tempRoot()
+    const processDirectory = join(root, 'vantage-sheets-sessions', `${process.pid}-${randomUUID()}`)
+    const snapshotPath = join(processDirectory, `${randomUUID()}.xlsx`)
+    const otherSnapshot = join(processDirectory, `${randomUUID()}.xlsx`)
+    await mkdir(processDirectory, { recursive: true })
+    await writeFile(snapshotPath, 'close this workbook')
+    await writeFile(otherSnapshot, 'another open workbook')
+    let snapshotWasPresentAtClose = false
+
+    await cleanupSessionResources({
+      tempRoot: root,
+      snapshotPath,
+      closeSidecar: async () => {
+        snapshotWasPresentAtClose = existsSync(snapshotPath)
+      },
+    })
+
+    expect(snapshotWasPresentAtClose).toBe(true)
+    expect(existsSync(snapshotPath)).toBe(false)
+    expect(existsSync(processDirectory)).toBe(true)
+    expect(existsSync(otherSnapshot)).toBe(true)
+  })
+
+  it('retains other-process, malformed, outside, and linked snapshot paths', async () => {
+    const root = await tempRoot()
+    const snapshotRoot = join(root, 'vantage-sheets-sessions')
+    const otherPid = process.pid === 2222 ? 3333 : 2222
+    const foreignDirectory = join(snapshotRoot, `${otherPid}-${randomUUID()}`)
+    const malformedDirectory = join(snapshotRoot, `${process.pid}-user-files`)
+    const ownDirectory = join(snapshotRoot, `${process.pid}-${randomUUID()}`)
+    const outsideDirectory = join(root, 'outside')
+    for (const path of [foreignDirectory, malformedDirectory, ownDirectory, outsideDirectory]) {
+      await mkdir(path, { recursive: true })
+    }
+    const foreign = join(foreignDirectory, `${randomUUID()}.xlsx`)
+    const malformed = join(malformedDirectory, `${randomUUID()}.xlsx`)
+    const outside = join(outsideDirectory, `${randomUUID()}.xlsx`)
+    const unownedName = join(ownDirectory, 'important.xlsx')
+    for (const path of [foreign, malformed, outside, unownedName]) await writeFile(path, 'keep')
+    const linkedDirectory = join(snapshotRoot, `${process.pid}-${randomUUID()}`)
+    const linkedSnapshot = join(ownDirectory, `${randomUUID()}.xlsx`)
+    await symlink(outsideDirectory, linkedDirectory, 'junction')
+    await symlink(outsideDirectory, linkedSnapshot, 'junction')
+
+    for (const snapshotPath of [
+      foreign,
+      malformed,
+      outside,
+      unownedName,
+      linkedSnapshot,
+      join(linkedDirectory, basename(outside)),
+    ]) {
+      await cleanupSessionResources({
+        tempRoot: root,
+        snapshotPath,
+        closeSidecar: async () => undefined,
+      })
+    }
+
+    for (const path of [foreign, malformed, outside, unownedName])
+      expect(existsSync(path)).toBe(true)
+    expect(existsSync(linkedDirectory)).toBe(true)
+    expect(existsSync(linkedSnapshot)).toBe(true)
   })
 })
 

@@ -1,6 +1,11 @@
 import type { zh } from './zh'
 
 export const fr = {
+  recoveryFailed:
+    'La copie de récupération ne peut pas être mise à jour : {error}. La copie précédente est conservée.',
+  recoveryRetry: 'Réessayer',
+  recoveryRemote:
+    'Cette copie dépend encore de {count} ressource(s) distante(s), qui peuvent nécessiter Internet.',
   redactMenuLabel: 'Masquer la sélection à l’IA',
   redactDialogDesc:
     'Les mots restent dans le document et dans le fichier ; le modèle ne voit que le marqueur ci-dessous. Donnez-lui un nom pour qu’il sache ce qu’il désigne.',

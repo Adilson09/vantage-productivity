@@ -144,8 +144,8 @@ describe('insert actions use the measured frames', () => {
     addSmartArt: vi.fn(),
     addImageBytes: vi.fn(),
     setLink: vi.fn(),
-    beginHistoryBatch: vi.fn(),
-    endHistoryBatch: vi.fn(),
+    beginOwnedHistoryBatch: vi.fn(),
+    finishOwnedHistoryBatch: vi.fn(),
     addSlideWithLayout: vi.fn(),
     addBlankSlide: vi.fn(),
     moveSlide: vi.fn(),
@@ -208,8 +208,8 @@ describe('insert actions use the measured frames', () => {
     api.addSmartArt.mockResolvedValue(result)
     api.addImageBytes.mockResolvedValue(result)
     api.setLink.mockResolvedValue(slides[0])
-    api.beginHistoryBatch.mockResolvedValue(true)
-    api.endHistoryBatch.mockResolvedValue(null)
+    api.beginOwnedHistoryBatch.mockResolvedValue({nonce:'12345678-1234-4234-8234-123456789abc'})
+    api.finishOwnedHistoryBatch.mockResolvedValue(null)
     // The engine mints a GUID for every section written without an id
     api.setSections.mockImplementation(async (list: Array<{ id: string; name: string }>) =>
       list.map((sec) => ({ ...sec, id: sec.id || `{${sec.name}}` })),
@@ -275,7 +275,7 @@ describe('insert actions use the measured frames', () => {
     await insertZoom(ctx, 7)
     expect(renderSlidesToPngBase64).not.toHaveBeenCalled()
     expect(api.addImageBytes).not.toHaveBeenCalled()
-    expect(api.beginHistoryBatch).not.toHaveBeenCalled()
+    expect(api.beginOwnedHistoryBatch).not.toHaveBeenCalled()
   })
 
   it('insertSlideZooms cascades one tile per slide in one undo step, later tiles on top', async () => {
@@ -303,8 +303,8 @@ describe('insert actions use the measured frames', () => {
       })),
     )
     expect(api.setLink.mock.calls.map((c) => c[0].target.slideIndex)).toEqual([1, 2, 3])
-    expect(api.beginHistoryBatch).toHaveBeenCalledTimes(1)
-    expect(api.endHistoryBatch).toHaveBeenCalledTimes(1)
+    expect(api.beginOwnedHistoryBatch).toHaveBeenCalledTimes(1)
+    expect(api.finishOwnedHistoryBatch).toHaveBeenCalledTimes(1)
     expect(setSelectedIds).toHaveBeenCalledWith(['sp1', 'sp2', 'sp3'])
     expect(setStatus).toHaveBeenCalledWith(t('appStatusZoomsInserted', { count: 3 }))
   })
@@ -415,8 +415,8 @@ describe('insert actions use the measured frames', () => {
       { id: '{Agenda}', name: 'Agenda', slideIndices: [2, 3] },
       expect.objectContaining({ slideIndices: [4] }),
     ])
-    expect(api.beginHistoryBatch).toHaveBeenCalledTimes(1)
-    expect(api.endHistoryBatch).toHaveBeenCalledTimes(1)
+    expect(api.beginOwnedHistoryBatch).toHaveBeenCalledTimes(1)
+    expect(api.finishOwnedHistoryBatch).toHaveBeenCalledTimes(1)
     expect(setSlides).toHaveBeenCalledWith([slides[0], cleared, slides[1], slides[2], slides[3]])
     expect(setCurrent).toHaveBeenCalledWith(1)
     expect(setSelectedSlides).toHaveBeenCalledWith([1])

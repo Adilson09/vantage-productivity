@@ -10,7 +10,7 @@ const MAX_DRAFT_BYTES = 16 * 1024 * 1024
 const MAX_JOURNAL_BYTES = 128 * 1024 * 1024
 const MAX_DRAFTS = 64
 const modules = new Set(['docs', 'sheets', 'slides', 'pdf', 'markdown', 'html'])
-const extensions = new Set(['.docx', '.xlsx', '.pptx', '.pdf', '.md', '.html', '.txt', '.json'])
+const extensions = new Set(['.docx', '.xlsx', '.pptx', '.pdf', '.vpdfdraft', '.md', '.html', '.txt', '.json'])
 export interface DraftEntry {
   id: string; module: string; documentPath: string | null; extension: string;
   createdAt: string; updatedAt: string; bytes: number; storedBytes: number;
@@ -79,9 +79,9 @@ async function entriesIn(root: string): Promise<DraftEntry[]> {
   return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 export async function listDraftJournal(root: string): Promise<DraftEntry[]> { return locked(root, () => entriesIn(root)) }
-async function bytesFor(root: string, entry: DraftEntry): Promise<Buffer> {
+async function bytesFor(root: string, entry: DraftEntry, keyRoot=root): Promise<Buffer> {
   const payload = await readBounded(join(directory(root), entry.payload), MAX_DRAFT_BYTES + 128)
-  const cipher = recoveryCipherFor(root)
+  const cipher = recoveryCipherFor(keyRoot)
   if (entry.encrypted && !cipher) throw new Error('Unlock OS-protected recovery storage to read this draft')
   const bytes = entry.encrypted ? cipher!.decrypt(payload) : payload
   if (bytes.length !== entry.bytes || digest(bytes) !== entry.sha256) throw new Error('Draft data failed its integrity check')
@@ -149,12 +149,27 @@ export async function writeDraftJournal(root: string, request: {
     }
   })
 }
-export async function discardDraftJournal(root: string, id: string): Promise<void> {
+export async function discardDraftJournal(root: string, id: string, options:{expectedSha256?:string}={}): Promise<void> {
   if (!ID.test(id)) throw new Error('Invalid draft identifier')
+  if(options.expectedSha256!==undefined&&!/^[a-f0-9]{64}$/.test(options.expectedSha256))throw new Error('Invalid expected draft hash')
   const key = epochKey(root, id)
-  epochs.set(key, (epochs.get(key) ?? 0) + 1)
+  if(options.expectedSha256===undefined)epochs.set(key, (epochs.get(key) ?? 0) + 1)
   return locked(root, async () => {
     const entry = (await entriesIn(root)).find((entry) => entry.id === id)
+    if(options.expectedSha256!==undefined){
+      if(!entry){
+        const metadata=await stat(join(directory(root),`${id}.json`)).then(()=>true,(error:unknown)=>{if((error as NodeJS.ErrnoException)?.code==='ENOENT')return false;throw error})
+        const names=await readdir(directory(root)).catch((error:unknown)=>{if((error as NodeJS.ErrnoException)?.code==='ENOENT')return [];throw error})
+        if(metadata||names.some(name=>name.startsWith(`${id}.`)&&name.endsWith('.bin')))throw new Error('The current draft is incomplete; conditional cleanup preserved its bytes.')
+        return
+      }
+      // Verify the actual complete payload (including authenticated recovery
+      // decryption), not imported metadata or a caller-provided original path.
+      const actual=await bytesFor(root,entry)
+      if(digest(actual)!==options.expectedSha256)throw new Error('The draft changed after restoration; conditional cleanup preserved the newer entry.')
+      // Mismatch/absence cannot invalidate a concurrent newer writer's epoch.
+      epochs.set(key,(epochs.get(key)??0)+1)
+    }
     await unlink(join(directory(root), `${id}.json`)).catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
     })
@@ -174,4 +189,84 @@ export async function restoreDraftCopy(root: string, id: string, destination: st
     await handle.writeFile(bytes); await handle.sync(); await handle.close(); handle = undefined
     await publishExclusiveCopy(temp, resolve(destination), { bytes: bytes.length, sha256: digest(bytes) })
   } finally { await handle?.close().catch(() => {}); if (owns) await unlink(temp).catch(() => {}) }
+}
+
+export interface DraftCustodyCapture {id:string;module:string;documentPath:string|null;sha256:string;payload:string;bytes:number;metadataSha256:string;payloadSha256:string;encrypted:boolean}
+/** Copy exact protected on-disk bytes under the journal lock; no plaintext backup. */
+export async function captureDraftJournalCustody(root:string,id:string,targetRoot:string,signal?:AbortSignal,expected?:{module:string;documentPath:string|null;sha256?:string}|null,reserve?:(bytes:number)=>void):Promise<DraftCustodyCapture|null>{
+  if(!ID.test(id)||!isAbsolute(targetRoot)||canonical(root)===canonical(targetRoot))throw new Error('Invalid recovery custody destination.')
+  return locked(root,async()=>{
+    signal?.throwIfAborted()
+    const entry=(await entriesIn(root)).find(value=>value.id===id)
+    if(!entry){
+      const metadata=await stat(join(directory(root),`${id}.json`)).then(()=>true,(error:unknown)=>{if((error as NodeJS.ErrnoException)?.code==='ENOENT')return false;throw error})
+      const names=await readdir(directory(root)).catch((error:unknown)=>{if((error as NodeJS.ErrnoException)?.code==='ENOENT')return [];throw error})
+      if(metadata||names.some(name=>name.startsWith(`${id}.`)&&name.endsWith('.bin')))throw new Error('The captured draft is incomplete; its existing bytes are retained.')
+      return null
+    }
+    if(expected===null)throw new Error('A complete journal exists without a corroborating main-owned write binding; its bytes are retained.')
+    if(expected&&(entry.module!==expected.module||(entry.documentPath===null||expected.documentPath===null?entry.documentPath!==expected.documentPath:canonical(entry.documentPath)!==canonical(expected.documentPath))))
+      throw new Error('The captured journal does not match the main-owned stored module/path binding; its original bytes are retained.')
+    const metadata=await readBounded(join(directory(root),`${id}.json`),16*1024)
+    const parsed:unknown=JSON.parse(metadata.toString('utf8'))
+    if(!validate(parsed)||parsed.id!==id||parsed.payload!==entry.payload||parsed.module!==entry.module||parsed.documentPath!==entry.documentPath||parsed.sha256!==entry.sha256)throw new Error('The captured draft changed during custody preparation.')
+    const payload=await readBounded(join(directory(root),entry.payload),MAX_DRAFT_BYTES+128)
+    if(payload.length!==entry.storedBytes)throw new Error('The captured draft payload is incomplete.')
+    // Existing journal integrity/protection must be valid; the backup itself is
+    // still byte-for-byte encrypted whenever the original is encrypted.
+    const cipher=recoveryCipherFor(root)
+    if(entry.encrypted&&!cipher)throw new Error('Unlock protected recovery storage before preparing custody.')
+    const complete=entry.encrypted?cipher!.decrypt(payload):payload
+    if(complete.length!==entry.bytes||digest(complete)!==entry.sha256)throw new Error('The complete captured journal failed its integrity check.')
+    if(!expected?.sha256)throw new Error('The complete journal has no corroborating main-owned payload hash; existing bytes are retained.')
+    if(digest(complete)!==expected.sha256)throw new Error('The captured journal changed after the main-owned write; existing bytes are retained.')
+    signal?.throwIfAborted()
+    await assertRecoveryFreeSpace(root,metadata.length+payload.length+16*1024,await getRecoveryPolicy(root))
+    reserve?.(metadata.length+payload.length)
+    await mkdir(directory(targetRoot),{recursive:true,mode:0o700})
+    const writeOwned=async(name:string,bytes:Buffer)=>{
+      signal?.throwIfAborted()
+      const handle=await open(join(directory(targetRoot),name),'wx',0o600)
+      try{await handle.writeFile(bytes);await handle.sync()}finally{await handle.close()}
+      signal?.throwIfAborted()
+    }
+    await writeOwned(entry.payload,payload)
+    await writeOwned(`${id}.json`,metadata)
+    return{id,module:entry.module,documentPath:entry.documentPath,sha256:entry.sha256,payload:entry.payload,bytes:metadata.length+payload.length,metadataSha256:digest(metadata),payloadSha256:digest(payload),encrypted:entry.encrypted}
+  })
+}
+
+export interface DraftCustodyRestoreOptions {
+ expected:{module:string;documentPath:string|null;sha256:string}
+ signal?:AbortSignal
+ beforePublication?():void
+ created?():void
+}
+/** A separate exclusive output may be partial after a crash; never delete a changed output path. */
+export async function restoreDraftCustodyCopy(custodyRoot:string,keyRoot:string,id:string,destination:string,options:DraftCustodyRestoreOptions):Promise<{entry:DraftEntry;sha256:string}>{
+  if(!ID.test(id)||!isAbsolute(destination)||!options?.expected)throw new Error('Invalid bound custody restoration request.')
+  options.signal?.throwIfAborted()
+  const entry=(await entriesIn(custodyRoot)).find(value=>value.id===id)
+  if(!entry)throw new Error('The retained custody copy is incomplete.')
+  const expected=options.expected
+  if(entry.module!==expected.module||(entry.documentPath===null||expected.documentPath===null?entry.documentPath!==expected.documentPath:canonical(entry.documentPath)!==canonical(expected.documentPath)))throw new Error('Retained custody no longer matches its verified stored lineage.')
+  if(entry.documentPath&&canonical(destination)===canonical(entry.documentPath))throw new Error('Restore retained custody to a separate copy.')
+  const bytes=await bytesFor(custodyRoot,entry,keyRoot)
+  if(digest(bytes)!==expected.sha256)throw new Error('Retained custody no longer matches its verified complete payload hash.')
+  options.signal?.throwIfAborted()
+  options.beforePublication?.()
+  const output=await open(resolve(destination),'wx',0o600)
+  let failed=false
+  try{
+    options.created?.()
+    options.signal?.throwIfAborted()
+    await output.writeFile(bytes)
+    await output.sync()
+    options.signal?.throwIfAborted()
+    // Verification reads the visible path conservatively. A competing editor's
+    // replacement refuses trust; it is preserved rather than rolled back.
+    const visible=await readBounded(resolve(destination),MAX_DRAFT_BYTES)
+    if(visible.length!==bytes.length||digest(visible)!==expected.sha256)throw new Error('The separate output changed before its trusted handoff; its current contents are retained.')
+    return{entry,sha256:entry.sha256}
+  }catch(error){failed=true;throw error}finally{try{await output.close()}catch(error){if(!failed)throw error}}
 }

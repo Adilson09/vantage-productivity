@@ -1,3 +1,4 @@
+import { withFilePublication, withSynchronousFilePublication } from './file-publication-exclusion'
 // Vantage Productivity modification: never truncate the original after failed replacement;
 // retain completed rescue files, serialize per-path saves and snapshot prior versions.
 import { createHash, randomBytes } from 'node:crypto'
@@ -192,10 +193,10 @@ async function publishCompletedTemp(tmp: string, filePath: string, options: Atom
 export async function publishCompletedFile(temporaryPath: string, filePath: string, options: AtomicSaveOptions = {}): Promise<void> {
   if (resolve(dirname(temporaryPath)) !== resolve(dirname(filePath)) || pathKey(temporaryPath) === pathKey(filePath))
     throw new Error('A completed save must use a distinct temporary file beside its destination')
-  return withAtomicSaveQueue(filePath, async () => {
+  return withFilePublication({ targetPath: filePath, temporaryPaths: [temporaryPath] }, () => withAtomicSaveQueue(filePath, async () => {
     await syncFileBestEffort(temporaryPath)
     await publishCompletedTemp(temporaryPath, filePath, options)
-  })
+  }))
 }
 
 async function removePartialTemp(tmp: string, error: unknown): Promise<void> {
@@ -244,8 +245,8 @@ function syncFileBestEffortSync(path: string): void {
  * stays intact and an AtomicSaveError identifies the completed rescue temp.
  */
 export async function atomicWriteFile(filePath: string, data: Buffer, options: AtomicSaveOptions = {}): Promise<void> {
-  return withAtomicSaveQueue(filePath, async () => {
-    const tmp = tempPathBeside(filePath)
+  const tmp = tempPathBeside(filePath)
+  return withFilePublication({ targetPath: filePath, temporaryPaths: [tmp] }, () => withAtomicSaveQueue(filePath, async () => {
     try {
       await writeFile(tmp, data, { flag: 'wx' })
       await syncFileBestEffort(tmp)
@@ -254,7 +255,7 @@ export async function atomicWriteFile(filePath: string, data: Buffer, options: A
       throw error
     }
     await publishCompletedTemp(tmp, filePath, options)
-  })
+  }))
 }
 
 async function renameWithRetry(tmp: string, filePath: string, checkBeforeRetry?: () => Promise<void>): Promise<void> {
@@ -272,8 +273,8 @@ async function renameWithRetry(tmp: string, filePath: string, checkBeforeRetry?:
 
 /** copyFile stays in the kernel, so a multi-hundred-MB file is never read into RAM */
 export async function atomicCopyFile(source: string, filePath: string, options: AtomicSaveOptions = {}): Promise<void> {
-  return withAtomicSaveQueue(filePath, async () => {
-    const tmp = tempPathBeside(filePath)
+  const tmp = tempPathBeside(filePath)
+  return withFilePublication({ targetPath: filePath, sourcePaths: [source], temporaryPaths: [tmp] }, () => withAtomicSaveQueue(filePath, async () => {
     try {
       await copyFile(source, tmp, constants.COPYFILE_EXCL)
       await syncFileBestEffort(tmp)
@@ -282,7 +283,7 @@ export async function atomicCopyFile(source: string, filePath: string, options: 
       throw error
     }
     await publishCompletedTemp(tmp, filePath, options)
-  })
+  }))
 }
 
 /**
@@ -299,8 +300,8 @@ export async function atomicWriteVia(
   write: (tempPath: string) => Promise<void>,
   options: AtomicSaveOptions = {},
 ): Promise<void> {
-  return withAtomicSaveQueue(filePath, async () => {
-    const tmp = tempPathBeside(filePath)
+  const tmp = tempPathBeside(filePath)
+  return withFilePublication({ targetPath: filePath, temporaryPaths: [tmp] }, () => withAtomicSaveQueue(filePath, async () => {
     try {
       await write(tmp)
       await syncFileBestEffort(tmp)
@@ -309,7 +310,7 @@ export async function atomicWriteVia(
       throw error
     }
     await publishCompletedTemp(tmp, filePath, options)
-  })
+  }))
 }
 
 /**
@@ -319,34 +320,36 @@ export async function atomicWriteVia(
  * Windows lock.
  */
 export function writeJsonAtomic(filePath: string, value: unknown): void {
-  mkdirSync(dirname(filePath), { recursive: true })
-  const json = JSON.stringify(value, null, 2)
-  const tmp = tempPathBeside(filePath)
-  const removeTemp = () => {
-    try {
-      unlinkSync(tmp)
-    } catch {
-      /* temp never created */
-    }
-  }
-  try {
-    writeFileSync(tmp, json, { encoding: 'utf8', flag: 'wx' })
-    syncFileBestEffortSync(tmp)
-  } catch (error) {
-    if (errorCode(error) !== 'EEXIST') removeTemp()
-    throw error
-  }
-  try {
-    for (let attempt = 0; ; attempt += 1) {
+  return withSynchronousFilePublication({ targetPath: filePath }, () => {
+    mkdirSync(dirname(filePath), { recursive: true })
+    const json = JSON.stringify(value, null, 2)
+    const tmp = tempPathBeside(filePath)
+    const removeTemp = () => {
       try {
-        renameSync(tmp, filePath)
-        return
-      } catch (error) {
-        if (!isRetryableRename(error) || attempt >= RENAME_RETRY_DELAYS_MS.length) throw error
-        sleepSync(RENAME_RETRY_DELAYS_MS[attempt] ?? 0)
+        unlinkSync(tmp)
+      } catch {
+        /* temp never created */
       }
     }
-  } catch (error) {
-    throw new AtomicSaveError(filePath, tmp, error)
-  }
+    try {
+      writeFileSync(tmp, json, { encoding: 'utf8', flag: 'wx' })
+      syncFileBestEffortSync(tmp)
+    } catch (error) {
+      if (errorCode(error) !== 'EEXIST') removeTemp()
+      throw error
+    }
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          renameSync(tmp, filePath)
+          return
+        } catch (error) {
+          if (!isRetryableRename(error) || attempt >= RENAME_RETRY_DELAYS_MS.length) throw error
+          sleepSync(RENAME_RETRY_DELAYS_MS[attempt] ?? 0)
+        }
+      }
+    } catch (error) {
+      throw new AtomicSaveError(filePath, tmp, error)
+    }
+  })
 }

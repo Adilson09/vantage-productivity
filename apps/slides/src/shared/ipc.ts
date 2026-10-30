@@ -1,4 +1,15 @@
+import type {CloseLeaseTicket} from '../../../../packages/electron-utils/src/close-lease'
+import type {SlidesCloseQuery} from './slides-tool-save'
+import type { SlidesToolSaveRequest, SlidesToolSaveIdentity, SlidesToolSaveProbe, SlidesToolSaveWriteResult, SlidesToolSaveResult } from './slides-tool-save'
 import type { AiPanelPrefs } from '@vantage/ui'
+import type {
+  SlidesDraftActivation,
+  SlidesDraftDiscarded,
+  SlidesDraftResult,
+  SlidesDraftSaveAcknowledgment,
+  SlidesDraftState,
+  SlidesDraftWriteRequest,
+} from './slides-draft'
 /**
  * slides main-process <-> renderer IPC contract (Phase 3: open/save/edit, AI not included yet).
  *
@@ -89,6 +100,7 @@ export interface SetEffectsPatch {
 }
 
 export interface OpenResult {
+  sourceCandidateId?:string
   path: string
   slides: RenderSlide[]
   /** Slide page size in EMU */
@@ -991,6 +1003,8 @@ export interface EditConnectorEndpointsOp {
 /** Overwrite-write speaker notes (\n splits paragraphs). */
 export interface SetNotesOp {
   slideIndex: number
+  /** Persisted identity preferred over an index that can change during a reorder. */
+  partPath?: string
   text: string
 }
 
@@ -1206,7 +1220,11 @@ export interface EditChartOp {
 // ── Export (PDF / images) ─────────────────────────────────────────────
 
 /** Export as images: the renderer has already rendered hi-res PNGs; the main process only writes them to disk. */
+export interface ExportOutputSelection {path:string;selectionId:string}
+export interface ExportImagesSelectionRequest {baseName:string;count:number}
+
 export interface ExportImagesOp {
+  selectionId:string
   /** Target directory (absolute path chosen via pickExportDir) */
   dir: string
   /** File base name (without extension), written as <baseName>-01.png / -02.png … */
@@ -1256,6 +1274,8 @@ export type ExportPdfPage = { svg: string } | { png: string }
 
 /** Export as PDF: the main process lays the pages out in a hidden window then printToPDF. */
 export interface ExportPdfOp {
+  /** Opaque main picker receipt; headless uses its registered main-only target. */
+  selectionId?:string
   /** Target pdf absolute path (chosen via pickExportPdfPath) */
   filePath: string
   /** Pages in order */
@@ -1666,7 +1686,7 @@ export interface SlidesApi {
   /** Drag-reorder a thumbnail selection as one undo step */
   moveSlides: (op: MoveSlidesOp) => Promise<(SlideUpdate & { sections: SectionInfo[] }) | null>
   /** Plain text of the current page's speaker notes ('' when there are none) */
-  getNotes: (slideIndex: number) => Promise<string>
+  getNotes: (slideIndex: number, partPath?: string) => Promise<string>
   /** Overwrite-write notes (into the pptx's notesSlide part); returns success */
   setNotes: (op: SetNotesOp) => Promise<boolean>
   /** All comments on a page (in add order) */
@@ -1679,8 +1699,8 @@ export interface SlidesApi {
   nativeClipboard: (op: 'cut' | 'copy' | 'paste') => Promise<void>
   /** Nestable history transaction; all edits between begin/end become one undo step.
       The outermost end registers an AI rollback point and returns its id (null when nothing changed). */
-  beginHistoryBatch: () => Promise<boolean>
-  endHistoryBatch: () => Promise<number | null>
+  beginOwnedHistoryBatch: () => Promise<import('./slides-history-batch').SlidesHistoryBatchTicket | null>
+  finishOwnedHistoryBatch: (ticket:import('./slides-history-batch').SlidesHistoryBatchTicket) => Promise<number | null>
   /** Apply an edit script's collected primitives as ONE atomic op transaction (the executor rolls back on any failure); returns the rebuilt slide or a guided error */
   applyEditScript: (
     op: ApplyEditScriptOp,
@@ -1722,21 +1742,54 @@ export interface SlidesApi {
     pointColors: Array<Array<string | undefined> | undefined>
   } | null>
   /** Export as images: shows the directory picker dialog, cancel returns null */
-  pickExportDir: () => Promise<string | null>
+  pickExportDir: (plan:ExportImagesSelectionRequest) => Promise<ExportOutputSelection | null>
   /** Write each page PNG to disk as <baseName>-01.png …; returns the written paths */
   exportImages: (op: ExportImagesOp) => Promise<ExportImagesResult>
   /** Export as PDF: shows the save dialog for the target path, cancel returns null */
-  pickExportPdfPath: (defaultName: string) => Promise<string | null>
+  pickExportPdfPath: (defaultName: string) => Promise<ExportOutputSelection | null>
   /** Save as Picture: save dialog + write of the selection PNG */
   savePicture: (op: SavePictureOp) => Promise<SavePictureResult>
   /** Main process printToPDF via a hidden window, written to disk */
   exportPdf: (op: ExportPdfOp) => Promise<ExportPdfResult>
   /** Print (system dialog; cancel counts as ok=false without an error) */
   printSlides: (op: PrintSlidesOp) => Promise<{ ok: boolean; error?: string }>
-  save: () => Promise<{ ok: boolean; path?: string; error?: string; slides?: RenderSlide[] }>
-  saveAs: (
-    defaultName: string,
-  ) => Promise<{ ok: boolean; path?: string; error?: string; slides?: RenderSlide[] }>
+  activateDraft: (path: string | null,sourceIdentity?:string) => Promise<SlidesDraftActivation>
+  writeDraft: (request: SlidesDraftWriteRequest) => Promise<SlidesDraftResult>
+  acknowledgeDraftSave: (request: SlidesDraftSaveAcknowledgment) => Promise<SlidesDraftResult>
+  draftState: () => Promise<SlidesDraftState | null>
+  setPendingEditState: (token: string, dirty: boolean) => void
+  onDraftDiscarded: (handler: (notice: SlidesDraftDiscarded) => void) => () => void
+  onDraftWarning: (handler: (message: string) => void) => () => void
+  onCloseFlushRequest: (handler: () => void) => () => void
+  reportCloseFlushResult: (ok: boolean) => void
+  confirmSourceAdoption:(candidateId:string)=>Promise<boolean>
+  onSourceAdopted:(handler:(result:OpenResult)=>void)=>()=>void
+  claimCloseLease:(ticket:CloseLeaseTicket)=>Promise<boolean>
+  cancelCloseLease:(ticket:CloseLeaseTicket,reason:string)=>Promise<void>
+  onCloseRelease:(handler:(ticket:CloseLeaseTicket)=>void)=>()=>void
+  onCloseQuery:(handler:(id:string)=>void)=>()=>void
+  reportCloseQuery:(result:SlidesCloseQuery)=>void
+  onToolSaveRequest: (handler: (request: SlidesToolSaveRequest) => void) => () => void
+  onToolSaveRelease: (handler: (requestId: string) => void) => () => void
+  probeToolSave: (identity: SlidesToolSaveIdentity) => Promise<SlidesToolSaveProbe>
+  saveToolToPath: (identity: SlidesToolSaveIdentity) => Promise<SlidesToolSaveWriteResult>
+  reportToolSaveResult: (result: SlidesToolSaveResult) => void
+  cancelToolSave: (requestId: string) => Promise<void>
+  save: (automatic?:boolean) => Promise<{
+    deferred?: boolean
+    ok: boolean
+    path?: string
+    error?: string
+    slides?: RenderSlide[]
+    dirty?: boolean
+  }>
+  saveAs: (defaultName: string) => Promise<{
+    ok: boolean
+    path?: string
+    error?: string
+    slides?: RenderSlide[]
+    dirty?: boolean
+  }>
   /** The close guard chose "Save": the main process asks the renderer to run the full save flow */
   onCloseSaveRequest: (handler: () => void) => () => void
   /** Undo/redo stack occupancy pushed by the main process (drives the QAT button gray states) */
@@ -1752,6 +1805,8 @@ export interface SlidesApi {
   onOpened: (handler: (result: OpenResult) => void) => () => void
   /** The file was renamed externally (shell Home list rename) — pushes the new path, the renderer updates the title bar */
   onRenamed: (handler: (newPath: string) => void) => () => void
+  /** A generated replacement installed a different main Session in this view. */
+  onDraftSourceChanged: (handler: (newPath: string) => void) => () => void
   getAiSettings: () => Promise<AiSettings>
   setAiSettings: (settings: AiSettings) => Promise<void>
   /** ai-settings.json was rewritten by any renderer; re-read it */

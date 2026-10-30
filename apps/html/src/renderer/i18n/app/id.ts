@@ -1,6 +1,10 @@
 import type { zh } from './zh'
 
 export const id = {
+  recoveryFailed: 'Salinan pemulihan tidak dapat diperbarui: {error}. Salinan sebelumnya disimpan.',
+  recoveryRetry: 'Coba lagi',
+  recoveryRemote:
+    'Salinan ini masih bergantung pada {count} sumber jarak jauh yang mungkin memerlukan Internet.',
   redactMenuLabel: 'Sembunyikan pilihan dari AI',
   redactDialogDesc:
     'Kata-kata tetap ada di dokumen dan berkas; model hanya melihat placeholder di bawah. Beri nama agar model tahu apa yang diwakili.',

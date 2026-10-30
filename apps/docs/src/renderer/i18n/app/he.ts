@@ -536,4 +536,5 @@ export const he = {
   appMergeSourceLoaded: '{name} נטען ({n} רשומות)',
   appMergeWritten: 'נכתבו {n} מסמכים',
   appMergeNothingToWrite: 'אין מה לכתוב',
+  appRecoveryFailed: 'שחזור הטיוטה נכשל: {error}',
 } satisfies Record<keyof typeof zh, string>

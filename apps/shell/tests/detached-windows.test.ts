@@ -84,7 +84,9 @@ vi.mock('electron', () => ({
 
 vi.mock('../../docs/src/main/docs-main', () => ({
   docsQueryDirty: vi.fn(() => Promise.resolve(false)),
-  requestDocsClose: vi.fn(() => Promise.resolve(true)),
+  prepareDocsNativeClose:vi.fn(async()=>({kind:'lease' as const,intent:'save' as const,published:false,clean:true,source:'A',closeLease:{ticket:{id:'test-close',sequence:1,source:'main-A'},stamp:{source:'renderer-A',revision:'1'}}})),
+  completeDocsClose:vi.fn((_contents:unknown,_receipt:unknown,remove:()=>boolean)=>remove()),
+  cancelDocsClose:vi.fn(async()=>{}),
   setActiveDocsResolver: vi.fn(),
   teardownDocsRenderer: vi.fn(),
 }))
@@ -507,5 +509,18 @@ describe('dockBandFor', () => {
     win.shown = false
     expect(detached.dockBandFor(win as never)).toBeNull()
     expect(detached.dockBandFor(null)).toBeNull()
+  })
+})
+
+describe('detached Docs actual-removal fencing',()=>{
+  it('keeps the exact detached owner when its ready receipt cannot be committed',async()=>{
+    const {completeDocsClose,cancelDocsClose}=await import('../../docs/src/main/docs-main')
+    vi.mocked(completeDocsClose).mockReturnValueOnce(false)
+    const win=detached.createDetachedEditorWindow({view:fakeView(771) as never,kind:'docs',title:'a.docx',applyMenuFor:()=>{}})
+    ;(win as unknown as FakeWindow).close()
+    await flush()
+    expect(win.isDestroyed()).toBe(false)
+    expect(detached.isDetachedTabId('detached:771')).toBe(true)
+    expect(cancelDocsClose).toHaveBeenCalled()
   })
 })

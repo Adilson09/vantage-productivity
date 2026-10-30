@@ -1,3 +1,4 @@
+import { docCloseBarrier, docMutationSource, assertDocMutationSource } from '../doc-close-lease'
 import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import type { Node as PmNode } from '@tiptap/pm/model'
@@ -42,6 +43,9 @@ export async function insertImageFilesAt(
   files: File[],
   pos: number,
 ): Promise<number> {
+  const source = docMutationSource()
+  return docCloseBarrier.runAsyncMutation(async () => {
+  docCloseBarrier.mutate(()=>{},source)
   const sel = nearestTextSelection(editor.state.doc, pos)
   if (!sel) return 0
   editor.view.dispatch(editor.state.tr.setSelection(sel))
@@ -50,11 +54,14 @@ export async function insertImageFilesAt(
     const mime = droppedImageMime(file)
     if (!mime) continue
     const dataUrl = await readImageDataUrl(file, mime)
+    assertDocMutationSource(source)
+    if (editor.isDestroyed) return inserted
     if (!dataUrl) continue
     if (await insertImageFromDataUrl(editor, dataUrl, t('ribbonPictureLabel', { name: file.name })))
       inserted++
   }
   return inserted
+  }, source)
 }
 
 export function insertImageFilesAtCoords(

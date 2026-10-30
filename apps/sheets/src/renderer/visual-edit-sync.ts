@@ -22,7 +22,14 @@ import {
   unionBounds,
   type ChartGridValue,
 } from './chart-sync-pending'
-import { recordChartEdit, recordVisualEdit, removeVisualAdd, updateVisualAdd } from './edit-journal'
+import {
+  recordChartEdit,
+  recordVisualEdit,
+  removeVisualAdd,
+  updateVisualAdd,
+  replaceChartJournalEntry,
+  replaceJournalVisualAdd,
+} from './edit-journal'
 import { t } from './i18n/locale'
 import {
   captureVisualJournal,
@@ -261,10 +268,10 @@ async function runChartDataSync(ctx: VisualSyncContext): Promise<void> {
       const at = adds.findIndex((candidate) => candidate.id === visualId)
       const current = adds[at]
       if (current?.chart) {
-        adds[at] = {
+        replaceJournalVisualAdd(state.editJournal, visualId, {
           ...current,
           chart: applyChartStateEdit(current.chart, edit) as WorkbookVisualObject['chart'],
-        }
+        })
       }
     }
   }
@@ -353,14 +360,12 @@ export function applyChartEdit(ctx: VisualSyncContext, editKey: string, edit: Ch
     const after = state.editJournal.chartEdits.get(editKey)
     pushVisualUndo(runtime, {
       undo: () => {
-        if (before === undefined) state.editJournal.chartEdits.delete(editKey)
-        else state.editJournal.chartEdits.set(editKey, before)
+        replaceChartJournalEntry(state.editJournal, editKey, before)
         ctx.refreshLazyVisuals(state)
         queueChartRefResync(ctx, state, editKey)
       },
       redo: () => {
-        if (after === undefined) state.editJournal.chartEdits.delete(editKey)
-        else state.editJournal.chartEdits.set(editKey, after)
+        replaceChartJournalEntry(state.editJournal, editKey, after)
         ctx.refreshLazyVisuals(state)
         queueChartRefResync(ctx, state, editKey)
       },
@@ -379,17 +384,15 @@ export function applyChartEdit(ctx: VisualSyncContext, editKey: string, edit: Ch
       ...before,
       chart: applyChartStateEdit(before.chart, edit) as WorkbookVisualObject['chart'],
     }
-    adds[index] = after
+    replaceJournalVisualAdd(state.editJournal, editKey, after)
     pushVisualUndo(runtime, {
       undo: () => {
-        const at = state.editJournal.visualAdds.findIndex((candidate) => candidate.id === editKey)
-        if (at >= 0) state.editJournal.visualAdds[at] = before
+        replaceJournalVisualAdd(state.editJournal, editKey, before)
         ctx.refreshLazyVisuals(state)
         queueChartRefResync(ctx, state, editKey)
       },
       redo: () => {
-        const at = state.editJournal.visualAdds.findIndex((candidate) => candidate.id === editKey)
-        if (at >= 0) state.editJournal.visualAdds[at] = after
+        replaceJournalVisualAdd(state.editJournal, editKey, after)
         ctx.refreshLazyVisuals(state)
         queueChartRefResync(ctx, state, editKey)
       },
@@ -462,7 +465,7 @@ export function applyShapeEdit(
       }
       // Pending edits on a deleted chart would patch a removed part.
       if (visual.chartPath !== undefined) {
-        state.editJournal.chartEdits.delete(visual.chartPath)
+        replaceChartJournalEntry(state.editJournal, visual.chartPath, undefined)
       }
     }
     clearVisualSelection(visualId)

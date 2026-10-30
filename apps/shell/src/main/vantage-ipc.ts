@@ -1,3 +1,4 @@
+import { registerRecoveryRuntimeIpc } from './recovery-runtime-bootstrap'
 // Vantage Productivity addition (2026): user-selected, local-only inspection and recovery copies.
 import { extname, join, parse, resolve } from 'node:path'
 import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
@@ -13,7 +14,7 @@ import {
   restoreRecoveryCopy,
 } from '../../../../packages/electron-utils/src/recovery-vault'
 
-export function registerVantageIpc(getHost: () => BrowserWindow | null): void {
+export function registerVantageIpc(getHost: () => BrowserWindow | null, openRestored?: (path: string) => boolean): void {
   let inspection: AbortController | undefined
   let choosingInspection = false
   const root = join(app.getPath('userData'), 'recovery')
@@ -24,7 +25,8 @@ export function registerVantageIpc(getHost: () => BrowserWindow | null): void {
     }
     return host
   }
-  registerEngineeringIpc(hostFor)
+  registerRecoveryRuntimeIpc({ ipc: ipcMain, hostFor, getHost, terminal: cleanup => { app.once('will-quit', cleanup) } })
+  registerEngineeringIpc(hostFor, openRestored)
   const announced = new Map<string, string>()
   const saveWarnings = setInterval(() => {
     const host = getHost()

@@ -16,10 +16,15 @@ function sfntBuffer(data: Uint8Array): ArrayBuffer {
  * Resolves false when a newer adoption started meanwhile; the caller's document
  * is then stale and must not be applied.
  */
-export async function adoptEmbeddedFonts(
+export async function adoptEmbeddedFonts(fonts: readonly EmbeddedFont[] | undefined): Promise<boolean> {
+  return (await prepareEmbeddedFonts(fonts)).commit()
+}
+
+/** Loading is isolated; only the final synchronous source-adoption commit revokes old faces. */
+export async function prepareEmbeddedFonts(
   fonts: readonly EmbeddedFont[] | undefined,
-): Promise<boolean> {
-  if (typeof FontFace === 'undefined' || typeof document === 'undefined') return true
+): Promise<{commit():boolean}> {
+  if (typeof FontFace === 'undefined' || typeof document === 'undefined') return {commit:()=>true}
   const my = ++generation
   const loaded = await Promise.all(
     (fonts ?? []).map(async (f) => {
@@ -35,7 +40,10 @@ export async function adoptEmbeddedFonts(
       }
     }),
   )
-  if (my !== generation) return false
+  let committed = false
+  return {commit: () => {
+  if (committed || my !== generation) return false
+  committed = true
   const revoked = active
   for (const face of revoked) document.fonts.delete(face)
   active = []
@@ -56,4 +64,5 @@ export async function adoptEmbeddedFonts(
   // the measurement caches keyed on 'loadingdone' must be told by hand
   document.fonts.dispatchEvent(new Event('loadingdone'))
   return true
+  }}
 }

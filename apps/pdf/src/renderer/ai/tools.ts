@@ -52,6 +52,10 @@ export type TextInsertEdit = Partial<
 >
 
 export interface PdfAiDeps {
+  /** Reserves the complete tool, including its post-await authoring continuation. */
+  withWorkspaceWork?<Value>(action: () => Promise<Value>): Promise<Value>
+  /** Opaque authored-source identity; no path or imported metadata authority. */
+  workspaceIdentity?(): string
   doc(): PDFDocumentProxy | null
   fileName(): string
   pageCount(): number
@@ -3539,6 +3543,19 @@ export async function executePdfTool(
   call: AgentToolCall,
   signal?: AbortSignal,
 ): Promise<ToolExecution> {
+  const identity = deps.workspaceIdentity?.()
+  const document = deps.doc()
+  const bound = new Proxy(deps, { get(target, key, receiver) {
+    const value = Reflect.get(target, key, receiver)
+    if (typeof value !== 'function') return value
+    return (...args: unknown[]) => {
+      if (identity !== undefined ? target.workspaceIdentity?.() !== identity : target.doc() !== document) throw new Error('The PDF source changed during this tool. Earlier completed actions may remain; its later actions were refused.')
+      return Reflect.apply(value, target, args)
+    }
+  } })
+  return deps.withWorkspaceWork ? deps.withWorkspaceWork(() => executePdfToolCore(bound, call, signal)) : executePdfToolCore(bound, call, signal)
+}
+async function executePdfToolCore(deps: PdfAiDeps, call: AgentToolCall, signal?: AbortSignal): Promise<ToolExecution> {
   const input = call.input
   switch (call.name) {
     case 'read_pages':

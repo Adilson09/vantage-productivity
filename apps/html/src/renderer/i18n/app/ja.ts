@@ -1,6 +1,10 @@
 import type { zh } from './zh'
 
 export const ja = {
+  recoveryFailed: '復元用コピーを更新できませんでした：{error}。前のコピーを保持しています。',
+  recoveryRetry: '再試行',
+  recoveryRemote:
+    'このコピーは引き続き {count} 個のリモートリソースに依存し、インターネット接続が必要な場合があります。',
   redactMenuLabel: '選択範囲をAIから隠す',
   redactDialogDesc:
     '文章はドキュメントとファイルに残り、AI には下のマーカーしか見えません。名前をつけると、何を表すかAIが理解できます。',

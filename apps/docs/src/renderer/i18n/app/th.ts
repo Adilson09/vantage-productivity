@@ -541,4 +541,5 @@ export const th = {
   appMergeSourceLoaded: 'โหลด {name} แล้ว ({n} ระเบียน)',
   appMergeWritten: 'เขียนเอกสารแล้ว {n} ฉบับ',
   appMergeNothingToWrite: 'ไม่มีเอกสารให้เขียน',
+  appRecoveryFailed: 'บันทึกข้อมูลกู้คืนฉบับร่างไม่สำเร็จ: {error}',
 } satisfies Record<keyof typeof zh, string>

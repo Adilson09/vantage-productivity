@@ -14,6 +14,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           'workspace-audit-child': resolve(__dirname, 'src/main/workspace-audit-child.ts'),
+          'calendar-child': resolve(__dirname, 'src/main/calendar-child.ts'),
+          'html-draft-worker': resolve(__dirname, '../html/src/main/html-draft-worker.ts'),
         },
       },
     },

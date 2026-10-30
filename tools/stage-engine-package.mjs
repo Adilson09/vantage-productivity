@@ -4,10 +4,12 @@ import { createHash } from 'node:crypto'
 import { copyFile, lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { copyVeraPdfStage, prepareVeraPdfStage } from './stage-verapdf-runtime.mjs'
 
 async function sha256(path) {
   const digest = createHash('sha256')
-  for await (const chunk of createReadStream(path)) digest.update(chunk)
+  for await (const chunk of createReadStream(path, { highWaterMark: 1024 * 1024 }))
+    digest.update(chunk)
   return digest.digest('hex')
 }
 
@@ -49,13 +51,14 @@ async function atomicText(path, text) {
   await rename(temporary, path)
 }
 
-/** Stage only the validated qpdf distribution; never rebuild or modify app.asar. */
-export async function stageEnginePackage({ packageRoot, manifestPath }) {
+/** Stage validated distributions; never rebuild or modify app.asar. */
+export async function stageEnginePackage({ packageRoot, manifestPath, additionalManifestPath }) {
   packageRoot = resolve(packageRoot)
   manifestPath = resolve(manifestPath)
   await regularDirectory(packageRoot)
   const resources = within(packageRoot, join(packageRoot, 'resources'))
   await regularDirectory(resources)
+  const specialist = await prepareVeraPdfStage(additionalManifestPath)
   const manifestInfo = await lstat(manifestPath)
   if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink())
     throw new Error('The verified engine manifest must be a regular file')
@@ -94,7 +97,12 @@ export async function stageEnginePackage({ packageRoot, manifestPath }) {
   await mkdir(destinationRoot, { recursive: true })
   await regularDirectory(destinationRoot)
   const destinationPackage = within(destinationRoot, join(destinationRoot, parts[0]))
-  const allowed = new Set([parts[0], 'engines.json', 'THIRD-PARTY-NOTICES.txt'])
+  const allowed = new Set([
+    parts[0],
+    'engines.json',
+    'THIRD-PARTY-NOTICES.txt',
+    ...(specialist?.roots.map((root) => root.name) ?? []),
+  ])
   for (const entry of await readdir(destinationRoot))
     if (!allowed.has(entry))
       throw new Error('Unexpected existing engine entry; refusing to merge: ' + entry)
@@ -127,32 +135,46 @@ export async function stageEnginePackage({ packageRoot, manifestPath }) {
     if ((await sha256(file.path)) !== (await sha256(destination)))
       throw new Error('Copied file hash mismatch: ' + file.relative)
   }
+  const specialistCopy = await copyVeraPdfStage(specialist, destinationRoot)
   const manifest = {
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
     engines: {
       qpdf: { path: parts.join('/'), sha256: pin.sha256.toLowerCase(), validation: pin.validation },
+      ...(specialist ? { verapdf: specialist.pin } : {}),
     },
-    archives: (sourceManifest.archives ?? []).filter((entry) => entry.component === 'qpdf'),
+    archives: [
+      ...(sourceManifest.archives ?? []).filter((entry) => entry.component === 'qpdf'),
+      ...(specialist?.archives ?? []),
+    ],
   }
   await atomicText(join(destinationRoot, 'engines.json'), JSON.stringify(manifest, null, 2) + '\n')
   await atomicText(
     join(destinationRoot, 'THIRD-PARTY-NOTICES.txt'),
-    'Vantage optional PDF structural diagnostics\n\n' +
+    'Vantage optional local PDF engines\n\n' +
       'qpdf, unmodified official Windows distribution, Apache License 2.0.\n' +
       'Source and releases: https://github.com/qpdf/qpdf/releases\n' +
       `Full license: ${parts[0]}/LICENSE.txt\nUpstream/component notices: ${parts[0]}/NOTICE.md and included distribution files.\n` +
-      'The portable manifest pins the executable and records the verified upstream archive.\nStructural diagnostics do not certify rendering fidelity or accessibility.\n',
+      'The portable manifest pins the executable and records the verified upstream archive.\nStructural diagnostics do not certify rendering fidelity or accessibility.\n' +
+      (specialist?.notices ?? ''),
   )
   return {
     stagedAt: new Date().toISOString(),
     packageRoot,
     manifest: join(destinationRoot, 'engines.json'),
-    engineIds: ['qpdf'],
-    skippedEngineIds: Object.keys(sourceManifest.engines ?? {}).filter((id) => id !== 'qpdf'),
-    copiedAndVerifiedFiles: files.length,
-    distributionBytes: files.reduce((total, file) => total + file.bytes, 0),
+    engineIds: ['qpdf', ...(specialist ? ['verapdf'] : [])],
+    skippedEngineIds: [
+      ...new Set([
+        ...Object.keys(sourceManifest.engines ?? {}).filter((id) => id !== 'qpdf'),
+        ...(specialist?.skippedEngineIds ?? []),
+      ]),
+    ].filter((id) => !specialist || id !== 'verapdf'),
+    copiedAndVerifiedFiles: files.length + specialistCopy.files,
+    distributionBytes: files.reduce((total, file) => total + file.bytes, 0) + specialistCopy.bytes,
     executableSha256: await sha256(join(destinationRoot, ...parts)),
+    ...(specialist
+      ? { privateJavaSha256: specialist.pin.sha256, veraPdfJarSha256: specialist.pin.launch.sha256 }
+      : {}),
     manifestSha256: await sha256(join(destinationRoot, 'engines.json')),
     appBuildModified: false,
   }
@@ -170,15 +192,19 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       !value('--package') ||
       !value('--manifest') ||
       args.some(
-        (arg, index) => index % 2 === 0 && !['--package', '--manifest', '--evidence'].includes(arg),
-      )
+        (arg, index) =>
+          index % 2 === 0 &&
+          !['--package', '--manifest', '--additional-manifest', '--evidence'].includes(arg),
+      ) ||
+      new Set(args.filter((_, index) => index % 2 === 0)).size !== args.length / 2
     )
       throw new Error(
-        'Usage: node tools/stage-engine-package.mjs --package UNPACKED_ROOT --manifest VERIFIED_PORTABLE_MANIFEST [--evidence REPORT.json]',
+        'Usage: node tools/stage-engine-package.mjs --package UNPACKED_ROOT --manifest VERIFIED_QPDF_MANIFEST [--additional-manifest VERIFIED_VERAPDF_MANIFEST] [--evidence REPORT.json]',
       )
     const report = await stageEnginePackage({
       packageRoot: value('--package'),
       manifestPath: value('--manifest'),
+      additionalManifestPath: value('--additional-manifest'),
     })
     if (value('--evidence'))
       await writeFile(resolve(value('--evidence')), JSON.stringify(report, null, 2) + '\n')

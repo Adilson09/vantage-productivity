@@ -7,12 +7,19 @@
  * and never collide with a running install's single-instance lock.
  * Build first: `npm run build:all`.
  */
-import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import {
+  _electron as electron,
+  expect,
+  test,
+  type ElectronApplication,
+  type Page,
+} from '@playwright/test'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { runBoundedCleanup } from './cleanup-harness'
 
 export const SHELL_DIR = resolve(__dirname, '../apps/shell')
 export const ARTIFACTS_DIR = resolve(__dirname, 'artifacts')
@@ -30,6 +37,8 @@ interface LaunchOptions {
   settings?: Record<string, unknown>
   /** subdir of e2e/artifacts to store this launch's video in */
   videoDir: string
+  /** Disable optional recording for crash/restart or recorder-independent shutdown checks. */
+  recordVideo?: boolean
   /** absolute document path passed as argv, opened in an editor tab on launch */
   openFile?: string
   /** extra environment variables for the launched app */
@@ -91,7 +100,7 @@ export async function launchShell(options: LaunchOptions): Promise<LaunchedApp> 
     // (page.url() stays empty, no lifecycle events, evaluate hangs) — record
     // only where it works
     recordVideo:
-      process.platform === 'linux'
+      process.platform === 'linux' || options.recordVideo === false
         ? undefined
         : {
             dir: join(ARTIFACTS_DIR, options.videoDir),
@@ -154,40 +163,57 @@ async function waitForDocumentReady(
  * Open editor tabs trigger a native Save/Don't Save/Cancel dialog on close,
  * which would block app.close() forever — stub the dialog to answer
  * "Don't Save" (button index 1) so shutdown stays unattended. If close still
- * hangs, force-kill the process after 20s and wait for close to finish.
+ * hangs, bound each RPC/video phase and force-kill only the test-owned process.
+ * A soft cleanup failure preserves an assertion already unwinding through finally.
  */
 export async function closeAndSaveVideo(
   launched: LaunchedApp,
   name: string,
 ): Promise<string | undefined> {
   const video = launched.page.video()
-  await launched.app
-    .evaluate(({ dialog }) => {
-      dialog.showMessageBox = (async () => ({
-        response: 1,
-        checkboxChecked: false,
-      })) as typeof dialog.showMessageBox
-    })
-    .catch(() => {})
-  const child = launched.app.process()
-  const killTimer = setTimeout(() => {
-    // SIGTERM can enter Electron's graceful quit path and leave it alive.
-    // child.killed only means a signal was sent, not that the process exited.
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-  }, 20_000)
-  try {
-    await launched.app.close()
-  } finally {
-    clearTimeout(killTimer)
-  }
-  if (!video) return undefined
   const target = join(ARTIFACTS_DIR, 'videos', `${name}.webm`)
+  const receipt = await runBoundedCleanup({
+    child: launched.app.process(),
+    evaluate: () =>
+      launched.app.evaluate(({ dialog }) => {
+        dialog.showMessageBox = (async () => ({
+          response: 1,
+          checkboxChecked: false,
+        })) as typeof dialog.showMessageBox
+      }),
+    close: () => launched.app.close(),
+    ...(video
+      ? {
+          saveVideo: async () => {
+            await video.saveAs(target)
+            return target
+          },
+        }
+      : {}),
+  })
+  let attachmentTimer: ReturnType<typeof setTimeout> | undefined
   try {
-    await video.saveAs(target)
-    return target
-  } catch {
-    return undefined
+    await Promise.race([
+      test.info().attach(`cleanup-${name}`, {
+        body: JSON.stringify(receipt, null, 2),
+        contentType: 'application/json',
+      }),
+      new Promise<never>((_, reject) => {
+        attachmentTimer = setTimeout(
+          () => reject(new Error('Cleanup receipt attachment timed out.')),
+          5_000,
+        )
+      }),
+    ])
+  } catch (error) {
+    receipt.failures.push(`Cleanup receipt attachment failed: ${String(error).slice(0, 2_000)}`)
+    console.warn(`[cleanup:${name}] ${JSON.stringify(receipt)}`)
+  } finally {
+    clearTimeout(attachmentTimer)
   }
+  if (receipt.video.status === 'omitted') console.warn(`[cleanup:${name}] ${receipt.video.reason}`)
+  expect.soft(receipt.failures, `App cleanup failed; see cleanup-${name} attachment.`).toEqual([])
+  return receipt.video.path
 }
 
 export function screenshotPath(name: string): string {

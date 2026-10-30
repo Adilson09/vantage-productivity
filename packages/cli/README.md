@@ -97,7 +97,7 @@ ranges, available ids, sheet names, usage lines) come back as fields in
 
 ## Local calendars, contacts, databases and checkouts
 
-The local productivity commands use the same engines as the desktop tools. Calendars support iCalendar 2.0, embedded time zones and bounded daily/weekly/monthly/yearly recurrence; contact files use vCard 3.0/4.0. New exports refuse existing destinations. Vantage databases use SQLite with typed tables, optimistic record versions and isolated read-only queries; they do not import Access forms or VBA.
+The local productivity commands use the same engines as the desktop tools. Calendars support iCalendar 2.0, embedded definitions and all 597 names/aliases from pinned Moment-Timezone 0.6.6/tzdb 2026f. All seven RFC recurrence frequencies have explicit iteration, time and output limits. Contact files use vCard 3.0/4.0. New exports refuse existing destinations; an explicit workspace export can replace an acknowledged destination only with its matching fingerprint. Vantage databases use SQLite with typed tables, optimistic record versions and isolated read-only queries; they do not import Access forms or VBA.
 
 ```text
 vantage calendar read calendar.ics --json
@@ -105,6 +105,25 @@ vantage calendar expand calendar.ics --start 2026-10-29T00:00:00Z --end 2026-11-
 vantage calendar create events.json --out new-calendar.ics
 vantage calendar update calendar.ics --uid event-id --summary "Planning" --location "Room 2" --out edited-calendar.ics
 vantage calendar export calendar.ics --out unchanged-calendar.ics
+vantage calendar zones --json
+vantage calendar expand calendar.ics --start 2026-10-29T04:00:00Z --end 2026-10-30T04:00:00Z --view-time-zone America/Toronto --deadline 2000
+vantage calendar update calendar.ics --uid event-id --recurrence-id 2026-10-30T13:00:00Z --scope instance --patch patch.json --out moved-instance.ics
+vantage calendar mutate calendar.ics --mutation mutation.json --out changed-calendar.ics
+vantage calendar workspace-create calendar.sqlite --name "My calendar" --json
+vantage calendar workspace-list calendar.sqlite --json
+vantage calendar workspace-import calendar.sqlite --ics calendar.ics --name "Imported calendar" --json
+vantage calendar agenda calendar.sqlite --calendar calendar-id --start 2026-10-29T00:00:00Z --end 2026-11-29T00:00:00Z --view-time-zone America/Toronto --limit 500 --deadline 2000 --json
+vantage calendar event calendar.sqlite --calendar calendar-id --uid event-id --scope series --json
+vantage calendar workspace-mutate calendar.sqlite --calendar calendar-id --revision 1 --mutation mutation.json --queue-method REQUEST --json
+vantage calendar workspace-apply calendar.sqlite --calendar calendar-id --revision 2 --ics local-reply.ics --json
+vantage calendar workspace-export calendar.sqlite --calendar calendar-id --revision 3 --out exported.ics
+vantage calendar workspace-export calendar.sqlite --calendar calendar-id --revision 3 --out existing.ics --expected-origin-sha CURRENT_SHA256
+vantage calendar workspace-rename calendar.sqlite --calendar calendar-id --revision 3 --name "Renamed" --json
+vantage calendar outbox calendar.sqlite --calendar calendar-id --state pending --json
+vantage calendar outbox-export calendar.sqlite --item outbox-id --out prepared-request.ics
+vantage calendar outbox-discard calendar.sqlite --item outbox-id --json
+vantage calendar outbox-test calendar.sqlite --out new-local-test-directory --limit 1 --json
+vantage calendar workspace-remove calendar.sqlite --calendar calendar-id --revision 4 --json
 vantage contacts read contacts.vcf --json
 vantage contacts export contacts.json --out new-contacts.vcf
 vantage database create records.vdb --schema tables.json
@@ -120,6 +139,10 @@ vantage checkout renew --registry shared-locks.sqlite --lease private-lease.json
 vantage checkout publish --registry shared-locks.sqlite --lease private-lease.json --source prepared.md
 vantage checkout release --registry shared-locks.sqlite --lease private-lease.json
 ```
+
+Use the calendar UUIDs/revisions returned by `workspace-list`, original recurrence identifiers from `agenda`, and outbox UUIDs from `outbox` in place of the example identifiers. `mutation.json` is a discriminated `{type:"create",event:{...}}`, `{type:"update",uid,recurrenceId?,scope?,patch:{...}}`, `{type:"delete",uid,recurrenceId?,scope?}` or `{type:"respond",uid,recurrenceId?,attendee,participation}` object. `patch.json` contains changed event fields. Event inputs support date-only all-day values, UTC timestamps, or local wall timestamps with `timeZone`; all-day ends are exclusive. Set `disambiguation` to `earlier`, `later` or `compatible` only after choosing how to resolve a daylight-saving fold/gap; interactive defaults reject them. A later-fold nonrecurring instant is stored as UTC because ICS has no fold flag. Changing a series schedule/rule with detached overrides requires an explicit split; unsupported future-range rule/zone changes refuse without altering source.
+
+`queue-method` only prepares local PUBLISH/REQUEST/REPLY/CANCEL files. The outbox does not send, notify, authenticate or connect to a provider. `outbox-test` writes selected messages into a new local folder and records filesystem-test completion; its `delivered` count does not mean sent mail. An imported calendar keeps its original path/fingerprint when exporting a separate copy. Existing destination fingerprints and calendar revisions are checked before publication. The store is bounded to 100 calendars/20,000 VEVENT definitions, a 4 MiB source/occurrence response, and 256 active outbox entries/64 MiB. Limits fail visibly. See [the calendar engine contract](../productivity-engine/README.md#persistent-local-calendar-workspaces).
 
 `events.json` is an array of `{uid?,summary,start,end,description?,location?,recurrence?}`; new timestamps use UTC whole seconds or all-day dates. Contact JSON is an array of `{uid,name,emails,phones,organization}`. Table schemas are arrays of `{name,columns:[{name,type,required?}]}`, with `TEXT`, `INTEGER` or `REAL` types; record JSON contains field/value objects. Form JSON is `{name,table,fields}`. Query results state whether they were truncated; reports escape record text.
 

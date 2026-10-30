@@ -1,3 +1,4 @@
+import { markdownCloseStamp, mutateMarkdown } from '../close-lease'
 import type { Editor } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
@@ -97,6 +98,7 @@ export const DRAFT_META = 'aiDraft'
  * one undo step and the regular highlight.
  */
 export class DraftLanding {
+  private readonly source = markdownCloseStamp().source
   private from: number
   private to: number
   /** the text of the last tick that parsed and rendered */
@@ -125,7 +127,7 @@ export class DraftLanding {
 
   /** latest cumulative markdown; rendered on the next tick */
   update(markdown: string): void {
-    if (this.closed) return
+    if (this.closed || markdownCloseStamp().source !== this.source) return
     this.pending = markdown
     if (this.timer === null) this.timer = setTimeout(() => this.flush(), DRAFT_TICK_MS)
   }
@@ -148,13 +150,14 @@ export class DraftLanding {
    */
   finish(): string | null {
     if (this.closed) return this.rendered
+    if (markdownCloseStamp().source !== this.source) { this.closed = true; if (this.timer !== null) clearTimeout(this.timer); this.timer = null; this.editor.off('transaction', this.onTransaction); return null }
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
     this.flush()
     this.closed = true
     this.editor.off('transaction', this.onTransaction)
     if (this.to > this.from && !this.editor.isDestroyed) {
-      this.editor.view.dispatch(this.draftTr().delete(this.from, this.to))
+      mutateMarkdown(() => this.editor.view.dispatch(this.draftTr().delete(this.from, this.to)), this.source)
     }
     this.to = this.from
     return this.rendered
@@ -176,7 +179,7 @@ export class DraftLanding {
 
   private flush(): void {
     this.timer = null
-    if (this.closed || this.pending === null || this.editor.isDestroyed) return
+    if (this.closed || this.pending === null || this.editor.isDestroyed || markdownCloseStamp().source !== this.source) return
     const markdown = this.pending
     this.pending = null
     let next: PmNode[]
@@ -193,7 +196,7 @@ export class DraftLanding {
     if (keep === live.length && keep === next.length) return
     const at = keep > 0 ? live[keep - 1]!.end : this.from
     const wasVisible = this.follow && this.endVisible()
-    this.editor.view.dispatch(this.draftTr().replaceWith(at, this.to, next.slice(keep)))
+    if (!mutateMarkdown(() => this.editor.view.dispatch(this.draftTr().replaceWith(at, this.to, next.slice(keep))), this.source)) return
     this.to = at + next.slice(keep).reduce((size, n) => size + n.nodeSize, 0)
     if (wasVisible) this.scrollToEnd()
     else this.follow = false

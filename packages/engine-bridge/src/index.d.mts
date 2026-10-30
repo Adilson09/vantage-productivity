@@ -1,5 +1,5 @@
 export interface EngineOptions {
-  processEnv?: Record<string, string>
+  processEnv?: Record<string, string | undefined>
   paths?: Record<string, string>
   env?: NodeJS.ProcessEnv
   manifestPath?: string
@@ -15,6 +15,8 @@ export interface EngineAvailability {
   available: boolean
   path?: string
   executableSha256?: string
+  jarSha256?: string
+  launch?: { kind: 'java-jar'; jar: string; sha256: string }
   validation?: { status: string; detail: string }
   version?: string
   reason?: string
@@ -22,11 +24,36 @@ export interface EngineAvailability {
   url: string
   capabilities: string[]
 }
+export interface PdfProfileResult {
+  id: string
+  name: string
+  compliant: boolean
+  passedRules: number
+  failedRules: number
+  passedChecks: number
+  failedChecks: number
+}
+export interface PdfConformanceResult {
+  complete: boolean
+  requestedFlavour: string
+  profiles: PdfProfileResult[]
+  reason: string
+}
+export function parseVeraPdfReport(
+  result: EngineProcessResult,
+  options?: { flavour?: string; expectedPath?: string; expectedBytes?: number },
+): { status: 'pass' | 'fail' | 'incomplete'; conformance: PdfConformanceResult; report?: unknown }
+export const VERAPDF_PROFILES: ReadonlyArray<string>
 export interface EngineProcessResult {
   code: number | null
   stdout: string
   stderr: string
   stopped?: 'cancelled' | 'timeout' | 'output-limit' | 'unavailable'
+  cleanup?: {
+    status: 'confirmed' | 'pending'
+    processClosed: boolean
+    temporaryFilesRetained?: true
+  }
 }
 export const ENGINE_CATALOG: ReadonlyArray<{
   id: string
@@ -51,8 +78,11 @@ export function checkPdf(
     engine: string
     version?: string
     filePath: string
-    status: 'incomplete' | 'pass' | 'warning' | 'fail' | 'report'
+    status: 'incomplete' | 'pass' | 'warning' | 'fail'
     report?: unknown
+    conformance?: PdfConformanceResult
+    sourceSha256?: string
+    sourceUnchanged?: boolean
     scope: string
   }
 >

@@ -1,7 +1,7 @@
 /// "Save Image As…" for any image the renderer displays: data URLs are decoded
 /// in place, everything else (http(s), app asset schemes) goes through
 /// net.fetch so custom protocol handlers keep enforcing their own access rules.
-import { writeFile } from 'node:fs/promises'
+import { publishSelectedUserOutput } from './user-output-publication'
 import type { BrowserWindow } from 'electron'
 import { showSaveDialogWithMemory } from './dialog-memory'
 import { MAX_REMOTE_IMAGE_BYTES, readBodyCapped } from './remote-image'
@@ -116,7 +116,7 @@ export async function saveImageFromUrl(
       opts.fallbackDir,
     )
     if (picked.canceled || !picked.filePath) return { ok: false }
-    await writeFile(picked.filePath, bytes)
+    await publishSelectedUserOutput(picked.filePath, async()=>bytes)
     return { ok: true, path: picked.filePath }
   } catch (err) {
     return { ok: false, error: String(err) }

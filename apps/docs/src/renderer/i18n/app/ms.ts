@@ -548,4 +548,5 @@ export const ms = {
   appMergeSourceLoaded: '{name} dimuatkan ({n} rekod)',
   appMergeWritten: '{n} dokumen ditulis',
   appMergeNothingToWrite: 'Tiada untuk ditulis',
+  appRecoveryFailed: 'Pemulihan draf gagal: {error}',
 } satisfies Record<keyof typeof zh, string>

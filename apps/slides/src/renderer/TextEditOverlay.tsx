@@ -18,12 +18,19 @@ import {
   type FontSizeStep,
 } from '@vantage/pptx-ops/font-size'
 import { bulletRunText } from './bullet-presets'
+import type { SlidesPendingTarget, SlidesPendingText } from '../shared/slides-draft'
+import {
+  notifySlidesPendingChanged,
+  registerSlidesPendingEditor,
+  trackSlidesEditCommit,
+} from './slides-pending-edit'
 
 interface Props {
   node: ShapeRenderNode
   /** Viewport scale (RenderSlide.scale) — editing renders in viewport px; divided back out when committing to pt */
   scale: number
-  onCommit: (paragraphs: EditParagraph[]) => void
+  onCommit: (paragraphs: EditParagraph[]) => void | Promise<void>
+  recoveryTarget?: SlidesPendingTarget
   onCancel: () => void
   /** Tab/Shift+Tab (for table cell editing): commit current content and jump to the next/previous cell.
    * paragraphs=null means content unchanged (the host may skip committing and only jump). */
@@ -641,6 +648,7 @@ export function TextEditOverlay({
   node,
   scale,
   onCommit,
+  recoveryTarget,
   onCancel,
   onTabNav,
   onNextPlaceholder,
@@ -654,6 +662,8 @@ export function TextEditOverlay({
   onContextMenu,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
+  const composingRef = useRef(false)
+  const committingRef = useRef<Promise<void> | null>(null)
   const frameRef = useRef<HTMLDivElement>(null)
 
   // The edit frame lives inside the CSS-scaled stage: during a zoom gesture only the
@@ -770,13 +780,30 @@ export function TextEditOverlay({
     }
   }, [node, norm, caretPoint, replaceWith, selectAll])
 
-  const commit = () => {
+  const commit = (): Promise<void> => {
+    if (committingRef.current) return committingRef.current
     savedSel = null
     const div = ref.current
-    if (!div) return onCancel()
+    if (!div) {
+      onCancel()
+      return Promise.resolve()
+    }
     const paras = extractParagraphs(div, norm)
-    if (JSON.stringify(paras) === initialRef.current) return onCancel()
-    onCommit(paras)
+    if (JSON.stringify(paras) === initialRef.current) {
+      onCancel()
+      return Promise.resolve()
+    }
+    const pending = trackSlidesEditCommit(() => onCommit(paras))
+    committingRef.current = pending
+    void pending.then(
+      () => {
+        committingRef.current = null
+      },
+      () => {
+        committingRef.current = null
+      },
+    )
+    return pending
   }
 
   /** Current content for a navigate-away hand-off; null when unchanged so the host can skip the commit */
@@ -787,6 +814,34 @@ export function TextEditOverlay({
     return JSON.stringify(paras) === initialRef.current ? null : paras
   }
 
+  useEffect(() =>
+    registerSlidesPendingEditor({
+      capture: () => {
+        const root = ref.current
+        if (root) {
+          const walk = document.createTreeWalker(root, NodeFilter.SHOW_ALL)
+          let count = 0,
+            units = 0
+          for (let current = walk.nextNode(); current; current = walk.nextNode()) {
+            if (++count > 50000)
+              throw new Error('The active text is too complex for automatic recovery.')
+            if (current.nodeType === Node.TEXT_NODE) units += current.nodeValue?.length ?? 0
+            if (current instanceof Element)
+              for (const attribute of current.attributes) units += attribute.value.length
+            if (units > 512 * 1024)
+              throw new Error('The active text exceeds the automatic recovery limit.')
+          }
+        }
+        const paragraphs = changedParagraphs()
+        return paragraphs && recoveryTarget
+          ? ({ ...recoveryTarget, paragraphs } as SlidesPendingText)
+          : null
+      },
+      composing: () => composingRef.current,
+      commit,
+    }),
+  )
+
   // Targeted layout release (native listeners: React's onBeforeInput synthetic event does
   // not map to the real `beforeinput`). beforeinput sees the pre-mutation target ranges
   // (Backspace at a fragment edge deletes into the neighbor); the input listener covers
@@ -796,7 +851,10 @@ export function TextEditOverlay({
     if (!div) return
     const onBeforeInput = (ev: InputEvent) =>
       releaseFragmentsAtEdit(div, ev.getTargetRanges?.() ?? [])
-    const onInput = () => releaseFragmentsAtEdit(div)
+    const onInput = () => {
+      releaseFragmentsAtEdit(div)
+      notifySlidesPendingChanged()
+    }
     div.addEventListener('beforeinput', onBeforeInput)
     div.addEventListener('input', onInput)
     return () => {
@@ -874,6 +932,14 @@ export function TextEditOverlay({
         contentEditable
         spellCheck
         suppressContentEditableWarning
+        onCompositionStart={() => {
+          composingRef.current = true
+          notifySlidesPendingChanged()
+        }}
+        onCompositionEnd={() => {
+          composingRef.current = false
+          notifySlidesPendingChanged()
+        }}
         onBlur={(e) => {
           // Keep-edit controls (font size input, native color picker) take focus without committing;
           // they save/restore the selection and apply to it instead of element-level

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   notesBaselineAfterFlush,
+  notesDraftAfterOwnFlush,
   notesDraftIndex,
   retargetNotesDraft,
   startNotesDraft,
@@ -10,6 +11,37 @@ const deck = (...parts: string[]) => parts.map((partPath) => ({ partPath }))
 const draft = { index: 1, text: 'typing', base: 'old', partPath: 'ppt/slides/slide2.xml' }
 
 describe('retargetNotesDraft (vantage#900)', () => {
+  it('keeps typing resumed during an own flush and rebases only its stored baseline', () => {
+    const flushed = { ...draft, text: 'first submitted words' }
+    const resumed = startNotesDraft(
+      null,
+      { index: 1, text: 'old' },
+      1,
+      'first submitted words plus newer typing',
+      draft.partPath,
+    )
+    const rebased = notesDraftAfterOwnFlush(resumed, flushed, flushed.text)!
+    expect(rebased).toEqual({ ...resumed, base: flushed.text })
+    expect(resumed.base).toBe('old')
+    expect(
+      retargetNotesDraft(rebased, deck('ppt/slides/slide1.xml', draft.partPath), flushed.text),
+    ).toBe(rebased)
+  })
+  it('never rebases a peer edit, different part, changed baseline or normalized-different receipt', () => {
+    const flushed = { ...draft, text: 'first submitted words' }
+    const resumed = { ...draft, text: 'newer visible typing' }
+    expect(notesDraftAfterOwnFlush(resumed, flushed, 'peer replacement')).toBe(resumed)
+    const different = { ...resumed, partPath: 'ppt/slides/slide3.xml' }
+    expect(notesDraftAfterOwnFlush(different, flushed, flushed.text)).toBe(different)
+    const rebasedElsewhere = { ...resumed, base: 'another confirmed baseline' }
+    expect(notesDraftAfterOwnFlush(rebasedElsewhere, flushed, flushed.text)).toBe(rebasedElsewhere)
+    expect(
+      notesDraftAfterOwnFlush(resumed, { ...flushed, text: flushed.text + '\n' }, flushed.text),
+    ).toBe(resumed)
+    const unidentified = { index: 1, text: 'newer', base: 'old' }
+    expect(notesDraftAfterOwnFlush(unidentified, flushed, flushed.text)).toBe(unidentified)
+    expect(notesDraftAfterOwnFlush(null, flushed, flushed.text)).toBeNull()
+  })
   it('keeps a draft when the edited deck left that slide and its notes alone', () => {
     const slides = deck('ppt/slides/slide1.xml', 'ppt/slides/slide2.xml')
     expect(retargetNotesDraft(draft, slides, 'old')).toBe(draft)

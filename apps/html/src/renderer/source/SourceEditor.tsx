@@ -1,3 +1,4 @@
+import { htmlCloseLocked, htmlCloseStamp, mutateHtml, noteHtmlAuthoredMutation, registerHtmlCloseLock } from '../close-lease'
 import {
   forwardRef,
   useEffect,
@@ -6,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
 import { External, buildExtensions } from './cm-setup'
@@ -24,6 +25,7 @@ export interface SourceRange {
 }
 
 export interface SourceEditorHandle {
+  recoveryState(): { text: string; composing: boolean } | null
   /** replace the whole document without touching the undo history (file load) */
   setDoc(text: string): void
   /** replace the whole document as one undoable step (AI rewrite, rollback) */
@@ -97,25 +99,33 @@ export const SourceEditor = forwardRef<SourceEditorHandle, Props>(function Sourc
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
+    const closeCompartment=new Compartment()
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
         doc: initialText,
-        extensions: buildExtensions((v) => {
+        extensions: [closeCompartment.of([]),...buildExtensions((v) => {
           const head = v.state.selection.main.head
           const line = v.state.doc.lineAt(head)
           onCursorRef.current({ line: line.number, col: head - line.from + 1, pos: head })
-        }),
+        })],
       }),
       dispatchTransactions: (trs, v) => {
+        const apply=()=>{
         v.update(trs)
         if (trs.some((tr) => tr.docChanged && !tr.annotation(External))) {
           onChangeRef.current(v.state.doc.toString())
         }
         if (trs.some((tr) => tr.docChanged)) for (const l of docListeners.current) l()
+        }
+        if(!trs.some(tr=>tr.docChanged)){apply();return}
+        if(!htmlCloseLocked()){noteHtmlAuthoredMutation();apply();return}
+        const before=v.state,source=htmlCloseStamp().source
+        mutateHtml(()=>{if(viewRef.current!==v||v.state!==before)throw new Error('The pending source transaction cannot be rebased after close cancellation.');apply()},source)
       },
     })
     viewRef.current = view
+    const releaseCloseLock=registerHtmlCloseLock(()=>{view.dispatch({effects:closeCompartment.reconfigure([EditorState.readOnly.of(true),EditorView.editable.of(false)])});return()=>{if(viewRef.current===view)view.dispatch({effects:closeCompartment.reconfigure([])})}})
     findTargetRef.current = cmFindTarget(
       view,
       (listener) => {
@@ -125,6 +135,7 @@ export const SourceEditor = forwardRef<SourceEditorHandle, Props>(function Sourc
       onBeforeReplace,
     )
     return () => {
+      releaseCloseLock()
       view.destroy()
       viewRef.current = null
       findTargetRef.current = null
@@ -218,6 +229,10 @@ export const SourceEditor = forwardRef<SourceEditorHandle, Props>(function Sourc
         effects: highlight ? [addAiRanges.of(ranges)] : [],
       })
       return ranges
+    },
+    recoveryState() {
+      const view = viewRef.current
+      return view ? { text: view.state.doc.toString(), composing: view.composing } : null
     },
     clearHighlights() {
       viewRef.current?.dispatch({ effects: [clearAiRanges.of(null)] })

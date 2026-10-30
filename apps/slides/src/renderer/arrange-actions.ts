@@ -1,3 +1,4 @@
+import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
 /**
  * Element arrangement actions extracted from App.tsx: grouping,
  * ungrouping, align/distribute, z-order, and freehand ink. Functions read the
@@ -13,25 +14,31 @@ import { t } from './i18n/locale'
 const GROUPABLE = new Set(['text', 'shape', 'picture'])
 
 export async function groupSelected(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, selectedIds, current } = ctx
   if (!slide || selectedIds.length < 2) return
   const nodes = selectedIds
     .map((id) => slide.nodes.find((n) => n.sourceId === id))
     .filter(Boolean) as RenderNode[]
   if (nodes.some((n) => !GROUPABLE.has(n.type))) return
-  const result = await window.slidesApi.groupElements({
+  const result = await slidesActionWait(ctx, slidesActionApi(ctx).groupElements({
     slideIndex: current,
     sourceIds: selectedIds,
-  })
+  }))
   if (result) {
     ctx.applySlide(current, result.slide)
     ctx.setSelectedIds([result.groupId])
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusGrouped'))
   }
+
+  })
 }
 
 export async function ungroupSelected(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, selectedIds, current } = ctx
   if (!slide || selectedIds.length !== 1) return
   const id = selectedIds[0]!
@@ -39,10 +46,10 @@ export async function ungroupSelected(ctx: ActionCtx): Promise<void> {
   if (!node || node.type !== 'group') return
   const groupNode = node as GroupRenderNode
   const childIds = groupNode.children.map((c) => c.sourceId)
-  const updated = await window.slidesApi.ungroupElement({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).ungroupElement({
     slideIndex: current,
     sourceId: id,
-  })
+  }))
   if (updated) {
     ctx.applySlide(current, updated)
     const newIds = childIds.filter((cid) => updated.nodes.some((n) => n.sourceId === cid))
@@ -59,6 +66,8 @@ export async function ungroupSelected(ctx: ActionCtx): Promise<void> {
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusUngrouped'))
   }
+
+  })
 }
 
 /**
@@ -84,14 +93,16 @@ export function regroupCandidates(
 }
 
 export async function regroupSelected(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, selectedIds, current } = ctx
   if (!slide) return
   const memberIds = regroupCandidates(ctx.ungroupedSets, slide, selectedIds)
   if (!memberIds) return
-  const result = await window.slidesApi.groupElements({
+  const result = await slidesActionWait(ctx, slidesActionApi(ctx).groupElements({
     slideIndex: current,
     sourceIds: memberIds,
-  })
+  }))
   if (result) {
     ctx.applySlide(current, result.slide)
     ctx.setSelectedIds([result.groupId])
@@ -100,6 +111,8 @@ export async function regroupSelected(ctx: ActionCtx): Promise<void> {
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusGrouped'))
   }
+
+  })
 }
 
 export type AlignOp =
@@ -112,6 +125,8 @@ export type AlignOp =
  * - distribute: 'horizontal' | 'vertical' (≥3 elements)
  */
 export async function alignSelected(ctx: ActionCtx, op: AlignOp): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, selectedIds, current } = ctx
   if (!slide || selectedIds.length === 0) return
   const nodes = selectedIds
@@ -196,15 +211,17 @@ export async function alignSelected(ctx: ActionCtx, op: AlignOp): Promise<void> 
     rotationDeg: n.box.rotationDeg,
   }))
 
-  const updated = await window.slidesApi.batchEditTransform({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).batchEditTransform({
     slideIndex: current,
     fitWidthPx: FIT_WIDTH,
     items,
-  })
+  }))
   if (updated) {
     ctx.applySlide(current, updated)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 export async function reorderSelected(
@@ -212,20 +229,26 @@ export async function reorderSelected(
   sourceId: string,
   dir: ReorderDirection,
 ): Promise<void> {
-  const updated = await window.slidesApi.reorderElement({
+  return slidesActionWork(ctx, async()=>{
+
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).reorderElement({
     slideIndex: ctx.current,
     sourceId,
     dir,
-  })
+  }))
   if (updated) ctx.applySlide(ctx.current, updated)
+
+  })
 }
 
 // ── Draw (freehand ink): one stroke = one transparent PNG picture element ────
 
 export async function commitInk(ctx: ActionCtx, stroke: InkStroke): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
   const raster = rasterizeStroke(stroke)
-  const r = await window.slidesApi.addInk({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addInk({
     slideIndex: ctx.current,
     base64: raster.base64,
     xPx: raster.xPx,
@@ -234,8 +257,10 @@ export async function commitInk(ctx: ActionCtx, stroke: InkStroke): Promise<void
     hPx: raster.hPx,
     fitWidthPx: FIT_WIDTH,
     payload: raster.payload,
-  })
+  }))
   if (r) ctx.applySlide(ctx.current, r.slide)
+
+  })
 }
 
 /**
@@ -244,18 +269,22 @@ export async function commitInk(ctx: ActionCtx, stroke: InkStroke): Promise<void
  * them on the model.
  */
 export async function flipSelected(ctx: ActionCtx, axis: 'h' | 'v'): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (ctx.selectedIds.length === 0) return
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  const updated = await window.slidesApi.flipElements({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).flipElements({
     slideIndex: ctx.current,
     sourceIds: ctx.selectedIds,
     axis,
     ...(groupId ? { groupId } : {}),
-  })
+  }))
   if (updated) {
     ctx.applySlide(ctx.current, updated)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 /**
@@ -267,6 +296,8 @@ export async function flipSelected(ctx: ActionCtx, axis: 'h' | 'v'): Promise<voi
  * Connectors are skipped — their geometry is endpoint-based (no Transformer either).
  */
 export async function rotateSelected(ctx: ActionCtx, deltaDeg: number): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const items: Array<{
     sourceId: string
     box: { x: number; y: number; w: number; h: number; rotationDeg: number }
@@ -309,7 +340,7 @@ export async function rotateSelected(ctx: ActionCtx, deltaDeg: number): Promise<
   // elements keep the legacy batch semantics, in-group children go through the
   // editTransform-equivalent multi path (group-local boxes)
   const updated = items.every((it) => !it.groupId)
-    ? await window.slidesApi.batchEditTransform({
+    ? await slidesActionWait(ctx, slidesActionApi(ctx).batchEditTransform({
         slideIndex: ctx.current,
         fitWidthPx: FIT_WIDTH,
         items: items.map((it) => ({
@@ -320,8 +351,8 @@ export async function rotateSelected(ctx: ActionCtx, deltaDeg: number): Promise<
           hPx: it.box.h,
           rotationDeg: it.box.rotationDeg,
         })),
-      })
-    : await window.slidesApi.editTransformMulti({
+      }))
+    : await slidesActionWait(ctx, slidesActionApi(ctx).editTransformMulti({
         slideIndex: ctx.current,
         fitWidthPx: FIT_WIDTH,
         items: items.map((it) => ({
@@ -333,24 +364,34 @@ export async function rotateSelected(ctx: ActionCtx, deltaDeg: number): Promise<
           rotationDeg: it.box.rotationDeg,
           ...(it.groupId ? { groupId: it.groupId } : {}),
         })),
-      })
+      }))
   if (updated) {
     ctx.applySlide(ctx.current, updated)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 export async function eraseInk(ctx: ActionCtx, sourceIds: string[]): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!sourceIds.length) return
-  const updated = await window.slidesApi.deleteElements({ slideIndex: ctx.current, sourceIds })
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).deleteElements({ slideIndex: ctx.current, sourceIds }))
   if (updated) ctx.applySlide(ctx.current, updated)
+
+  })
 }
 
 export async function clearInk(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  await eraseInk(
+  await slidesActionWait(ctx, eraseInk(
     ctx,
     inkNodesOf(ctx.slide).map((e) => e.node.sourceId),
-  )
+  ))
   ctx.setStatus(t('appStatusInkCleared'))
+
+  })
 }

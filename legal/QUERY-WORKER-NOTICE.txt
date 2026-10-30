@@ -1,0 +1,26 @@
+Vantage native database query worker
+
+The worker is Vantage Productivity source licensed under the repository's
+Apache-2.0 license. Its matching Rust source, Cargo.toml and Cargo.lock are
+included under legal/query-worker in packaged distributions, with the binary
+source retained at src/bin/vantage-query-worker.rs as declared by Cargo.toml.
+This small legal source folder is not a complete independently reproducible
+native project: use the full matching release source archive for the remaining
+spreadsheet/native library, build configuration and license sources.
+
+It uses the existing pinned native dependency graph; no SQL is executed by V8:
+  rusqlite 0.40.2 — MIT
+    https://github.com/rusqlite/rusqlite/tree/v0.40.2
+    crate checksum: 23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3
+  libsqlite3-sys 0.38.2 — bundled SQLite core is public domain
+    https://crates.io/crates/libsqlite3-sys/0.38.2
+    crate checksum: f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8
+    https://www.sqlite.org/copyright.html
+  base64 0.22.1 and serde_json 1.0.150 — see Cargo.lock and the full
+    THIRD-PARTY-NOTICES.txt Rust section for licenses and transitive notices.
+
+The SQLite allocator limit applies to SQLite heap allocations. Separately
+bounded Rust input/result buffers and the native process itself are not part
+of that allocator limit. The helper opens databases read-only and never
+loads extensions. Missing helpers are reported explicitly; Node SQLite is
+not used as an unbounded fallback.

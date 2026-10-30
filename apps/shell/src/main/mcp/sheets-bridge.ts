@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import {rootQuitIntent} from '../root-quit-intent'
 import { ipcMain, webContents } from 'electron'
 import type { SheetsControl } from './tools/sheets-tools'
 
@@ -161,7 +162,9 @@ export function createSheetsControl(deps: SheetsBridgeDeps): SheetsControl {
   ): Promise<unknown> => {
     const wc = webContents.fromId(wcId)
     if (!wc || wc.isDestroyed()) throw new Error('the target spreadsheet is no longer open')
+    if(command!=='read_sheet')rootQuitIntent.assertMutationAvailable()
     await waitForReady(wcId)
+    if(command!=='read_sheet')rootQuitIntent.assertMutationAvailable()
     if (command === 'save_sheet') {
       const { path: requested, overwrite } = (payload ?? {}) as {
         path?: unknown
@@ -169,7 +172,7 @@ export function createSheetsControl(deps: SheetsBridgeDeps): SheetsControl {
       }
       if (typeof requested !== 'string') throw new Error('save_sheet requires a path')
       // same normalisation as the sheets save handler, so the authorized path is the written one
-      const target = /\.xlsx$/i.test(requested) ? requested : `${requested}.xlsx`
+      const target = /\.(xlsx|xlsm)$/i.test(requested) ? requested : `${requested}.xlsx`
       if (existsSync(target) && overwrite !== true) {
         throw new Error(`file already exists: ${target} (pass overwrite:true to replace it)`)
       }

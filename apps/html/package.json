@@ -41,7 +41,10 @@
     "react-dom": "^19.2.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.7",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "css-tree": "^3.2.1",
+    "es-module-lexer": "^2.3.1",
+    "acorn": "^8.18.0"
   },
   "author": "Vantage"
 }

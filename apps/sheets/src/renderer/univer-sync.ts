@@ -1,4 +1,5 @@
 import { keepActiveSheet } from './sheet-focus'
+import { nativeCalculationValue } from './native-calculation-value'
 /**
  * Univer runtime synchronization helpers for the sheets renderer.
  *
@@ -103,6 +104,7 @@ import {
   notePicturesFor,
   ooxmlTextRotationToUniver,
   plainCellValue,
+  restoreJournalVisual,
   recordHyperlinkEdit,
   recordSetRangeValues,
   toRecalcUserInput,
@@ -1913,6 +1915,17 @@ export function noteSidecarCrash(): void {
 /// One recovery at a time: a crash fails every in-flight read at once, and
 /// each would otherwise re-open the file separately.
 let sessionRecoveryInFlight: Promise<boolean> | null = null
+let sessionRecoveryState: LazyWorkbookState | null = null
+let recoverImmutableReader: ((state: LazyWorkbookState) => Promise<boolean>) | null = null
+
+/** App owns the source/ACK/adoption transaction; derived reads cannot select live disk bytes. */
+export function configureWorkbookReaderRecovery(
+  recover: (state: LazyWorkbookState) => Promise<boolean>,
+): () => void {
+  const previous = recoverImmutableReader
+  recoverImmutableReader = recover
+  return () => { if (recoverImmutableReader === recover) recoverImmutableReader = previous }
+}
 /// Workbooks already given one automatic recovery. A second loss in the same
 /// open workbook is a real failure, not the same crash seen twice — re-opening
 /// in a loop would leave the user with a pile of dead sessions.
@@ -1926,26 +1939,21 @@ const sessionRecoveryAttempted = new WeakSet<object>()
 /// leaving them would claim the windows are already loaded and keep the grid
 /// blank.
 export async function recoverSidecarSession(state: LazyWorkbookState): Promise<boolean> {
-  // The signal is consumed by the read that acts on it, so a crash noticed
-  // while no read is in flight still recovers on the next one.
-  sidecarCrashNotified = false
-  if (sessionRecoveryInFlight) return sessionRecoveryInFlight
-  if (sessionRecoveryAttempted.has(state)) return false
+  if (sessionRecoveryInFlight) return sessionRecoveryState === state ? sessionRecoveryInFlight : false
+  if (sessionRecoveryAttempted.has(state)) {
+    // Keep the existing terminal policy after one accepted replacement. A
+    // second crash is surfaced, not lent to an unrelated later session.
+    sidecarCrashNotified = false
+    return false
+  }
+  sessionRecoveryState = state
   sessionRecoveryInFlight = (async () => {
-    const path = state.file.path
-    // Nothing on disk to re-open (a new or imported workbook): leave the
-    // status message, only a manual open can recover these.
-    if (!path) return false
-    // The normal open path, not the merge-source one: a crash re-open is
-    // re-opening the workbook itself, so it must adopt the file as a normal
-    // session (with the usual csv/xls import handling) rather than opening a
-    // second merge input that nothing would ever close.
-    const reopened = await window.desktopApi.reopenWorkbook(path)
-    if (!reopened) return false
-    // Only a recovery that produced a session counts: a cancelled prompt or a
-    // transient open failure leaves the next crash signal free to retry.
+    if (!recoverImmutableReader || !(await recoverImmutableReader(state))) return false
+    // A prompt-blocked/refused attempt retains the notification. Cancel does
+    // not emit a second crash event: the next ordinary read retries this one.
+    // No background retry is scheduled here.
+    sidecarCrashNotified = false
     sessionRecoveryAttempted.add(state)
-    state.file = { ...state.file, sessionId: reopened.sessionId }
     for (const timer of state.retryTimers.values()) clearTimeout(timer)
     state.retryTimers.clear()
     state.loadedRanges.clear()
@@ -1961,6 +1969,7 @@ export async function recoverSidecarSession(state: LazyWorkbookState): Promise<b
     return false
   } finally {
     sessionRecoveryInFlight = null
+    sessionRecoveryState = null
   }
 }
 
@@ -2402,21 +2411,7 @@ export function restoreVisualJournal(
   chartPath: string | undefined,
   snapshot: VisualJournalSnapshot,
 ): void {
-  const adds = state.editJournal.visualAdds
-  const index = adds.findIndex((candidate) => candidate.id === visualId)
-  if (snapshot.add === undefined) {
-    if (index >= 0) adds.splice(index, 1)
-  } else if (index >= 0) {
-    adds[index] = snapshot.add
-  } else {
-    adds.push(snapshot.add)
-  }
-  if (snapshot.edit === undefined) state.editJournal.visualEdits.delete(visualId)
-  else state.editJournal.visualEdits.set(visualId, snapshot.edit)
-  if (chartPath !== undefined) {
-    if (snapshot.chartEdit === undefined) state.editJournal.chartEdits.delete(chartPath)
-    else state.editJournal.chartEdits.set(chartPath, snapshot.chartEdit)
-  }
+  restoreJournalVisual(state.editJournal, visualId, chartPath, snapshot)
 }
 
 /// Values for a chart data range, robust to streaming: journal edits win,
@@ -2732,7 +2727,8 @@ async function runFormulaRecalc(
     // A newer run superseded this one while the sidecar was evaluating.
     if (lazyWorkbookRef.current !== state || state.recalc.generation !== generation) return
     const overlay = new Map<string, PinnedClosureCell>()
-    let unsupported = 0
+    const nativeUnverified = result.cacheWritebackAllowed === false
+    let unsupported = nativeUnverified ? 1 : 0
     const journalCells = state.editJournal.cells.get(sheetId)
     const formulaTextBySheet = state.formulaText.get(sheetId)
     const sharedBySheet = state.sharedFormulaGroups.get(sheetId)
@@ -2746,6 +2742,10 @@ async function runFormulaRecalc(
       const formulaText =
         formulaTextBySheet?.get(key) ?? sharedBySheet?.textAt(cell.row, cell.column)
       const cached = cachedBySheet?.get(key)
+      if (nativeUnverified && hasUsableCachedValue(cached)) {
+        unsupported += 1
+        continue
+      }
       if (recalcResultKeepsCache(cell.formatted, formulaText, cached, edits.length > 0)) {
         unsupported += 1
         continue
@@ -2753,7 +2753,7 @@ async function runFormulaRecalc(
       candidates.push({
         key,
         cell: {
-          v: cell.number ?? cell.formatted,
+          v: nativeCalculationValue(cell),
           ...(cell.isError ? { isError: true } : {}),
         },
         cached,

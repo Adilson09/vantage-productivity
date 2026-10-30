@@ -5,7 +5,9 @@
  * Extracted from App.tsx; the App component passes a SaveContext built fresh
  * per call so refs and state never go stale.
  */
-import type { WorkbookFile, WorkbookFilterState } from '../shared/desktop-api'
+import type { WorkbookFile, WorkbookCloseCheckpointBinding, WorkbookWriteContext } from '../shared/desktop-api'
+import type { CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
+import type { SheetsPublicationFence } from './sheets-close-controller'
 import {
   carryLateJournalCells,
   isSheetRemoved,
@@ -59,7 +61,8 @@ export interface SaveContext {
       the AI conversation carries on rather than rehydrating from the store. */
   openLazyWorkbook: (
     opened: WorkbookFile,
-    opts?: { continueChat?: boolean; onInitialRangeLoaded?: () => void },
+    opts?: { continueChat?: boolean; onInitialRangeLoaded?: () => void;
+      canAdopt?: () => boolean; deferPreviousRelease?: boolean; writeContext?: WorkbookWriteContext },
   ) => void | Promise<boolean>
   /** pending-edit badge; the reopen resets it to 0 before late edits are carried over */
   setPendingEdits?: (count: number) => void
@@ -73,6 +76,14 @@ export interface SaveContext {
    * claiming nothing is hidden.
    */
   redactionStates?: () => readonly SheetRedactionState[] | null
+  /** Includes non-journal document state such as changed redaction marks. */
+  documentDirty?: () => boolean
+  /** App supplies a pre-snapshot fence; tests/legacy callers may omit it. */
+  publicationFence?: SheetsPublicationFence
+  closeTicket?: CloseLeaseTicket
+  writeContext?: WorkbookWriteContext
+  closeBinding?: WorkbookCloseCheckpointBinding
+  requireOwnedAdoption?: boolean
   /** Saving swaps the session and reinstalls the workbook, which resets the
       view to the first sheet's A1 — stash where the user was so the
       reinstall lands there instead. `viewRow`/`viewColumn` is the viewport's
@@ -96,65 +107,23 @@ const confirmedCsvSaves = new Set<string>()
 /** What a save actually did — the MCP bridge needs the outcome, fire-and-forget callers ignore it. */
 export interface SaveOutcome {
   ok: boolean
+  published?: boolean
+  adopted?: boolean
+  clean?: boolean
   /** absolute path of the written file when ok */
   path?: string
   /** the main-process refusal, verbatim, when the save request itself failed */
   error?: string
 }
 
-/**
- * mode 'recovery': assemble the very same payload but hand it to the
- * crash-recovery writer instead of the save pipeline — no dialogs, no status
- * messages, no session swap, the opened file untouched.
- *
- * explicitTarget: MCP save_sheet — a dialog-free Save As to an exact path
- * (main enforces the overwrite policy; the request carries it). Callers pass
- * mode 'save-as' with it.
- */
-export async function handleSave(
-  ctx: SaveContext,
-  mode: 'save' | 'save-as' | 'recovery',
-  quiet = false,
-  explicitTarget?: { path: string; overwrite: boolean },
-  defaultName?: string,
-): Promise<SaveOutcome> {
+/** One collector for Save, recovery, and exact close fingerprints/checkpoints. */
+export function collectWorkbookDocumentPayload(ctx: SaveContext) {
   const state = ctx.lazyWorkbookRef.current
-  // Captured at save start (the Ctrl+S moment): the post-save session swap
-  // reinstalls the workbook and would otherwise bounce the view to A1.
-  const viewAtSave = (() => {
-    const workbook = ctx.univerRef.current?.univerAPI.getActiveWorkbook()
-    const sheet = workbook?.getActiveSheet()
-    if (!workbook || !sheet) return null
-    // A whole-column selection survives a row deletion with its old endRow,
-    // and building its FRange then throws "Range is out of bounds" — the
-    // view stash is cosmetic and must never block the save.
-    const range = (() => {
-      try {
-        return workbook.getActiveRange()
-      } catch {
-        return null
-      }
-    })()
-    // Capture the scroll anchor, not getVisibleRange: scrollToCell feeds the
-    // same sheetViewStartRow/Column channel, so the restore round-trips
-    // exactly — including RTL sheets (see getScrollAnchor). Fall back to the
-    // selection cell while no scroll render controller exists yet.
-    const anchor = getScrollAnchor(workbook, sheet)
-    const row = range?.getRow() ?? 0
-    const column = range?.getColumn() ?? 0
-    return {
-      sheetId: sheet.getSheetId(),
-      row,
-      column,
-      viewRow: anchor?.row ?? row,
-      viewColumn: anchor?.column ?? column,
-    }
-  })()
-  if (!state) {
-    if (mode !== 'recovery') ctx.setMessage(t('appDemoNoSave'))
-    return { ok: false }
-  }
+  if (!state) throw new Error('The spreadsheet is not ready for a complete document snapshot.')
   const edits = toSaveEdits(state.editJournal)
+  const dirtyAtSnapshot =
+    ctx.documentDirty?.() ??
+    (journalSize(state.editJournal) > 0 || state.file.restoredFromRecovery === true)
   const cellsAtSave = snapshotJournalCells(state.editJournal)
   const bulkConstantFills = toSaveBulkConstantFills(state.editJournal)
   const structuralOps = toSaveStructuralOps(state.editJournal)
@@ -168,15 +137,7 @@ export async function handleSave(
   const sparklineAdditions = toSaveSparklineAdds(state.editJournal)
   const sheetOps = toSaveSheetOps(state.editJournal)
   const hyperlinkEdits = toSaveHyperlinkEdits(state.editJournal)
-  let filterStates: WorkbookFilterState[]
-  try {
-    filterStates = collectFilterStates(ctx.univerRef.current, state)
-  } catch (error: unknown) {
-    const failed = error instanceof Error ? error.message : t('appFilterSnapshotFailed')
-    ctx.setMessage(failed)
-    if (mode !== 'recovery' && !quiet) showToast(failed, 'error')
-    return { ok: false }
-  }
+  const filterStates = collectFilterStates(ctx.univerRef.current, state)
   const cfStates = collectCfStates(ctx.univerRef.current, state)
   const dvStates = collectDvStates(ctx.univerRef.current, state)
   const sheetProtections = [...state.editJournal.sheetProtection]
@@ -262,6 +223,139 @@ export async function handleSave(
       sheetName: state.sheetName,
       marks: state.marks.map((mark) => ({ ...mark })),
     })) ?? null
+  const sheetOrder =
+    sheetOps.length === 0
+      ? []
+      : (ctx.univerRef.current?.univerAPI
+          .getActiveWorkbook()
+          ?.getSheets()
+          .map((sheet) => sheet.getSheetId()) ?? [])
+  return { state, dirtyAtSnapshot, cellsAtSave, payload: {
+    sessionId: state.file.sessionId,
+    mode: 'save-as' as const,
+    edits,
+    bulkConstantFills,
+    structuralOps,
+    chartEdits,
+    visualEdits,
+    visualAdditions,
+    cellImageAdditions,
+    tableAdditions,
+    tableEdits,
+    pivotAdditions,
+    sheetOps,
+    sheetOrder,
+    filterStates,
+    hyperlinkEdits,
+    cfStates,
+    dvStates,
+    pageSetupStates,
+    noteStates,
+    pivotCacheRefreshPaths,
+    pivotRefreshUpdates,
+    sheetProtections,
+    sparklineAdditions,
+    formulaValues,
+    definedNamesState,
+    themeState,
+    workbookProtectionState,
+    protectedRangeStates,
+    redactionStates,
+  } }
+}
+
+/**
+ * mode 'recovery': assemble the very same payload but hand it to the
+ * crash-recovery writer instead of the save pipeline — no dialogs, no status
+ * messages, no session swap, the opened file untouched.
+ *
+ * explicitTarget: MCP save_sheet — a dialog-free Save As to an exact path
+ * (main enforces the overwrite policy; the request carries it). Callers pass
+ * mode 'save-as' with it.
+ */
+export async function handleSave(
+  ctx: SaveContext,
+  mode: 'save' | 'save-as' | 'recovery' | 'checkpoint',
+  quiet = false,
+  explicitTarget?: { path: string; overwrite: boolean },
+  defaultName?: string,
+): Promise<SaveOutcome> {
+  const background = mode === 'recovery' || mode === 'checkpoint'
+  const state = ctx.lazyWorkbookRef.current
+  // Captured at save start (the Ctrl+S moment): the post-save session swap
+  // reinstalls the workbook and would otherwise bounce the view to A1.
+  const viewAtSave = (() => {
+    const workbook = ctx.univerRef.current?.univerAPI.getActiveWorkbook()
+    const sheet = workbook?.getActiveSheet()
+    if (!workbook || !sheet) return null
+    // A whole-column selection survives a row deletion with its old endRow,
+    // and building its FRange then throws "Range is out of bounds" — the
+    // view stash is cosmetic and must never block the save.
+    const range = (() => {
+      try {
+        return workbook.getActiveRange()
+      } catch {
+        return null
+      }
+    })()
+    // Capture the scroll anchor, not getVisibleRange: scrollToCell feeds the
+    // same sheetViewStartRow/Column channel, so the restore round-trips
+    // exactly — including RTL sheets (see getScrollAnchor). Fall back to the
+    // selection cell while no scroll render controller exists yet.
+    const anchor = getScrollAnchor(workbook, sheet)
+    const row = range?.getRow() ?? 0
+    const column = range?.getColumn() ?? 0
+    return {
+      sheetId: sheet.getSheetId(),
+      row,
+      column,
+      viewRow: anchor?.row ?? row,
+      viewColumn: anchor?.column ?? column,
+    }
+  })()
+  if (!state) {
+    if (!background) ctx.setMessage(t('appDemoNoSave'))
+    return { ok: false }
+  }
+  let captured: ReturnType<typeof collectWorkbookDocumentPayload>
+  try { captured = collectWorkbookDocumentPayload(ctx) }
+  catch (error) {
+    const failed = error instanceof Error ? error.message : t('appFilterSnapshotFailed')
+    if (!background) ctx.setMessage(failed)
+    if (!background && !quiet) showToast(failed, 'error')
+    return { ok: false, error: failed }
+  }
+  const { dirtyAtSnapshot, cellsAtSave } = captured
+  const {
+    edits,
+    bulkConstantFills,
+    structuralOps,
+    chartEdits,
+    visualEdits,
+    visualAdditions,
+    cellImageAdditions,
+    tableAdditions,
+    tableEdits,
+    pivotAdditions,
+    sheetOps,
+    sheetOrder,
+    filterStates,
+    hyperlinkEdits,
+    cfStates,
+    dvStates,
+    pageSetupStates,
+    noteStates,
+    pivotCacheRefreshPaths,
+    pivotRefreshUpdates,
+    sheetProtections,
+    sparklineAdditions,
+    formulaValues,
+    definedNamesState,
+    themeState,
+    workbookProtectionState,
+    protectedRangeStates,
+    redactionStates,
+  } = captured.payload
   // The gateway fails closed when these additions ride with structural or
   // sheet changes (their coordinates entangle). Instead of bouncing the
   // user, hold them back and save in two sequential phases: structure
@@ -278,12 +372,14 @@ export async function handleSave(
     structuralOps.length > 0 ? tableEdits.filter((edit) => edit.area !== undefined) : []
   const phaseOneTableEdits = tableEdits.filter((edit) => !heldTableEdits.includes(edit))
   const heldNames = hasShifts ? definedNamesState : null
+  const nativeDocumentSave = typeof window.desktopApi?.checkpointWorkbookDocument === 'function'
   const splitSave =
-    heldPivots.length > 0 ||
-    heldTables.length > 0 ||
-    heldTableEdits.length > 0 ||
-    heldNames !== null
-  if (splitSave) {
+    !nativeDocumentSave &&
+    (heldPivots.length > 0 ||
+      heldTables.length > 0 ||
+      heldTableEdits.length > 0 ||
+      heldNames !== null)
+  if (splitSave && mode !== 'checkpoint') {
     const addedSheetIds = state.editJournal.sheets.added
     const strandedHeld = [
       ...heldPivots.flatMap((pivot) => [pivot.sheetId, pivot.sourceSheetId]),
@@ -333,7 +429,13 @@ export async function handleSave(
   // An unsaved new workbook's Save is its first Save As, journal or not: a
   // quiet AutoSave may already have moved the work into the backing file.
   const firstSaveAs = mode === 'save' && state.file.unsavedNew === true && !quiet
-  if (total === 0 && mode !== 'save-as' && !restoreWriteBack && !firstSaveAs) {
+  if (
+    total === 0 &&
+    mode !== 'save-as' &&
+    mode !== 'checkpoint' &&
+    !restoreWriteBack &&
+    !firstSaveAs
+  ) {
     if (mode !== 'recovery') ctx.setMessage(t('appNoEditsToSave'))
     return { ok: false }
   }
@@ -349,7 +451,7 @@ export async function handleSave(
     // hatch unreachable. Streamed sessions that insist on CSV still get the
     // message (and are asked again next time instead of being remembered).
     if (!confirmedCsvSaves.has(csvPath)) {
-      const choice = await window.desktopApi.confirmCsvSave()
+      const choice = await window.desktopApi.confirmCsvSave(ctx.writeContext, ctx.closeTicket)
       if (choice === 'cancel') {
         ctx.setMessage(t('appSaveCanceled'))
         return { ok: false }
@@ -385,13 +487,6 @@ export async function handleSave(
   }
   // Sheet ops rebuild workbook.xml's tab list, so the save needs the final
   // on-screen order.
-  const sheetOrder =
-    sheetOps.length === 0
-      ? []
-      : (ctx.univerRef.current?.univerAPI
-          .getActiveWorkbook()
-          ?.getSheets()
-          .map((sheet) => sheet.getSheetId()) ?? [])
   if (sheetOps.length > 0 && sheetOrder.length === 0) {
     if (mode !== 'recovery') {
       ctx.setMessage(t('appSheetOrderReadFailed'))
@@ -405,16 +500,21 @@ export async function handleSave(
   try {
     staged = await stageEditsForSave(window.desktopApi, state.file.sessionId, edits)
   } catch (error: unknown) {
-    if (mode === 'recovery') return { ok: false }
+    if (background) return { ok: false }
     const message = stripIpcErrorWrapper(error instanceof Error ? error.message : '')
     const failed = message || t('appSaveFailed')
     ctx.setMessage(failed)
     if (!quiet) showToast(failed, 'error')
     return { ok: false }
   }
+  if (ctx.lazyWorkbookRef.current !== state) {
+    await abortStagedEditsTransfer(window.desktopApi, state.file.sessionId, staged.editsTransferId)
+    return { ok: false }
+  }
   const payload = {
     sessionId: state.file.sessionId,
-    mode: mode === 'recovery' ? ('save' as const) : mode,
+    mode:
+      mode === 'checkpoint' ? ('save-as' as const) : mode === 'recovery' ? ('save' as const) : mode,
     // MCP explicit-path save: main skips the Save-As dialog and enforces the
     // overwrite policy from these two fields
     ...(explicitTarget
@@ -450,10 +550,23 @@ export async function handleSave(
     protectedRangeStates,
     redactionStates,
   }
+  if (mode === 'checkpoint') {
+    try {
+      await window.desktopApi.checkpointWorkbookDocument(payload, dirtyAtSnapshot, ctx.closeBinding, ctx.writeContext)
+      return { ok: ctx.lazyWorkbookRef.current === state }
+    } catch {
+      await abortStagedEditsTransfer(
+        window.desktopApi,
+        state.file.sessionId,
+        staged.editsTransferId,
+      )
+      return { ok: false }
+    }
+  }
   if (mode === 'recovery') {
     // Best-effort; a failure only means this tick's copy is skipped — but an
     // unconsumed transfer must not sit in main-process memory until expiry.
-    const written = await window.desktopApi.writeWorkbookRecovery(payload).catch(async () => {
+    const written = await window.desktopApi.writeWorkbookRecovery(payload, ctx.writeContext).catch(async () => {
       await abortStagedEditsTransfer(
         window.desktopApi,
         state.file.sessionId,
@@ -486,7 +599,7 @@ export async function handleSave(
       visualAdditions,
       cellImageAdditions,
       tableAdditions: splitSave && heldTables.length > 0 ? [] : tableAdditions,
-      tableEdits: phaseOneTableEdits,
+      tableEdits: nativeDocumentSave ? tableEdits : phaseOneTableEdits,
       pivotAdditions: splitSave && heldPivots.length > 0 ? [] : pivotAdditions,
       sheetOps,
       sheetOrder,
@@ -506,7 +619,7 @@ export async function handleSave(
       workbookProtectionState,
       protectedRangeStates,
       redactionStates,
-    })
+    }, ctx.closeTicket, ctx.writeContext)
     if (ctx.lazyWorkbookRef.current !== state) return { ok: false }
     if (result.canceled) {
       if (result.csvSaveAsPath !== undefined) {
@@ -518,6 +631,8 @@ export async function handleSave(
             univerRef: ctx.univerRef,
             lazyWorkbookRef: ctx.lazyWorkbookRef,
             setMessage: ctx.setMessage,
+            writeContext: ctx.writeContext,
+            closeTicket: ctx.closeTicket,
             requestSaveAs: () => void handleSave(ctx, 'save-as', quiet),
           },
           result.csvSaveAsPath,
@@ -528,6 +643,15 @@ export async function handleSave(
       return { ok: false }
     }
     if (!splitSave) {
+      if (ctx.requireOwnedAdoption && !result.ownedPublication)
+        return { ok: false, published: true, adopted: false, clean: false,
+          error: 'The save has no owned publication adoption token.' }
+      if (ctx.publicationFence && !ctx.publicationFence.canAdopt()) {
+        if (result.ownedPublication) await window.desktopApi.rejectWorkbookPublication(result.ownedPublication.id)
+        return { ok: false, published: true, adopted: false, clean: false,
+          ...(result.file.path ? { path: result.file.path } : {}),
+          error: 'An earlier revision was published; newer accepted edits remain in the current workbook.' }
+      }
       // Cross-save undo: carry the Univer undo stack over the session swap.
       // Saves with sheet add/remove/rename ops opt out — sheets created this
       // session get their real ids assigned by the gateway, so carried
@@ -540,13 +664,16 @@ export async function handleSave(
           : null,
       )
       ctx.stashViewRestore(viewAtSave)
-      if (!(await reopenCarryingLateEdits(ctx, state, cellsAtSave, result.file))) {
-        return { ok: false }
+      const offered = result.ownedPublication ? { ...result.file, ownedOpen: result.ownedPublication } : result.file
+      if (!(await reopenCarryingLateEdits(ctx, state, cellsAtSave, offered))) {
+        return { ok: false, published: true, adopted: false, clean: false }
       }
       const saved = t('appSaved')
       ctx.setMessage(saved)
       if (!quiet) showToast(saved)
-      return { ok: true, ...(result.file.path !== undefined ? { path: result.file.path } : {}) }
+      return { ok: true, published: true, adopted: true,
+        clean: !(ctx.documentDirty?.() ?? (journalSize(ctx.lazyWorkbookRef.current?.editJournal ?? state.editJournal) > 0)),
+        ...(result.file.path !== undefined ? { path: result.file.path } : {}) }
     }
     // Two-phase saves reopen twice with structural entanglement; v1 does not
     // carry undo history across them (and clears any stale stash).
@@ -590,7 +717,7 @@ export async function handleSave(
         // performed. Sending them again would rewrite the part under the names
         // this session loaded — the pre-rename ones — and orphan it.
         redactionStates: null,
-      })
+      }, ctx.closeTicket, ctx.writeContext)
       if (ctx.lazyWorkbookRef.current !== state) return { ok: false }
       if (second.canceled) {
         ctx.stashViewRestore(viewAtSave)
@@ -642,9 +769,18 @@ async function reopenCarryingLateEdits(
   cellsAtSave: JournalCellSnapshot,
   file: WorkbookFile,
 ): Promise<boolean> {
-  if ((await ctx.openLazyWorkbook(file, { continueChat: true })) === false) return false
+  if (ctx.publicationFence && !ctx.publicationFence.canAdopt()) return false
+  if ((await ctx.openLazyWorkbook(file, { continueChat: true,
+    ...(ctx.publicationFence ? { canAdopt: ctx.publicationFence.canAdopt } : {}),
+    deferPreviousRelease: Boolean(file.ownedOpen),
+    writeContext: ctx.writeContext,
+  })) === false) return false
   const next = ctx.lazyWorkbookRef.current
   if (!next || next === state) return true
+  // The integrated path admits all producers before publication, rejects changed
+  // full payloads and adopts only after its replacement checkpoint ACK. Legacy
+  // callers retain the existing cell-carry behavior until they migrate.
+  if (ctx.requireOwnedAdoption) return true
   if (carryLateJournalCells(state.editJournal, cellsAtSave, next.editJournal) > 0) {
     ctx.setPendingEdits?.(journalSize(next.editJournal))
   }

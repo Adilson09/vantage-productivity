@@ -20,6 +20,8 @@ export function RedactionLayer({
   markLabel,
   onCommit,
   onTooSmall,
+  selectedId,
+  onSelect,
 }: {
   active: boolean
   geom: PageGeom
@@ -32,6 +34,8 @@ export function RedactionLayer({
   onCommit: (rect: RedactionInput['rect']) => void
   /** Called when a drag is discarded for falling below the minimum size. */
   onTooSmall?: () => void
+  selectedId?: string | null
+  onSelect?: (id: string) => void
 }) {
   const [live, setLive] = useState<RedactionInput['rect'] | null>(null)
   const start = useRef<[number, number] | null>(null)
@@ -88,6 +92,8 @@ export function RedactionLayer({
           className="pdf-redaction-mark"
           style={pdfRectToCss(geom, mark.rect, scale)}
           aria-label={markLabel}
+          aria-selected={mark.id === selectedId}
+          onClick={(event) => { event.stopPropagation(); onSelect?.(mark.id) }}
         />
       ))}
       {live && (

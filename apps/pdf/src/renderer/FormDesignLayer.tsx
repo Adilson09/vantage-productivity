@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { usePdfEditorState, discardPdfPendingEditors } from './pdf-draft'
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -587,15 +588,17 @@ export function FormFieldProps({
   onCancel: () => void
 }): ReactElement {
   const input = field.pending?.input
-  const [exportValue, setExportValue] = useState(input?.exportValue ?? '')
-  useEffect(() => setExportValue(input?.exportValue ?? ''), [input?.exportValue])
+  const [exportValue, setExportValue] = usePdfEditorState(`form-export:${field.id}`, 'form-field', input?.exportValue ?? '')
+  const previousExportValue = useRef(input?.exportValue ?? '')
+  useEffect(() => { const next = input?.exportValue ?? '', previous = previousExportValue.current; if (previous !== next) setExportValue(current => current === previous ? next : current); previousExportValue.current = next }, [input?.exportValue])
   const commitExportValue = () => {
     const next = exportValue.trim()
     if (next === (input?.exportValue ?? '')) return
-    if (!onPatch({ exportValue: next })) setExportValue(input?.exportValue ?? '')
+    if (onPatch({ exportValue: next })) discardPdfPendingEditors({ id: `form-export:${field.id}` })
   }
-  const [optionsText, setOptionsText] = useState((input?.options ?? []).join('\n'))
-  useEffect(() => setOptionsText((input?.options ?? []).join('\n')), [input?.options])
+  const [optionsText, setOptionsText] = usePdfEditorState(`form-options:${field.id}`, 'form-field', (input?.options ?? []).join('\n'))
+  const previousOptionsText = useRef((input?.options ?? []).join('\n'))
+  useEffect(() => { const next = (input?.options ?? []).join('\n'), previous = previousOptionsText.current; if (previous !== next) setOptionsText(current => current === previous ? next : current); previousOptionsText.current = next }, [input?.options])
   const commitOptions = () => {
     const next = [
       ...new Set(
@@ -606,7 +609,7 @@ export function FormFieldProps({
       ),
     ]
     if (next.join('\n') === (input?.options ?? []).join('\n')) return
-    if (!onPatch({ options: next })) setOptionsText((input?.options ?? []).join('\n'))
+    if (onPatch({ options: next })) discardPdfPendingEditors({ id: `form-options:${field.id}` })
   }
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation()
   return (

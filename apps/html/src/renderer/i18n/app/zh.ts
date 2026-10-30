@@ -1,5 +1,8 @@
 /** app strings, zh: defines the key set every other locale shard must match. */
 export const zh = {
+  recoveryFailed: '无法更新恢复副本：{error}。已保留之前的副本。',
+  recoveryRetry: '重试恢复',
+  recoveryRemote: '此恢复副本仍依赖 {count} 个远程资源，可能需要联网。',
   redactMenuLabel: '把选中的内容对 AI 隐藏',
   redactDialogDesc:
     '这段文字会留在文档和文件里，AI 读到的却是下面的标记。给它起个名字，AI 才知道它是什么。',

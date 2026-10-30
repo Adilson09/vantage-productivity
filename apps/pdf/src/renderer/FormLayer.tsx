@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
+import { usePdfEditorState } from './pdf-draft'
 import { Dropdown } from '@vantage/ui'
 import { pdfRectToCss } from './annotations'
 import type { PageGeom } from './annotations'
@@ -255,7 +256,7 @@ function DateInput({
   onFocus?: (widget: FormWidget) => void
   onEdit: (value: FormValueInput) => void
 }): ReactElement {
-  const [draft, setDraft] = useState<string | null>(null)
+  const [draft, setDraft] = usePdfEditorState<string | null>(`form-date:${widget.id}`, 'date-field', null)
   const [rejected, setRejected] = useState(false)
   const pickerRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -299,9 +300,8 @@ function DateInput({
           if (draft !== null) {
             const normalized = normalizeDateInput(draft, format)
             if (normalized === null) setRejected(true)
-            else commit(normalized)
+            else { commit(normalized); setDraft(null) }
           }
-          setDraft(null)
         }}
       />
       {picker && (

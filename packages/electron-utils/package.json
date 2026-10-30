@@ -7,6 +7,7 @@
   "description": "Shared helpers for the Electron main processes (no Electron dependency, pure TS)",
   "exports": {
     ".": "./src/index.ts",
+    "./recovery-bootstrap": "./src/recovery-bootstrap.ts",
     "./atomic-write": "./src/atomic-write.ts",
     "./disk-watch": "./src/disk-watch.ts",
     "./drop-open": "./src/drop-open.ts",
@@ -21,7 +22,18 @@
     "./renderer-protocol": "./src/renderer-protocol.ts",
     "./renderer-scheme": "./src/renderer-scheme.ts",
     "./safe-external-url": "./src/safe-external-url.ts",
-    "./safe-remote-url": "./src/safe-remote-url.ts"
+    "./safe-remote-url": "./src/safe-remote-url.ts",
+    "./close-lease": "./src/close-lease.ts",
+    "./close-cleanup": "./src/close-cleanup.ts",
+    "./close-cleanup-runtime": "./src/close-cleanup-runtime.ts",
+    "./close-custody-providers": "./src/close-custody-providers.ts",
+    "./renderer-close-barrier": "./src/renderer-close-barrier.ts",
+    "./authored-cell": "./src/authored-cell.ts",
+    "./draft-journal": "./src/draft-journal.ts",
+    "./publish-exclusive": "./src/publish-exclusive.ts",
+    "./native-close-admission": "./src/native-close-admission.ts",
+    "./file-publication-exclusion": "./src/file-publication-exclusion.ts",
+    "./user-output-publication": "./src/user-output-publication.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

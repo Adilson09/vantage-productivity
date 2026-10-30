@@ -545,4 +545,5 @@ export const pt = {
   appMergeSourceLoaded: '{name} carregado ({n} registros)',
   appMergeWritten: '{n} documentos gravados',
   appMergeNothingToWrite: 'Não há nada a gravar',
+  appRecoveryFailed: 'Falha na recuperação do rascunho: {error}',
 } satisfies Record<keyof typeof zh, string>

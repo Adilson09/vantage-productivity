@@ -312,7 +312,7 @@ export const en = {
   appPivotSheetNoStructural:
     'This sheet contains a PivotTable — structural changes are not supported yet.',
   appDeleteSpanFormulas:
-    'A formula references only the deleted rows/columns — update or remove it first.',
+    'A formula cannot be updated safely after this deletion. Change or remove that formula first.',
   appIconSetUnsupported:
     'This icon combination cannot be saved to xlsx — please choose a different icon set.',
   appFullLoadFilterTitle: 'This action needs the full workbook',

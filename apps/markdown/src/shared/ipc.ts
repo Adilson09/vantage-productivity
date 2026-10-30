@@ -1,3 +1,5 @@
+import type { CloseLeaseStamp, CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
+import type { MarkdownAssetCleanupReport, MarkdownCloseLease, MarkdownSourceState } from './markdown-close-lease'
 import type { AiPanelPrefs } from '@vantage/ui'
 import type { Lang } from '@vantage/i18n'
 import type {
@@ -13,6 +15,8 @@ export const MAX_PASTED_IMAGE_BYTES = 50 * 1024 * 1024
 export const MARKDOWN_CHANNELS = {
   consumePending: 'markdown:consume-pending',
   readFile: 'markdown:read-file',
+  readPublication: 'markdown:read-publication',
+  publicationLoaded: 'markdown:publication-loaded',
   resolveWikiLinks: 'markdown:resolve-wiki-links',
   /** remember the `#fragment` of a wiki link, so the note opens on its heading */
   rememberWikiFragment: 'markdown:remember-wiki-fragment',
@@ -30,6 +34,10 @@ export const MARKDOWN_CHANNELS = {
   save: 'markdown:save',
   saveRequest: 'markdown:save-request',
   saveRequestAck: 'markdown:save-request-ack',
+  closeSourceState: 'markdown:close-source-state',
+  closeLeaseClaim: 'markdown:close-lease-claim',
+  closeLeaseCancel: 'markdown:close-lease-cancel',
+  closeLeaseRelease: 'markdown:close-lease-release',
   readTextRequest: 'markdown:read-text-request',
   readTextResult: 'markdown:read-text-result',
   dirtyChanged: 'markdown:dirty-changed',
@@ -98,6 +106,7 @@ export interface WikiNoteEntry {
 }
 
 export interface WikiCreateNoteRequest {
+  closeSource?: CloseLeaseStamp
   /**
    * The link's target as written, alias dropped: `Note`, `folder/Note`,
    * `Note#Heading`. The fragment rides back on the answer for the caller to
@@ -217,7 +226,34 @@ export interface AutoSaveDefault {
 
 export type SaveMode = 'save' | 'saveAs'
 
+export interface MarkdownSaveTicket {
+  requestId: string
+  requireClean: boolean
+  sourcePath: string | null
+  targetPath?: string
+  closeLease?: CloseLeaseTicket
+  intent?: 'save' | 'discard' | 'clean'
+  approved?: CloseLeaseStamp
+}
+
+export interface MarkdownSaveCompletion {
+  closeLease?: MarkdownCloseLease
+  requestId: string
+  /** At least one physical file publication completed for this request. */
+  published: boolean
+  /** The renderer still owns the document activation that received the request. */
+  current: boolean
+  /** Final editor state, after all save work and pending-source flushes, is persisted. */
+  clean: boolean
+  error?: string
+}
+
 export interface SaveMarkdownRequest {
+  publicationId?:string|null
+  /** Background publication may defer during a main-owned native close decision. */
+  automatic?: boolean
+  requestId?: string
+  closeSource?: CloseLeaseStamp
   /** full document text (frontmatter included) */
   text: string
   /** Authored image paths in document order; the main process validates every path. */
@@ -240,10 +276,11 @@ export interface SaveMarkdownRequest {
   overwrite?: boolean
 }
 
-export type SaveMarkdownResult =
+export type SaveMarkdownResult = MarkdownAssetCleanupReport & (
   | {
       ok: true
       path: string
+      publicationId?:string
       /** Save As may relocate local images into the new document's assets directory. */
       imageRewrites?: Array<{ from: string; to: string }>
       /** Actual persisted source after Save As image rewrites. */
@@ -251,6 +288,7 @@ export type SaveMarkdownResult =
     }
   | { ok: true; canceled: true }
   | { ok: false; error: string; conflict?: true }
+)
 
 /** AI channels are app-wide shared ipcMain handlers (shell registers via docs-main registerAiIpc); pass-through only */
 export const AI_CHANNELS = {
@@ -363,6 +401,8 @@ export interface MarkdownApi {
   headlessExportDone(result: { ok: boolean; error?: string }): void
   /** Read the file as UTF-8 text. Only paths granted to this view are allowed */
   readFile(path: string): Promise<string>
+  readPublication(path:string):Promise<{text:string;publicationId:string}>
+  publicationLoaded(request:{publicationId:string;path:string;stamp:CloseLeaseStamp}):void
   /**
    * Write the document text. With a granted file path the write is atomic
    * (tmp + rename); untitled documents and mode 'saveAs' go through a main-process
@@ -370,13 +410,17 @@ export interface MarkdownApi {
    */
   save(request: SaveMarkdownRequest): Promise<SaveMarkdownResult>
   /** Mirror unsaved-changes state to the main process; drives the save prompt before closing a tab/window */
-  setDirty(dirty: boolean): void
+  setDirty(dirty: boolean, stamp:CloseLeaseStamp): void
   /** Periodic crash journal, including unnamed documents; independent of saved versions. */
-  writeDraft(text: string): Promise<{ ok: true } | { ok: false; error: string }>
+  writeDraft(request: {text:string;stamp:CloseLeaseStamp}): Promise<{ ok: true } | { ok: false; error: string }>
   /** Shell menu Save / Save As → renderer serializes and calls save() with the given mode */
-  onSaveRequest(handler: (mode: SaveMode) => void): () => void
-  /** Resolves a menu-save waiter when doSave exits without ever invoking save() (busy/loading) */
-  sendSaveRequestAck(ok: boolean): void
+  onSaveRequest(handler: (mode: SaveMode, request: MarkdownSaveTicket) => void): () => void
+  /** Final renderer completion; the physical save invoke must never await this message. */
+  sendSaveRequestAck(result: MarkdownSaveCompletion): void
+  closeSourceState(state: MarkdownSourceState): void
+  claimCloseLease(ticket: CloseLeaseTicket): Promise<boolean>
+  cancelCloseLease(ticket: CloseLeaseTicket, reason: string): Promise<void>
+  onCloseLeaseRelease(handler: (ticket: CloseLeaseTicket) => void): () => void
   /**
    * Main process asks for the live document text — the MCP read of an open
    * document, unsaved edits included; reply through sendReadTextResult.
@@ -397,12 +441,12 @@ export interface MarkdownApi {
    * returns the relative path to author into the markdown, or null when the
    * document is untitled or the picker was canceled.
    */
-  pickImage(): Promise<string | null>
+  pickImage(closeSource?: CloseLeaseStamp): Promise<string | null>
   /**
    * Persist pasted/dropped image bytes into `assets/` next to the open
    * document; returns the relative path to author, or null when untitled.
    */
-  saveImage(data: { base64: string; ext: string }): Promise<string | null>
+  saveImage(data: { base64: string; ext: string; closeSource?: CloseLeaseStamp }): Promise<string | null>
   /**
    * The configured image host (vantage#388), or null when none was ever
    * saved. Pasted/dropped images upload here first and fall back to the
@@ -419,7 +463,7 @@ export interface MarkdownApi {
    * success; ok=false with a message when the host rejected the upload or is
    * not configured (the renderer then keeps the local-copy fallback).
    */
-  uploadImage(data: { base64: string; ext: string; name?: string }): Promise<{
+  uploadImage(data: { base64: string; ext: string; name?: string; closeSource?: CloseLeaseStamp }): Promise<{
     ok: boolean
     url?: string
     error?: string
@@ -485,7 +529,7 @@ export interface MarkdownApi {
   /** Download an image URL in the main process (CORS-free, scheme/target validated) */
   fetchImage(url: string): Promise<{ base64: string; mime: string } | null>
   /** Genspark cloud image generation (markdown-owned channel, gsk login required) */
-  aiGenerateImage(op: { prompt: string; aspectRatio?: string }): Promise<{
+  aiGenerateImage(op: { prompt: string; aspectRatio?: string; closeSource?: CloseLeaseStamp }): Promise<{
     url?: string
     error?: string
   }>

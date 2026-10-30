@@ -1,3 +1,15 @@
+import { withPinnedAssetOutput, withSelectedUserOutput } from '@vantage/electron-utils/user-output-publication'
+import { configureRecoveryProfile, initializeStandaloneRecovery, requireRecoveryRuntime } from '../../../../packages/electron-utils/src/recovery-bootstrap'
+import {PublicationReadRegistry,observePublicationTarget,absentPublicationTarget} from '../../../../packages/electron-utils/src/document-publication'
+import {NativeCloseAdmission} from '../../../../packages/electron-utils/src/native-close-admission'
+import {HtmlPresentationClose} from './html-presentation-close'
+import {discardDraftJournal} from '../../../../packages/electron-utils/src/draft-journal'
+import {beginCloseCleanup} from '../../../../packages/electron-utils/src/close-cleanup-runtime'
+import type {CloseCleanupHandle,CloseCleanupAdmission} from '../../../../packages/electron-utils/src/close-cleanup'
+import {HtmlPreviewSnapshots,type HtmlPreviewFrame} from './html-preview-snapshots'
+import { HtmlCloseCoordinator,runHtmlNativeClose,htmlClosePermit,type HtmlClosePrepareOptions } from './html-close-lease'
+import type { HtmlAssetCleanupReport,HtmlCloseReceipt,HtmlNativeCloseReceipt } from '../shared/html-close-lease'
+import type { CloseLeaseTicket, CloseLeaseStamp } from '../../../../packages/electron-utils/src/close-lease'
 import {
   existsSync,
   mkdirSync,
@@ -7,9 +19,9 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   BrowserWindow,
@@ -47,6 +59,10 @@ import { generateImageTool, documentMediaRoots } from '@vantage/ai-search'
 import { parseFileToText } from '@vantage/file-parse'
 import { convertHtmlToDocx } from '../../../../packages/html2docx/src'
 import { atomicWriteFile } from './atomic-write'
+import { HtmlDraftController } from './html-draft-controller'
+import { readHtmlReloadSource } from './html-reload-read'
+import { HtmlDraftMaterializer } from './html-draft-isolated'
+import type { HtmlDraftAssetGrant } from './html-draft-assets'
 import {
   createDocumentDiskWatcher,
   type DocumentDiskWatcher,
@@ -54,7 +70,6 @@ import {
 import { ElectronBrowserDriver } from '../../../../packages/html2docx/src/drivers/electron'
 import {
   copyImageIntoOwnedAssets,
-  discardPendingOwnedAssets,
   extractHtmlAssetReferences,
   isInDocDir,
   pendingOwnedAssetsForDocument,
@@ -861,17 +876,99 @@ const allowedByWc = new Map<number, Set<string>>()
 /** Current save target per view; absent = untitled document */
 const savePathByWc = new Map<number, string>()
 const diskWatcherByWc = new Map<number, DocumentDiskWatcher>()
+const publicationReads=new PublicationReadRegistry<number>()
 /** Unsaved-changes flags mirrored from the renderer; drives the save prompt before closing a tab/window */
 const dirtyByWc = new Set<number>()
 /** Latest buffer text pushed by each renderer; served by html-preview:// to the preview iframe */
 const previewTextByWc = new Map<number, string>()
 const closeSaveWaiters = new Map<number, (ok: boolean) => void>()
 /** Resolvers for menu-triggered saves, resolved when the renderer's save invoke completes */
-const saveWaiters = new Map<number, (ok: boolean) => void>()
+const previewSnapshots=new HtmlPreviewSnapshots({urlFor:previewUrlFor})
+function currentTopSender(event:Electron.IpcMainInvokeEvent|Electron.IpcMainEvent):boolean{return !event.sender.isDestroyed()&&event.senderFrame===event.sender.mainFrame}
+function htmlExportSourceProof(event:Electron.IpcMainInvokeEvent){
+ const session=closeCoordinator.session(event.sender.id),source=closeCoordinator.source(event.sender.id),path=savePathByWc.get(event.sender.id)
+ return{sourcePaths:path?[path]:[],assertCurrent:()=>{if(!currentTopSender(event)||closeCoordinator.session(event.sender.id)!==session||closeCoordinator.source(event.sender.id)!==source||savePathByWc.get(event.sender.id)!==path)throw new Error('The loaded HTML source changed before export publication')}}
+}
+
+function actualPreviewFrame(owner:number,name:string):HtmlPreviewFrame|null{
+ const contents=webContents.fromId(owner);if(!contents||contents.isDestroyed())return null
+ try{const matches=contents.mainFrame.frames.filter(frame=>!frame.detached&&frame.name===name);if(matches.length>1)throw new Error('The preview frame name is ambiguous.');if(!matches.length)return null;const frame=matches[0]!;return {name:frame.name,url:frame.url,processId:frame.processId,routingId:frame.routingId,frameTreeNodeId:frame.frameTreeNodeId,frameToken:frame.frameToken}}catch{return null}
+}
+function pinActualPreviewFrames(owner:number):void{try{const contents=webContents.fromId(owner);previewSnapshots.pinFrameUrls(owner,contents&&!contents.isDestroyed()?contents.mainFrame.frames.filter(frame=>!frame.detached).map(frame=>frame.url):[])}catch{previewSnapshots.pinFrameUrls(owner,[])}}
+const htmlCleanup=new Map<number,Promise<void>>()
+interface HtmlCloseCustody {owner:number;ticket:CloseLeaseTicket;receipt:HtmlCloseReceipt;handle?:CloseCleanupHandle;admission?:CloseCleanupAdmission;cancelProducer:()=>void;canceled:boolean;removed:boolean}
+const htmlCustodyByTicket=new Map<string,HtmlCloseCustody>()
+const htmlCustodyByReceipt=new WeakMap<HtmlCloseReceipt,HtmlCloseCustody>()
+function updateHtmlCustody(record:HtmlCloseCustody):void{if(!record.handle)return;const status=record.handle.status();record.receipt.journalCleanup=status;if(record.receipt.cleanup)record.receipt.cleanup.journal=status.phase==='complete'?'complete':status.phase==='retained'?'retained':status.phase==='canceled'?'canceled':status.phase==='running'||status.phase==='committing'?'running':'staged'}
+function cancelHtmlCustody(record:HtmlCloseCustody,reason:string):void{if(record.removed)return;record.canceled=true;record.admission?.cancel(reason);record.handle?.cancel(reason);record.cancelProducer();updateHtmlCustody(record);htmlCustodyByTicket.delete(record.ticket.id)}
+function releaseHtmlCustody(owner:number,ticket:CloseLeaseTicket,reason:string):void{const record=htmlCustodyByTicket.get(ticket.id);if(!record||record.owner!==owner||record.ticket.sequence!==ticket.sequence||record.ticket.source!==ticket.source)return;if(!record.removed)cancelHtmlCustody(record,reason);else htmlCustodyByTicket.delete(ticket.id)}
+const htmlDeferredRelease=new Map<number,Array<{ticket:CloseLeaseTicket;reason:string}>>()
+const presentationCloses=new HtmlPresentationClose({alive:owner=>webContents.fromId(owner)?.isDestroyed()===false,sourceOwner:owner=>presentOwnerByWc.get(owner)})
+const nativeCloseAdmission=new NativeCloseAdmission<number>()
+const closeCoordinator=new HtmlCloseCoordinator({
+  alive:owner=>allowedByWc.has(owner)&&!!webContents.fromId(owner)&&!webContents.fromId(owner)!.isDestroyed(),
+  pathAllowed:(owner,path)=>allowedByWc.get(owner)?.has(path)===true,
+  send:(owner,mode,request)=>webContents.fromId(owner)!.send(HTML_CHANNELS.saveRequest,mode,request.requestId,request.targetPath,request),
+  validate:(owner,ticket,stamp,result)=>{try{const proof=result.previewProof?previewSnapshots.getProof(owner,result.previewProof):null;return !!proof&&previewSnapshots.ready(owner,ticket.id,result.previewProof,stamp,actualPreviewFrame(owner,proof.name))}catch{return false}},
+  release:(owner,ticket,reason)=>{releaseHtmlCustody(owner,ticket,reason);previewSnapshots.release(owner,ticket.id);if(htmlCleanup.has(owner)){htmlDeferredRelease.set(owner,[...(htmlDeferredRelease.get(owner)??[]),{ticket,reason}]);return}const contents=webContents.fromId(owner);if(contents&&!contents.isDestroyed())contents.send(HTML_CHANNELS.closeLeaseRelease,ticket,reason)},
+})
+function assertNoHtmlCleanup(owner:number):void{if(htmlCleanup.has(owner))throw new Error('Approved HTML discard cleanup is still finishing; a new writer was not delivered.')}
+function registerHtmlMutationHandle<Args extends unknown[],Result>(channel:string,handler:(event:Electron.IpcMainInvokeEvent,...args:Args)=>Result|Promise<Result>):void{
+  ipcMain.handle(channel,async(event,...args:Args)=>{if(!currentTopSender(event))throw new Error('The source sender frame is obsolete.');assertNoHtmlCleanup(event.sender.id);const candidate=args[0] as {closeSource?:CloseLeaseStamp}|CloseLeaseStamp|undefined;const source=candidate&&typeof candidate==='object'&&'source'in candidate?candidate as CloseLeaseStamp:(candidate&&typeof candidate==='object'?candidate as {closeSource?:CloseLeaseStamp}:undefined)?.closeSource;const work=closeCoordinator.beginMutation(event.sender.id,undefined,source);try{return await handler(event,...args)}finally{closeCoordinator.finishMutation(work)}})
+}
 /** Resolvers for MCP reads of the live document source, resolved by the renderer's reply */
 const readTextWaiters = new Map<number, (result: { text: string } | { error: string }) => void>()
 /** one read per tab at a time: concurrent callers share this promise */
 const readTextInFlight = new Map<number, Promise<string>>()
+
+const htmlDraftMaterializer = new HtmlDraftMaterializer(join(__dirname, 'html-draft-worker.js'))
+const htmlDraftGrants = new Map<number, HtmlDraftAssetGrant>()
+const htmlDraftActivationIntent = new Map<number, number>()
+async function htmlAssetGrant(documentPath: string | null): Promise<HtmlDraftAssetGrant> {
+  const directory = documentPath ? dirname(documentPath) : null
+  return {
+    documentPath,
+    directory,
+    realDirectory: directory ? await realpath(directory) : null,
+    files: [],
+  }
+}
+const htmlDraftController = new HtmlDraftController({
+  recoveryRoot: () => join(app.getPath('userData'), 'recovery'),
+  isLive: (owner) =>
+    allowedByWc.has(owner) &&
+    !presentOwnerByWc.has(owner) &&
+    !!webContents.fromId(owner) &&
+    !webContents.fromId(owner)!.isDestroyed(),
+  canWritePath: (owner, path) => allowedByWc.get(owner)?.has(path) === true,
+  prepare: (owner, documentPath, bytes) => {
+    const grant = htmlDraftGrants.get(owner)
+    if (!grant || grant.documentPath !== documentPath)
+      throw new Error(
+        'The active HTML asset grant changed; the previous recovery copy is retained.',
+      )
+    return htmlDraftMaterializer.prepare(bytes, grant)
+  },
+})
+
+/** Recovery-panel and close-prompt discard invalidate the live producer before storage awaits. */
+export async function discardActiveHtmlDraft(id: string): Promise<boolean> {
+  for (const owner of allowedByWc.keys()) {
+    if (htmlDraftController.tokenFor(owner) !== id) continue
+    await discardHtmlDraft(owner)
+    return true
+  }
+  return false
+}
+async function discardHtmlDraft(owner: number): Promise<void> {
+  const token = htmlDraftController.tokenFor(owner)
+  closeCoordinator.cancel(owner)
+  await htmlDraftController.discardCurrent(owner)
+  htmlDraftGrants.delete(owner)
+  htmlDraftActivationIntent.set(owner, (htmlDraftActivationIntent.get(owner) ?? 0) + 1)
+  const wc = webContents.fromId(owner)
+  if (token && wc && !wc.isDestroyed()) wc.send(HTML_CHANNELS.draftDiscarded, token)
+}
 
 /** Fired after a save lands on a NEW path (untitled first save / Save As) — the shell syncs tab title, recents, projects */
 let fileSavedHook: ((wc: WebContents, path: string) => void) | null = null
@@ -946,7 +1043,7 @@ const presentWindows = new Set<BrowserWindow>()
 function closePresentViewsOf(ownerWcId: number): void {
   for (const [id, owner] of presentOwnerByWc) {
     if (owner !== ownerWcId) continue
-    presentOwnerByWc.delete(id)
+    presentationCloses.destroy(id);presentOwnerByWc.delete(id)
     const wc = webContents.fromId(id)
     if (!wc || wc.isDestroyed()) continue
     if (presentHooks.closeTab?.(wc)) continue
@@ -1022,14 +1119,25 @@ export function htmlFilePath(webContentsId: number): string | undefined {
 }
 
 /** The file was renamed on disk — re-grant the new path and tell the renderer */
-export function htmlFileRenamed(contents: WebContents, oldPath: string, newPath: string): void {
+export async function htmlFileRenamed(contents: WebContents, oldPath: string, newPath: string): Promise<void> {
   const wcId = contents.id
+  if(savePathByWc.get(wcId)!==oldPath)return
+  closeCoordinator.cancel(wcId,undefined,'source renamed')
+  allowedByWc.get(wcId)?.delete(oldPath)
+  const publicationSession=closeCoordinator.session(wcId)
+  await publicationReads.rebind(wcId,publicationSession,oldPath,newPath,()=>!contents.isDestroyed()&&closeCoordinator.session(wcId)===publicationSession&&savePathByWc.get(wcId)===oldPath)
+
   if (savePathByWc.get(wcId) === oldPath) savePathByWc.set(wcId, newPath)
   if (openPathByWc.get(wcId) === oldPath) openPathByWc.set(wcId, newPath)
   const allowed = allowedByWc.get(wcId)
-  if (allowed?.has(oldPath)) allowed.add(newPath)
-  if (savePathByWc.get(wcId) === newPath) void diskWatcherByWc.get(wcId)?.watch(newPath)
-  void renameOwnedAssetDocument(oldPath, newPath).catch((error) => {
+  if (allowed) allowed.add(newPath)
+  htmlDraftController.rename(wcId, oldPath, newPath)
+  const grant = htmlDraftGrants.get(wcId)
+  if (grant?.documentPath === oldPath && resolve(dirname(oldPath)) === resolve(dirname(newPath)))
+    htmlDraftGrants.set(wcId, { ...grant, documentPath: newPath })
+  else if (grant?.documentPath === oldPath) htmlDraftGrants.delete(wcId)
+  if (savePathByWc.get(wcId) === newPath) await diskWatcherByWc.get(wcId)?.watch(newPath)
+  await renameOwnedAssetDocument(oldPath, newPath).catch((error) => {
     console.warn('[html] asset manifest rename sync failed:', error)
   })
   if (!contents.isDestroyed()) contents.send(HTML_CHANNELS.fileRenamed, newPath)
@@ -1040,46 +1148,88 @@ export function htmlFileRenamed(contents: WebContents, oldPath: string, newPath:
  * Save / Don't Save / Cancel. On Save, ask the renderer to serialize + write
  * and await the result; a canceled untitled-save dialog keeps the tab open.
  */
-export async function requestHtmlClose(
-  contents: WebContents,
-  parent?: BrowserWindow | null,
-): Promise<boolean> {
-  if (!dirtyByWc.has(contents.id) || contents.isDestroyed()) return true
-  const options = {
-    type: 'warning' as const,
-    message: tm('closeUnsavedMsg'),
-    detail: tm('closeUnsavedDetail'),
-    buttons: [tm('btnSave'), tm('btnDontSave'), tm('btnCancel')],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
+/** Removal must consume a held receipt; a Boolean can never authorize a later removal. */
+export async function requestHtmlClose(_contents:WebContents,_parent?:BrowserWindow|null):Promise<boolean>{return false}
+export async function prepareHtmlNativeClose(contents:WebContents,parent?:BrowserWindow|null,options:HtmlClosePrepareOptions={}):Promise<HtmlNativeCloseReceipt|null>{
+ return runHtmlNativeClose({holdAutomaticSaves:()=>nativeCloseAdmission.hold(contents.id,contents.id),alive:()=>!contents.isDestroyed(),readOnly:()=>presentOwnerByWc.has(contents.id),state:()=>closeCoordinator.state(contents.id),retainedAssets:async()=>{const path=savePathByWc.get(contents.id);return path?pendingOwnedAssetsForDocument(path):[]},prompt:async retainedCount=>{
+  const detail=tm('closeUnsavedDetail')+(retainedCount?' Unpublished image files will stay on disk when you discard, because another copy may use them.':'')
+  const promptOptions={type:'warning' as const,message:tm('closeUnsavedMsg'),detail,buttons:[tm('btnSave'),tm('btnDontSave'),tm('btnCancel')],defaultId:0,cancelId:2,noLink:true}
+  const {response}=parent&&!parent.isDestroyed()?await dialog.showMessageBox(parent,promptOptions):await dialog.showMessageBox(promptOptions)
+  return response
+ },prepare:(intent,approved,permit)=>prepareHtmlClose(contents,undefined,intent,approved,permit),cancel:receipt=>cancelHtmlClose(contents,receipt,'The native close group ended after preparation.')},options)
+}
+export async function prepareHtmlClose(contents:WebContents,filePath?:string,intent:'save'|'discard'|'clean'='save',approved?:CloseLeaseStamp,options:HtmlClosePrepareOptions={}):Promise<HtmlNativeCloseReceipt>{
+  const permit=Object.freeze({deferSeal:options.deferSeal===true,signal:options.signal,isCurrent:options.isCurrent})
+  if(!htmlClosePermit(permit))throw new Error('The close operation ended before Save or custody was requested.')
+  if(filePath!==undefined&&(!isAbsolute(filePath)||filePath.includes('\0')))throw new Error('HTML close Save requires an absolute destination.')
+  if(presentOwnerByWc.has(contents.id)&&!contents.isDestroyed())return presentationCloses.prepare(contents.id,permit)
+  assertNoHtmlCleanup(contents.id)
+  if(intent==='discard'&&!approved)approved=closeCoordinator.state(contents.id)?.stamp
+  const sourceAtTarget=closeCoordinator.source(contents.id),targetVersion=intent==='save'&&filePath!==undefined&&savePathByWc.get(contents.id)!==filePath?await observePublicationTarget(filePath):undefined
+  if(contents.isDestroyed()||closeCoordinator.source(contents.id)!==sourceAtTarget||!htmlClosePermit(permit))throw new Error('The source or close operation changed while its destination was being checked.')
+  const result=await closeCoordinator.request(contents.id,'save',filePath,true,intent,approved,{...permit,deferSeal:true},targetVersion)
+  if(!htmlClosePermit(permit)){if(result.closeLease)closeCoordinator.cancel(contents.id,result.closeLease.ticket,'The group ended after renderer preparation.');throw new Error('This close attempt was canceled before recovery was prepared.')}
+  if(result.phase!=='prepared'||!result.current||!result.closeLease)throw new Error(result.error??'The current HTML editor could not be held for close.')
+  if(intent==='discard'){
+    const owner=contents.id,draft=result.draft,documentPath=savePathByWc.get(owner)??null,recoveryRoot=join(app.getPath('userData'),'recovery')
+    if(!draft||!htmlDraftController.isActivation(owner,draft.token)){closeCoordinator.cancel(owner,result.closeLease.ticket,'discard source changed');throw new Error('The approved discard source changed.')}
+    // Retire the producer and all allocated old snapshots before any await,
+    // but retain its last complete durable bytes until actual owner removal.
+    let producer:ReturnType<HtmlDraftController['stageClose']>
+    try{producer=htmlDraftController.stageClose(owner,draft)}catch(error){closeCoordinator.cancel(owner,result.closeLease.ticket,'discard journal source changed');throw error}
+    const record:HtmlCloseCustody={owner,ticket:result.closeLease.ticket,receipt:result,cancelProducer:producer.cancel,canceled:false,removed:false}
+    htmlCustodyByTicket.set(record.ticket.id,record);htmlCustodyByReceipt.set(result,record)
+    let actualSettlement:Promise<void>=Promise.resolve()
+    const cleanup=(async()=>{
+      if(!htmlClosePermit(permit))throw new Error('The close group ended before custody admission.')
+      // Register lineage now; privacy retirement can see an unfinished drain.
+      const admission=beginCloseCleanup({ready:producer.drain,id:'html:'+result.requestId,module:'html',ownerKey:record.ticket.source,source:result.closeLease!.stamp.source,generation:record.ticket.sequence,token:producer.token,documentPath:producer.documentPath,custody:{recoveryRoot,draftId:producer.token,attest:producer.attest},run:async signal=>{if(signal.aborted)throw new Error('Captured journal cleanup was canceled.');if(!record.handle?.status().custody)return;const binding=producer.attest();if(!binding)throw new Error('Captured HTML journal binding is unknown; its recovery bytes were retained.');await discardDraftJournal(recoveryRoot,producer.token,{expectedSha256:binding.expectedSha256})}});record.admission=admission;actualSettlement=admission.actualSettled;record.handle=await admission.ready;await admission.actualSettled
+      if(!htmlClosePermit(permit))throw new Error('This close attempt was canceled.')
+      if(record.canceled)record.handle.cancel('Close permission ended while recovery custody was being prepared.')
+      const retained=documentPath?await pendingOwnedAssetsForDocument(documentPath):[]
+      if(!htmlClosePermit(permit))throw new Error('This close attempt was canceled.')
+      result.cleanup={journal:'staged',assets:retained.length?'retained':'none',...(retained.length?{retainedAssets:retained.length}:{})};updateHtmlCustody(record)
+      if(retained.length){const warning='Staged image files were retained because this view cannot prove exclusive ownership; another copy may use them.';result.warnings=[warning];console.warn('[html] discard asset retention:',warning)}
+      if(record.canceled)throw new Error('Close permission expired while the protected recovery copy was being prepared; the document remains open.')
+    })()
+    // A ready timeout may reject promptly; the actual provider/finalizers keep their slot and renderer lock.
+    const actual=cleanup.finally(()=>actualSettlement).finally(()=>{if(htmlCleanup.get(owner)!==actual)return;htmlCleanup.delete(owner);for(const release of htmlDeferredRelease.get(owner)??[]){if(!contents.isDestroyed())contents.send(HTML_CHANNELS.closeLeaseRelease,release.ticket,release.reason)}htmlDeferredRelease.delete(owner)})
+    void actual.catch(()=>{})
+    htmlCleanup.set(owner,actual)
+    try{await cleanup;await actual}catch(error){cancelHtmlCustody(record,'recovery staging did not finish');closeCoordinator.cancel(owner,result.closeLease.ticket,'recovery staging failed');throw error}
   }
-  const { response } =
-    parent && !parent.isDestroyed()
-      ? await dialog.showMessageBox(parent, options)
-      : await dialog.showMessageBox(options)
-  if (response === 2) return false
-  if (response === 1) {
-    const documentPath = savePathByWc.get(contents.id)
-    if (documentPath) {
-      const discarded = await discardPendingOwnedAssets(documentPath)
-      if (discarded.errors.length > 0) {
-        console.warn('[html] pending asset discard incomplete:', discarded.errors)
-      }
-    }
-    return true
-  }
-  return new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => {
-      closeSaveWaiters.delete(contents.id)
-      resolve(false)
-    }, 120_000)
-    closeSaveWaiters.set(contents.id, (ok) => {
-      clearTimeout(timer)
-      resolve(ok)
-    })
-    contents.send(HTML_CHANNELS.closeSaveRequest)
-  })
+  if(!htmlClosePermit(permit)||!isHtmlClosePrepared(contents,result)){if(result.closeLease)closeCoordinator.cancel(contents.id,result.closeLease.ticket,'The close operation expired before its final seal.');throw new Error('The document changed before it could close.')}
+  if(permit.deferSeal)return result as HtmlNativeCloseReceipt
+  const ready=sealHtmlClose(contents,result)
+  if(!ready)throw new Error('The document changed before it could close.')
+  return ready
+}
+export function isHtmlClosePrepared(contents:WebContents,receipt:HtmlCloseReceipt):boolean{
+  if(receipt.readOnlyPresentation!==undefined)return presentationCloses.isPrepared(contents.id,receipt)
+  if(contents.isDestroyed()||htmlCleanup.has(contents.id))return false
+  const staged=htmlCustodyByReceipt.get(receipt)
+  return(!staged||!staged.canceled&&!!staged.handle)&&closeCoordinator.isPrepared(contents.id,receipt)
+}
+export function sealHtmlClose(contents:WebContents,receipt:HtmlCloseReceipt):HtmlNativeCloseReceipt|null{
+  if(receipt.readOnlyPresentation!==undefined)return presentationCloses.seal(contents.id,receipt)
+  if(!isHtmlClosePrepared(contents,receipt))return null
+  const ready=closeCoordinator.seal(contents.id,receipt);if(!ready)return null
+  const staged=htmlCustodyByReceipt.get(receipt);if(staged){staged.receipt=ready;htmlCustodyByReceipt.set(ready,staged);htmlCustodyByReceipt.delete(receipt)}
+  return ready
+}
+export function completeHtmlClose(contents:WebContents,receipt:HtmlCloseReceipt,remove:()=>boolean):boolean{
+  if(receipt.readOnlyPresentation!==undefined)return presentationCloses.complete(contents.id,receipt,remove)
+  if(htmlCleanup.has(contents.id))return false
+  const staged=htmlCustodyByReceipt.get(receipt)
+  if(staged&&(staged.canceled||!staged.handle))return false
+  try{return closeCoordinator.complete(contents.id,receipt,()=>staged?staged.handle!.commitRemoval(()=>{const removed=remove();if(removed)staged.removed=true;return removed}):remove())}
+  finally{if(staged)updateHtmlCustody(staged)}
+}
+export async function cancelHtmlClose(contents:WebContents,receipt:HtmlCloseReceipt,reason='close cancelled'):Promise<void>{
+  if(receipt.readOnlyPresentation!==undefined){presentationCloses.cancel(contents.id,receipt);return}
+  if(!receipt.closeLease)return
+  closeCoordinator.cancel(contents.id,receipt.closeLease.ticket,reason);await htmlCleanup.get(contents.id)
+  const staged=htmlCustodyByReceipt.get(receipt);if(staged&&!staged.removed)cancelHtmlCustody(staged,reason)
 }
 
 /**
@@ -1088,33 +1238,12 @@ export async function requestHtmlClose(
  * runs when the user picks "Don't Save".
  */
 export async function htmlDiscardPendingAssets(contents: WebContents): Promise<void> {
-  const documentPath = savePathByWc.get(contents.id)
-  if (!documentPath) return
-  const discarded = await discardPendingOwnedAssets(documentPath)
-  if (discarded.errors.length > 0) {
-    console.warn('[html] pending asset discard incomplete:', discarded.errors)
-  }
+  void contents
+  throw new Error('Discard requires a captured intent and a held renderer close lease.')
 }
 
 /** Menu Save / Save As: ask the renderer to serialize and save; clean views resolve true immediately on plain save */
-export function requestHtmlSave(contents: WebContents, mode: SaveMode): Promise<boolean> {
-  if (contents.isDestroyed()) return Promise.resolve(false)
-  if (presentOwnerByWc.has(contents.id)) return Promise.resolve(true)
-  if (mode === 'save' && !dirtyByWc.has(contents.id) && savePathByWc.has(contents.id)) {
-    return Promise.resolve(true)
-  }
-  return new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => {
-      saveWaiters.delete(contents.id)
-      resolve(false)
-    }, 120_000)
-    saveWaiters.set(contents.id, (ok) => {
-      clearTimeout(timer)
-      resolve(ok)
-    })
-    contents.send(HTML_CHANNELS.saveRequest, mode)
-  })
-}
+export function requestHtmlSave(contents:WebContents,mode:SaveMode):Promise<boolean>{if(contents.isDestroyed())return Promise.resolve(false);if(presentOwnerByWc.has(contents.id))return Promise.resolve(true);return closeCoordinator.request(contents.id,mode).then(result=>result.published||result.current&&result.clean,()=>false)}
 
 /**
  * Read the live document source for an MCP `open_documents` read. The buffer the
@@ -1165,48 +1294,25 @@ export function htmlReadText(contents: WebContents): Promise<string> {
   return request
 }
 
-/**
- * Save the live document to `filePath` with no dialog — the MCP close path
- * ("save before closing"). Pointing the view's save target at `filePath` first
- * keeps `resolveSaveTarget` from opening the save dialog, so the renderer's
- * normal save runs unattended.
- */
-export function htmlSaveToPath(contents: WebContents, filePath: string): Promise<void> {
-  if (contents.isDestroyed()) return Promise.reject(new Error('the document is no longer open'))
-  const wcId = contents.id
-  const previousPath = savePathByWc.get(wcId)
-  const previousOpenPath = openPathByWc.get(wcId)
-  savePathByWc.set(wcId, filePath)
-  const allowed = allowedByWc.get(wcId) ?? new Set<string>()
-  allowed.add(filePath)
-  allowedByWc.set(wcId, allowed)
-  return new Promise<void>((resolve, reject) => {
-    const restore = (): void => {
-      if (previousPath === undefined) savePathByWc.delete(wcId)
-      else savePathByWc.set(wcId, previousPath)
-      if (previousOpenPath === undefined) openPathByWc.delete(wcId)
-      else openPathByWc.set(wcId, previousOpenPath)
-    }
-    const timer = setTimeout(() => {
-      saveWaiters.delete(wcId)
-      restore()
-      reject(new Error('timed out saving the document'))
-    }, 120_000)
-    saveWaiters.set(wcId, (ok) => {
-      clearTimeout(timer)
-      if (ok) resolve()
-      else {
-        restore()
-        reject(new Error('could not save the document'))
-      }
-    })
-    contents.send(HTML_CHANNELS.saveRequest, 'save')
-  })
+/** Save the live document to the destination owned by this request, then await current clean source. */
+export async function htmlSaveToPath(contents:WebContents,filePath:string):Promise<HtmlAssetCleanupReport|void>{
+  if(!isAbsolute(filePath)||filePath.includes('\0'))throw new Error('HTML Save requires an absolute destination.')
+  const sourceAtRequest=closeCoordinator.source(contents.id),targetVersion=savePathByWc.get(contents.id)===filePath?undefined:await observePublicationTarget(filePath)
+  if(contents.isDestroyed()||closeCoordinator.source(contents.id)!==sourceAtRequest)throw new Error('The source changed while the explicit destination was being checked.')
+  const result=await closeCoordinator.request(contents.id,'save',filePath,false,'save',undefined,{},targetVersion)
+  if(!result.published&&!(result.current&&result.clean))throw new Error(result.error??'The HTML file was not published.')
+  if(result.assetCleanup||result.warnings?.length)return {assetCleanup:result.assetCleanup,warnings:result.warnings}
 }
 
-async function writeTextAtomic(path: string, text: string): Promise<void> {
-  await atomicWriteFile(path, Buffer.from(text, 'utf8'))
+async function confirmPublicationChoice(e:Electron.IpcMainInvokeEvent,target:string,mustExist=false){
+  const selected=await observePublicationTarget(target)
+  if(mustExist&&!selected.version)throw new Error('The original document was moved or deleted. Save As a separate copy; current edits are retained.')
+  if(!selected.version)return selected
+  const parent=BrowserWindow.fromWebContents(e.sender)??undefined,choice={type:'warning' as const,message:'Replace the selected file?',detail:target+'\nThe exact version now on disk will be replaced. A later change will stop this save.',buttons:['Replace','Cancel'],defaultId:1,cancelId:1,noLink:true}
+  const answer=parent&&!parent.isDestroyed()?await dialog.showMessageBox(parent,choice):await dialog.showMessageBox(choice)
+  return answer.response===0?selected:null
 }
+
 
 function fileNameBase(name: string | undefined): string {
   return (name ?? '')
@@ -1317,7 +1423,9 @@ function registerHtmlIpc(): void {
   ipcRegistered = true
 
   registerImageProtocol()
-  registerPreviewProtocol((wcId) => {
+  registerPreviewProtocol((wcId,url) => {
+    const snapshotId=url.searchParams.get('snapshot')
+    if(snapshotId){if(previewSnapshots.idFromUrl(wcId,url.href)!==snapshotId)return null;const snapshot=previewSnapshots.read(wcId,snapshotId);return snapshot?{text:snapshot.instrumented,baseHref:snapshot.baseHref}:null}
     const text = previewTextByWc.get(wcId)
     if (text === undefined) return null
     const doc = savePathByWc.get(wcId)
@@ -1346,8 +1454,19 @@ function registerHtmlIpc(): void {
   })
 
   ipcMain.on(HTML_CHANNELS.previewUpdate, (e, text: unknown) => {
+    if (!currentTopSender(e))return
     if (typeof text === 'string') previewTextByWc.set(e.sender.id, text)
   })
+
+  ipcMain.handle(HTML_CHANNELS.previewPublish,(event,request:{source:string;instrumented:string;stamp:CloseLeaseStamp})=>{
+    if(!currentTopSender(event)||presentOwnerByWc.has(event.sender.id))throw new Error('The preview publisher is not the active editor frame.')
+    const state=closeCoordinator.state(event.sender.id);if(state&&request?.stamp?.source!==state.stamp.source)throw new Error('The preview belongs to a replaced document.')
+    const grant=htmlDraftGrants.get(event.sender.id);if(!grant)throw new Error('The preview asset grant is not ready.')
+    pinActualPreviewFrames(event.sender.id)
+    const documentPath=savePathByWc.get(event.sender.id)
+    return previewSnapshots.publish(event.sender.id,request.source,request.instrumented,documentPath?assetBaseHref(dirname(documentPath)):null,grant)
+  })
+  ipcMain.handle(HTML_CHANNELS.previewRetire,(event,id:unknown)=>{if(currentTopSender(event)&&typeof id==='string')previewSnapshots.retire(event.sender.id,id)})
 
   ipcMain.handle(HTML_CHANNELS.previewInfo, (e) => ({
     url: previewUrlFor(presentOwnerByWc.get(e.sender.id) ?? e.sender.id),
@@ -1414,6 +1533,81 @@ function registerHtmlIpc(): void {
     void diskWatcherByWc.get(e.sender.id)?.acknowledge()
   })
 
+  ipcMain.handle(HTML_CHANNELS.draftReloadRead, async (e, value: unknown) => {
+    const request = value as { token?: unknown; documentPath?: unknown; revision?: unknown } | null
+    const valid = () =>
+      currentTopSender(e)&&!!request &&
+      typeof request.token === 'string' &&
+      typeof request.documentPath === 'string' &&
+      Number.isSafeInteger(request.revision) &&
+      htmlDraftController.isActivation(e.sender.id, request.token) &&
+      htmlDraftController.pathFor(e.sender.id) === request.documentPath &&
+      htmlDraftController.revisionFor(e.sender.id) === request.revision &&
+      allowedByWc.get(e.sender.id)?.has(request.documentPath) === true
+    if (!valid())
+      throw new Error(
+        'HTML Reload belongs to an obsolete source; the current document is retained.',
+      )
+    const raw = await readHtmlReloadSource(request!.documentPath as string)
+    if (!valid())
+      throw new Error('The document changed while Reload was reading; current edits are retained.')
+    return raw
+  })
+  ipcMain.handle(HTML_CHANNELS.draftReloadApplied, (e, request: unknown) => {
+    if(!currentTopSender(e))throw new Error('The reload sender frame is obsolete.')
+    const priorOperation = htmlDraftController.sourceOperationFor(e.sender.id)
+    const pending = htmlDraftController.applyReload(e.sender.id, request)
+    if (htmlDraftController.sourceOperationFor(e.sender.id) !== priorOperation)
+      closeCoordinator.cancel(e.sender.id)
+    return pending
+  })
+  ipcMain.handle(HTML_CHANNELS.draftActivate, async (e, path: unknown, revision: unknown) => {
+    requireRecoveryRuntime('HTML automatic recovery activation')
+    if(!currentTopSender(e))throw new Error('The activation sender frame is obsolete.')
+    const sessionAtRequest=closeCoordinator.session(e.sender.id)
+    if (path !== null && (typeof path !== 'string' || openPathByWc.get(e.sender.id) !== path))
+      throw new Error('HTML activation must follow a successful document load.')
+    const owner = e.sender.id,
+      intent = (htmlDraftActivationIntent.get(owner) ?? 0) + 1
+    htmlDraftActivationIntent.set(owner, intent)
+    const grant = await htmlAssetGrant(path as string | null)
+    if (
+      !currentTopSender(e)||closeCoordinator.session(owner)!==sessionAtRequest||htmlDraftActivationIntent.get(owner) !== intent ||
+      (path !== null && openPathByWc.get(owner) !== path)
+    )
+      throw new Error('HTML activation was superseded.')
+    closeCoordinator.cancel(owner)
+    const token = htmlDraftController.activate(owner, path, revision as number)
+    htmlDraftGrants.set(owner, grant)
+    return token
+  })
+  ipcMain.on(HTML_CHANNELS.draftChanged, (e, change: unknown) => {
+    if(!currentTopSender(e))return
+    try {
+      if (htmlDraftController.changed(e.sender.id, change)) {
+        if ((change as { dirty: boolean }).dirty) dirtyByWc.add(e.sender.id)
+        else dirtyByWc.delete(e.sender.id)
+      }
+    } catch (error) {
+      console.warn('[html] rejected stale draft change:', error)
+    }
+  })
+  ipcMain.handle(HTML_CHANNELS.draftWrite,(e,request:unknown)=>{if(!currentTopSender(e))throw new Error('The draft sender frame is obsolete.');requireRecoveryRuntime('HTML automatic recovery capture');return htmlDraftController.snapshot(e.sender.id,request)})
+  ipcMain.handle(HTML_CHANNELS.draftSaved,(e,request:unknown)=>{if(!currentTopSender(e))throw new Error('The save acknowledgment sender is obsolete.');return htmlDraftController.acknowledgeSaved(e.sender.id,request)})
+
+  ipcMain.handle(HTML_CHANNELS.readPublication,async(e,path:unknown,reload?:{token?:unknown;documentPath?:unknown;revision?:unknown})=>{
+    const session=closeCoordinator.session(e.sender.id)
+    const valid=()=>currentTopSender(e)&&closeCoordinator.session(e.sender.id)===session&&typeof path==='string'&&allowedByWc.get(e.sender.id)?.has(path)===true&&(!reload||(typeof reload.token==='string'&&reload.documentPath===path&&Number.isSafeInteger(reload.revision)&&htmlDraftController.isActivation(e.sender.id,reload.token)&&htmlDraftController.pathFor(e.sender.id)===path&&htmlDraftController.revisionFor(e.sender.id)===reload.revision))
+    if(!valid())throw new Error('The publication read is not granted to the current document.')
+    const result=await publicationReads.read(e.sender.id,session,path as string,async()=>reload?Buffer.from(await readHtmlReloadSource(path as string),'utf8'):await readFile(path as string),valid)
+    return{text:Buffer.from(result.bytes).toString('utf8'),publicationId:result.publicationId}
+  })
+  ipcMain.on(HTML_CHANNELS.publicationLoaded,(e,request:unknown)=>{
+    if(!currentTopSender(e))return
+    const candidate=request as {publicationId?:unknown;path?:unknown;stamp?:CloseLeaseStamp}|null,state=closeCoordinator.state(e.sender.id)
+    if(!candidate||typeof candidate.path!=='string'||!allowedByWc.get(e.sender.id)?.has(candidate.path)||savePathByWc.get(e.sender.id)!==candidate.path||!state||candidate.stamp?.source!==state.stamp.source||candidate.stamp?.revision!==state.stamp.revision||!publicationReads.adopt(e.sender.id,closeCoordinator.session(e.sender.id),state.stamp.source,candidate.path,candidate.publicationId))console.warn('[html] refused obsolete publication-load acknowledgment')
+  })
+
   ipcMain.handle(HTML_CHANNELS.readFile, async (e, path: unknown) => {
     if (typeof path !== 'string' || !allowedByWc.get(e.sender.id)?.has(path)) {
       throw new Error('html: path not granted to this view')
@@ -1424,12 +1618,13 @@ function registerHtmlIpc(): void {
   ipcMain.handle(
     HTML_CHANNELS.save,
     async (e, request: SaveHtmlRequest): Promise<SaveHtmlResult> => {
-      const waiter = saveWaiters.get(e.sender.id)
-      saveWaiters.delete(e.sender.id)
-      const done = (result: SaveHtmlResult): SaveHtmlResult => {
-        waiter?.(result.ok && !('canceled' in result))
-        return result
-      }
+      const releaseAutomatic=nativeCloseAdmission.write(e.sender.id,request?.automatic===true,closeCoordinator.ownsCloseWrite(e.sender.id,request?.requestId)?e.sender.id:undefined)
+      if(!releaseAutomatic)return{ok:true,canceled:true}
+      try{
+      const retained=new Set<string>(),retention={retainUnproven:true,onRetained:(names:readonly string[])=>{for(const name of names)retained.add(name)}}
+      if(!currentTopSender(e))return {ok:false,error:'The save sender frame is obsolete.'}
+      const requestId = request?.requestId
+      const done=(result:SaveHtmlResult):SaveHtmlResult=>retained.size?{...result,assetCleanup:{assets:'retained'},warnings:['Some image files were kept because another open copy or a saved version may still need them.']}:result
       if (typeof request?.text !== 'string') {
         return done({ ok: false, error: 'html: bad save request' })
       }
@@ -1440,19 +1635,58 @@ function registerHtmlIpc(): void {
       ) {
         return done({ ok: false, error: 'html: bad image references' })
       }
+      const draft = request.draft
+      if (
+        !draft ||
+        !htmlDraftController.isActivation(e.sender.id, draft.token) ||
+        !Number.isSafeInteger(draft.revision) ||
+        draft.revision < 0 ||
+        !Number.isSafeInteger(draft.throughSequence) ||
+        draft.throughSequence < 0
+      )
+        return done({ ok: false, error: 'html: save belongs to an inactive document' })
+      if (!htmlDraftController.acceptsSourceRevision(e.sender.id, draft.token, draft.revision))
+        return done({ ok: false, error: 'html: Save belongs to a retired source revision' })
+      assertNoHtmlCleanup(e.sender.id)
+      const closeSourceAtRequest=closeCoordinator.source(e.sender.id)
+      const sourceOperationAtRequest = htmlDraftController.sourceOperationFor(e.sender.id)
+      if (requestId !== undefined && !closeCoordinator.matches(e.sender.id, requestId))
+        return done({ ok: false, error: 'html: obsolete Save request' })
+      const isCurrentSave = () =>
+        currentTopSender(e)&&closeCoordinator.source(e.sender.id)===closeSourceAtRequest&&htmlDraftController.isActivation(e.sender.id, draft.token) &&
+        htmlDraftController.sourceOperationFor(e.sender.id) === sourceOperationAtRequest &&
+        (requestId === undefined || closeCoordinator.matches(e.sender.id, requestId))
+      const work=closeCoordinator.beginMutation(e.sender.id,requestId,request.closeSource)
+      let publishedPath:string|undefined
       const mode: SaveMode = request.mode === 'saveAs' ? 'saveAs' : 'save'
-      const pathAtRequest = savePathByWc.get(e.sender.id)
-      const pendingAtRequest = pathAtRequest
-        ? await pendingOwnedAssetsForDocument(pathAtRequest)
-        : []
+      const pathAtRequest = htmlDraftController.pathFor(e.sender.id) ?? undefined
       try {
+        const publicationEntry=publicationReads.select(e.sender.id,closeCoordinator.session(e.sender.id),request.closeSource?.source??'',request.publicationId,pathAtRequest??null,mode==='saveAs'),loadedPublication=publicationEntry.publication.snapshot()
+        const overwriteVersion=request.overwrite===true&&mode==='save'&&pathAtRequest?await confirmPublicationChoice(e,pathAtRequest,true):undefined
+        if(request.overwrite===true&&mode==='save'&&pathAtRequest&&!overwriteVersion)return done({ok:true,canceled:true})
+        const pendingAtRequest=pathAtRequest?await pendingOwnedAssetsForDocument(pathAtRequest):[]
+        if(!isCurrentSave())return done({ok:false,error:'The close group ended before choosing a Save target.'})
         const suggestedName =
           typeof request.suggestedName === 'string' ? request.suggestedName : undefined
         const defaultName =
           typeof request.defaultName === 'string' ? request.defaultName : undefined
-        const target = await resolveSaveTarget(e, mode, suggestedName, defaultName)
+        const target =
+          closeCoordinator.target(e.sender.id, requestId) ??
+          (await resolveSaveTarget(e, mode, suggestedName, defaultName))
         if (target === 'canceled') return done({ ok: true, canceled: true })
         if (!target) return done({ ok: false, error: 'html: no save target' })
+        if (!isCurrentSave())
+          return done({ ok: false, error: 'html: document changed while choosing a save target' })
+        const capturedTarget=closeCoordinator.publicationTarget(e.sender.id,request.requestId)
+        const selectedTarget=capturedTarget??overwriteVersion??(mode==='saveAs'?await confirmPublicationChoice(e,target):pathAtRequest===target?undefined:absentPublicationTarget(target))
+        if(mode==='saveAs'&&!selectedTarget)return done({ok:true,canceled:true})
+        const publicationTicket=publicationEntry.publication.pin(target,selectedTarget??undefined,loadedPublication)
+        const savedAssetGrant = await htmlAssetGrant(target)
+        if (!isCurrentSave()) return done({ ok: false, error: 'html: save activation changed' })
+        const assetSession=closeCoordinator.session(e.sender.id)
+        const assetRetention={...retention,assertCurrent:()=>{if(!currentTopSender(e)||e.sender.isDestroyed()||closeCoordinator.session(e.sender.id)!==assetSession||!isCurrentSave()||(htmlDraftController.pathFor(e.sender.id)??undefined)!==pathAtRequest)throw new Error('The loaded source changed before asset publication.')}}
+        let adoptedNewPath=false
+        const assetResult=await withPinnedAssetOutput<SaveHtmlResult>({targetPath:target,expectedVersion:publicationTicket.expectedVersion,sourceDocumentPath:pathAtRequest,assertCurrent:assetRetention.assertCurrent},async()=>{
         const currentPath = pathAtRequest
         const isNewPath = currentPath !== target
         const imageSources = [...(request.imageSources ?? [])]
@@ -1464,24 +1698,34 @@ function registerHtmlIpc(): void {
         }
         const prepared =
           currentPath && resolve(dirname(currentPath)) !== resolve(dirname(target))
-            ? await prepareAssetsForSaveAs(currentPath, target, request.text, imageSources)
+            ? await prepareAssetsForSaveAs(currentPath, target, request.text, imageSources,assetRetention)
             : null
         const textToWrite = prepared?.text ?? request.text
         const savedImageSources = prepared?.imageSources ?? imageSources
         const watcher = diskWatcherByWc.get(e.sender.id)
         if (watcher && !isNewPath && request.overwrite !== true && !(await watcher.isCurrent())) {
-          if (prepared) await rollbackPreparedSaveAsAssets(prepared).catch(() => {})
+          if (prepared) await rollbackPreparedSaveAsAssets(prepared,retention).catch(() => {})
           return done({ ok: false, error: 'html: file changed on disk', conflict: true })
+        }
+        if (!isCurrentSave()) {
+          if (prepared) await rollbackPreparedSaveAsAssets(prepared,retention).catch(() => {})
+          return done({ ok: false, error: 'html: document changed before save' })
         }
         watcher?.beginOwnWrite()
         try {
-          await writeTextAtomic(target, textToWrite)
+          await publicationEntry.publication.publishBytes(publicationTicket,()=>Buffer.from(textToWrite,'utf8'),()=>isCurrentSave())
+          publishedPath=target
         } catch (error) {
-          if (prepared) await rollbackPreparedSaveAsAssets(prepared).catch(() => {})
+          if (prepared) await rollbackPreparedSaveAsAssets(prepared,retention).catch(() => {})
           throw error
         } finally {
           await watcher?.endOwnWrite(target)
         }
+        if (!isCurrentSave())
+          return done({
+            ok: false,
+            error: 'html: save completed for an earlier document activation',
+          })
         savePathByWc.set(e.sender.id, target)
         // keep the reload path in sync — a stale openPathByWc would make a
         // reloaded renderer load the OLD file and then save it over the new one
@@ -1489,34 +1733,54 @@ function registerHtmlIpc(): void {
         const allowed = allowedByWc.get(e.sender.id) ?? new Set<string>()
         allowed.add(target)
         allowedByWc.set(e.sender.id, allowed)
-        dirtyByWc.delete(e.sender.id)
+        htmlDraftGrants.set(e.sender.id, savedAssetGrant)
+        await htmlDraftController.acknowledgeSaved(e.sender.id, {
+          token: draft.token,
+          revision: draft.revision,
+          throughSequence: draft.throughSequence,
+          documentPath: target,
+          clean: false,
+        })
+        // Renderer acknowledges clean only if its captured revision is still current.
         const pendingNames = prepared
           ? prepared.created.map((record) => record.name)
           : currentPath && resolve(currentPath) === resolve(target)
             ? pendingAtRequest
             : []
-        const reconciled = await reconcileOwnedAssets(target, savedImageSources, { pendingNames })
+        const reconciled = await reconcileOwnedAssets(target, savedImageSources, { pendingNames,...retention })
         if (reconciled.errors.length > 0) {
           console.warn('[html] asset reconciliation incomplete:', reconciled.errors)
         }
         if (mode === 'saveAs' && currentPath && resolve(currentPath) !== resolve(target)) {
           const sourceResolved = await resolveSourcePendingAfterSaveAs(
             currentPath,
-            pendingAtRequest,
+            pendingAtRequest,retention,
           )
           if (sourceResolved.errors.length > 0) {
             console.warn('[html] source asset reconciliation incomplete:', sourceResolved.errors)
           }
         }
-        if (isNewPath) fileSavedHook?.(e.sender, target)
+        if (!isCurrentSave())
+          return done({
+            ok: false,
+            error: 'html: An earlier source was written; the current document was kept.',
+          })
+        if(isNewPath)adoptedNewPath=true
         return done({
           ok: true,
           path: target,
+          publicationId:publicationEntry.id,
           ...(prepared?.rewrites.length ? { imageRewrites: prepared.rewrites } : {}),
         })
+        })
+        // Relocation hooks run after actual publication/adoption/asset settlement,
+        // never from inside the publisher that a physical move must drain.
+        if(adoptedNewPath&&closeCoordinator.session(e.sender.id)===assetSession&&savePathByWc.get(e.sender.id)===target)fileSavedHook?.(e.sender,target)
+        return assetResult
       } catch (err) {
         return done({ ok: false, error: err instanceof Error ? err.message : String(err) })
-      }
+      } finally{closeCoordinator.finishMutation(work,publishedPath,retained.size>0)}
+      }finally{releaseAutomatic()}
     },
   )
 
@@ -1594,8 +1858,8 @@ function registerHtmlIpc(): void {
     }
   })
 
-  ipcMain.handle(HTML_CHANNELS.pickImage, async (e): Promise<string | null> => {
-    const docPath = savePathByWc.get(e.sender.id)
+  registerHtmlMutationHandle(HTML_CHANNELS.pickImage, async (e): Promise<string | null> => {
+    const docPath = savePathByWc.get(e.sender.id),sourceAtRequest=closeCoordinator.source(e.sender.id),assetSession=closeCoordinator.session(e.sender.id)
     if (!docPath) return null
     const win =
       BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
@@ -1606,25 +1870,25 @@ function registerHtmlIpc(): void {
       properties: ['openFile'],
     })
     const source = picked.filePaths[0]
-    if (picked.canceled || !source) return null
-    return copyImageIntoOwnedAssets(docPath, source)
+    if (picked.canceled || !source||!currentTopSender(e)||closeCoordinator.source(e.sender.id)!==sourceAtRequest) return null
+    return copyImageIntoOwnedAssets(docPath, source,{retainUnproven:true,assertCurrent:()=>{if(!currentTopSender(e)||e.sender.isDestroyed()||closeCoordinator.session(e.sender.id)!==assetSession||closeCoordinator.source(e.sender.id)!==sourceAtRequest||savePathByWc.get(e.sender.id)!==docPath)throw new Error('The loaded source changed before image publication.')}})
   })
 
-  ipcMain.handle(
+  registerHtmlMutationHandle(
     HTML_CHANNELS.saveImage,
     async (e, data: { base64?: unknown; ext?: unknown }): Promise<string | null> => {
-      const docPath = savePathByWc.get(e.sender.id)
+      const docPath = savePathByWc.get(e.sender.id),assetSession=closeCoordinator.session(e.sender.id),sourceAtRequest=closeCoordinator.source(e.sender.id)
       const ext = String(data?.ext ?? '').toLowerCase()
       if (!docPath || typeof data?.base64 !== 'string' || !data.base64) return null
       // keep in sync with readImage's MIME map — every authored asset must stay DOCX-exportable
       if (!['png', 'jpg', 'jpeg', 'gif'].includes(ext)) return null
-      return writeImageIntoOwnedAssets(docPath, `image.${ext}`, Buffer.from(data.base64, 'base64'))
+      return writeImageIntoOwnedAssets(docPath, `image.${ext}`, Buffer.from(data.base64, 'base64'),{retainUnproven:true,assertCurrent:()=>{if(!currentTopSender(e)||e.sender.isDestroyed()||closeCoordinator.session(e.sender.id)!==assetSession||closeCoordinator.source(e.sender.id)!==sourceAtRequest||savePathByWc.get(e.sender.id)!==docPath)throw new Error('The loaded source changed before image publication.')}})
     },
   )
 
   // html-owned (like docs:ai-generate-image): the shared ai:* handlers are
   // shell-registered, but image generation is gated per app
-  ipcMain.handle(
+  registerHtmlMutationHandle(
     HTML_CHANNELS.aiGenerateImage,
     (e, op: { prompt?: unknown; aspectRatio?: unknown }) =>
       generateImageTool(
@@ -1691,6 +1955,7 @@ function registerHtmlIpc(): void {
       if (typeof request?.html !== 'string') {
         return { ok: false, error: 'html: bad export request' }
       }
+      const sourceProof=htmlExportSourceProof(e)
       const win =
         BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
       // Headless export has no dialog to authorize a path; the CLI already chose one.
@@ -1707,7 +1972,9 @@ function registerHtmlIpc(): void {
               configuredDefaultSaveDir(app),
             )
       if (picked.canceled || !picked.filePath) return { ok: true, canceled: true }
-      if (docxExportPrepareHook && !(await docxExportPrepareHook(picked.filePath))) {
+      const outputPath=picked.filePath
+      return withSelectedUserOutput<ExportResult>(outputPath,async selectedVersion=>{
+      if (docxExportPrepareHook && !(await docxExportPrepareHook(outputPath))) {
         return { ok: true, canceled: true }
       }
       const workDir = await mkdtemp(join(tmpdir(), 'vantage-html-docx-'))
@@ -1739,15 +2006,17 @@ function registerHtmlIpc(): void {
           }),
         ]).finally(() => clearTimeout(watchdog))
         // Vantage Productivity: protected publication also covers document exports.
-        await atomicWriteFile(picked.filePath, Buffer.from(docx))
-        openExportedDocx(picked.filePath)
-        return { ok: true, path: picked.filePath }
+        sourceProof.assertCurrent()
+        await atomicWriteFile(outputPath, Buffer.from(docx),{expectedVersion:selectedVersion})
+        openExportedDocx(outputPath)
+        return { ok: true, path: outputPath }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       } finally {
         await driver?.close()
         await rm(workDir, { recursive: true, force: true }).catch(() => {})
       }
+      },sourceProof)
     },
   )
 
@@ -1757,6 +2026,7 @@ function registerHtmlIpc(): void {
       if (typeof request?.html !== 'string') {
         return { ok: false, error: 'html: bad export request' }
       }
+      const sourceProof=htmlExportSourceProof(e)
       const win =
         BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
       // Headless export has no dialog to authorize a path; the CLI already chose one.
@@ -1773,17 +2043,22 @@ function registerHtmlIpc(): void {
               configuredDefaultSaveDir(app),
             )
       if (picked.canceled || !picked.filePath) return { ok: true, canceled: true }
+      const outputPath=picked.filePath
+      return withSelectedUserOutput<ExportResult>(outputPath,async selectedVersion=>{
       const workDir = await mkdtemp(join(tmpdir(), 'vantage-html-pdf-'))
       try {
         const docPath = savePathByWc.get(e.sender.id)
-        await atomicWriteFile(picked.filePath, await renderPrintPdf(request.html, docPath, workDir))
-        openExportedPdf(picked.filePath)
-        return { ok: true, path: picked.filePath }
+        const bytes=await renderPrintPdf(request.html, docPath, workDir)
+        sourceProof.assertCurrent()
+        await atomicWriteFile(outputPath,bytes,{expectedVersion:selectedVersion})
+        openExportedPdf(outputPath)
+        return { ok: true, path: outputPath }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       } finally {
         await rm(workDir, { recursive: true, force: true }).catch(() => {})
       }
+      },sourceProof)
     },
   )
 
@@ -1807,6 +2082,7 @@ function registerHtmlIpc(): void {
       if (typeof request?.html !== 'string') {
         return { ok: false, error: 'html: bad export request' }
       }
+      const sourceProof=htmlExportSourceProof(e)
       const win =
         BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
       // Headless export has no dialog to authorize a path; the CLI already chose one.
@@ -1828,16 +2104,20 @@ function registerHtmlIpc(): void {
       if (docPath && resolve(picked.filePath) === resolve(docPath)) {
         return { ok: false, error: 'single-file export cannot overwrite the open document' }
       }
+      const outputPath=picked.filePath
+      return withSelectedUserOutput<ExportResult>(outputPath,async selectedVersion=>{
       try {
         const { html, skipped } = await inlineImagesForSingleFile(request.html, docPath)
-        await atomicWriteFile(picked.filePath, Buffer.from(html, 'utf8'))
-        if (!isHeadlessMode()) shell.showItemInFolder(picked.filePath)
+        sourceProof.assertCurrent()
+        await atomicWriteFile(outputPath, Buffer.from(html, 'utf8'),{expectedVersion:selectedVersion})
+        if (!isHeadlessMode()) shell.showItemInFolder(outputPath)
         return skipped.length
-          ? { ok: true, path: picked.filePath, skipped }
-          : { ok: true, path: picked.filePath }
+          ? { ok: true, path: outputPath, skipped }
+          : { ok: true, path: outputPath }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
+      },sourceProof)
     },
   )
 
@@ -1871,12 +2151,42 @@ function registerHtmlIpc(): void {
 
   // safety net for menu saves the renderer declined without invoking save()
   // (busy / still loading) — the save handler itself resolves the normal path
-  ipcMain.on(HTML_CHANNELS.saveRequestAck, (e, ok: unknown) => {
-    const waiter = saveWaiters.get(e.sender.id)
-    saveWaiters.delete(e.sender.id)
-    waiter?.(ok === true)
+  ipcMain.on(HTML_CHANNELS.saveRequestAck,(event,requestId:unknown,result:unknown)=>{if(!currentTopSender(event))return;if(result&&typeof result==='object'&&(result as HtmlCloseReceipt).requestId===requestId)closeCoordinator.receive(event.sender.id,result)})
+  ipcMain.handle(HTML_CHANNELS.closeSourceCheck,async(event,request:{requestId:string;token:string;revision:number;text:string;stamp:CloseLeaseStamp;sourceOnly:boolean;frameName:string})=>{
+    if(!currentTopSender(event))return {ok:false,error:'The source sender frame is obsolete.'}
+    assertNoHtmlCleanup(event.sender.id)
+    if(typeof request?.text!=='string'||Buffer.byteLength(request.text,'utf8')>16*1024*1024||typeof request.sourceOnly!=='boolean'||!htmlDraftController.isActivation(event.sender.id,request.token)||request.revision!==htmlDraftController.revisionFor(event.sender.id))return {ok:false,error:'The HTML source changed before close validation.'}
+    const owner=event.sender.id,work=closeCoordinator.beginMutation(owner,request.requestId,request.stamp),operation=htmlDraftController.sourceOperationFor(owner)
+    let proofId:string|undefined
+    try{
+      const frame=actualPreviewFrame(owner,request.frameName),intent=closeCoordinator.intent(owner,request.requestId)
+      if((request.sourceOnly||intent==='discard')&&frame)throw new Error('The owned preview has not finished retiring. Retry after source-only mode or explicit discard finishes.')
+      if(!request.sourceOnly&&intent!=='discard'&&!frame)throw new Error('The actual loaded preview frame is unavailable.')
+      const proof=previewSnapshots.begin(owner,request.requestId,request.stamp,request.frameName,frame);proofId=proof.id
+      if(frame){
+        const loaded=previewSnapshots.snapshotFor(proof);if(!loaded)throw new Error('The actual loaded source snapshot was retired.')
+        // Validate the actual served document BEFORE the renderer may issue a frame nonce.
+        const loadedResult=await htmlDraftMaterializer.prepare(Buffer.from(loaded.source,'utf8'),loaded.grant,{purpose:'close-proof'})
+        if(loadedResult.unsealedExecutableReferences!==false)throw new Error('The loaded snapshot refers to unsealed executable files or active documents. Current file bytes cannot prove what previously executed.')
+        const grant=htmlDraftGrants.get(owner);if(!grant)throw new Error('The current source asset grant is unavailable.')
+        const currentResult=await htmlDraftMaterializer.prepare(Buffer.from(request.text,'utf8'),grant,{purpose:'close-proof'})
+        if(currentResult.unsealedExecutableReferences!==false)throw new Error('The source still has unsealed executable references. Use source-only editing or explicitly discard.')
+      }
+      if(!closeCoordinator.current(work)||!htmlDraftController.isActivation(owner,request.token)||operation!==htmlDraftController.sourceOperationFor(owner)||request.revision!==htmlDraftController.revisionFor(owner)||!previewSnapshots.validated(owner,proof.id,actualPreviewFrame(owner,request.frameName)))throw new Error('The source or main-owned frame navigation generation changed during verification.')
+      if(!frame&&!previewSnapshots.attest(owner,request.requestId,proof.id,null))throw new Error('The retired-frame proof changed.')
+      return {ok:true,proof:proof.id}
+    }catch(error){if(proofId&&previewSnapshots.getProof(owner,proofId))previewSnapshots.release(owner,request.requestId);return {ok:false,error:'Close could not verify the actual loaded preview: '+String(error)+'. Ordinary Save remains available. Apply or discard visual edits, then choose source-only editing, or explicitly discard this document.'}}
+    finally{closeCoordinator.finishMutation(work)}
   })
-
+  ipcMain.handle(HTML_CHANNELS.closeFrameRetired,(event,request:{requestId:string;frameName:string})=>{if(!currentTopSender(event)||!closeCoordinator.matches(event.sender.id,request?.requestId)||typeof request?.frameName!=='string'||!/^html-preview-[0-9a-f-]{36}$/.test(request.frameName))return false;try{return actualPreviewFrame(event.sender.id,request.frameName)===null}catch{return false}})
+  ipcMain.handle(HTML_CHANNELS.closeFrameAttested,(event,request:{requestId:string;proof:string})=>{
+    if(!currentTopSender(event)||!closeCoordinator.matches(event.sender.id,request?.requestId)||typeof request.proof!=='string')return false
+    const proof=previewSnapshots.getProof(event.sender.id,request.proof)
+    return !!proof&&previewSnapshots.attest(event.sender.id,request.requestId,request.proof,actualPreviewFrame(event.sender.id,proof.name))
+  })
+  ipcMain.on(HTML_CHANNELS.closeSourceState,(event,state)=>{if(currentTopSender(event))closeCoordinator.observe(event.sender.id,state)})
+  ipcMain.handle(HTML_CHANNELS.closeLeaseClaim,(event,ticket)=>currentTopSender(event)&&closeCoordinator.claim(event.sender.id,ticket))
+  ipcMain.handle(HTML_CHANNELS.closeLeaseCancel,async(event,ticket,reason)=>{if(!currentTopSender(event))return;closeCoordinator.cancel(event.sender.id,ticket,typeof reason==='string'?reason:'cancelled');await htmlCleanup.get(event.sender.id)})
   // Language channel shared with other modules; removeHandler tolerates duplicate registration
   ipcMain.removeHandler(HTML_CHANNELS.getLanguage)
   ipcMain.handle(HTML_CHANNELS.getLanguage, () => getUiLang())
@@ -1884,6 +2194,16 @@ function registerHtmlIpc(): void {
 
 function grantAndTrack(wc: WebContents, openPath?: string | null): void {
   const wcId = wc.id
+  closeCoordinator.open(wcId)
+  wc.on('render-process-gone',()=>closeCoordinator.rendererGone(wcId))
+  wc.on('did-start-navigation',(details)=>{
+    // Any start invalidates a proof, including away/back to the identical token URL.
+    previewSnapshots.navigate(wcId);closeCoordinator.cancel(wcId,undefined,'preview navigation started')
+    if(details.isMainFrame){closeCoordinator.rendererGone(wcId);htmlDraftController.retire(wcId);previewSnapshots.destroy(wcId)}
+  })
+  wc.on('did-frame-navigate',()=>{previewSnapshots.navigate(wcId);closeCoordinator.cancel(wcId,undefined,'preview navigation committed');pinActualPreviewFrames(wcId)})
+  wc.on('did-navigate-in-page',()=>{previewSnapshots.navigate(wcId);closeCoordinator.cancel(wcId,undefined,'preview in-page navigation');pinActualPreviewFrames(wcId)})
+  allowedByWc.set(wcId, new Set())
   const watcher = createDocumentDiskWatcher((path) => {
     if (!wc.isDestroyed()) wc.send(HTML_CHANNELS.fileChangedOnDisk, path)
   })
@@ -1896,18 +2216,22 @@ function grantAndTrack(wc: WebContents, openPath?: string | null): void {
   }
   installExternalLinkOpener(wc)
   wc.once('destroyed', () => {
+    htmlDraftController.retire(wcId)
+    htmlDraftGrants.delete(wcId)
+    htmlDraftActivationIntent.delete(wcId)
     closePresentViewsOf(wcId)
     diskWatcherByWc.get(wcId)?.dispose()
     diskWatcherByWc.delete(wcId)
+    publicationReads.forget(wcId)
     openPathByWc.delete(wcId)
     allowedByWc.delete(wcId)
     savePathByWc.delete(wcId)
     dirtyByWc.delete(wcId)
     previewTextByWc.delete(wcId)
+    previewSnapshots.destroy(wcId)
     closeSaveWaiters.get(wcId)?.(false)
     closeSaveWaiters.delete(wcId)
-    saveWaiters.get(wcId)?.(false)
-    saveWaiters.delete(wcId)
+    closeCoordinator.destroy(wcId)
   })
 }
 
@@ -1924,7 +2248,7 @@ function bindPresentView(wc: WebContents, ownerWcId: number, title: string): voi
   const wcId = wc.id
   presentOwnerByWc.set(wcId, ownerWcId)
   installExternalLinkOpener(wc)
-  wc.once('destroyed', () => presentOwnerByWc.delete(wcId))
+  wc.once('destroyed',()=>{presentationCloses.destroy(wcId);presentOwnerByWc.delete(wcId)})
   const query = { present: String(ownerWcId), title }
   void wc.loadURL(rendererUrl(runtime.rendererUrl, 'html', query))
 }
@@ -2022,12 +2346,19 @@ export function startHtmlStandalone(): void {
   registerPrivilegedSchemes()
   installNavigationGuard(app)
   installContextMenu(app, () => contextMenuLabels(getUiLang()))
+  const standaloneRecoveryProfile = configureRecoveryProfile({ app, mode: 'gui', guiProfile: process.env.VANTAGE_USER_DATA || app.getPath('userData') })
+  if (!app.requestSingleInstanceLock()) { app.quit(); return }
+  initializeStandaloneRecovery({ app, ...standaloneRecoveryProfile, lockAcquired: true,
+    warning: message => { void dialog.showMessageBox({ type: 'warning', message }).catch(() => {}) },
+    terminal: cleanup => { app.once('will-quit', cleanup) },
+  })
   configureHtmlRuntime({
     preloadPath: join(__dirname, '../preload/index.js'),
     rendererUrl: process.env.ELECTRON_RENDERER_URL,
     rendererFile: join(__dirname, '../renderer/index.html'),
   })
   void app.whenReady().then(() => {
+  // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
     installRendererProtocol({ html: join(__dirname, '../renderer') })
     registerHtmlIpc()
     // shell mode leaves the shared ai:* search channels to docs-main registerAiIpc
@@ -2044,6 +2375,8 @@ export function startHtmlStandalone(): void {
     })
     const argPath = process.argv.slice(1).find((a) => /\.html?$/i.test(a) && existsSync(a))
     grantAndTrack(win.webContents, argPath)
+    let closePreparing=false
+    win.on('close',event=>{event.preventDefault();if(closePreparing)return;closePreparing=true;void(async()=>{let receipt:HtmlCloseReceipt|null=null;try{receipt=await prepareHtmlNativeClose(win.webContents,win);if(receipt)completeHtmlClose(win.webContents,receipt,()=>{if(win.isDestroyed())return false;win.destroy();return true})}catch(error){console.error('[html] close refused:',error)}finally{closePreparing=false;if(receipt)await cancelHtmlClose(win.webContents,receipt,'standalone HTML close finished')}})()})
     void win.loadURL(rendererUrl(runtime.rendererUrl, 'html'))
   })
   app.on('window-all-closed', () => app.quit())

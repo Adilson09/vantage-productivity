@@ -7,9 +7,29 @@ import { AI_CHANNELS, PDF_CHANNELS } from '../shared/ipc'
 import type { PdfApi, UiTheme } from '../shared/ipc'
 
 const api: PdfApi = {
+  claimClose: (ticket) => ipcRenderer.invoke(PDF_CHANNELS.closeClaim, ticket),
+  cancelClose: (ticket, reason) => ipcRenderer.invoke(PDF_CHANNELS.closeCancel, ticket, reason),
+  onClosePrepare: (handler) => { const listener = (_event: Electron.IpcRendererEvent, request: Parameters<typeof handler>[0]) => handler(request); ipcRenderer.on(PDF_CHANNELS.closePrepare, listener); return () => ipcRenderer.removeListener(PDF_CHANNELS.closePrepare, listener) },
+  sendClosePrepared: (response) => ipcRenderer.send(PDF_CHANNELS.closePrepared, response),
+  onCloseRelease: (handler) => { const listener = (_event: Electron.IpcRendererEvent, response: Parameters<typeof handler>[0]) => handler(response); ipcRenderer.on(PDF_CHANNELS.closeRelease, listener); return () => ipcRenderer.removeListener(PDF_CHANNELS.closeRelease, listener) },
+  onCloseStateRequest: (handler) => { const listener = (_event: Electron.IpcRendererEvent, id: string) => handler(id); ipcRenderer.on(PDF_CHANNELS.closeStateRequest, listener); return () => ipcRenderer.removeListener(PDF_CHANNELS.closeStateRequest, listener) },
+  sendCloseState: (id, state) => ipcRenderer.send(PDF_CHANNELS.closeStateResponse, id, state),
+  readSource: (path, closeTicket) => ipcRenderer.invoke(PDF_CHANNELS.readSource, path, closeTicket),
+  activateDraft: (readId, unjournaledPath) => ipcRenderer.invoke(PDF_CHANNELS.activateDraft, readId, unjournaledPath),
+  writeDraft: (request) => ipcRenderer.invoke(PDF_CHANNELS.writeDraft, request),
+  discardDraft: (token) => ipcRenderer.invoke(PDF_CHANNELS.discardDraft, token),
+  retryDraftCleanup: () => ipcRenderer.invoke(PDF_CHANNELS.retryDraftCleanup),
+  forkAfterSave: request => ipcRenderer.invoke(PDF_CHANNELS.forkAfterSave, request),
+  acknowledgeCopy: (request) => ipcRenderer.invoke(PDF_CHANNELS.acknowledgeCopy, request),
+  requestWorkspaceCopy: (path) => ipcRenderer.invoke(PDF_CHANNELS.requestWorkspaceCopy, path),
+  onDraftRetired: (handler) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: Parameters<typeof handler>[0]) => handler(value)
+    ipcRenderer.on(PDF_CHANNELS.draftRetired, listener)
+    return () => ipcRenderer.removeListener(PDF_CHANNELS.draftRetired, listener)
+  },
   consumePending: () => ipcRenderer.invoke(PDF_CHANNELS.consumePending),
   openSourcePath: (path: string) => ipcRenderer.invoke('home:open-path', path),
-  readFile: (path) => ipcRenderer.invoke(PDF_CHANNELS.readFile, path),
+  readFile: (path, closeTicket) => ipcRenderer.invoke(PDF_CHANNELS.readFile, path, closeTicket),
   save: (request) => ipcRenderer.invoke(PDF_CHANNELS.save, request),
   requestRedactionCopy: (path) => ipcRenderer.invoke(PDF_CHANNELS.requestRedactionCopy, path),
   autoRename: (path, baseName) => ipcRenderer.invoke(PDF_CHANNELS.autoRename, path, baseName),

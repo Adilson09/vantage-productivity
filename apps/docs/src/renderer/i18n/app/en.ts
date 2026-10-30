@@ -539,4 +539,5 @@ export const en = {
   appMergeSourceLoaded: 'Loaded {name} ({n} records)',
   appMergeWritten: '{n} documents written',
   appMergeNothingToWrite: 'There is nothing to write',
+  appRecoveryFailed: 'Draft recovery failed: {error}',
 } satisfies Record<keyof typeof zh, string>

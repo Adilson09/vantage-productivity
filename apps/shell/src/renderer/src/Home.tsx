@@ -2264,6 +2264,7 @@ export function Home() {
   function renderQuickCards(greeting?: string, controllerOnly = false) {
     return (
       <VantageWorkspace
+        key="workspace-tools"
         items={NEW_ITEMS}
         greeting={greeting}
         greetingLang={lang}

@@ -1,3 +1,4 @@
+import { htmlCloseStamp, runHtmlAsyncMutation } from '../close-lease'
 import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
@@ -236,6 +237,7 @@ interface ChatEntry {
 
 /** the whole source text: one string is the exact rollback unit */
 export interface DocSnapshot {
+  source?:string
   text: string
 }
 
@@ -727,6 +729,8 @@ export function AiPanel({
   const runBriefWriterRef = useRef(runBriefWriter)
   runBriefWriterRef.current = runBriefWriter
 
+  const runSourceRef=useRef<string|null>(null)
+  const sourceAccess=()=>{if(runSourceRef.current&&runSourceRef.current!==htmlCloseStamp().source)throw new Error('The AI operation belongs to a replaced HTML source.');return depsRef.current.access}
   const loopRef = useRef<AgentLoop<DocSnapshot> | null>(null)
   if (!loopRef.current) {
     loopRef.current = new AgentLoop<DocSnapshot>({
@@ -734,15 +738,15 @@ export function AiPanel({
       skill: composeSkills('html+search', '', [
         createDocumentSkill(
           {
-            getText: () => depsRef.current.access.getText(),
-            getVersion: () => depsRef.current.access.getVersion(),
-            getMap: () => depsRef.current.access.getMap(),
-            getLastManualVersion: () => depsRef.current.access.getLastManualVersion(),
-            getFilePath: () => depsRef.current.access.getFilePath(),
+            getText: () => sourceAccess().getText(),
+            getVersion: () => sourceAccess().getVersion(),
+            getMap: () => sourceAccess().getMap(),
+            getLastManualVersion: () => sourceAccess().getLastManualVersion(),
+            getFilePath: () => sourceAccess().getFilePath(),
             getSelectedSid: () =>
-              queueRunRef.current ? null : depsRef.current.access.getSelectedSid(),
-            applyOps: (ops, label) => depsRef.current.access.applyOps(ops, label),
-            replaceAll: (html, label) => depsRef.current.access.replaceAll(html, label),
+              queueRunRef.current ? null : sourceAccess().getSelectedSid(),
+            applyOps: (ops, label) => sourceAccess().applyOps(ops, label),
+            replaceAll: (html, label) => sourceAccess().replaceAll(html, label),
             askClarification: (questions) =>
               new Promise((resolve) => {
                 clarifyResolverRef.current = resolve
@@ -765,7 +769,7 @@ export function AiPanel({
         createFilesSkill(availableAttachments),
         createIntentSkill(
           () => intentRef.current,
-          () => isDocEmpty(depsRef.current.access.getText()),
+          () => isDocEmpty(sourceAccess().getText()),
         ),
       ]),
       captureSnapshot: () => depsRef.current.getSnapshot(),
@@ -834,7 +838,7 @@ export function AiPanel({
           }))
           persistMessage('assistant', final, runToolsRef.current)
           depsRef.current.clearHighlights()
-          depsRef.current.onRunDone(runMutatedRef.current)
+          if(!runSourceRef.current||runSourceRef.current===htmlCloseStamp().source)depsRef.current.onRunDone(runMutatedRef.current)
           queueRunRef.current = false
           setBusy(false)
         },
@@ -1025,7 +1029,8 @@ export function AiPanel({
     persistMessage('user', displayText ?? instruction, undefined, sentAtts, scope)
     // Stop / New chat during the pre-run reads (settings, image bytes) bump the sequence; a stale send never starts the loop
     const seq = ++sendSeqRef.current
-    void (async () => {
+    void runHtmlAsyncMutation(async source=>{
+      runSourceRef.current=source
       try {
         settingsRef.current = await window.htmlApi.getAiSettings()
         const images = sentAtts.length > 0 ? await collectImages(sentAtts) : []
@@ -1043,8 +1048,8 @@ export function AiPanel({
         })
         queueRunRef.current = false
         setBusy(false)
-      }
-    })()
+      }finally{runSourceRef.current=null}
+    }).catch(error=>{setBusy(false);patchLast({streaming:false,text:String(error),isError:true})})
     return true
   }
 

@@ -1,4 +1,10 @@
-import { FORMULA_REFERENCE_PATTERN, qualifierMatches } from './xlsx-structure'
+import {
+  assertWritableFormulaCode,
+  isWritableReferenceToken,
+  mapFormulaCode,
+  qualifierMatches,
+  WRITABLE_FORMULA_REFERENCE_PATTERN,
+} from './xlsx-structure'
 import { ensureRelationshipNamespace } from './xlsx-namespace'
 
 /// '>' is legal inside XML attribute values (sheet names can carry it), so
@@ -7,9 +13,9 @@ const TAG_ATTRIBUTES = `(?:"[^"]*"|'[^']*'|[^>"'])*?`
 
 /// Sheet-level workbook surgery: rename, add, and remove worksheets. Renames
 /// rewrite every qualified reference (other sheets' formulas, defined names,
-/// chart series, hyperlink anchors); removals fail closed when anything still
-/// references the sheet. All operations rebuild workbook.xml's sheet list in
-/// the caller-provided final tab order.
+/// chart series, hyperlink anchors); removals replace supported A1 references
+/// with #REF! and refuse unsupported reference syntax. All operations rebuild
+/// workbook.xml's sheet list in the caller-provided final tab order.
 
 export class SheetEditError extends Error {}
 
@@ -70,36 +76,128 @@ export function formatSheetQualifier(name: string): string {
 /// Rewrites references qualified with oldName to newName inside one formula.
 /// String literals ("" escaping) are left untouched.
 export function renameSheetInFormula(formula: string, oldName: string, newName: string): string {
-  return formula
-    .split('"')
-    .map((segment, index) =>
-      index % 2 === 1
-        ? segment
-        : segment.replace(
-            FORMULA_REFERENCE_PATTERN,
-            (full, lead: string, qualifier: string | undefined, token: string) => {
-              if (qualifier === undefined || !qualifierMatches(qualifier, oldName)) return full
-              return `${lead}${formatSheetQualifier(newName)}!${token}`
-            },
-          ),
-    )
-    .join('"')
+  return mapFormulaCode(formula, (segment) =>
+    segment.replace(
+      WRITABLE_FORMULA_REFERENCE_PATTERN,
+      (full, lead: string, qualifier: string | undefined, token: string) => {
+        if (qualifier === undefined || !qualifierMatches(qualifier, oldName)) return full
+        return `${lead}${formatSheetQualifier(newName)}!${token}`
+      },
+    ),
+  )
 }
 
 /// True when the formula contains a reference qualified with sheetName.
 export function formulaReferencesSheet(formula: string, sheetName: string): boolean {
   let found = false
-  formula.split('"').forEach((segment, index) => {
-    if (index % 2 === 1 || found) return
+  mapFormulaCode(formula, (segment) => {
+    if (found) return segment
     segment.replace(
-      FORMULA_REFERENCE_PATTERN,
+      WRITABLE_FORMULA_REFERENCE_PATTERN,
       (full, _lead: string, qualifier: string | undefined) => {
         if (qualifier !== undefined && qualifierMatches(qualifier, sheetName)) found = true
         return full
       },
     )
+    if (containsSheetQualifier(segment, sheetName)) found = true
+    return segment
   })
   return found
+}
+
+function containsSheetQualifier(code: string, sheetName: string): boolean {
+  // Exclude # so an existing #REF! error is not mistaken for a sheet named
+  // REF. A real qualifier may be followed by a scoped name, not just A1.
+  const pattern = /(^|[^\p{L}\p{N}_.$'!:#])('(?:[^']|'')+'|[\p{L}\p{N}_.]+)\s*!/gu
+  for (const match of code.matchAll(pattern)) {
+    if (match[2] !== undefined && qualifierMatches(match[2], sheetName)) return true
+  }
+  return false
+}
+
+/// Removes a deleted sheet qualifier together with its supported A1 operand.
+/// Unknown scoped names, 3D ranges, and spill suffixes remain explicit save
+/// errors; guessing at them could turn a valid formula into a different one.
+export function invalidateSheetInFormula(formula: string, sheetName: string): string {
+  try {
+    return mapFormulaCode(formula, (code) => {
+      assertWritableFormulaCode(code)
+      const rewritten = code.replace(
+        WRITABLE_FORMULA_REFERENCE_PATTERN,
+        (full, lead: string, qualifier: string | undefined, token: string, offset: number) => {
+          if (qualifier === undefined || !qualifierMatches(qualifier, sheetName)) return full
+          if (!isWritableReferenceToken(token)) return full
+          if (code[offset + full.length] === '#')
+            throw new SheetEditError('A formula uses an unsupported spilled reference.')
+          return `${lead}#REF!`
+        },
+      )
+      if (containsSheetQualifier(rewritten, sheetName)) {
+        throw new SheetEditError(`A formula uses an unsupported reference to "${sheetName}".`)
+      }
+      return rewritten
+    })
+  } catch (error) {
+    if (error instanceof SheetEditError) throw error
+    throw new SheetEditError(
+      error instanceof Error ? error.message : 'A formula cannot be rewritten safely.',
+    )
+  }
+}
+
+export function invalidateSheetReferencesInWorksheet(
+  worksheetXml: string,
+  sheetName: string,
+): string {
+  let xml = worksheetXml.replace(
+    new RegExp(`<f\\b(${TAG_ATTRIBUTES})(?<!/)>([\\s\\S]*?)<\\/f>`, 'g'),
+    (full, attributes: string | undefined, body: string) => {
+      const formula = decodeEntities(body)
+      const rewritten = invalidateSheetInFormula(formula, sheetName)
+      return rewritten === formula ? full : `<f${attributes ?? ''}>${escapeXmlText(rewritten)}</f>`
+    },
+  )
+  xml = xml.replace(/<(formula[12]?)>([\s\S]*?)<\/\1>/g, (full, tag: string, body: string) => {
+    const formula = decodeEntities(body)
+    const rewritten = invalidateSheetInFormula(formula, sheetName)
+    return rewritten === formula ? full : `<${tag}>${escapeXmlText(rewritten)}</${tag}>`
+  })
+  return xml.replace(
+    new RegExp(`(<hyperlink\\b${TAG_ATTRIBUTES}\\blocation=")([^"]+)(")`, 'g'),
+    (full, prefix: string, location: string, suffix: string) => {
+      const formula = decodeAttribute(location)
+      const rewritten = invalidateSheetInFormula(formula, sheetName)
+      return rewritten === formula ? full : `${prefix}${escapeXmlAttribute(rewritten)}${suffix}`
+    },
+  )
+}
+
+export function invalidateSheetReferencesInChart(chartXml: string, sheetName: string): string {
+  return chartXml.replace(
+    /(<c:f>)([\s\S]*?)(<\/c:f>)/g,
+    (full, open: string, body: string, close: string) => {
+      const formula = decodeEntities(body)
+      const rewritten = invalidateSheetInFormula(formula, sheetName)
+      return rewritten === formula ? full : `${open}${escapeXmlText(rewritten)}${close}`
+    },
+  )
+}
+
+export function invalidateSheetReferencesInDefinedNames(
+  workbookXml: string,
+  sheetName: string,
+  removedLocalIds: ReadonlySet<number>,
+): string {
+  return workbookXml.replace(
+    new RegExp(`(<definedName\\b${TAG_ATTRIBUTES}>)([\\s\\S]*?)(<\\/definedName>)`, 'g'),
+    (full, open: string, body: string, close: string) => {
+      const localId = readAttribute(open, 'localSheetId')
+      if (localId !== undefined && removedLocalIds.has(Number(localId))) return full
+      const formula = decodeEntities(body)
+      const rewritten = invalidateSheetInFormula(formula, sheetName)
+      return rewritten === formula ? full : `${open}${escapeXmlText(rewritten)}${close}`
+    },
+  )
 }
 
 /// Rewrites qualified references in a worksheet part: formula bodies, CF/DV

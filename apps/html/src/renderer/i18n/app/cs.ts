@@ -1,6 +1,11 @@
 import type { zh } from './zh'
 
 export const cs = {
+  recoveryFailed:
+    'Kopii pro obnovení nelze aktualizovat: {error}. Předchozí kopie zůstala zachována.',
+  recoveryRetry: 'Zkusit znovu',
+  recoveryRemote:
+    'Tato kopie stále závisí na {count} vzdálených zdrojích, které mohou vyžadovat internet.',
   redactMenuLabel: 'Skrýt výběr před AI',
   redactDialogDesc:
     'Slova zůstanou v dokumentu i v souboru; model uvidí jen zástupný symbol. Pojmenujte ho, aby věděl, co zastupuje.',

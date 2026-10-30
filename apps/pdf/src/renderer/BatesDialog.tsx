@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { usePdfEditorState } from './pdf-draft'
 import type { TFunc } from './i18n/locale'
 import {
   BATES_MAX_FONT,
@@ -63,14 +64,14 @@ export function BatesDialog({
   onApply: (config: BatesConfig) => void
   onClose: () => void
 }): React.JSX.Element {
-  const [prefix, setPrefix] = useState('')
-  const [start, setStart] = useState('1')
-  const [digits, setDigits] = useState('6')
-  const [fontSize, setFontSize] = useState('10')
-  const [color, setColor] = useState<[number, number, number]>(COLOR_CHOICES[0])
-  const [position, setPosition] = useState<BatesPosition>('bottom-right')
-  const [firstPage, setFirstPage] = useState('1')
-  const [lastPage, setLastPage] = useState('')
+  const [prefix, setPrefix] = usePdfEditorState('bates-prefix', 'bates', '')
+  const [start, setStart] = usePdfEditorState('bates-start', 'bates', '1')
+  const [digits, setDigits] = usePdfEditorState('bates-digits', 'bates', '6')
+  const [fontSize, setFontSize] = usePdfEditorState('bates-font-size', 'bates', '10')
+  const [color, setColor] = usePdfEditorState<[number, number, number]>('bates-color', 'bates', COLOR_CHOICES[0])
+  const [position, setPosition] = usePdfEditorState<BatesPosition>('bates-position', 'bates', 'bottom-right')
+  const [firstPage, setFirstPage] = usePdfEditorState('bates-first', 'bates', '1')
+  const [lastPage, setLastPage] = usePdfEditorState('bates-last', 'bates', '')
   const [error, setError] = useState<string | null>(null)
 
   const cfg: BatesConfig = {

@@ -1,3 +1,4 @@
+import { markdownCloseLocked, markdownCloseStamp, mutateMarkdown, noteMarkdownAuthoredMutation } from '../close-lease'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { Annotation, Compartment, EditorState } from '@codemirror/state'
 import {
@@ -47,6 +48,8 @@ export interface PlainTextEditorHandle {
   canUndo(): boolean
   canRedo(): boolean
   findTarget(): FindTarget | null
+  composing(): boolean
+  lockForClose(): () => void
 }
 
 interface Props {
@@ -121,6 +124,7 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const spellRef = useRef<Compartment | null>(null)
+  const closeLockRef = useRef<Compartment | null>(null)
   const findTargetRef = useRef<FindTarget | null>(null)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
@@ -132,12 +136,24 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
     // spellcheck is a live preference, so it lives in a compartment rather
     // than in the extension set that identifies this editor
     const spellCompartment = new Compartment()
+    const closeCompartment = new Compartment()
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
         doc: initialText,
         extensions: [
           ...extensionsFor(mode),
+          closeCompartment.of([]),
+          EditorState.transactionFilter.of(transaction => {
+            if (!transaction.docChanged) return transaction
+            if (!markdownCloseLocked()) return noteMarkdownAuthoredMutation() ? transaction : []
+            const source = markdownCloseStamp().source
+            mutateMarkdown(() => {
+              if (viewRef.current !== view || view.state !== transaction.startState) throw new Error('The pending source transaction changed before close cancellation; retry that edit.')
+              view.dispatch(transaction)
+            }, source)
+            return []
+          }),
           spellCompartment.of(EditorView.contentAttributes.of({ spellcheck: String(spellcheck) })),
           EditorView.updateListener.of((update) => {
             // the load dispatch must not read back as a user edit
@@ -151,6 +167,7 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
     })
     viewRef.current = view
     spellRef.current = spellCompartment
+    closeLockRef.current = closeCompartment
     findTargetRef.current = buildFindTarget(view, (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -159,6 +176,7 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
       view.destroy()
       viewRef.current = null
       spellRef.current = null
+      closeLockRef.current = null
       findTargetRef.current = null
     }
     // the buffer is seeded once; later external replacements go through setDoc
@@ -191,6 +209,13 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
     canUndo: () => (viewRef.current ? undoDepth(viewRef.current.state) > 0 : false),
     canRedo: () => (viewRef.current ? redoDepth(viewRef.current.state) > 0 : false),
     findTarget: () => findTargetRef.current,
+    composing: () => viewRef.current?.composing ?? false,
+    lockForClose() {
+      const view = viewRef.current, compartment = closeLockRef.current
+      if (!view || !compartment) return () => {}
+      view.dispatch({effects:compartment.reconfigure([EditorState.readOnly.of(true),EditorView.editable.of(false)])})
+      return () => { if (viewRef.current === view) view.dispatch({effects:compartment.reconfigure([])}) }
+    },
   }))
 
   return <div ref={hostRef} className={className} />

@@ -1,3 +1,7 @@
+import type { DocReplacementApproval } from '../shared/ipc'
+import { prepareDocRendererClose } from './native-close'
+import { useDocAuthoredState, DocAuthoredStateProvider, useDocAuthoredScope, withDocAuthoredContext, readDocAuthored } from './doc-authored-state'
+import { docCloseBarrier, docMutationSource, guardDocAsync, assertDocMutationSource, retireDocAuthoring, isDocAuthoringActive } from './doc-close-lease'
 import { scriptFontHtml } from './editor/script-fonts'
 import { carryDocSeen } from './ai/tools'
 import { DOC_CSS_COMMITTED_EVENT, WRAP_WIDTHS_COMMITTED_EVENT } from './editor/cjk-punct-shrink'
@@ -137,6 +141,7 @@ import {
   selectedWordCount,
 } from './word-count'
 import { CommentsPanel } from './components/CommentsPanel'
+import { captureDraftAnchor, commentDraftAnchorText, commentDraftSnapshot, hasCommentDrafts, matchesDraftAnchor, matchesDraftTarget, type CommentDraftAnchor, type CommentDraftTarget } from './comment-draft-recovery'
 import { EquationModal } from './components/EquationModal'
 import { HeaderFooterArea } from './components/HeaderFooterArea'
 import { PageFootnotes, PageEndnotes } from './components/PageNoteAreas'
@@ -392,7 +397,7 @@ import { NavPane } from './components/NavPane'
 import { StylesPane } from './components/StylesPane'
 import { Ruler } from './components/Ruler'
 import { docBodyFont, docHasCjk, docLineFactor, docStyleCss, docThemeCss } from './doc-style-css'
-import { isDocDirty, runGuardedCandidate, runGuardedDocumentAction } from './doc-dirty'
+import { isDocDirty } from './doc-dirty'
 import {
   EMPTY_HF_VARIANTS,
   restingHfAreaVariant,
@@ -414,13 +419,19 @@ import {
   newFile as newFileImpl,
   printDoc as printDocImpl,
   save as saveImpl,
+  currentDocGeneration,
+  canCloseSavedDocument,
   suggestedSaveAsName,
+  noteRecoveryDiscarded,
+  reportRecoveryWarning,
+  setRecoveryComposing,
   writeRecoveryCopy as writeRecoveryCopyImpl,
   type FileActionContext,
   type PendingPdfExport,
 } from './file-actions'
 import { BlockIndex } from './pagination-index'
 import { isPhasedContentPending } from './phased-content'
+import { captureRecoverySurfaces } from './editor/recovery-snapshot'
 import { sameSectionInfos } from './pagination-sections'
 import {
   blocksKeepSlicing,
@@ -784,9 +795,14 @@ function replacesDocument(result: NonNullable<OpenDocxResult>): boolean {
 }
 
 export function App() {
+  return <DocAuthoredStateProvider><DocApp /></DocAuthoredStateProvider>
+}
+
+function DocApp() {
+  const authoredScope = useDocAuthoredScope()
   // subscribe to language switches for re-render; strings all go through module-level t, so memoized callbacks never capture stale closures
   const { lang } = useI18n()
-  const [doc, setDoc] = useState<DocState | null>(null)
+  const [doc, setDoc] = useDocAuthoredState<DocState | null>('doc', null)
   /** a phased open is still streaming the document tail: editor stays read-only */
   const [docLoading, setDocLoading] = useState(false)
   /** true until the pending-open / new-blank boot checks settle; the start screen stays hidden meanwhile */
@@ -858,49 +874,49 @@ export function App() {
     },
     [docThemeDark],
   )
-  const [section, setSection] = useState<SectionSettings | null>(null)
+  const [section, setSection] = useDocAuthoredState<SectionSettings | null>('section', null)
   /** All sections (readSections): pagination/preview use per-section geometry; layout edits apply to the cursor's section */
-  const [sections, setSections] = useState<SectionInfo[]>([])
-  const [sectionDirty, setSectionDirty] = useState(false)
+  const [sections, setSections] = useDocAuthoredState<SectionInfo[]>('sections', [])
+  const [sectionDirty, setSectionDirty] = useDocAuthoredState('sectionDirty', false)
   /** Index of the cursor's section (maintained by selectionUpdate) */
   const [activeSection, setActiveSection] = useState(0)
   // displayed number of the caret's page: a mirrored document's ruler follows its parity
   const [caretPageNo, setCaretPageNo] = useState(1)
   const locateCaretPageRef = useRef<() => void>(() => {})
   /** Indexes of edited non-final sections (their section-break paragraphs' sectPr is rewritten on save) */
-  const [sectionsDirty, setSectionsDirty] = useState<number[]>([])
+  const [sectionsDirty, setSectionsDirty] = useDocAuthoredState<number[]>('sectionsDirty', [])
   /** Start type pending write to the trailing sectPr after inserting a continuous section break */
-  const [trailingStartType, setTrailingStartType] = useState<SectionInfo['startType'] | null>(null)
-  const [pageColor, setPageColor] = useState<string | null>(null)
-  const [pageColorDirty, setPageColorDirty] = useState(false)
-  const [header, setHeader] = useState<HeaderFooter | null>(null)
-  const [headerDirty, setHeaderDirty] = useState(false)
-  const [footer, setFooter] = useState<HeaderFooter | null>(null)
-  const [footerDirty, setFooterDirty] = useState(false)
-  const [hfVariants, setHfVariants] = useState<HfVariantsState>(EMPTY_HF_VARIANTS)
-  const [hfVariantsDirty, setHfVariantsDirty] = useState<HfVariantKey[]>([])
-  const [titlePg, setTitlePg] = useState(false)
-  const [titlePgDirty, setTitlePgDirty] = useState(false)
-  const [evenOddHf, setEvenOddHf] = useState(false)
-  const [evenOddHfDirty, setEvenOddHfDirty] = useState(false)
-  const [mirrorMargins, setMirrorMargins] = useState(false)
-  const [mirrorMarginsDirty, setMirrorMarginsDirty] = useState(false)
+  const [trailingStartType, setTrailingStartType] = useDocAuthoredState<SectionInfo['startType'] | null>('trailingStartType', null)
+  const [pageColor, setPageColor] = useDocAuthoredState<string | null>('pageColor', null)
+  const [pageColorDirty, setPageColorDirty] = useDocAuthoredState('pageColorDirty', false)
+  const [header, setHeader] = useDocAuthoredState<HeaderFooter | null>('header', null)
+  const [headerDirty, setHeaderDirty] = useDocAuthoredState('headerDirty', false)
+  const [footer, setFooter] = useDocAuthoredState<HeaderFooter | null>('footer', null)
+  const [footerDirty, setFooterDirty] = useDocAuthoredState('footerDirty', false)
+  const [hfVariants, setHfVariants] = useDocAuthoredState<HfVariantsState>('hfVariants', EMPTY_HF_VARIANTS)
+  const [hfVariantsDirty, setHfVariantsDirty] = useDocAuthoredState<HfVariantKey[]>('hfVariantsDirty', [])
+  const [titlePg, setTitlePg] = useDocAuthoredState('titlePg', false)
+  const [titlePgDirty, setTitlePgDirty] = useDocAuthoredState('titlePgDirty', false)
+  const [evenOddHf, setEvenOddHf] = useDocAuthoredState('evenOddHf', false)
+  const [evenOddHfDirty, setEvenOddHfDirty] = useDocAuthoredState('evenOddHfDirty', false)
+  const [mirrorMargins, setMirrorMargins] = useDocAuthoredState('mirrorMargins', false)
+  const [mirrorMarginsDirty, setMirrorMarginsDirty] = useDocAuthoredState('mirrorMarginsDirty', false)
   const [pageInfo, setPageInfo] = useState({ current: 1, total: 1 })
   // last page's number for the document-end footer: text for the page marker, num for
   // even/odd parity (section restarts / pageNumberFmt make both differ from the physical count)
   const [lastPageNo, setLastPageNo] = useState<{ text: string; num: number } | null>(null)
   /** Page-number-format dialog + pending final-section pgNumType write (non-final sections rewrite sectPr via pgNumDirtySections) */
   const [pgNumModal, setPgNumModal] = useState<{ fmt: string; start: string } | null>(null)
-  const [pgNumEdit, setPgNumEdit] = useState<{ fmt?: string; start?: number } | null>(null)
-  const [pgNumDirtySections, setPgNumDirtySections] = useState<number[]>([])
+  const [pgNumEdit, setPgNumEdit] = useDocAuthoredState<{ fmt?: string; start?: number } | null>('pgNumEdit', null)
+  const [pgNumDirtySections, setPgNumDirtySections] = useDocAuthoredState<number[]>('pgNumDirtySections', [])
   /** Pending numbering definitions to append (saved via SaveOptions.numbering; restart numbering / new list definitions) */
   const [pendingNumbering, setPendingNumbering] =
-    useState<PendingNumbering>(EMPTY_PENDING_NUMBERING)
+    useDocAuthoredState<PendingNumbering>('pendingNumbering', EMPTY_PENDING_NUMBERING)
   const numberingDirty = pendingNumberingDirty(pendingNumbering)
   /** Header/footer edits for non-final sections (key = `${lastBlockIndex}:${kind}`), saved via SaveOptions.sectionHf */
-  const [sectionHfEdits, setSectionHfEdits] = useState<Record<string, HeaderFooter>>({})
+  const [sectionHfEdits, setSectionHfEdits] = useDocAuthoredState<Record<string, HeaderFooter>>('sectionHfEdits', {})
   /** Link to Previous switched on for `${sectionIdx}:${kind}`: the section's own default reference goes on save */
-  const [hfLinks, setHfLinks] = useState<Record<string, true>>({})
+  const [hfLinks, setHfLinks] = useDocAuthoredState<Record<string, true>>('hfLinks', {})
   /** the strip whose editor is open (drives the contextual Header & Footer tab) */
   const [hfEditing, setHfEditing] = useState<{
     kind: 'header' | 'footer'
@@ -983,25 +999,27 @@ export function App() {
   const [showStylesPane, setShowStylesPane] = useState(false)
   const [commentFocus, setCommentFocus] = useState<{ id: string; nonce: number } | null>(null)
   /** Style definitions pending write-back (key = styleId), saved via SaveOptions.styleUpserts */
-  const [defaultFonts, setDefaultFonts] = useState<DefaultFonts>()
+  const [defaultFonts, setDefaultFonts] = useDocAuthoredState<DefaultFonts>('defaultFonts')
   const fontSettingsVersionRef = useRef(0)
   const fontSettingsPendingRef = useRef<Promise<void> | null>(null)
-  const [styleUpserts, setStyleUpserts] = useState<Record<string, StyleUpsert>>({})
-  const [comments, setCommentsState] = useState<CommentInfo[]>([])
+  const [styleUpserts, setStyleUpserts] = useDocAuthoredState<Record<string, StyleUpsert>>('styleUpserts', {})
+  const [comments, setCommentsState] = useDocAuthoredState<CommentInfo[]>('comments', [])
   // Synchronous mirror of the comments state: an agent turn can run several
   // reply_comment calls with no render in between, and each id allocation
   // must see the previous write (stale reads minted duplicate comment ids).
   const commentsLiveRef = useRef<CommentInfo[]>([])
   const setComments = useCallback((action: SetStateAction<CommentInfo[]>) => {
-    commentsLiveRef.current =
-      typeof action === 'function' ? action(commentsLiveRef.current) : action
-    setCommentsState(commentsLiveRef.current)
-  }, [])
-  const [commentsDirty, setCommentsDirty] = useState(false)
-  const [watermark, setWatermark] = useState<string | null>(null)
-  const [watermarkDirty, setWatermarkDirty] = useState(false)
-  const [watermarkStyle, setWatermarkStyle] = useState<Omit<WatermarkSpec, 'text'> | null>(null)
-  const [watermarkPicture, setWatermarkPicture] = useState<PictureWatermarkSpec | null>(null)
+    docCloseBarrier.mutate(() => {
+      commentsLiveRef.current =
+        typeof action === 'function' ? action(commentsLiveRef.current) : action
+      setCommentsState(commentsLiveRef.current)
+    }, docMutationSource())
+  }, [setCommentsState])
+  const [commentsDirty, setCommentsDirty] = useDocAuthoredState('commentsDirty', false)
+  const [watermark, setWatermark] = useDocAuthoredState<string | null>('watermark', null)
+  const [watermarkDirty, setWatermarkDirty] = useDocAuthoredState('watermarkDirty', false)
+  const [watermarkStyle, setWatermarkStyle] = useDocAuthoredState<Omit<WatermarkSpec, 'text'> | null>('watermarkStyle', null)
+  const [watermarkPicture, setWatermarkPicture] = useDocAuthoredState<PictureWatermarkSpec | null>('watermarkPicture', null)
   // the pending picture watermark as the header image it will parse back as,
   // sized against the last section's margin box like the save path
   const pendingWatermarkImage = useMemo(() => {
@@ -1015,34 +1033,36 @@ export function App() {
       : null
     return pictureWatermarkPreviewImage(watermarkPicture, box)
   }, [watermarkDirty, watermarkPicture, sections, section])
-  const [inkAnnotations, setInkAnnotations] = useState<InkAnnotation[]>([])
-  const [inksDirty, setInksDirty] = useState(false)
+  const [inkAnnotations, setInkAnnotations] = useDocAuthoredState<InkAnnotation[]>('inkAnnotations', [])
+  const [inksDirty, setInksDirty] = useDocAuthoredState('inksDirty', false)
   const [inkTool, setInkTool] = useState<InkTool>('select')
   const [inkPen, setInkPen] = useState<InkPenSettings>({ color: 'C00000', width: 2 })
   const [inkHighlighter, setInkHighlighter] = useState<InkPenSettings>({
     color: 'FFFF00',
     width: 10,
   })
-  const [footnotes, setFootnotes] = useState<NoteInfo[]>([])
+  const [footnotes, setFootnotes] = useDocAuthoredState<NoteInfo[]>('footnotes', [])
   /** Footnote ids already shown in canvas page gaps (the end-of-document list skips them to avoid duplication) */
   const [gapNoteIds, setGapNoteIds] = useState<Set<string>>(new Set())
-  const [endnotes, setEndnotes] = useState<NoteInfo[]>([])
+  const [endnotes, setEndnotes] = useDocAuthoredState<NoteInfo[]>('endnotes', [])
   /** Endnote-area anchor: measured flow-end Y (layout px from the page-wrap top); null until measured */
   const [endnotesAreaTop, setEndnotesAreaTop] = useState<number | null>(null)
-  const [notesDirty, setNotesDirty] = useState(false)
-  const [sources, setSources] = useState<SourceInfo[]>([])
-  const [sourcesDirty, setSourcesDirty] = useState(false)
-  const [zoteroDocumentData, setZoteroDocumentDataState] = useState('')
-  const [zoteroDocumentDataDirty, setZoteroDocumentDataDirty] = useState(false)
+  const [notesDirty, setNotesDirty] = useDocAuthoredState('notesDirty', false)
+  const [sources, setSources] = useDocAuthoredState<SourceInfo[]>('sources', [])
+  const [sourcesDirty, setSourcesDirty] = useDocAuthoredState('sourcesDirty', false)
+  const [zoteroDocumentData, setZoteroDocumentDataState] = useDocAuthoredState('zoteroDocumentData', '')
+  const [zoteroDocumentDataDirty, setZoteroDocumentDataDirty] = useDocAuthoredState('zoteroDocumentDataDirty', false)
   const zoteroDocumentDataRef = useRef('')
   const setZoteroDocumentData = useCallback((value: string) => {
-    zoteroDocumentDataRef.current = value
-    setZoteroDocumentDataState(value)
-  }, [])
-  const [themeFonts, setThemeFonts] = useState<ThemeFonts | null>(null)
-  const [themeFontsDirty, setThemeFontsDirty] = useState(false)
-  const [themeColors, setThemeColors] = useState<ThemeColors | null>(null)
-  const [themeColorsDirty, setThemeColorsDirty] = useState(false)
+    docCloseBarrier.mutate(() => {
+      zoteroDocumentDataRef.current = value
+      setZoteroDocumentDataState(value)
+    }, docMutationSource())
+  }, [setZoteroDocumentDataState])
+  const [themeFonts, setThemeFonts] = useDocAuthoredState<ThemeFonts | null>('themeFonts', null)
+  const [themeFontsDirty, setThemeFontsDirty] = useDocAuthoredState('themeFontsDirty', false)
+  const [themeColors, setThemeColors] = useDocAuthoredState<ThemeColors | null>('themeColors', null)
+  const [themeColorsDirty, setThemeColorsDirty] = useDocAuthoredState('themeColorsDirty', false)
   const [commentComposing, setCommentComposing] = useState(false)
   const [trackChanges, setTrackChanges] = useState(false)
   const [revisionDisplay, setRevisionDisplay] = useState<RevisionDisplayMode>('all')
@@ -1069,12 +1089,12 @@ export function App() {
           ),
     [doc, revisionDisplay],
   )
-  const [protection, setProtection] = useState<DocProtection | null>(null)
-  const [protectionDirty, setProtectionDirty] = useState(false)
-  const [writeProtection, setWriteProtection] = useState<WriteProtection | null>(null)
-  const [writeProtectionDirty, setWriteProtectionDirty] = useState(false)
-  const [removePersonalInfo, setRemovePersonalInfo] = useState(false)
-  const [removePersonalInfoDirty, setRemovePersonalInfoDirty] = useState(false)
+  const [protection, setProtection] = useDocAuthoredState<DocProtection | null>('protection', null)
+  const [protectionDirty, setProtectionDirty] = useDocAuthoredState('protectionDirty', false)
+  const [writeProtection, setWriteProtection] = useDocAuthoredState<WriteProtection | null>('writeProtection', null)
+  const [writeProtectionDirty, setWriteProtectionDirty] = useDocAuthoredState('writeProtectionDirty', false)
+  const [removePersonalInfo, setRemovePersonalInfo] = useDocAuthoredState('removePersonalInfo', false)
+  const [removePersonalInfoDirty, setRemovePersonalInfoDirty] = useDocAuthoredState('removePersonalInfoDirty', false)
   /** modify password entered (or set by the user this session) — false = write-locked, document read-only */
   const [modifyUnlocked, setModifyUnlocked] = useState(true)
   const [compareResult, setCompareResult] = useState<{
@@ -1368,25 +1388,34 @@ export function App() {
         // image-only copies keep the bitmap even when text/plain carries the
         // source URL (browser "Copy image" does that) — Word pastes the picture
         if (imageFile && (!text.trim() || imageOnlyHtml)) {
-          const reader = new FileReader()
-          reader.onload = () => {
+          const source = docMutationSource()
+          void docCloseBarrier.runAsyncMutation(async () => {
+            docCloseBarrier.mutate(()=>{},source)
+            const dataUrl = await new Promise<string | null>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+              reader.onerror = () => reject(reader.error ?? new Error('The pasted image could not be read.'))
+              reader.readAsDataURL(imageFile)
+            })
+            assertDocMutationSource(source)
             const ed = editorRef.current
-            if (ed && typeof reader.result === 'string') {
-              void insertImageFromDataUrl(ed, reader.result, 'Image (pasted)')
-            }
-          }
-          reader.readAsDataURL(imageFile)
+            if (ed && !ed.isDestroyed && dataUrl)
+              await insertImageFromDataUrl(ed, dataUrl, 'Image (pasted)')
+          }, source).catch((error) => reportRecoveryWarning(fileCtxRef.current, error))
           return true
         }
         // bitmap-less web image copy: fetch the referenced image(s) through the
         // hardened main-process fetcher (SSRF-guarded, CDN headers) and insert
         if (!imageFile && imageOnlyHtml) {
-          void (async () => {
+          const source = docMutationSource()
+          void docCloseBarrier.runAsyncMutation(async () => {
+            docCloseBarrier.mutate(()=>{},source)
             for (const src of htmlImgSrcs.slice(0, 10)) {
               const ed = editorRef.current
               if (!ed) return
               const fetched = await window.desktop.fetchImage(src)
-              if (fetched) {
+              assertDocMutationSource(source)
+              if (fetched && !ed.isDestroyed) {
                 await insertImageFromDataUrl(
                   ed,
                   `data:${fetched.mime};base64,${fetched.base64}`,
@@ -1394,7 +1423,7 @@ export function App() {
                 )
               }
             }
-          })()
+          }, source).catch((error) => reportRecoveryWarning(fileCtxRef.current, error))
           return true
         }
         // text/plain-only Markdown (code blocks, terminals, .md files, LLM
@@ -1642,7 +1671,12 @@ export function App() {
         if (retryTimer !== undefined) clearTimeout(retryTimer)
       }
       const runKick = () => {
-        if (cancelled) return
+        const source=docMutationSource()
+        void Promise.resolve().then(()=>docCloseBarrier.runMutationWork(()=>runKickUnlocked(source),source))
+          .catch((error)=>reportRecoveryWarning(fileCtxRef.current,error))
+      }
+      const runKickUnlocked = (source:string):void|Promise<void> => {
+        if (cancelled || !isDocAuthoringActive()) return
         const view = editor.view
         const dom = view.dom
         if (!dom.isConnected) return spellDiag('kick abandoned: editor gone')
@@ -1736,7 +1770,7 @@ export function App() {
           const ch = node.data[after.anchorOffset - 1]
           if (ch === ' ' || ch === '\u00a0') node.deleteData(after.anchorOffset - 1, 1)
         }
-        void window.desktop
+        return window.desktop
           .respellKick()
           .catch(() => undefined)
           .then(async () => {
@@ -1758,7 +1792,7 @@ export function App() {
                 })
                 await new Promise((r) => setTimeout(r, /win/i.test(navigator.platform) ? 900 : 150))
               }
-              scrub()
+              if (source===docMutationSource() && isDocAuthoringActive()) scrub()
             } finally {
               // a throw anywhere above must not leave the DOM observer stopped,
               // the capture-phase key shield swallowing the user's keystrokes,
@@ -1775,7 +1809,7 @@ export function App() {
               // re-toggle (cancelled) — or the user is left typing in the body
               // with a dropped selection. Only a detached/destroyed view (where
               // focus would throw) is skipped.
-              if (dom.isConnected) {
+              if (dom.isConnected && source===docMutationSource() && isDocAuthoringActive()) {
                 view.focus() // resync the DOM selection from PM state
                 // ribbon toggle during textbox editing: keep the routing and
                 // hand the keyboard back where it was — typing must not replace
@@ -1902,7 +1936,7 @@ export function App() {
     document.title = doc ? doc.fileName : 'Vantage Docs'
   }, [doc])
 
-  useEffect(() => window.desktop.onTeardown?.(() => setTornDown(true)), [])
+  useEffect(() => window.desktop.onTeardown?.(() => {retireDocAuthoring();setTornDown(true)}), [])
 
   // keep the native View menu's checkmarks (AI Sidebar / Dark Mode) in sync
   // (the IPC field keeps its historical darkCanvas name)
@@ -1910,15 +1944,32 @@ export function App() {
     window.desktop.reportViewMenuState?.({ aiSidebar: showAi, darkCanvas: darkPage })
   }, [showAi, darkPage])
 
-  // Crash-recovery copy: while the document is dirty, push a serialized
-  // copy to the main process every 30s; a normal save (or discarding on close) removes
-  // it, and reopening the file offers Restore/Discard when a newer copy exists.
+  // Complete draft snapshots are independent of normal AutoSave and never
+  // publish an unnamed document. The shared recovery tools restore a new copy.
   useEffect(() => {
     if (tornDown) return
-    const timer = window.setInterval(() => {
-      void writeRecoveryCopyImpl(fileCtxRef.current)
-    }, 30_000)
-    return () => window.clearInterval(timer)
+    const tick = () => void writeRecoveryCopyImpl(fileCtxRef.current)
+    const composing = () => setRecoveryComposing(true)
+    const composed = () => setRecoveryComposing(false)
+    const timer = window.setInterval(tick, 30_000)
+    window.addEventListener('blur', tick)
+    document.addEventListener('compositionstart', composing, true)
+    document.addEventListener('compositionend', composed, true)
+    const offDiscard = window.desktop.onDocDraftDiscarded?.((token) =>
+      noteRecoveryDiscarded(fileCtxRef.current, token),
+    )
+    const offWarning = window.desktop.onDocDraftWarning?.((message) =>
+      reportRecoveryWarning(fileCtxRef.current, message),
+    )
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('blur', tick)
+      document.removeEventListener('compositionstart', composing, true)
+      document.removeEventListener('compositionend', composed, true)
+      setRecoveryComposing(false)
+      offDiscard?.()
+      offWarning?.()
+    }
   }, [tornDown])
 
   // MCP bridge: let an external agent drive this visible editor. Commands arrive
@@ -1993,7 +2044,9 @@ export function App() {
   const liveStylesRef = useRef<{ parsed: ParsedDocFull; styles: Map<string, StyleInfo> } | null>(
     null,
   )
-  fileCtxRef.current = {
+  fileCtxRef.current = withDocAuthoredContext({
+    currentContext: () => fileCtxRef.current,
+    hasPendingAuthorInput: () => hasCommentDrafts() || [...document.querySelectorAll<HTMLTextAreaElement>('.comments-pane textarea')].some(input => input.value.trim().length > 0),
     editor,
     doc,
     dirtyRef,
@@ -2135,10 +2188,12 @@ export function App() {
     setCompareResult,
     promptDocxPassword: (info) =>
       setDocPwdPrompt({ path: info.path, name: info.name, value: '', errorKey: '', busy: false }),
-  }
+  }, authoredScope, {
+    numberingDirty: () => pendingNumberingDirty(readDocAuthored(authoredScope, 'pendingNumbering', EMPTY_PENDING_NUMBERING)),
+  })
 
-  const loadFile = useCallback(async (result: OpenDocxResult) => {
-    const outcome = await loadFileImpl(fileCtxRef.current, result)
+  const loadFile = useCallback(async (result: OpenDocxResult, approval?: DocReplacementApproval) => {
+    const outcome = await loadFileImpl(fileCtxRef.current, result, approval ?? (result && !('needsPassword' in result) ? result.replacementApproval : undefined))
     // a failed open with no document yet (boot, or the open that superseded the
     // boot open) must land on blank instead of the "Opening…" screen
     if (outcome === 'failed' && !fileCtxRef.current.doc) await newFileImpl(fileCtxRef.current)
@@ -2185,10 +2240,13 @@ export function App() {
       window.desktop.consumeNewBlankDoc(),
       window.desktop.consumeAiDocContent(),
     ])
+    const bootSource=docMutationSource()
     void bootPendingRef.current
       .then(async ([pending, , aiContent]) => {
         if (bootHandledRef.current) return
         bootHandledRef.current = true
+        if (docMutationSource() !== bootSource && fileCtxRef.current.doc) return
+        const expectedBornGeneration=currentDocGeneration()+1
         // A failed open (corrupt file etc.) falls back to a blank document —
         // otherwise the tab shows "Opening…" forever with only a status-bar
         // line explaining why (github.com/genspark-ai/vantage issue #102).
@@ -2196,10 +2254,14 @@ export function App() {
         const outcome = pending ? await loadFile(pending) : 'canceled'
         if (outcome === 'canceled') await resetFile()
         if (aiContent && !pending) {
+          if(currentDocGeneration()!==expectedBornGeneration)return
+          const bornSource=docMutationSource()
           // fileCtxRef refreshes per render: wait until resetFile's setDoc landed
           for (let i = 0; i < 100 && !fileCtxRef.current.doc; i++) {
             await new Promise((resolve) => setTimeout(resolve, 20))
           }
+          assertDocMutationSource(bornSource)
+          if(currentDocGeneration()!==expectedBornGeneration)return
           await applyAiDocContentImpl(fileCtxRef.current, aiContent)
         }
       })
@@ -2212,49 +2274,47 @@ export function App() {
     return unsubscribe
   }, [commitOpenedFile, editor, loadFile, resetFile])
 
-  const openFile = useCallback(
-    () =>
-      runGuardedCandidate(
-        () => window.desktop.confirmDocumentReplace(),
-        () => window.desktop.openDocx(),
-        commitOpenedFile,
-        replacesDocument,
-      ),
-    [commitOpenedFile],
-  )
-
-  /** new document from the built-in blank template (AI can then generate into it) */
-  const newFile = useCallback(
-    () => runGuardedDocumentAction(() => window.desktop.confirmDocumentReplace(), resetFile),
-    [resetFile],
-  )
-
-  const openRecent = useCallback(
-    (path: string) =>
-      runGuardedCandidate(
-        () => window.desktop.confirmDocumentReplace(),
-        () => window.desktop.openDocxPath(path),
-        commitOpenedFile,
-        replacesDocument,
-      ),
-    [commitOpenedFile],
-  )
+  const confirmReplacement = useCallback(async () => {
+    if (docCloseBarrier.busy) { reportRecoveryWarning(fileCtxRef.current,'Wait for the current document edit to finish before replacing it.'); return null }
+    const approval=await window.desktop.confirmDocumentReplaceSnapshot()
+    if (docCloseBarrier.busy) { reportRecoveryWarning(fileCtxRef.current,'A newer document edit is still finishing. The current document remains open.'); return null }
+    return approval
+  }, [])
+  const openCandidate = useCallback(async (choose: () => Promise<OpenDocxResult>) => {
+    const candidate = await choose()
+    if (!candidate) return false
+    if (!replacesDocument(candidate)) { await commitOpenedFile(candidate); return true }
+    const approval = await confirmReplacement()
+    if (!approval) return false
+    return (await loadFile(candidate, approval)) === 'ok'
+  }, [commitOpenedFile, loadFile, confirmReplacement])
+  const openFile = useCallback(() => openCandidate(() => window.desktop.openDocx()), [openCandidate])
+  const newFile = useCallback(async () => {
+    const approval = await confirmReplacement()
+    if (!approval) return false
+    return newFileImpl(fileCtxRef.current, approval)
+  }, [confirmReplacement])
+  const openRecent = useCallback((path: string) => openCandidate(() => window.desktop.openDocxPath(path)), [openCandidate])
 
   /** decrypt-and-open retry loop for the password prompt (wrong password stays in the dialog) */
   const submitDocPwd = async () => {
+    const source = docMutationSource()
     if (!docPwdPrompt || docPwdPrompt.busy || !docPwdPrompt.value) return
     setDocPwdPrompt({ ...docPwdPrompt, busy: true, errorKey: '' })
     const res = await window.desktop.openDocxDecrypt(docPwdPrompt.path, docPwdPrompt.value)
+    assertDocMutationSource(source)
     if (res.ok) {
       // Open deferred the replace guard for the encrypted file (see
       // replacesDocument); it runs once, here, now that a real document exists.
       // Declining keeps both the prompt and the current document.
-      if (!(await window.desktop.confirmDocumentReplace())) {
+      const approval = await confirmReplacement()
+      if (!approval) {
         setDocPwdPrompt((current) => (current ? { ...current, busy: false } : current))
         return
       }
+      assertDocMutationSource(source)
       setDocPwdPrompt(null)
-      await commitOpenedFile(res.result)
+      await loadFile(res.result, approval)
       return
     }
     setDocPwdPrompt({
@@ -2272,12 +2332,15 @@ export function App() {
   }
 
   /** apply the diff the Protect Document dialog produced (undefined field = unchanged) */
-  const applyProtectDialog = async (result: ProtectDialogResult) => {
+  const applyProtectDialog = guardDocAsync(async (result: ProtectDialogResult) => {
+    const source = docMutationSource()
     setShowProtectDialog(false)
     let changed = false
     if (result.openPassword !== undefined) {
       const cur = fileCtxRef.current.doc
-      const res = await window.desktop.setDocPassword(cur?.filePath ?? null, result.openPassword)
+      const res = await window.desktop.setDocPassword(cur?.filePath ?? null, result.openPassword, source)
+      assertDocMutationSource(source)
+      if (!res.ok) throw new Error(res.error ?? 'The document password request was refused; the password was not changed.')
       if (res.ok) {
         setDoc((d) => (d ? { ...d, encrypted: !!result.openPassword } : d))
         // the on-disk file only changes on the next save
@@ -2306,18 +2369,21 @@ export function App() {
       changed = true
     }
     if (changed) setStatus(t('appProtectUpdated'))
-  }
+  })
 
   /** modify-password prompt (write-protected document): verify, or fall back to read-only */
-  const submitModifyPwd = async () => {
+  const submitModifyPwd = guardDocAsync(async () => {
+    const source = docMutationSource()
     if (!modifyPwdPrompt || !writeProtection) return
-    if (await verifyProtectionPassword(modifyPwdPrompt.value, writeProtection)) {
+    const verified = await verifyProtectionPassword(modifyPwdPrompt.value, writeProtection)
+    assertDocMutationSource(source)
+    if (verified) {
       setModifyUnlocked(true)
       setModifyPwdPrompt(null)
     } else {
       setModifyPwdPrompt({ value: '', errorKey: 'appDocPwdWrong' })
     }
-  }
+  })
 
   const save = useCallback(
     (saveAs: boolean, auto = false) => saveImpl(fileCtxRef.current, saveAs, auto),
@@ -2380,11 +2446,13 @@ export function App() {
    * is where the reader confirms, and moving a file that may be open elsewhere
    * or synced is not ours to do quietly.
    */
-  const nameWithAi = useCallback(async () => {
+  const nameWithAi = useCallback(() => guardDocAsync(async () => {
+    const source = docMutationSource()
     const proposed = await suggestedSaveAsName(fileCtxRef.current)
+    assertDocMutationSource(source)
     if (!proposed) return
     await saveImpl(fileCtxRef.current, true, false, proposed)
-  }, [])
+  })(), [])
 
   // inserting a section break needs one save for the new section to take effect; the
   // flag is consumed in the render after state commit, guaranteeing the save closure
@@ -2731,7 +2799,9 @@ export function App() {
               },
             })
           zoteroControllerRef.current = controller
-          const result = await controller.handle(request)
+          const source = docMutationSource()
+          const result = await docCloseBarrier.runAsyncMutation(() => controller.handle(request), source)
+          assertDocMutationSource(source)
           window.desktop.respondToZotero({ requestId: request.requestId, ok: true, result })
         } catch (error) {
           window.desktop.respondToZotero({
@@ -2815,15 +2885,24 @@ export function App() {
   }, [pgNumModal, sections, activeSection])
 
   const exportPdf = useCallback(
-    (outPath?: string) => exportPdfImpl(fileCtxRef.current, outPath),
+    async(outPath?:string,selectionId?:string)=>{
+      if(outPath&&!selectionId){const pinned=await window.desktop.pinConfiguredExportTarget(outPath,'pdf');if(!pinned)return false;selectionId=pinned}
+      return exportPdfImpl(fileCtxRef.current,outPath,selectionId)
+    },
     [],
   )
   const exportHtml = useCallback(
-    (outPath?: string) => exportHtmlImpl(fileCtxRef.current, outPath),
+    async(outPath?:string,selectionId?:string)=>{
+      if(outPath&&!selectionId){const pinned=await window.desktop.pinConfiguredExportTarget(outPath,'html');if(!pinned)return false;selectionId=pinned}
+      return exportHtmlImpl(fileCtxRef.current,outPath,selectionId)
+    },
     [],
   )
   const exportMarkdown = useCallback(
-    (outPath?: string) => exportMarkdownImpl(fileCtxRef.current, outPath),
+    async(outPath?:string,selectionId?:string)=>{
+      if(outPath&&!selectionId){const pinned=await window.desktop.pinConfiguredExportTarget(outPath,'md');if(!pinned)return false;selectionId=pinned}
+      return exportMarkdownImpl(fileCtxRef.current,outPath,selectionId)
+    },
     [],
   )
   const exportImages = useCallback(() => exportImagesImpl(fileCtxRef.current), [])
@@ -2845,8 +2924,10 @@ export function App() {
     if (headlessExportStartedRef.current) return
     headlessExportStartedRef.current = true
     void (async () => {
-      const target = await window.desktop.consumeHeadlessExport()
+      let target:Awaited<ReturnType<typeof window.desktop.consumeHeadlessExport>>
+      try{target=await window.desktop.consumeHeadlessExport()}catch(error){window.desktop.headlessExportDone({ok:false,error:error instanceof Error?error.message:String(error)});return}
       if (!target) return
+      if(typeof target.selectionId!=='string'||!target.selectionId){window.desktop.headlessExportDone({ok:false,error:'Select the export destination again.'});return}
       const report = await runHeadlessDocumentExport(
         target.outPath,
         // A failed open falls back to an untitled blank document (filePath
@@ -2856,7 +2937,7 @@ export function App() {
           const doc = fileCtxRef.current.doc
           return { opened: typeof doc?.filePath === 'string', failed: doc?.filePath === null }
         },
-        target.format === 'html' ? exportHtml : target.format === 'md' ? exportMarkdown : exportPdf,
+        path=>target.format==='html'?exportHtml(path,target.selectionId):target.format==='md'?exportMarkdown(path,target.selectionId):exportPdf(path,target.selectionId),
       )
       window.desktop.headlessExportDone(report)
     })()
@@ -2902,7 +2983,7 @@ export function App() {
         return
       }
       setExportLocksPreview(true)
-      const ok = await exportPdf(pending.outPath).catch(() => false)
+      const ok = await exportPdf(pending.outPath,pending.selectionId).catch(() => false)
       setExportLocksPreview(false)
       // a Print the user started meanwhile owns the preview now
       if (pending.closePreview && !showPrintDialogRef.current) setShowPagePreview(false)
@@ -3008,15 +3089,27 @@ export function App() {
   }, [editor])
 
   const submitNewComment = useCallback(
-    (text: string) => submitNewCommentImpl(reviewCtxRef.current, text),
+    (text: string, anchor?:CommentDraftAnchor) => {
+      const ctx=reviewCtxRef.current
+      if(anchor&&(!ctx.editor||!matchesDraftAnchor(ctx.editor.state.doc,anchor)))return false
+      return submitNewCommentImpl(ctx,text,anchor)
+    },
     [],
   )
   const replyToComment = useCallback(
-    (parentId: string, text: string) => replyToCommentImpl(reviewCtxRef.current, parentId, text),
+    (parentId: string, text: string, expected?:CommentDraftTarget) => {
+      const ctx=reviewCtxRef.current
+      if(expected&&(!ctx.editor||!matchesDraftTarget(ctx.comments,expected,commentDraftAnchorText(ctx.editor.state.doc,ctx.comments,parentId))))return false
+      return replyToCommentImpl(ctx,parentId,text)
+    },
     [],
   )
   const editComment = useCallback(
-    (id: string, text: string) => editCommentImpl(reviewCtxRef.current, id, text),
+    (id: string, text: string, expected?:CommentDraftTarget) => {
+      const ctx=reviewCtxRef.current
+      if(expected&&(!ctx.editor||!matchesDraftTarget(ctx.comments,expected,commentDraftAnchorText(ctx.editor.state.doc,ctx.comments,id))))return false
+      return editCommentImpl(ctx,id,text)
+    },
     [],
   )
   const resolveComment = useCallback(
@@ -5474,14 +5567,35 @@ export function App() {
 
   // close guard: the main process queries dirty state before closing a tab/window; choosing "Save" runs a full save and reports back
   useEffect(() => {
-    const offCheck = window.desktop.onCloseCheck?.(() => {
+    const offCheck = window.desktop.onCloseCheck?.((requestId) => {
+      const ctx = fileCtxRef.current
+      let pending = false
+      try {
+        if (ctx.editor) pending = captureRecoverySurfaces(ctx.editor).changed
+      } catch (error) {
+        pending = true
+        reportRecoveryWarning(ctx, error)
+      }
       window.desktop.reportCloseCheck({
-        dirty: !!doc && (anyDirtyRef.current || dirtyRef.current),
-        autoSave: autoSave && !!doc?.filePath,
-        filePath: doc?.filePath ?? null,
+        requestId,
+        stamp: docCloseBarrier.snapshot(),
+        busy: docCloseBarrier.busy,
+        dirty: !!ctx.doc && (pending || ctx.hasPendingAuthorInput?.() === true || isDocDirty(fileCtxRef.current) || dirtyRef.current),
+        autoSave: autoSave && !!ctx.doc?.filePath,
+        filePath: ctx.doc?.filePath ?? null,
       })
     })
+    const offPrepare = window.desktop.onPrepareDocClose?.((request) => {
+      void prepareDocRendererClose(() => fileCtxRef.current, request).then(
+        (result) => window.desktop.reportPreparedDocClose(request.ticket.id, result),
+        (error) => {
+          reportRecoveryWarning(fileCtxRef.current, error)
+          window.desktop.reportPreparedDocClose(request.ticket.id, { published: false, current: false, clean: false, intent: request.intent })
+        },
+      )
+    })
     const offSave = window.desktop.onCloseSaveRequest?.(() => {
+      const generation = currentDocGeneration()
       // Closing must not report success while edits are still unpersisted, so a
       // save that raced with typing is retried until the file catches up.
       // save(false) never prompts — a pathless first save lands silently in the
@@ -5491,13 +5605,20 @@ export function App() {
         save: () => save(false),
         wasIncomplete: () => saveIncompleteRef.current,
         hasPath: () => true,
+        isCurrent: () => currentDocGeneration() === generation,
+        canClose: () => canCloseSavedDocument(fileCtxRef.current, generation),
       }).then(
-        (ok) => window.desktop.reportCloseSaveResult(ok === true),
+        (ok) =>
+          window.desktop.reportCloseSaveResult({
+            ok: ok === true && !docCloseBarrier.busy && canCloseSavedDocument(fileCtxRef.current, generation),
+            stamp: docCloseBarrier.snapshot(),
+          }),
         () => window.desktop.reportCloseSaveResult(false),
       )
     })
     return () => {
       offCheck?.()
+      offPrepare?.()
       offSave?.()
     }
   }, [doc, save, autoSave])
@@ -6299,13 +6420,18 @@ export function App() {
         break
       case 'picture':
         if (sub) {
-          void (async () => {
+          const source = docMutationSource()
+          void docCloseBarrier.runAsyncMutation(async () => {
+            docCloseBarrier.mutate(()=>{},source)
             const picked = await window.desktop.pickImage()
-            if (!picked || !hfEditorRef.current) return
+            assertDocMutationSource(source)
+            if (!picked || !hfEditorRef.current || sub.isDestroyed) return
             const dataUrl = `data:${picked.mime};base64,${picked.base64}`
             const natural = await imageSizeOf(dataUrl)
+            assertDocMutationSource(source)
+            if (sub.isDestroyed) return
             insertHfPicture(sub, { dataUrl, widthPx: natural.width, heightPx: natural.height })
-          })()
+          }, source).catch((error) => reportRecoveryWarning(fileCtxRef.current, error))
         }
         break
       case 'linkToPrevious':
@@ -6876,7 +7002,7 @@ export function App() {
       else if (format === 'md') void exportMarkdown()
       else exportImages()
     },
-    onNameWithAi: () => void nameWithAi(),
+    onNameWithAi: () => void nameWithAi().catch((error) => reportRecoveryWarning(fileCtxRef.current, error)),
     onToggleAi: () => setShowAi((v) => !v),
     onSection: (next: SectionSettings) => {
       // layout applies to the cursor's section; the final section's sectPr goes through SaveOptions.section (also drives canvas geometry)
@@ -7894,6 +8020,7 @@ export function App() {
             )}
             {doc && showComments && (
               <CommentsPanel
+                key={commentDraftSnapshot().source}
                 comments={comments}
                 docNode={editor.state.doc}
                 composing={commentComposing}
@@ -7905,6 +8032,7 @@ export function App() {
                 onDelete={deleteComment}
                 onClose={closeCommentsPanel}
                 focus={commentFocus}
+                selectionAnchor={()=>captureDraftAnchor(editor.state.doc,editor.state.selection)}
               />
             )}
             {doc && showStylesPane && (
@@ -8361,7 +8489,7 @@ export function App() {
           submitLabel={docPwdPrompt.busy ? t('appStartOpening') : t('appOk')}
           cancelLabel={t('appCancel')}
           onChange={(value) => setDocPwdPrompt({ ...docPwdPrompt, value, errorKey: '' })}
-          onSubmit={() => void submitDocPwd()}
+          onSubmit={() => void submitDocPwd().catch((error) => reportRecoveryWarning(fileCtxRef.current, error))}
           onCancel={cancelDocPwd}
         />
       )}
@@ -8373,7 +8501,7 @@ export function App() {
           protection={protection}
           removePersonalInfo={removePersonalInfo}
           onCancel={() => setShowProtectDialog(false)}
-          onApply={(result) => void applyProtectDialog(result)}
+          onApply={(result) => void applyProtectDialog(result).catch((error) => reportRecoveryWarning(fileCtxRef.current, error))}
         />
       )}
 
@@ -8388,7 +8516,7 @@ export function App() {
           submitLabel={t('appOk')}
           cancelLabel={t('appOpenReadOnly')}
           onChange={(value) => setModifyPwdPrompt({ value, errorKey: '' })}
-          onSubmit={() => void submitModifyPwd()}
+          onSubmit={() => void submitModifyPwd().catch((error) => reportRecoveryWarning(fileCtxRef.current, error))}
           onCancel={() => setModifyPwdPrompt(null)}
         />
       )}

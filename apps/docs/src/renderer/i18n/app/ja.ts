@@ -570,4 +570,5 @@ export const ja = {
   appMergeSourceLoaded: '{name}（{n} 件）を読み込みました',
   appMergeWritten: '{n} 個のドキュメントを書き出しました',
   appMergeNothingToWrite: '書き出すものがありません',
+  appRecoveryFailed: '下書きの復元用保存に失敗しました: {error}',
 } satisfies Record<keyof typeof zh, string>

@@ -343,7 +343,7 @@ export const es = {
   appPivotSheetNoStructural:
     'Esta hoja contiene una tabla dinámica — los cambios estructurales aún no se admiten.',
   appDeleteSpanFormulas:
-    'Una fórmula solo hace referencia a las filas/columnas eliminadas: actualícela o elimínela primero.',
+    'Una fórmula no se puede actualizar de forma segura después de esta eliminación. Modifique o elimine esa fórmula primero.',
   appIconSetUnsupported:
     'Esta combinación de iconos no se puede guardar en xlsx — elige otro conjunto de iconos.',
   appFullLoadFilterTitle: 'Esta acción requiere el libro completo',

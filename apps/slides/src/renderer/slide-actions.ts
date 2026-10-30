@@ -1,3 +1,4 @@
+import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
 /**
  * Slide- and section-level actions extracted from App.tsx:
  * add/duplicate/delete/cut slides, sections, and slide reorder. Element-level
@@ -16,11 +17,13 @@ import { currentAfterRemoval, groupSections, indexRange } from './section-groups
 const sortUnique = (indexes: number[]): number[] => [...new Set(indexes)].sort((a, b) => a - b)
 
 export async function addSlide(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  const r = await window.slidesApi.addBlankSlide({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addBlankSlide({
     sourceIndex: ctx.current,
     fitWidthPx: FIT_WIDTH,
-  })
+  }))
   if (r) {
     ctx.setSlides((slides) => mergeSlideUpdate(slides, r))
     ctx.setCurrent(r.index)
@@ -29,17 +32,21 @@ export async function addSlide(ctx: ActionCtx): Promise<void> {
     ctx.setEditing(null)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 /** Insert a blank slide at position pos (0..slides.length), PowerPoint's insertion-point semantics */
 export async function addSlideAt(ctx: ActionCtx, pos: number): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slides.length) return
   const before = pos <= 0
-  const r = await window.slidesApi.addBlankSlide({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addBlankSlide({
     sourceIndex: before ? 0 : Math.min(pos, ctx.slides.length) - 1,
     fitWidthPx: FIT_WIDTH,
     ...(before ? { before: true } : {}),
-  })
+  }))
   if (r) {
     ctx.setSlides((slides) => mergeSlideUpdate(slides, r))
     ctx.setCurrent(r.index)
@@ -48,6 +55,8 @@ export async function addSlideAt(ctx: ActionCtx, pos: number): Promise<void> {
     ctx.setEditing(null)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 /** Switch (or, without layoutPath, reset) the layout of slide `index`. */
@@ -56,17 +65,23 @@ export async function setSlideLayoutAt(
   index: number,
   layoutPath?: string,
 ): Promise<void> {
-  const r = await window.slidesApi.setSlideLayout({ slideIndex: index, layoutPath })
+  return slidesActionWork(ctx, async()=>{
+
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).setSlideLayout({ slideIndex: index, layoutPath }))
   if (r) ctx.applySlide(index, r)
+
+  })
 }
 
 export async function addSlideWithLayout(ctx: ActionCtx, layoutPath: string): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  const r = await window.slidesApi.addSlideWithLayout({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addSlideWithLayout({
     sourceIndex: ctx.current,
     layoutPath,
     fitWidthPx: FIT_WIDTH,
-  })
+  }))
   if (r) {
     ctx.setSlides((slides) => mergeSlideUpdate(slides, r))
     ctx.setCurrent(r.index)
@@ -75,13 +90,17 @@ export async function addSlideWithLayout(ctx: ActionCtx, layoutPath: string): Pr
     ctx.setEditing(null)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 /** The copies land in order after the last selected slide and become the selection (PowerPoint) */
 export async function duplicateSlides(ctx: ActionCtx, indexes: number[]): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const sel = sortUnique(indexes)
   if (!sel.length) return
-  const r = await window.slidesApi.duplicateSlides({ slideIndexes: sel, fitWidthPx: FIT_WIDTH })
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).duplicateSlides({ slideIndexes: sel, fitWidthPx: FIT_WIDTH }))
   if (r) {
     ctx.setSlides((slides) => mergeSlideUpdate(slides, r))
     ctx.setCurrent(r.index)
@@ -90,17 +109,21 @@ export async function duplicateSlides(ctx: ActionCtx, indexes: number[]): Promis
     ctx.setEditing(null)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 /** Deletes the selection in one undo step, keeping at least one slide; the slide after the last deleted one becomes current */
 export async function deleteSlides(ctx: ActionCtx, indexes: number[]): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   let sel = sortUnique(indexes)
   if (sel.length >= ctx.slides.length) {
     ctx.setStatus(t('appStatusKeepOneSlide'))
     sel = sel.slice(1)
   }
   if (!sel.length) return
-  const r = await window.slidesApi.deleteSlides({ slideIndexes: sel })
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).deleteSlides({ slideIndexes: sel }))
   if (!r) return
   const next = Math.min(sel[sel.length - 1]! + 1 - sel.length, r.order.length - 1)
   ctx.setSlides((slides) => mergeSlideUpdate(slides, r))
@@ -109,9 +132,13 @@ export async function deleteSlides(ctx: ActionCtx, indexes: number[]): Promise<v
   ctx.setSelectedIds([])
   ctx.setEditing(null)
   ctx.setDirty(true)
+
+  })
 }
 
 export async function cutSlides(ctx: ActionCtx, indexes: number[]): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const sel = sortUnique(indexes)
   if (sel.length >= ctx.slides.length) {
     ctx.setStatus(t('appStatusKeepOneSlide'))
@@ -119,56 +146,70 @@ export async function cutSlides(ctx: ActionCtx, indexes: number[]): Promise<void
   }
   let pngs: string[] | undefined
   try {
-    pngs = await renderSlidesToPngBase64(
+    pngs = await slidesActionWait(ctx, renderSlidesToPngBase64(
       sel.map((i) => ctx.slides[i]!),
       ctx.images,
-    )
+    ))
   } catch {
     pngs = undefined
   }
-  const ok = await window.slidesApi.copySlides({ slideIndexes: sel, ...(pngs ? { pngs } : {}) })
+  const ok = await slidesActionWait(ctx, slidesActionApi(ctx).copySlides({ slideIndexes: sel, ...(pngs ? { pngs } : {}) }))
   if (!ok) {
     ctx.setStatus(t('appStatusSlideCopyFailed'))
     return
   }
   ctx.setCanPasteSlide(true)
-  await deleteSlides(ctx, sel)
+  await slidesActionWait(ctx, deleteSlides(ctx, sel))
   ctx.setStatus(t('appStatusSlideCut'))
+
+  })
 }
 
 // ── Section management ─────────────────────────────────────────────────
 
 export async function addSectionAt(ctx: ActionCtx, index: number): Promise<void> {
-  const r = await window.slidesApi.addSection({
+  return slidesActionWork(ctx, async()=>{
+
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addSection({
     atSlideIndex: index,
     name: t('appSectionUntitled'),
-  })
+  }))
   if (r) {
     ctx.setSections(r)
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusSectionAdded'))
   }
+
+  })
 }
 
 export async function renameSectionTo(ctx: ActionCtx, id: string, name: string): Promise<void> {
-  const r = await window.slidesApi.renameSection({ id, name })
+  return slidesActionWork(ctx, async()=>{
+
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).renameSection({ id, name }))
   if (r) {
     ctx.setSections(r)
     ctx.setDirty(true)
   }
+
+  })
 }
 
 /** Remove the header only; the lead group (id null) hands its slides to the first real section. */
 export async function removeSectionAt(ctx: ActionCtx, id: string | null): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const r =
     id == null
-      ? await window.slidesApi.setSections(absorbLead(ctx))
-      : await window.slidesApi.removeSection({ id })
+      ? await slidesActionWait(ctx, slidesActionApi(ctx).setSections(absorbLead(ctx)))
+      : await slidesActionWait(ctx, slidesActionApi(ctx).removeSection({ id }))
   if (r) {
     ctx.setSections(r)
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusSectionRemoved'))
   }
+
+  })
 }
 
 function absorbLead(ctx: ActionCtx): SectionInfo[] {
@@ -181,18 +222,24 @@ function absorbLead(ctx: ActionCtx): SectionInfo[] {
 }
 
 export async function removeAllSections(ctx: ActionCtx): Promise<void> {
-  const r = await window.slidesApi.setSections([])
+  return slidesActionWork(ctx, async()=>{
+
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).setSections([]))
   if (r) {
     ctx.setSections(r)
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusSectionsRemoved'))
   }
+
+  })
 }
 
 export async function removeSectionWithSlides(ctx: ActionCtx, id: string | null): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const group = groupSections(ctx.sections, ctx.slides.length)?.find((g) => g.id === id)
   if (!group) return
-  const r = await window.slidesApi.removeSectionSlides({ id })
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).removeSectionSlides({ id }))
   if (!r) {
     if (group.end - group.start >= ctx.slides.length) ctx.setStatus(t('appStatusKeepOneSlide'))
     return
@@ -204,6 +251,8 @@ export async function removeSectionWithSlides(ctx: ActionCtx, id: string | null)
   ctx.setEditing(null)
   ctx.setDirty(true)
   ctx.setStatus(t('appStatusSectionSlidesRemoved'))
+
+  })
 }
 
 export async function moveSectionDir(
@@ -211,7 +260,9 @@ export async function moveSectionDir(
   id: string,
   dir: 'up' | 'down',
 ): Promise<void> {
-  const r = await window.slidesApi.moveSection({ id, dir })
+  return slidesActionWork(ctx, async()=>{
+
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).moveSection({ id, dir }))
   if (r) {
     // The engine permutes deck.slides, so the old index names a different page.
     // Re-anchor on the same slide by its part path, as moveSlidesTo does by position.
@@ -230,6 +281,8 @@ export async function moveSectionDir(
     ctx.setDirty(true)
     ctx.setStatus(dir === 'up' ? t('appStatusSectionMovedUp') : t('appStatusSectionMovedDown'))
   }
+
+  })
 }
 
 /** Drag-reorder: the selected slides land as a block at gap insertAt and stay selected; the anchor follows */
@@ -238,10 +291,12 @@ export async function moveSlidesTo(
   indexes: number[],
   insertAt: number,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const sel = sortUnique(indexes)
   const landed = movedBlockPositions(sel, insertAt)
   if (sel.every((i, k) => i === landed[k])) return
-  const r = await window.slidesApi.moveSlides({ slideIndexes: sel, insertAt })
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).moveSlides({ slideIndexes: sel, insertAt }))
   if (r) {
     const anchor = landed[Math.max(0, sel.indexOf(ctx.current))]!
     ctx.setSlides((current) => mergeSlideUpdate(current, r))
@@ -253,6 +308,8 @@ export async function moveSlidesTo(
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusSlideMoved', { page: anchor + 1 }))
   }
+
+  })
 }
 
 /** Commit section rename (Enter/blur); empty names aren't committed. */

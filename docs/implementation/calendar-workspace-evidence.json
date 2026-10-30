@@ -1,0 +1,123 @@
+{
+  "reviewedAt": "2026-10-29",
+  "candidate": "0.15.0-dev.2",
+  "status": "Scoped source implementation verified; coordinated desktop and packaged acceptance are separate gates.",
+  "scope": "Persistent local calendar editing, recurrence and timezone handling, local scheduling messages and a bounded offline outbox. No provider reads, invitation sends or user notifications are performed by these workflows.",
+  "sources": [
+    "packages/productivity-engine/src/calendar-types.ts",
+    "packages/productivity-engine/src/calendar.ts",
+    "packages/productivity-engine/src/calendar-timezones.ts",
+    "packages/productivity-engine/src/calendar-mutations.ts",
+    "packages/productivity-engine/src/calendar-workspace.ts",
+    "packages/cli/src/commands/productivity.ts",
+    "packages/productivity-engine/README.md",
+    "packages/cli/README.md",
+    "skills/vantage-productivity/SKILL.md"
+  ],
+  "implementedScopes": [
+    "Exclusive local SQLite calendar stores with revision checks, bounded imports, event details, editing and reopening persisted data.",
+    "All 597 names and aliases in the pinned published timezone dataset; embedded VTIMEZONE definitions take precedence per document.",
+    "Explicit ambiguous and nonexistent local-time choices, floating and all-day display-zone filtering, and historical second offsets.",
+    "All seven RFC recurrence frequencies with bounded expansion, rule-generated gap skipping, RDATE periods, stable instance identities and detached exceptions.",
+    "UID and recurrence-instance create, update, delete, attendee response, local REQUEST/REPLY/CANCEL application and stale-message checks.",
+    "Unknown ICS properties, parameters and components retained during supported changes; no-op export retains the original source, including a BOM.",
+    "A local pending outbox with payload quotas, attempt fencing, reconnect recovery and an explicitly invoked filesystem-only test transport.",
+    "Atomic file publication with destination fingerprints, held calendar writer transactions and explicit errors when file publication succeeds but origin metadata cannot commit.",
+    "Suite CLI commands for timezone diagnostics, persistent calendars, agenda, details, edits, scheduling-message import, export and local outbox inspection."
+  ],
+  "verification": {
+    "environment": {
+      "node": "24.19.0",
+      "vitest": "4.1.12",
+      "platform": "Windows x64",
+      "workers": 1,
+      "validationDirectory": "D:/Codex-builds/vantage-next-validation"
+    },
+    "finalCalendarCore": {
+      "result": "passed",
+      "files": 4,
+      "tests": 60,
+      "log": "calendar-core-frozen.log",
+      "durationSeconds": 51.54,
+      "testSources": [
+        "packages/productivity-engine/tests/calendar.test.ts",
+        "packages/productivity-engine/tests/calendar-timezones.test.ts",
+        "packages/productivity-engine/tests/calendar-workspace.test.ts",
+        "packages/productivity-engine/tests/calendar-export-races.test.ts"
+      ],
+      "coverage": [
+        "Every published zone name resolves in winter and summer; this is availability coverage, not an independent accuracy oracle for every transition.",
+        "Independent expected instants and offsets for Toronto folds and gaps, Lord Howe's half-hour change, Samoa's skipped day, Kathmandu, Chatham, Dublin, aliases, reversed-sign Etc names and historical New York seconds.",
+        "Export and reopen generated and embedded timezone definitions, including authoritative custom zones during full-form edits.",
+        "DST recurrence COUNT, RDATE periods, floating/all-day ranges, invalid dates, moved and cancelled instances, future ranges and preserved source extensions.",
+        "Real SQLite revision conflicts, source/outbox rollback on quotas, stale scheduling messages, organizer and attendee checks, and persisted local outbox attempts.",
+        "An independent SQLite writer is blocked during asynchronous publication; a changed destination is preserved with rescue bytes; a later metadata commit failure reports that the file was already exported."
+      ]
+    },
+    "cliCalendarAndHelp": {
+      "result": "passed",
+      "files": 3,
+      "tests": 14,
+      "log": "calendar-cli.log",
+      "testSources": [
+        "packages/cli/tests/calendar-workspace.test.ts",
+        "packages/cli/tests/productivity.test.ts",
+        "packages/cli/tests/help-sync.test.ts"
+      ],
+      "qualification": "This source-level CLI run preceded the final narrow core preservation fixes; those fixes are covered by the final 60-case core run. The CLI source was subsequently formatted without a behavior change."
+    },
+    "companionSkill": {
+      "result": "passed",
+      "version": "2.69.0",
+      "log": "calendar-skill-validation.log",
+      "validator": "skill-creator quick_validate.py"
+    },
+    "typechecks": {
+      "earlierEngineAndCli": "passed",
+      "logs": ["calendar-typecheck.log", "calendar-cli-typecheck.log"],
+      "finalEngineConfirmation": "passed",
+      "finalEngineLog": "calendar-typecheck-frozen-confirmed.log",
+      "finalEngineRecordedExit": "calendar-typecheck-frozen-confirmed.json",
+      "finalEngineExitCode": 0
+    }
+  },
+  "timezoneProvider": {
+    "componentsRecord": "docs/implementation/open-source-components.json",
+    "moment": "2.30.1",
+    "momentTimezone": "0.6.6",
+    "tzdb": "2026f",
+    "namesAndAliases": 597,
+    "license": "MIT",
+    "modifiedUpstreamFiles": false,
+    "packedDataSha256": "3103c5c0eaa879615da630b74e2373ad9b571e0eae992e0b2a3db6e4475de2ce",
+    "qualification": "Coverage follows the exact finite data shipped by this pinned provider. Future political timezone changes require a deliberate dependency and data update."
+  },
+  "bounds": {
+    "sourceBytes": 4194304,
+    "calendars": 100,
+    "storedEventDefinitions": 20000,
+    "uidBytes": 1024,
+    "attendeesPerEvent": 256,
+    "occurrenceOutputBytes": 4194304,
+    "activeOutboxItems": 256,
+    "activeOutboxSourceBytes": 67108864,
+    "behavior": "Limits fail explicitly and preserve the previously stored source. Caller-specified result, iteration and time budgets apply in addition to these defaults."
+  },
+  "remainingGatesAndLimits": [
+    "The synchronous ICAL iterator cannot be interrupted inside an individual next() call. Untrusted desktop operations must use the separately implemented isolated calendar worker; its process deadlines, cancellation and orphan tests have their own evidence.",
+    "Coordinated desktop calendar workflows, full candidate builds and packaged acceptance remain owned by the final coordinator; this record does not certify their completion.",
+    "No live OAuth account connection, provider write, invitation delivery or server acknowledgement has been accepted. A delivered filesystem-test item means only that the explicit local test transport completed.",
+    "Unsupported series changes with detached overrides and unsupported this-and-future rule or timezone changes are refused instead of silently rewriting source semantics.",
+    "This implementation is not a claim of full RFC 5545/5546 interoperability, shared-calendar collaboration, alarm execution or Office/Outlook parity.",
+    "Atomic file replacement has no operating-system compare-and-swap guarantee against an uncooperative writer between the final fingerprint check and rename. Cooperating calendar writers are fenced by the SQLite transaction.",
+    "Candidate signing, production readiness and clean-machine acceptance require separate release review."
+  ],
+  "primaryReferences": [
+    "https://www.rfc-editor.org/rfc/rfc5545.html",
+    "https://www.rfc-editor.org/rfc/rfc5546.html",
+    "https://momentjs.com/timezone/guides/",
+    "https://github.com/moment/moment-timezone",
+    "https://registry.npmjs.org/moment/2.30.1",
+    "https://registry.npmjs.org/moment-timezone/0.6.6"
+  ]
+}

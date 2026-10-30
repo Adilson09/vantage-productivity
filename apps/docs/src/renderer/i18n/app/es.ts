@@ -551,4 +551,5 @@ export const es = {
   appMergeSourceLoaded: '{name} cargado ({n} registros)',
   appMergeWritten: '{n} documentos escritos',
   appMergeNothingToWrite: 'No hay nada que escribir',
+  appRecoveryFailed: 'Error en la recuperación del borrador: {error}',
 } satisfies Record<keyof typeof zh, string>

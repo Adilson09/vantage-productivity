@@ -1,6 +1,10 @@
 import type { zh } from './zh'
 
 export const ko = {
+  recoveryFailed: '복구 사본을 업데이트할 수 없습니다: {error}. 이전 사본을 보관했습니다.',
+  recoveryRetry: '다시 시도',
+  recoveryRemote:
+    '이 사본은 여전히 원격 리소스 {count}개에 의존하며 인터넷 연결이 필요할 수 있습니다.',
   redactMenuLabel: '선택한 부분을 AI에서 숨기기',
   redactDialogDesc:
     '문서는 그대로 두고 AI에게는 아래 자리표시자만 보냅니다. 이름을 붙이면 AI가 무엇을 뜻하는지 알 수 있습니다.',

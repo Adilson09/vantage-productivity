@@ -195,8 +195,15 @@ describe('MCP server core', () => {
       await c.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)))
       return c
     }
-    const text = (r: { content: unknown }): string =>
-      (r.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('')
+    const text = (result: unknown): string => {
+      if (!result || typeof result !== 'object' || !('content' in result) || !Array.isArray(result.content))
+        throw new Error('Expected an immediate MCP content result')
+      return result.content.map((block: unknown) => {
+        if (!block || typeof block !== 'object' || !('type' in block) || block.type !== 'text' || !('text' in block) || typeof block.text !== 'string')
+          throw new Error('Expected MCP text content')
+        return block.text
+      }).join('')
+    }
 
     const a = await connect()
     const b = await connect()

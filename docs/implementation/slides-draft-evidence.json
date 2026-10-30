@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "feature": "Self-contained Slides draft recovery",
+  "baseCheckpoint": "1f20aa2584fb31230dcf23a6ac43f43a588e0668",
+  "branch": "codex/vantage-slides-drafts",
+  "status": "implemented; final exact-source validation and desktop acceptance pending",
+  "functionalFreezeUtc": "2026-10-30T02:32:10Z",
+  "source": [
+    "apps/slides/src/main/slides-draft-controller.ts",
+    "apps/slides/src/main/slides-draft-package.ts",
+    "apps/slides/src/shared/slides-draft.ts",
+    "apps/slides/src/shared/notes-draft.ts",
+    "apps/slides/src/shared/notes-target.ts",
+    "apps/slides/src/renderer/notes-load.ts",
+    "apps/slides/src/renderer/slides-recovery.ts",
+    "apps/slides/src/renderer/slides-pending-edit.ts",
+    "apps/slides/src/renderer/file-actions.ts",
+    "packages/pptx-engine/src/index.ts",
+    "docs/implementation/slides-draft-recovery.md"
+  ],
+  "implementedScopes": [
+    "Profile-private complete PPTX journals for named and unnamed presentations, with AutoSave off supported",
+    "Non-blurring capture of pending rich text, table-cell text, speaker notes, and master/layout text",
+    "Presentation/part/load/edit guards keep late notes reads from replacing newer text; initial baselines load before editing, while same-part reloads remain editable",
+    "Part-bound notes writes resolve inside the main mutation and refuse missing parts after a reorder; coalesced previous-part flushes preserve failed pending text",
+    "Batch-result notes reconciliation keeps pending data visible to recovery and Save, waits before flush, rejects old-source replies, and preserves text on read rejection",
+    "Failed baseline comparisons remain a retry fence before later writes; Undo/Redo history epochs reject obsolete queued flushes, failed-write restoration and late baseline receipts",
+    "Committed master/layout geometry and styles retained from the archive while master view remains open",
+    "Independent archive/model copy preserves original media, relationships and opaque parts without altering live Save acknowledgments",
+    "Per-view Session-bound activation, monotonic sequence, path rename and caller-only save/discard epochs",
+    "Revision checks before queued capture and before journal writing; changed or reparsed source refuses stale overlays visibly",
+    "Root Recovery synchronously invalidates an active producer and suppresses unchanged discarded content",
+    "Bounded clone graph, pending payload, complete compressed package and global serialization queue; failures retain the last complete journal",
+    "Close and Save wait for pending text/notes; newer edits during a Save remain unsaved"
+  ],
+  "completedRuns": [
+    {
+      "name": "Immutable real-App notes and stage regressions",
+      "log": "slides-actual-app.log",
+      "receipt": "slides-actual-app-receipt.json",
+      "result": "passed",
+      "exitCode": 0,
+      "tests": 15,
+      "failed": 0,
+      "pending": 0,
+      "sourceUnchanged": true,
+      "completedUtc": "2026-10-30T02:18:54.0256503Z",
+      "scope": "stage-refit-follow.test.ts: actual React App notes loading, source changes, live pending baseline comparison, comparison-failure retry and stage behavior",
+      "qualification": "Pre/post changed-source hashes matched. The later approved Undo/Redo history-epoch correction and its four deferred regression cases were not present in this run and require separate acceptance. Counts overlap earlier suites."
+    },
+    {
+      "name": "Expanded Slides functional regressions",
+      "log": "slides-drafts-focused-final.log",
+      "result": "passed",
+      "files": 10,
+      "tests": 72,
+      "durationSeconds": 377.58,
+      "scope": [
+        "slides-draft-controller.test.ts",
+        "slides-draft-package.test.ts",
+        "slides-recovery.test.ts",
+        "slides-draft-pending-editor.test.ts",
+        "slides-draft-crash.test.ts",
+        "save-serialization.test.ts",
+        "deck-save-atomic.test.ts",
+        "notes-draft.test.ts",
+        "file-naming-save.test.ts",
+        "slide-lifecycle-dirty.test.ts"
+      ],
+      "qualification": "Source was still receiving narrow review fixes during this run. Later composition, stream callbacks, source-before-pending capture, activation validation, own-notes baseline, notes-loader/part-binding and batch reconciliation guards require the final exact-source run. An extra misspelled table-cell-formatting.test.ts filter matched no file and is excluded from this passed scope."
+    },
+    {
+      "name": "Real package and owned-process crash recovery",
+      "log": "slides-drafts-package-repaired.log",
+      "result": "passed",
+      "files": 2,
+      "tests": 9,
+      "scope": "Earlier package-preservation, Save WeakMap, payload-budget and owned Node crash/restore/reopen cases",
+      "qualification": "Overlaps the expanded run; counts must not be added. Initial JSZip stream iteration failures were repaired by consuming its actual readable-stream events."
+    },
+    {
+      "name": "Slides TypeScript baseline",
+      "log": "slides-drafts-types-final.log",
+      "result": "passed",
+      "qualification": "Completed exit 0 with an empty diagnostic log, but review edits landed while the process was running. Final frozen-source types remain pending."
+    }
+  ],
+  "pendingAcceptance": [
+    "Four deferred real-App Undo regressions for false/rejected setters, late readback and queued older flushes with newer post-Undo notes",
+    "Final frozen-source Slides and Shell typechecks, formatting and affected regression checks including table-cell-edit-formatting.test.ts and the real App stage-refit-follow.test.ts fixture",
+    "Matching coordinated Slides and Shell application build",
+    "e2e/slides-draft-recovery.spec.ts: three real timer snapshots, still-focused text and notes, 35-second active-discard quiet period, owned application crash, same-profile restart, exclusive restore and reopen",
+    "Integration of the new desktop spec into the primary release-evidence selected plan",
+    "Packaged and clean-profile desktop acceptance after integration"
+  ],
+  "limits": {
+    "modelGraphBytes": 67108864,
+    "inspectedModelNodes": 200000,
+    "archiveParts": 10000,
+    "pendingBytes": 1048576,
+    "pendingNodes": 50000,
+    "completeCompressedPayloadBytes": 16777216,
+    "parallelCompleteCaptures": 1,
+    "queuedRequests": 16,
+    "queuedBytesIncludingBoundedMetadata": 8388608,
+    "qualification": "These are work and payload limits. They do not constitute a hard process-memory or CPU ceiling. Shared journal retention and local protection policy also apply."
+  },
+  "remainingBoundaries": [
+    "Encrypted PowerPoint packages and legacy binary PPT remain unsupported by the Slides importer",
+    "No VBA execution, live online collaboration or external account writes are added",
+    "Peer journals are retained conservatively; one view's Save does not prove that another view's pending editor was saved",
+    "A recovery snapshot does not guarantee that later edits have already reached storage",
+    "Authored desktop tests, source checks and a local commit do not establish release or production acceptance"
+  ]
+}

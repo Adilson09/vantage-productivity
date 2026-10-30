@@ -28,7 +28,7 @@
  */
 
 const { execFileSync } = require('node:child_process')
-const { existsSync, readFileSync, realpathSync, rmSync } = require('node:fs')
+const { chmodSync, existsSync, readFileSync, realpathSync, rmSync } = require('node:fs')
 const { join } = require('node:path')
 
 function normalizeHttpsBaseUrl(name, value) {
@@ -88,6 +88,34 @@ const winSidecarCandidates = [
 ]
 const WIN_SIDECAR =
   winSidecarCandidates.find((rel) => existsSync(join(__dirname, rel))) ?? winSidecarCandidates[0]
+const winQueryWorkerCandidates = winSidecarCandidates.map((rel) =>
+  rel.replace('xlsx-sidecar.exe', 'vantage-query-worker.exe'),
+)
+const WIN_QUERY_WORKER =
+  winQueryWorkerCandidates.find((rel) => existsSync(join(__dirname, rel))) ??
+  winQueryWorkerCandidates[0]
+
+// Runtime resources are mandatory, checked only during actual packaging.
+// Loading this metadata config must neither compile nor execute native helpers.
+function assertQueryWorkerResources(platform) {
+  const binary =
+    platform === 'win32'
+      ? WIN_QUERY_WORKER
+      : '../sheets/native/xlsx-engine/target/release/vantage-query-worker'
+  for (const rel of [
+    binary,
+    '../sheets/native/xlsx-engine/src/bin/vantage-query-worker.rs',
+    '../sheets/native/xlsx-engine/Cargo.toml',
+    '../sheets/native/xlsx-engine/Cargo.lock',
+    '../../legal/QUERY-WORKER-NOTICE.txt',
+    '../../legal/LICENSE-rusqlite-MIT.txt',
+  ]) {
+    if (!existsSync(join(__dirname, rel)))
+      throw new Error(
+        `Required query engine resource missing: ${rel}. Run the native build before packaging.`,
+      )
+  }
+}
 
 function assertExtraResourceSources(platform) {
   for (const rel of [
@@ -97,6 +125,16 @@ function assertExtraResourceSources(platform) {
     '../../node_modules/electron/dist/LICENSES.chromium.html',
     '../../node_modules/@embedpdf/pdfium/dist/pdfium.wasm',
     '../pdf/node_modules/harfbuzzjs/hb-subset.wasm',
+    '../../packages/engine-bridge/package.json',
+    '../../packages/engine-bridge/README.md',
+    '../../packages/engine-bridge/src/index.mjs',
+    '../../packages/engine-bridge/src/process-supervision.mjs',
+    '../../packages/engine-bridge/src/engine-manifest.mjs',
+    '../../packages/engine-bridge/src/verapdf-report.mjs',
+    '../../packages/engine-bridge/src/cli.mjs',
+    '../../packages/engine-bridge/bin/packaged.mjs',
+    '../../packages/engine-bridge/bin/vantage-engines',
+    '../../packages/engine-bridge/bin/vantage-engines.cmd',
     ...(platform === 'win32'
       ? [
           '../../companions/depesha-bin/vantage-mail.exe',
@@ -208,19 +246,23 @@ function assertUniversalVisionOcr() {
 // Intel dmg, where every workbook open fails. Runs from beforePack, dual-arch
 // mac packs only.
 function assertUniversalSidecar() {
-  const sidecar = join(__dirname, '../sheets/native/xlsx-engine/target/release/xlsx-sidecar')
-  if (!existsSync(sidecar)) {
-    throw new Error(
-      `mac extraResources source missing: ${sidecar} (run "npm run native:build:universal -w @vantage/sheets" first)`,
-    )
-  }
-  const archs = execFileSync('lipo', ['-archs', sidecar], { encoding: 'utf8' }).trim().split(/\s+/)
-  for (const want of ['x86_64', 'arm64']) {
-    if (!archs.includes(want)) {
+  for (const binary of ['xlsx-sidecar', 'vantage-query-worker']) {
+    const sidecar = join(__dirname, '../sheets/native/xlsx-engine/target/release', binary)
+    if (!existsSync(sidecar)) {
       throw new Error(
-        `xlsx-sidecar is [${archs.join(', ')}] but both mac arch packages ship it — ` +
-          'run "npm run native:build:universal -w @vantage/sheets" before packaging mac',
+        `mac extraResources source missing: ${sidecar} (run "npm run native:build:universal -w @vantage/sheets" first)`,
       )
+    }
+    const archs = execFileSync('lipo', ['-archs', sidecar], { encoding: 'utf8' })
+      .trim()
+      .split(/\s+/)
+    for (const want of ['x86_64', 'arm64']) {
+      if (!archs.includes(want)) {
+        throw new Error(
+          `${binary} is [${archs.join(', ')}] but both mac arch packages ship it — ` +
+            'run "npm run native:build:universal -w @vantage/sheets" before packaging mac',
+        )
+      }
     }
   }
 }
@@ -495,6 +537,17 @@ const config = {
     },
   ],
   extraResources: [
+    { from: '../../legal/QUERY-WORKER-NOTICE.txt', to: 'legal/query-worker/NOTICE.txt' },
+    {
+      from: '../../legal/LICENSE-rusqlite-MIT.txt',
+      to: 'legal/query-worker/LICENSE-rusqlite-MIT.txt',
+    },
+    {
+      from: '../sheets/native/xlsx-engine/src/bin/vantage-query-worker.rs',
+      to: 'legal/query-worker/src/bin/vantage-query-worker.rs',
+    },
+    { from: '../sheets/native/xlsx-engine/Cargo.toml', to: 'legal/query-worker/Cargo.toml' },
+    { from: '../sheets/native/xlsx-engine/Cargo.lock', to: 'legal/query-worker/Cargo.lock' },
     { from: '../../LICENSE', to: 'LICENSE-Apache-2.0.txt' },
     { from: '../../LICENSE-UNICODE.txt', to: 'LICENSE-UNICODE.txt' },
     { from: '../../NOTICE', to: 'UPSTREAM-NOTICE.txt' },
@@ -573,6 +626,15 @@ const config = {
       from: '../../packages/cli/bin/vantage.cmd',
       to: 'cli/vantage.cmd',
     },
+    // Standalone specialist CLI uses the same source modules as bundled main;
+    // include the whole runtime tree so new internal imports are never omitted.
+    {
+      from: '../../packages/engine-bridge',
+      to: 'engine-bridge',
+      filter: ['package.json', 'README.md', 'src/**/*', 'bin/**/*', 'LICENSE*', 'NOTICE*'],
+    },
+    { from: '../../LICENSE', to: 'engine-bridge/LICENSE-Apache-2.0.txt' },
+    { from: '../../NOTICE', to: 'engine-bridge/UPSTREAM-NOTICE.txt' },
     // the CLI's version (Settings → Integrations shows it) and the agent skill
     // the same pane installs into Claude Code / Codex / …; bytes identical to the repo file
     {
@@ -644,6 +706,10 @@ const config = {
         from: '../sheets/native/xlsx-engine/target/release/xlsx-sidecar',
         to: 'native/xlsx-sidecar',
       },
+      {
+        from: '../sheets/native/xlsx-engine/target/release/vantage-query-worker',
+        to: 'native/vantage-query-worker',
+      },
     ],
   },
   win: {
@@ -672,6 +738,7 @@ const config = {
         from: WIN_SIDECAR,
         to: 'native/xlsx-sidecar.exe',
       },
+      { from: WIN_QUERY_WORKER, to: 'native/vantage-query-worker.exe' },
       {
         from: 'build/shell-new',
         to: 'shell-new',
@@ -729,6 +796,10 @@ const config = {
         from: '../sheets/native/xlsx-engine/target/release/xlsx-sidecar',
         to: 'native/xlsx-sidecar',
       },
+      {
+        from: '../sheets/native/xlsx-engine/target/release/vantage-query-worker',
+        to: 'native/vantage-query-worker',
+      },
     ],
   },
   // Same "@vantage/shell" problem as executableName above: the default deb
@@ -776,6 +847,7 @@ const config = {
     allowToChangeInstallationDirectory: true,
   },
   beforePack: async (context) => {
+    assertQueryWorkerResources(context.electronPlatformName)
     ensurePlatformHelpers()
     assertExtraResourceSources(context.electronPlatformName)
     ensureThirdPartyNotices()
@@ -792,6 +864,20 @@ const config = {
       )
     }
   },
+  afterPack: async (context) => {
+    if (context.electronPlatformName === 'win32') return
+    const resources =
+      context.electronPlatformName === 'darwin'
+        ? join(
+            context.appOutDir,
+            `${context.packager.appInfo.productFilename}.app`,
+            'Contents',
+            'Resources',
+          )
+        : join(context.appOutDir, 'resources')
+    // Source checkouts created on Windows do not carry POSIX executable bits.
+    chmodSync(join(resources, 'engine-bridge', 'bin', 'vantage-engines'), 0o755)
+  },
   dmg: {
     sign: true,
   },
@@ -807,7 +893,8 @@ const config = {
 // scripts/win-sign.cjs, whose env-var contract applies here too), every
 // binary electron-builder signs for win (Vantage.exe, the NSIS
 // uninstaller, and the installer) goes through that script. The static
-// extraResources binaries (xlsx-sidecar.exe, win-ocr.exe) are signed by the
+// extraResources binaries (xlsx-sidecar.exe, vantage-query-worker.exe,
+// win-ocr.exe) must be signed by the
 // workflow before packaging since electron-builder does not sign
 // extraResources. Unset (local / fork builds) keeps the old behavior:
 // electron-builder has no signing config and packages everything unsigned.

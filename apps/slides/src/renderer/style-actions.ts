@@ -1,3 +1,4 @@
+import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
 /**
  * Element/style actions extracted from App.tsx: fonts, paragraph
  * format, fill/stroke, background, theme, table style, and chart edits.
@@ -40,7 +41,7 @@ export function onFontFamily(ctx: ActionCtx, family: string): void {
   }
   if (!ctx.selectedIds.length) return
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  void window.slidesApi
+  void slidesActionApi(ctx)
     .setElementFont({
       slideIndex: ctx.current,
       sourceIds: ctx.selectedIds,
@@ -57,7 +58,7 @@ export function onFontSize(ctx: ActionCtx, pt: number): void {
   }
   if (!ctx.selectedIds.length) return
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  void window.slidesApi
+  void slidesActionApi(ctx)
     .setElementFont({
       slideIndex: ctx.current,
       sourceIds: ctx.selectedIds,
@@ -75,7 +76,7 @@ export function onFontSizeStep(ctx: ActionCtx, step: FontSizeStep): void {
   }
   if (!ctx.selectedIds.length) return
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  void window.slidesApi
+  void slidesActionApi(ctx)
     .setElementFont({
       slideIndex: ctx.current,
       sourceIds: ctx.selectedIds,
@@ -101,7 +102,7 @@ export function onAlign(ctx: ActionCtx, align: 'left' | 'center' | 'right' | 'ju
   }
   if (!ctx.selectedIds.length) return
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  void window.slidesApi
+  void slidesActionApi(ctx)
     .setElementParagraphFormat({
       slideIndex: ctx.current,
       sourceIds: ctx.selectedIds,
@@ -129,7 +130,7 @@ export function onTextToggle(
     if (!runs.length || runs.some((r) => !r[kind])) allOn = false
   }
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  void window.slidesApi
+  void slidesActionApi(ctx)
     .setElementFont({
       slideIndex: ctx.current,
       sourceIds: ctx.selectedIds,
@@ -143,7 +144,7 @@ export function onTextToggle(
 export function onElementTextColor(ctx: ActionCtx, hex: string): void {
   if (!ctx.selectedIds.length) return
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  void window.slidesApi
+  void slidesActionApi(ctx)
     .setElementFont({
       slideIndex: ctx.current,
       sourceIds: ctx.selectedIds,
@@ -225,7 +226,7 @@ export function onParagraphFormat(ctx: ActionCtx, patch: ParagraphFormatPatch): 
     if (cur === patch.bullet) patch = { ...patch, bullet: 'none' }
   }
   const groupId = ctx.groupIdOf(ctx.selectedIds[0]!)
-  void window.slidesApi
+  void slidesActionApi(ctx)
     .setElementParagraphFormat({
       slideIndex: ctx.current,
       sourceIds: ctx.selectedIds,
@@ -240,14 +241,18 @@ export async function onFill(
   sourceId: string,
   fill: string | GradientFillSpec,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const groupId = ctx.groupIdOf(sourceId)
-  const updated = await window.slidesApi.editFill({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editFill({
     slideIndex: ctx.current,
     sourceId,
     fill,
     ...(groupId ? { groupId } : {}),
-  })
+  }))
   if (updated) ctx.applySlide(ctx.current, updated)
+
+  })
 }
 
 export async function onStroke(
@@ -255,14 +260,18 @@ export async function onStroke(
   sourceId: string,
   stroke: EditStrokeOp['stroke'],
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const groupId = ctx.groupIdOf(sourceId)
-  const updated = await window.slidesApi.editStroke({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editStroke({
     slideIndex: ctx.current,
     sourceId,
     stroke,
     ...(groupId ? { groupId } : {}),
-  })
+  }))
   if (updated) ctx.applySlide(ctx.current, updated)
+
+  })
 }
 
 /** Omit that distributes over union members (plain Omit collapses the EditBackgroundOp union). */
@@ -272,29 +281,35 @@ export async function onBackground(
   ctx: ActionCtx,
   op: DistributiveOmit<EditBackgroundOp, 'fitWidthPx'>,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  const r = await window.slidesApi.editBackground({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).editBackground({
     ...op,
     fitWidthPx: FIT_WIDTH,
-  } as EditBackgroundOp)
+  } as EditBackgroundOp))
   if (r) {
     ctx.setSlides((current) => mergeSlideUpdate(current, r))
     ctx.setDirty(true)
     ctx.setStatus(op.slideIndex === -1 ? t('appStatusBgAppliedAll') : '')
   }
+
+  })
 }
 
 // Apply theme: main process rewrites theme*.xml + per-page backgrounds then reparses, sending back the whole RenderSlide set.
 // All element ids change (save→reopen); selection/edit state is cleared too.
 export async function applyThemePreset(ctx: ActionCtx, preset: SlideThemePreset): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  const r = await window.slidesApi.applyTheme({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).applyTheme({
     name: preset.name,
     colors: preset.colors,
     ...(preset.majorFont ? { majorFont: preset.majorFont } : {}),
     ...(preset.minorFont ? { minorFont: preset.minorFont } : {}),
     fitWidthPx: FIT_WIDTH,
-  })
+  }))
   if (r && !Array.isArray(r)) {
     ctx.setStatus(t('appStatusThemeApplyFailed', { error: r.error }))
     return
@@ -306,6 +321,8 @@ export async function applyThemePreset(ctx: ActionCtx, preset: SlideThemePreset)
     ctx.setDirty(true)
     ctx.setStatus(t('appStatusThemeApplied', { name: preset.name }))
   }
+
+  })
 }
 
 /** Table style operations (delegated to IPC) */
@@ -313,13 +330,15 @@ export async function onEditTableStyle(
   ctx: ActionCtx,
   op: Omit<EditTableStyleOp, 'slideIndex' | 'sourceId'>,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.selectedNode || ctx.selectedNode.type !== 'table') return
   const oldId = ctx.selectedNode.sourceId
-  const result = await window.slidesApi.editTableStyle({
+  const result = await slidesActionWait(ctx, slidesActionApi(ctx).editTableStyle({
     ...op,
     slideIndex: ctx.current,
     sourceId: oldId,
-  })
+  }))
   if (result) {
     ctx.applySlide(ctx.current, result.slide)
     // Element ids change after reparse: re-select so the "Table Design" tab doesn't jump away
@@ -329,6 +348,8 @@ export async function onEditTableStyle(
         ctx.setEditingCell({ ...ctx.editingCell, sourceId: result.sourceId })
     }
   }
+
+  })
 }
 
 /** Chart edit operations (delegated to IPC) */
@@ -336,25 +357,33 @@ export async function onEditChart(
   ctx: ActionCtx,
   op: Omit<EditChartOp, 'slideIndex' | 'sourceId'>,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.selectedNode || ctx.selectedNode.type !== 'chart') return
-  const result = await window.slidesApi.editChart({
+  const result = await slidesActionWait(ctx, slidesActionApi(ctx).editChart({
     ...op,
     slideIndex: ctx.current,
     sourceId: ctx.selectedNode.sourceId,
-  })
+  }))
   if (result) {
     ctx.applySlide(ctx.current, result.slide)
     // Element ids change after reparse: re-select so the "Chart Design" tab doesn't jump away
     if (result.sourceId) ctx.setSelectedIds([result.sourceId])
   }
+
+  })
 }
 
 /** Open the chart data edit dialog */
 export async function openChartDataDialog(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.selectedNode || ctx.selectedNode.type !== 'chart') return
-  const data = await window.slidesApi.getChartData(ctx.current, ctx.selectedNode.sourceId)
+  const data = await slidesActionWait(ctx, slidesActionApi(ctx).getChartData(ctx.current, ctx.selectedNode.sourceId))
   if (data) {
     ctx.setChartDataDialogInit(data)
     ctx.setChartDataDialogOpen(true)
   }
+
+  })
 }

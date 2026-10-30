@@ -1,9 +1,14 @@
+import type { CloseLeaseTicket } from '../../../../../packages/electron-utils/src/close-lease'
+import type { HtmlOp } from '../document/ops'
 /** messages between the app (parent) and the inspector script inside the sandboxed preview frame */
 
 /** inspect = full editing; browse = the page behaves as published */
 export type InspectorMode = 'inspect' | 'browse'
 
 export type ToInspector =
+  | {type:'gx:closePrepare'|'gx:closeCommit';nonce:number;ticket:CloseLeaseTicket}
+  | {type:'gx:closeRelease';ticket:CloseLeaseTicket}
+  | { type: 'gx:recoveryRead'; nonce: number }
   | { type: 'gx:select'; sid: number | null }
   | { type: 'gx:highlight'; sids: number[] }
   | { type: 'gx:clearHighlight' }
@@ -71,6 +76,10 @@ export interface ElementFingerprint {
 export type FromInspector = { version: number } & FromInspectorBody
 
 export type FromInspectorBody =
+  | {type:'gx:closeState';nonce:number;ticket:CloseLeaseTicket;ops:HtmlOp[];composing:boolean;busy:boolean;error?:string}
+  | {type:'gx:closeInvalidated';ticket:CloseLeaseTicket;reason:string}
+  | { type: 'gx:recoveryState'; nonce: number; ops: HtmlOp[]; composing: boolean; busy: boolean }
+  | { type: 'gx:recoveryChanged'; dirty: boolean }
   | { type: 'gx:ready'; title: string; docHeight: number }
   /** the window scrolled (coalesced per frame); the host hands it back after a reload */
   | { type: 'gx:scroll'; y: number }
@@ -132,6 +141,10 @@ export type FromInspectorBody =
 /** Message tags the instrumented inspector can emit; anything else is forged. */
 const KNOWN_FROM_INSPECTOR = new Set([
   'gx:ready',
+  'gx:closeState',
+  'gx:closeInvalidated',
+  'gx:recoveryState',
+  'gx:recoveryChanged',
   'gx:scroll',
   'gx:hover',
   'gx:rect',

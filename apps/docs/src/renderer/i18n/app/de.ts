@@ -558,4 +558,5 @@ export const de = {
   appMergeSourceLoaded: '{name} geladen ({n} Datensätze)',
   appMergeWritten: '{n} Dokumente geschrieben',
   appMergeNothingToWrite: 'Es gibt nichts zu schreiben',
+  appRecoveryFailed: 'Die Entwurfswiederherstellung ist fehlgeschlagen: {error}',
 } satisfies Record<keyof typeof zh, string>

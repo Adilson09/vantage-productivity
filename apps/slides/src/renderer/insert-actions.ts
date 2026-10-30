@@ -1,3 +1,5 @@
+import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
+import {withSlidesHistoryBatch} from './slides-history-batch'
 /**
  * Insert-tab actions extracted from App.tsx: shapes/text boxes,
  * images, tables, icons, charts, SmartArt, WordArt, fields, links, Zoom,
@@ -37,13 +39,8 @@ import { insertSlideZooms } from './zoom-actions'
  * step. Mirrors zoom-actions' batched(), for the same reason — a gesture that
  * spans several IPC calls must not cost several ⌘Z presses.
  */
-async function batched<T>(fn: () => Promise<T>): Promise<T> {
-  const opened = await window.slidesApi.beginHistoryBatch()
-  try {
-    return await fn()
-  } finally {
-    if (opened) await window.slidesApi.endHistoryBatch()
-  }
+async function batched<T>(ctx:ActionCtx,fn: () => Promise<T>): Promise<T> {
+  return withSlidesHistoryBatch(ctx,fn)
 }
 
 /** Draw-mode commit: insert a gallery shape at the drawn box (PowerPoint click-or-drag sizing). */
@@ -52,14 +49,16 @@ export async function insertShapeAt(
   kind: InsertKind,
   rect: DrawRect,
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   const isLine = isLineDrawKind(kind)
   // The batch opens before addElement, not just around the flips: endHistoryBatch
   // drops every snapshot past its start, so a batch opened after the insert would
   // collapse only the flips and leave "remove the line" as a second ⌘Z.
-  await batched(async () => {
-    const r = await window.slidesApi.addElement({
+  await slidesActionWait(ctx, batched(ctx,async () => {
+    const r = await slidesActionWait(ctx, slidesActionApi(ctx).addElement({
       slideIndex: current,
       kind,
       xPx: Math.round(rect.x),
@@ -68,7 +67,7 @@ export async function insertShapeAt(
       hPx: Math.round(rect.h),
       fitWidthPx: FIT_WIDTH,
       ...(isLine ? { stroke: { color: '#000000', widthPt: 1 } } : defaultShapeStyle()),
-    })
+    }))
     if (!r) return
     let updated = r.slide
     // Connectors render top-left → bottom-right inside their box; leftward/upward drags are restored by mirroring
@@ -76,24 +75,28 @@ export async function insertShapeAt(
       ...(rect.flipH ? (['h'] as const) : []),
       ...(rect.flipV ? (['v'] as const) : []),
     ]) {
-      const f = await window.slidesApi.flipElements({
+      const f = await slidesActionWait(ctx, slidesActionApi(ctx).flipElements({
         slideIndex: current,
         sourceIds: [r.sourceId],
         axis,
-      })
+      }))
       if (f) updated = f
     }
     ctx.applySlide(current, updated)
     ctx.setSelectedIds([r.sourceId])
+  }))
+
   })
 }
 
 /** Draw-mode commit for Insert > Text Box: empty one-line box at the gesture, straight into typing. */
 export async function insertTextBoxAt(ctx: ActionCtx, rect: DrawRect): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   const spec = textBoxInsertSpec(rect)
-  const r = await window.slidesApi.addElement({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addElement({
     slideIndex: current,
     kind: 'textbox',
     xPx: spec.x,
@@ -102,16 +105,20 @@ export async function insertTextBoxAt(ctx: ActionCtx, rect: DrawRect): Promise<v
     hPx: spec.h,
     fitWidthPx: FIT_WIDTH,
     bodyPr: spec.bodyPr,
-  })
+  }))
   if (!r) return
   ctx.applySlide(current, r.slide)
   ctx.setSelectedIds([r.sourceId])
   ctx.setEditing({ sourceId: r.sourceId, discardIfEmpty: true })
+
+  })
 }
 
 export async function insertImage(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  const r = await window.slidesApi.insertImage(ctx.current, FIT_WIDTH)
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).insertImage(ctx.current, FIT_WIDTH))
   if (!r) return
   if ('error' in r) {
     ctx.setSelectedIds([])
@@ -120,13 +127,17 @@ export async function insertImage(ctx: ActionCtx): Promise<void> {
   }
   ctx.applySlide(ctx.current, r.slide)
   ctx.setSelectedIds([r.sourceId])
+
+  })
 }
 
 export async function insertTable(ctx: ActionCtx, rows: number, cols: number): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   const spec = tableInsertSpec(slide, rows)
-  const r = await window.slidesApi.addTable({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addTable({
     slideIndex: current,
     rows,
     cols,
@@ -136,33 +147,37 @@ export async function insertTable(ctx: ActionCtx, rows: number, cols: number): P
     hPx: spec.h,
     rowHeightEmu: spec.rowHeightEmu,
     fitWidthPx: FIT_WIDTH,
-  })
+  }))
   if (r) {
     ctx.applySlide(current, r.slide)
     ctx.setSelectedIds([r.sourceId])
     ctx.setStatus(t('appStatusTableInserted', { rows, cols }))
   }
+
+  })
 }
 
 /** Icons: SVG rasterized to PNG then inserted as an image (embedded PNG has the best pptx compatibility). */
 export async function insertIcon(ctx: ActionCtx, def: IconDef, color: string): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   try {
     const svg = iconSvg(def, color)
     const img = new Image()
-    await new Promise<void>((resolve, reject) => {
+    await slidesActionWait(ctx, new Promise<void>((resolve, reject) => {
       img.onload = () => resolve()
       img.onerror = () => reject(new Error('svg decode failed'))
       img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
-    })
+    }))
     const canvas = document.createElement('canvas')
     canvas.width = 512
     canvas.height = 512
     canvas.getContext('2d')!.drawImage(img, 0, 0, 512, 512)
     const base64 = canvas.toDataURL('image/png').split(',')[1]!
     const size = 96
-    const r = await window.slidesApi.addImageBytes({
+    const r = await slidesActionWait(ctx, slidesActionApi(ctx).addImageBytes({
       slideIndex: current,
       base64,
       ext: 'png',
@@ -172,7 +187,7 @@ export async function insertIcon(ctx: ActionCtx, def: IconDef, color: string): P
       hPx: size,
       fitWidthPx: FIT_WIDTH,
       name: `Icon ${def.name}`,
-    })
+    }))
     if (r && !('error' in r)) {
       ctx.applySlide(current, r.slide)
       ctx.setSelectedIds([r.sourceId])
@@ -181,14 +196,18 @@ export async function insertIcon(ctx: ActionCtx, def: IconDef, color: string): P
   } catch {
     ctx.setStatus(t('appStatusIconInsertFailed'))
   }
+
+  })
 }
 
 export async function insertChart(ctx: ActionCtx, kind: ChartPresetDef['kind']): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   const data = chartSampleData(kind)
   const frame = graphicFrameInsertFrame(slide)
-  const r = await window.slidesApi.addChart({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addChart({
     slideIndex: current,
     kind,
     categories: data.categories,
@@ -198,19 +217,23 @@ export async function insertChart(ctx: ActionCtx, kind: ChartPresetDef['kind']):
     wPx: frame.w,
     hPx: frame.h,
     fitWidthPx: FIT_WIDTH,
-  })
+  }))
   if (r) {
     ctx.applySlide(current, r.slide)
     ctx.setSelectedIds([r.sourceId])
     ctx.setStatus(t('appStatusChartInserted'))
   }
+
+  })
 }
 
 export async function insertSmartArt(ctx: ActionCtx, def: SmartArtDef): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   const frame = graphicFrameInsertFrame(slide)
-  const r = await window.slidesApi.addSmartArt({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addSmartArt({
     slideIndex: current,
     layout: def.layout,
     items: def.defaultItems,
@@ -219,19 +242,23 @@ export async function insertSmartArt(ctx: ActionCtx, def: SmartArtDef): Promise<
     wPx: frame.w,
     hPx: frame.h,
     fitWidthPx: FIT_WIDTH,
-  })
+  }))
   if (r) {
     ctx.applySlide(current, r.slide)
     ctx.setSelectedIds([r.sourceId])
     ctx.setStatus(t('appStatusSmartArtInserted', { name: def.label }))
   }
+
+  })
 }
 
 export async function insertWordArt(ctx: ActionCtx, preset: WordArtPreset): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   const spec = wordArtInsertSpec(slide)
-  const r = await window.slidesApi.addElement({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addElement({
     slideIndex: current,
     kind: 'textbox',
     xPx: spec.x,
@@ -255,23 +282,27 @@ export async function insertWordArt(ctx: ActionCtx, preset: WordArtPreset): Prom
         ],
       },
     ],
-  })
+  }))
   if (r) {
     ctx.applySlide(current, r.slide)
     ctx.setSelectedIds([r.sourceId])
     ctx.setEditing({ sourceId: r.sourceId, selectAll: true })
     ctx.setStatus(t('appStatusWordArtInserted'))
   }
+
+  })
 }
 
 /** Date-time / slide number: <a:fld> dynamic fields, auto-refreshed when PowerPoint opens the file. */
 export async function insertField(ctx: ActionCtx, type: 'datetime' | 'slidenum'): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   const { slide, current } = ctx
   if (!slide) return
   const isDate = type === 'datetime'
   const w = isDate ? 240 : 100
   const h = 44
-  const r = await window.slidesApi.addElement({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addElement({
     slideIndex: current,
     kind: 'textbox',
     xPx: Math.round((slide.widthPx - w) / 2),
@@ -291,15 +322,19 @@ export async function insertField(ctx: ActionCtx, type: 'datetime' | 'slidenum')
         ],
       },
     ],
-  })
+  }))
   if (r) {
     ctx.applySlide(current, r.slide)
     ctx.setSelectedIds([r.sourceId])
     ctx.setStatus(isDate ? t('appStatusDateInserted') : t('appStatusSlideNumInserted'))
   }
+
+  })
 }
 
 export async function openLinkDialog(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
   // Editing text: the link applies to the selection (run-level); the keep-edit ribbon
   // button / dialog keep the editor alive, saveEditSelection preserved the range
@@ -310,11 +345,15 @@ export async function openLinkDialog(ctx: ActionCtx): Promise<void> {
   }
   if (ctx.selectedIds.length !== 1) return
   const sourceId = ctx.selectedIds[0]!
-  const initial = await window.slidesApi.getLink(ctx.current, sourceId)
+  const initial = await slidesActionWait(ctx, slidesActionApi(ctx).getLink(ctx.current, sourceId))
   ctx.setLinkDialog({ sourceId, initial })
+
+  })
 }
 
 export async function applyLink(ctx: ActionCtx, target: LinkTargetOp | null): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.linkDialog) return
   if (ctx.linkDialog.run) {
     const ok = applySelectionLink(target)
@@ -323,34 +362,46 @@ export async function applyLink(ctx: ActionCtx, target: LinkTargetOp | null): Pr
     return
   }
   if (!ctx.linkDialog.sourceId) return
-  const updated = await window.slidesApi.setLink({
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).setLink({
     slideIndex: ctx.current,
     sourceId: ctx.linkDialog.sourceId,
     target,
-  })
+  }))
   ctx.setLinkDialog(null)
   if (updated) {
     ctx.applySlide(ctx.current, updated)
     ctx.setStatus(target ? t('appStatusLinkSet') : t('appStatusLinkRemoved'))
   }
+
+  })
 }
 
 /** Single-target Slide Zoom, a compatibility wrapper over the cascading insert. */
 export async function insertZoom(ctx: ActionCtx, target: number): Promise<void> {
-  await insertSlideZooms(ctx, [target])
+  return slidesActionWork(ctx, async()=>{
+
+  await slidesActionWait(ctx, insertSlideZooms(ctx, [target]))
+
+  })
 }
 
 export async function openHeaderFooter(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  ctx.setHfDialog(await window.slidesApi.getHeaderFooter(ctx.current))
+  ctx.setHfDialog(await slidesActionWait(ctx, slidesActionApi(ctx).getHeaderFooter(ctx.current)))
+
+  })
 }
 
 export async function applyHf(
   ctx: ActionCtx,
   opts: { footer: string | null; slideNum: boolean; date: string | null; dateAuto: boolean },
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   ctx.setHfDialog(null)
-  const updated = await window.slidesApi.applyHeaderFooter({ ...opts, fitWidthPx: FIT_WIDTH })
+  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).applyHeaderFooter({ ...opts, fitWidthPx: FIT_WIDTH }))
   if (updated) {
     ctx.setSlides(updated)
     ctx.setSelectedIds([])
@@ -360,6 +411,8 @@ export async function applyHf(
   } else {
     ctx.setStatus(t('appStatusHfUnchanged'))
   }
+
+  })
 }
 
 /**
@@ -367,11 +420,13 @@ export async function applyHf(
  * PowerPoint drops a 1 in square centered on the slide that auto-fits the math and opens it for editing.
  */
 export async function insertEquation(ctx: ActionCtx, text: string): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   ctx.setEqDialogOpen(false)
   const { slide, current } = ctx
   if (!slide) return
   const frame = equationInsertFrame(slide)
-  const r = await window.slidesApi.addElement({
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addElement({
     slideIndex: current,
     kind: 'textbox',
     xPx: frame.x,
@@ -387,23 +442,29 @@ export async function insertEquation(ctx: ActionCtx, text: string): Promise<void
         ],
       },
     ],
-  })
+  }))
   if (r) {
     ctx.applySlide(current, r.slide)
     ctx.setSelectedIds([r.sourceId])
     ctx.setEditing({ sourceId: r.sourceId })
     ctx.setStatus(t('appStatusEquationInserted'))
   }
+
+  })
 }
 
 export async function insertMediaFile(ctx: ActionCtx, kind: 'video' | 'audio'): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
-  const r = await window.slidesApi.insertMedia(ctx.current, kind, FIT_WIDTH)
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).insertMedia(ctx.current, kind, FIT_WIDTH))
   if (r) {
     ctx.applySlide(ctx.current, r.slide)
     ctx.setSelectedIds([r.sourceId])
     ctx.setStatus(kind === 'video' ? t('appStatusVideoInserted') : t('appStatusAudioInserted'))
   }
+
+  })
 }
 
 /**
@@ -417,13 +478,15 @@ export async function insertDroppedMedia(
   kind: 'video' | 'audio',
   atPx: { x: number; y: number },
 ): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (!ctx.slide) return
   const slideIndex = ctx.current
   const path = window.desktop.getPathForFile(file)
   const source = path
     ? { path }
-    : { base64: bytesToBase64(new Uint8Array(await file.arrayBuffer())) }
-  const r = await window.slidesApi.addMediaBytes({
+    : { base64: bytesToBase64(new Uint8Array(await slidesActionWait(ctx, file.arrayBuffer()))) }
+  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addMediaBytes({
     slideIndex,
     kind,
     ext: fileExt(file.name),
@@ -431,13 +494,15 @@ export async function insertDroppedMedia(
     name: file.name,
     centerPx: atPx,
     ...source,
-  })
+  }))
   if (!r) return
   ctx.applySlide(slideIndex, r.slide)
   ctx.setSelectedIds([r.sourceId])
   ctx.setStatus(
     r.warning ?? (kind === 'video' ? t('appStatusVideoInserted') : t('appStatusAudioInserted')),
   )
+
+  })
 }
 
 /** Chunked: spreading a large array into fromCharCode would blow the call stack. */
@@ -451,13 +516,15 @@ export function bytesToBase64(bytes: Uint8Array): string {
 
 /** Screen recording: getDisplayMedia + MediaRecorder; when stopped, inserted into the current page as webm video. */
 export async function toggleScreenRecord(ctx: ActionCtx): Promise<void> {
+  return slidesActionWork(ctx, async()=>{
+
   if (ctx.recorderRef.current) {
     ctx.recorderRef.current.rec.stop()
     return
   }
   if (!ctx.slide) return
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+    const stream = await slidesActionWait(ctx, navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }))
     const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
       ? 'video/webm;codecs=vp9'
       : 'video/webm'
@@ -477,15 +544,15 @@ export async function toggleScreenRecord(ctx: ActionCtx): Promise<void> {
         ctx.setStatus(t('appStatusRecordingEmpty'))
         return
       }
-      const r = await window.slidesApi.addMediaBytes({
+      const r = await slidesActionWait(ctx, slidesActionApi(ctx).addMediaBytes({
         slideIndex,
         kind: 'video',
-        base64: bytesToBase64(new Uint8Array(await blob.arrayBuffer())),
+        base64: bytesToBase64(new Uint8Array(await slidesActionWait(ctx, blob.arrayBuffer()))),
         ext: 'webm',
         fitWidthPx: FIT_WIDTH,
         name: `Screen recording ${new Date().toLocaleTimeString()}`,
         ...(width && height ? { natural: { width, height } } : {}),
-      })
+      }))
       if (r) {
         ctx.applySlide(slideIndex, r.slide)
         ctx.setSelectedIds([r.sourceId])
@@ -503,4 +570,6 @@ export async function toggleScreenRecord(ctx: ActionCtx): Promise<void> {
   } catch {
     ctx.setStatus(t('appStatusRecordingUnavailable'))
   }
+
+  })
 }

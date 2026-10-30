@@ -1,3 +1,4 @@
+import { docCloseBarrier, docMutationSource, assertDocMutationSource } from '../doc-close-lease'
 import { useRef, useState } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
@@ -382,12 +383,17 @@ export async function insertImageFromDataUrl(
   dataUrl: string,
   label = t('ribbonPicture'),
 ): Promise<boolean> {
+  const source = docMutationSource()
+  return docCloseBarrier.runAsyncMutation(async () => {
+  docCloseBarrier.mutate(()=>{},source)
   const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
   if (!m) return false
   const mime = m[1]
   if (!/^image\/(png|jpeg|gif)$/.test(mime)) return false
   try {
     const natural = await imageSizeOf(dataUrl)
+    assertDocMutationSource(source)
+    if (editor.isDestroyed) return false
     const scale = Math.min(1, MAX_IMAGE_WIDTH_PX / natural.width)
     insertPictureAtSelection(editor, {
       dataUrl,
@@ -419,16 +425,22 @@ export async function insertImageFromDataUrl(
   } catch {
     return false
   }
+  }, source)
 }
 
 export async function insertImageViaDialog(editor: Editor): Promise<void> {
+  const source = docMutationSource()
+  return docCloseBarrier.runAsyncMutation(async () => {
+  docCloseBarrier.mutate(()=>{},source)
   const picked = await window.desktop.pickImage()
-  if (!picked) return
+  assertDocMutationSource(source)
+  if (!picked || editor.isDestroyed) return
   await insertImageFromDataUrl(
     editor,
     `data:${picked.mime};base64,${picked.base64}`,
     t('ribbonPictureLabel', { name: picked.name }),
   )
+  }, source)
 }
 
 /** 5 cm × 3 cm default textbox size in EMU (1 cm = 360000 EMU) */

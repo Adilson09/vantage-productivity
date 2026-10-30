@@ -550,4 +550,5 @@ export const it = {
   appMergeSourceLoaded: '{name} caricato ({n} record)',
   appMergeWritten: '{n} documenti scritti',
   appMergeNothingToWrite: "Non c'è nulla da scrivere",
+  appRecoveryFailed: 'Recupero della bozza non riuscito: {error}',
 } satisfies Record<keyof typeof zh, string>

@@ -324,7 +324,7 @@ export const ms = {
   appPivotSheetNoStructural:
     'Helaian ini mengandungi Jadual Pangsi — perubahan struktur belum disokong.',
   appDeleteSpanFormulas:
-    'Ada formula yang hanya merujuk baris/lajur yang dipadam — kemas kini atau padam formula itu dahulu.',
+    'Formula tidak dapat dikemas kini dengan selamat selepas pemadaman ini. Ubah atau padam formula itu dahulu.',
   appIconSetUnsupported: 'Gabungan ikon ini tidak boleh disimpan ke xlsx — pilih set ikon lain.',
   appFullLoadFilterTitle: 'Tindakan ini memerlukan buku kerja penuh',
   appFullLoadFilterBody:

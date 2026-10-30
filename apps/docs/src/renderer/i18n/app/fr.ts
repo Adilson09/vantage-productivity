@@ -555,4 +555,5 @@ export const fr = {
   appMergeSourceLoaded: '{name} chargé ({n} enregistrements)',
   appMergeWritten: '{n} documents écrits',
   appMergeNothingToWrite: "Il n'y a rien à écrire",
+  appRecoveryFailed: 'Échec de la sauvegarde de récupération du brouillon : {error}',
 } satisfies Record<keyof typeof zh, string>

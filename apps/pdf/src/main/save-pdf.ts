@@ -1403,7 +1403,7 @@ function finalPageIndex(request: SavePdfRequest, p: number): number | null {
  * Anything that fails here would have been silent data loss; the caller aborts the
  * save before the bytes reach disk, keeping the original file and the pending edits.
  */
-async function verifyContentEdits(
+export async function verifyContentEdits(
   bytes: Uint8Array,
   request: SavePdfRequest,
   skips: SavePdfSkips,
