@@ -10,6 +10,11 @@ vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
 const databasePath = join(tmpdir(), 'protocol database with spaces.vdb')
 const options = { workerPath: process.execPath }
 const children: FakeChild[] = []
+function createdChild(index: number): FakeChild {
+  const child = children[index]
+  if (!child) throw new Error(`No native query child was created at index ${index}.`)
+  return child
+}
 class FakeChild extends EventEmitter {
   pid = 12345
   stdin = new PassThrough()
@@ -191,7 +196,7 @@ describe('native database query protocol', () => {
       code: 'QUERY_CANCELLED',
       details: { cleanupPending: false },
     })
-    expect(children[0].stdin.destroyed).toBe(true)
+    expect(createdChild(0).stdin.destroyed).toBe(true)
   })
   it('settles a deadline with explicit pending cleanup, unrefs the child, and refuses replacement jobs until exit', async () => {
     vi.useFakeTimers()
@@ -207,14 +212,14 @@ describe('native database query protocol', () => {
     await vi.advanceTimersByTimeAsync(1101)
     expect(await first).toMatchObject({ code: 'QUERY_TIMEOUT', details: { cleanupPending: true } })
     expect(await second).toMatchObject({ code: 'QUERY_TIMEOUT', details: { cleanupPending: true } })
-    expect(children[0].unref).toHaveBeenCalledTimes(1)
-    expect(children[0].stdout.destroyed).toBe(true)
+    expect(createdChild(0).unref).toHaveBeenCalledTimes(1)
+    expect(createdChild(0).stdout.destroyed).toBe(true)
     await expect(queryDatabaseIsolated(databasePath, 'SELECT 1', options)).rejects.toMatchObject({
       code: 'QUERY_BUSY',
     })
     expect(spawn).toHaveBeenCalledTimes(2)
-    children[0].emit('close', 125, null)
-    children[1].emit('close', 125, null)
+    createdChild(0).emit('close', 125, null)
+    createdChild(1).emit('close', 125, null)
     mockNative((request, child) => emit(child, success(request)))
     await expect(queryDatabaseIsolated(databasePath, 'SELECT 1', options)).resolves.toMatchObject({
       rows: [{ value: 1 }],
