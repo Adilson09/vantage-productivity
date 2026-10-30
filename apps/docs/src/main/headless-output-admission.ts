@@ -4,11 +4,13 @@ export class DocsHeadlessOutputAdmission {
   private actualPin?: Promise<void>
   private actualSettlement?: Promise<void>
 
-  constructor(private readonly output: {
-    pin(): Promise<void>
-    closeAdmission(): void
-    awaitSettlement(): Promise<void>
-  }) {}
+  constructor(
+    private readonly output: {
+      pin(): Promise<void>
+      closeAdmission(): void
+      awaitSettlement(): Promise<void>
+    },
+  ) {}
 
   /** False means a terminal outcome arrived while setup was still pending. */
   prepare(): Promise<boolean> {
@@ -36,12 +38,24 @@ export class DocsHeadlessOutputAdmission {
     if (this.actualSettlement) return this.actualSettlement
     this.close()
     this.actualSettlement = (async () => {
-      let failed = false, failure: unknown
-      try { await this.actualPin } catch (error) { failed = true; failure = error }
+      let failed = false,
+        failure: unknown
+      try {
+        await this.actualPin
+      } catch (error) {
+        failed = true
+        failure = error
+      }
       // Setup can finish registering work after terminal notification. Join it
       // before asking the provider for its stable actual-output drain.
-      try { await this.output.awaitSettlement() }
-      catch (error) { if (!failed) { failed = true; failure = error } }
+      try {
+        await this.output.awaitSettlement()
+      } catch (error) {
+        if (!failed) {
+          failed = true
+          failure = error
+        }
+      }
       if (failed) throw failure
     })()
     return this.actualSettlement

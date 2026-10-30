@@ -4,8 +4,21 @@ import type { AiSettings, AiStreamChunk, AiStreamRequest } from '@vantage/ai-pro
 import type { PrintDuplex, PrintJobOptions, PrinterInfo } from '@vantage/electron-utils/print-job'
 export type { PrintDuplex, PrintJobOptions, PrinterInfo }
 
-import type { PdfSourceRead, PdfDraftActivation, PdfDraftSnapshotRequest, PdfWorkspaceSaveProof, PdfCopyReceipt, PdfSaveFallbackRequest, PdfSaveFallbackResult } from './pdf-workspace'
-import type { PdfCloseRequest, PdfClosePrepared, PdfCloseRelease, PdfCloseState } from './pdf-workspace'
+import type {
+  PdfSourceRead,
+  PdfDraftActivation,
+  PdfDraftSnapshotRequest,
+  PdfWorkspaceSaveProof,
+  PdfCopyReceipt,
+  PdfSaveFallbackRequest,
+  PdfSaveFallbackResult,
+} from './pdf-workspace'
+import type {
+  PdfCloseRequest,
+  PdfClosePrepared,
+  PdfCloseRelease,
+  PdfCloseState,
+} from './pdf-workspace'
 import type { CloseLeaseTicket } from '@vantage/electron-utils/close-lease'
 
 export const PDF_CHANNELS = {
@@ -992,8 +1005,18 @@ export interface PdfApi {
   forkAfterSave(request: PdfSaveFallbackRequest): Promise<PdfSaveFallbackResult>
   writeDraft(request: PdfDraftSnapshotRequest): Promise<{ ok: true; skipped?: boolean }>
   discardDraft(token: string): Promise<void>
-  acknowledgeCopy(request: { token: string; copyId: string; state: ArrayBuffer; sequence: number }): Promise<void>
-  onDraftRetired(handler: (value: { token: string; reason: 'discarded' | 'checkpoint' | 'redacted' | 'close' }) => void): () => void
+  acknowledgeCopy(request: {
+    token: string
+    copyId: string
+    state: ArrayBuffer
+    sequence: number
+  }): Promise<void>
+  onDraftRetired(
+    handler: (value: {
+      token: string
+      reason: 'discarded' | 'checkpoint' | 'redacted' | 'close'
+    }) => void,
+  ): () => void
   requestWorkspaceCopy(path: string): Promise<boolean>
   /** Take the pdf path pending for this view (queued at tab creation); null if none */
   consumePending(): Promise<string | null>

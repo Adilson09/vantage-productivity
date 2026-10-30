@@ -1,4 +1,4 @@
-import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
+import { slidesActionApi, slidesActionWait, slidesActionWork } from './slides-action-ownership'
 /**
  * Global keyboard shortcuts extracted from App.tsx: ⌘Z undo, ⌘F
  * find, zoom, element clipboard, format painter, selection cycling, nudging…
@@ -482,25 +482,29 @@ async function commitTransforms(
   ctx: ActionCtx,
   items: EditTransformMultiOp['items'],
 ): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (!items.length) return
-  if (items.length === 1) {
-    const it = items[0]!
-    await slidesActionWait(ctx, ctx.onTransform(
-      it.sourceId,
-      { x: it.xPx, y: it.yPx, w: it.wPx, h: it.hPx, rotationDeg: it.rotationDeg },
-      undefined,
-      it.groupId,
-    ))
-    return
-  }
-  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editTransformMulti({
-    slideIndex: ctx.current,
-    fitWidthPx: FIT_WIDTH,
-    items,
-  }))
-  if (updated) ctx.applySlide(ctx.current, updated)
-
+  return slidesActionWork(ctx, async () => {
+    if (!items.length) return
+    if (items.length === 1) {
+      const it = items[0]!
+      await slidesActionWait(
+        ctx,
+        ctx.onTransform(
+          it.sourceId,
+          { x: it.xPx, y: it.yPx, w: it.wPx, h: it.hPx, rotationDeg: it.rotationDeg },
+          undefined,
+          it.groupId,
+        ),
+      )
+      return
+    }
+    const updated = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).editTransformMulti({
+        slideIndex: ctx.current,
+        fitWidthPx: FIT_WIDTH,
+        items,
+      }),
+    )
+    if (updated) ctx.applySlide(ctx.current, updated)
   })
 }

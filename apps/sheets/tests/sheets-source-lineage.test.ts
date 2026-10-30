@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { SheetsSourceLineages } from '../src/main/sheets-source-lineage'
 
 const reader = (sessionId: string, digit = 'a') => ({
-  sessionId, openedSha256: digit.repeat(64), documentPath: `C:/work/${sessionId}.xlsx`,
+  sessionId,
+  openedSha256: digit.repeat(64),
+  documentPath: `C:/work/${sessionId}.xlsx`,
 })
 
 describe('main-owned Sheets source lineage', () => {
@@ -54,7 +56,9 @@ describe('main-owned Sheets source lineage', () => {
     const sources = new SheetsSourceLineages<number>(() => {})
     sources.commitOpen(1, sources.beginOpen(1), reader('old'))
     const old = sources.current(1)!
-    expect(() => sources.offerOwnedPublication(1, old, reader('old', 'b'))).toThrow('distinct replacement')
+    expect(() => sources.offerOwnedPublication(1, old, reader('old', 'b'))).toThrow(
+      'distinct replacement',
+    )
     expect(sources.current(1)).toEqual(old)
   })
 })

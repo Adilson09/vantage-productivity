@@ -103,11 +103,7 @@ export function PivotDialog({
             {t('dlgCancel')}
           </button>
           {hasFields && (
-            <button
-              className="primary-action"
-              disabled={pending}
-              onClick={() => void create()}
-            >
+            <button className="primary-action" disabled={pending} onClick={() => void create()}>
               {t('dlgCreate')}
             </button>
           )}

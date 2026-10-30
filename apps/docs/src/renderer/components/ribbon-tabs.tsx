@@ -385,61 +385,61 @@ export async function insertImageFromDataUrl(
 ): Promise<boolean> {
   const source = docMutationSource()
   return docCloseBarrier.runAsyncMutation(async () => {
-  docCloseBarrier.mutate(()=>{},source)
-  const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
-  if (!m) return false
-  const mime = m[1]
-  if (!/^image\/(png|jpeg|gif)$/.test(mime)) return false
-  try {
-    const natural = await imageSizeOf(dataUrl)
-    assertDocMutationSource(source)
-    if (editor.isDestroyed) return false
-    const scale = Math.min(1, MAX_IMAGE_WIDTH_PX / natural.width)
-    insertPictureAtSelection(editor, {
-      dataUrl,
-      base64: m[2],
-      mime,
-      widthPx: Math.round(natural.width * scale),
-      heightPx: Math.round(natural.height * scale),
-      label,
-    })
-    // Pasting into an empty document leaves the image as the ONLY node with a
-    // node-selection on it: there is no text position to type at, and the
-    // next keystroke REPLACES the picture. Ensure a
-    // paragraph follows the image and put a text caret there — also what
-    // Word does after inserting a picture.
-    // A mid-paragraph insert already leaves the caret in the split-off rest
-    // of the paragraph; only a doc-level landing needs the paragraph check.
-    {
-      const { doc, selection, schema } = editor.state
-      const $after = doc.resolve(Math.min(selection.to, doc.content.size))
-      if (!$after.parent.isTextblock) {
-        const chain = editor.chain()
-        if ($after.nodeAfter?.isTextblock !== true && schema.nodes.docParagraph) {
-          chain.insertContentAt($after.pos, { type: 'docParagraph' })
+    docCloseBarrier.mutate(() => {}, source)
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
+    if (!m) return false
+    const mime = m[1]
+    if (!/^image\/(png|jpeg|gif)$/.test(mime)) return false
+    try {
+      const natural = await imageSizeOf(dataUrl)
+      assertDocMutationSource(source)
+      if (editor.isDestroyed) return false
+      const scale = Math.min(1, MAX_IMAGE_WIDTH_PX / natural.width)
+      insertPictureAtSelection(editor, {
+        dataUrl,
+        base64: m[2],
+        mime,
+        widthPx: Math.round(natural.width * scale),
+        heightPx: Math.round(natural.height * scale),
+        label,
+      })
+      // Pasting into an empty document leaves the image as the ONLY node with a
+      // node-selection on it: there is no text position to type at, and the
+      // next keystroke REPLACES the picture. Ensure a
+      // paragraph follows the image and put a text caret there — also what
+      // Word does after inserting a picture.
+      // A mid-paragraph insert already leaves the caret in the split-off rest
+      // of the paragraph; only a doc-level landing needs the paragraph check.
+      {
+        const { doc, selection, schema } = editor.state
+        const $after = doc.resolve(Math.min(selection.to, doc.content.size))
+        if (!$after.parent.isTextblock) {
+          const chain = editor.chain()
+          if ($after.nodeAfter?.isTextblock !== true && schema.nodes.docParagraph) {
+            chain.insertContentAt($after.pos, { type: 'docParagraph' })
+          }
+          chain.setTextSelection($after.pos + 1).run()
         }
-        chain.setTextSelection($after.pos + 1).run()
       }
+      return true
+    } catch {
+      return false
     }
-    return true
-  } catch {
-    return false
-  }
   }, source)
 }
 
 export async function insertImageViaDialog(editor: Editor): Promise<void> {
   const source = docMutationSource()
   return docCloseBarrier.runAsyncMutation(async () => {
-  docCloseBarrier.mutate(()=>{},source)
-  const picked = await window.desktop.pickImage()
-  assertDocMutationSource(source)
-  if (!picked || editor.isDestroyed) return
-  await insertImageFromDataUrl(
-    editor,
-    `data:${picked.mime};base64,${picked.base64}`,
-    t('ribbonPictureLabel', { name: picked.name }),
-  )
+    docCloseBarrier.mutate(() => {}, source)
+    const picked = await window.desktop.pickImage()
+    assertDocMutationSource(source)
+    if (!picked || editor.isDestroyed) return
+    await insertImageFromDataUrl(
+      editor,
+      `data:${picked.mime};base64,${picked.base64}`,
+      t('ribbonPictureLabel', { name: picked.name }),
+    )
   }, source)
 }
 

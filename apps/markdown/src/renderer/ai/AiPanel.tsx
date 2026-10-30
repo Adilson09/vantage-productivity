@@ -411,17 +411,24 @@ export function AiPanel({
 
   // The loop is built once; every mutable value goes through a ref getter
   const runSourceRef = useRef<string | null>(null)
-  const runSourceCurrent = () => runSourceRef.current === null || runSourceRef.current === markdownCloseStamp().source
+  const runSourceCurrent = () =>
+    runSourceRef.current === null || runSourceRef.current === markdownCloseStamp().source
   const loopRef = useRef<AgentLoop<DocSnapshot> | null>(null)
   if (!loopRef.current) {
     loopRef.current = new AgentLoop<DocSnapshot>({
       transport: transportRef.current,
       skill: composeSkills('markdown+search', '', [
         createMarkdownSkill(
-          () => runSourceCurrent() ? depsRef.current.getEditor() : null,
+          () => (runSourceCurrent() ? depsRef.current.getEditor() : null),
           {
-            read: () => { if (!runSourceCurrent()) throw new Error('The AI source changed.'); return depsRef.current.getFrontmatter() },
-            write: (inner) => { if (!runSourceCurrent()) throw new Error('The AI source changed.'); depsRef.current.setFrontmatter(inner) },
+            read: () => {
+              if (!runSourceCurrent()) throw new Error('The AI source changed.')
+              return depsRef.current.getFrontmatter()
+            },
+            write: (inner) => {
+              if (!runSourceCurrent()) throw new Error('The AI source changed.')
+              depsRef.current.setFrontmatter(inner)
+            },
           },
           () => imageGenerationAvailable(settingsRef.current, gskLoggedInRef.current),
           () => ({
@@ -699,7 +706,12 @@ export function AiPanel({
         })
         setBusy(false)
       }
-    }).catch(error => { if (mountedRef.current) { patchLast({streaming:false,text:String(error),isError:true}); setBusy(false) } })
+    }).catch((error) => {
+      if (mountedRef.current) {
+        patchLast({ streaming: false, text: String(error), isError: true })
+        setBusy(false)
+      }
+    })
   }
 
   const stop = (): void => {

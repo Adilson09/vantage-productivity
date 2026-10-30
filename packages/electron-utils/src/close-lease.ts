@@ -13,15 +13,30 @@ export interface CloseLeaseStamp {
 
 export function isCloseLeaseTicket(value: unknown): value is CloseLeaseTicket {
   const ticket = value as CloseLeaseTicket | null
-  return !!ticket && typeof ticket.id === 'string' && ticket.id.length > 0 && ticket.id.length <= 512 &&
-    Number.isSafeInteger(ticket.sequence) && ticket.sequence > 0 &&
-    typeof ticket.source === 'string' && ticket.source.length > 0 && ticket.source.length <= 1024
+  return (
+    !!ticket &&
+    typeof ticket.id === 'string' &&
+    ticket.id.length > 0 &&
+    ticket.id.length <= 512 &&
+    Number.isSafeInteger(ticket.sequence) &&
+    ticket.sequence > 0 &&
+    typeof ticket.source === 'string' &&
+    ticket.source.length > 0 &&
+    ticket.source.length <= 1024
+  )
 }
 
 export function isCloseLeaseStamp(value: unknown): value is CloseLeaseStamp {
   const stamp = value as CloseLeaseStamp | null
-  return !!stamp && typeof stamp.source === 'string' && stamp.source.length > 0 && stamp.source.length <= 1024 &&
-    typeof stamp.revision === 'string' && stamp.revision.length > 0 && stamp.revision.length <= 1024
+  return (
+    !!stamp &&
+    typeof stamp.source === 'string' &&
+    stamp.source.length > 0 &&
+    stamp.source.length <= 1024 &&
+    typeof stamp.revision === 'string' &&
+    stamp.revision.length > 0 &&
+    stamp.revision.length <= 1024
+  )
 }
 
 export interface CloseLeaseBrokerOptions<Owner> {
@@ -57,20 +72,26 @@ export class CloseLeaseBroker<Owner> {
   private readonly clear: (timer: unknown) => void
 
   constructor(private readonly options: CloseLeaseBrokerOptions<Owner>) {
-    this.timer = options.setTimer ?? ((callback, milliseconds) => setTimeout(callback, milliseconds))
-    this.clear = options.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>))
+    this.timer =
+      options.setTimer ?? ((callback, milliseconds) => setTimeout(callback, milliseconds))
+    this.clear =
+      options.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>))
   }
 
   reserve(owner: Owner, id: string): CloseLeaseTicket {
     if (!this.options.alive(owner)) throw new Error('The document is no longer open.')
     if (this.entries.has(owner)) throw new Error('Another close/save writer is still finishing.')
     const source = this.options.source(owner)
-    if (!id || typeof source !== 'string' || !source) throw new Error('A close lease requires its request and source identity.')
+    if (!id || typeof source !== 'string' || !source)
+      throw new Error('A close lease requires its request and source identity.')
     const ticket = { id, sequence: ++this.sequence, source }
     const entry: Entry = { ticket, phase: 'preparing', settled: false }
     this.issued.set(owner, [...(this.issued.get(owner) ?? []).slice(-63), { ...ticket }])
     this.entries.set(owner, entry)
-    entry.timer = this.timer(() => this.invalidate(owner, entry, 'prepare expired'), this.options.prepareTimeoutMs ?? 120_000)
+    entry.timer = this.timer(
+      () => this.invalidate(owner, entry, 'prepare expired'),
+      this.options.prepareTimeoutMs ?? 120_000,
+    )
     return { ...ticket }
   }
 
@@ -79,7 +100,9 @@ export class CloseLeaseBroker<Owner> {
     if (!entry || !sameTicket(entry.ticket, ticket) || entry.phase === 'cancelled') return
     try {
       if (!this.options.alive(owner) || this.options.source(owner) !== ticket.source) return
-    } catch { return }
+    } catch {
+      return
+    }
     return entry
   }
 
@@ -90,7 +113,9 @@ export class CloseLeaseBroker<Owner> {
     return false
   }
 
-  hasWriter(owner: Owner): boolean { return this.entries.get(owner)?.settled === false }
+  hasWriter(owner: Owner): boolean {
+    return this.entries.get(owner)?.settled === false
+  }
 
   /** Call only when the actual renderer operation finished, even if its caller timed out. */
   settle(owner: Owner, ticket: CloseLeaseTicket): void {
@@ -102,23 +127,41 @@ export class CloseLeaseBroker<Owner> {
 
   ready(owner: Owner, ticket: CloseLeaseTicket, stamp: CloseLeaseStamp): boolean {
     const entry = this.current(owner, ticket)
-    if (!entry || entry.phase !== 'preparing' || !entry.settled ||
-      !isCloseLeaseStamp(stamp) || this.options.validate?.(owner, ticket, stamp) === false) {
+    if (
+      !entry ||
+      entry.phase !== 'preparing' ||
+      !entry.settled ||
+      !isCloseLeaseStamp(stamp) ||
+      this.options.validate?.(owner, ticket, stamp) === false
+    ) {
       this.cancel(owner, ticket, 'not ready')
       return false
     }
     if (entry.timer !== undefined) this.clear(entry.timer)
     entry.phase = 'ready'
     entry.stamp = { ...stamp }
-    entry.timer = this.timer(() => this.invalidate(owner, entry, 'ready expired'), this.options.readyTimeoutMs ?? 5_000)
+    entry.timer = this.timer(
+      () => this.invalidate(owner, entry, 'ready expired'),
+      this.options.readyTimeoutMs ?? 5_000,
+    )
     return true
   }
 
   /** The supplied removal is synchronous. Permission disappears before removal or renderer unlock. */
-  complete(owner: Owner, ticket: CloseLeaseTicket, stamp: CloseLeaseStamp, close: () => boolean): boolean {
+  complete(
+    owner: Owner,
+    ticket: CloseLeaseTicket,
+    stamp: CloseLeaseStamp,
+    close: () => boolean,
+  ): boolean {
     const entry = this.current(owner, ticket)
-    if (!entry || entry.phase !== 'ready' || !entry.stamp || !sameStamp(entry.stamp, stamp) ||
-      this.options.validate?.(owner, ticket, stamp) === false) {
+    if (
+      !entry ||
+      entry.phase !== 'ready' ||
+      !entry.stamp ||
+      !sameStamp(entry.stamp, stamp) ||
+      this.options.validate?.(owner, ticket, stamp) === false
+    ) {
       this.cancel(owner, ticket, 'commit refused')
       return false
     }
@@ -126,7 +169,8 @@ export class CloseLeaseBroker<Owner> {
     this.entries.delete(owner)
     try {
       const removed = close()
-      if (typeof removed !== 'boolean') throw new Error('A close lease requires a synchronous Boolean removal callback.')
+      if (typeof removed !== 'boolean')
+        throw new Error('A close lease requires a synchronous Boolean removal callback.')
       return removed
     } finally {
       this.sendRelease(owner, ticket, 'commit finished')
@@ -136,7 +180,8 @@ export class CloseLeaseBroker<Owner> {
   /** Idempotent for old tokens; canceling an old token never cancels a newer lease. */
   cancel(owner: Owner, ticket?: CloseLeaseTicket, reason = 'cancelled'): boolean {
     const entry = this.entries.get(owner)
-    if (entry && (!ticket || sameTicket(entry.ticket, ticket))) this.invalidate(owner, entry, reason)
+    if (entry && (!ticket || sameTicket(entry.ticket, ticket)))
+      this.invalidate(owner, entry, reason)
     else if (ticket && this.issued.get(owner)?.some((issued) => sameTicket(issued, ticket)))
       this.sendRelease(owner, ticket, reason)
     return true
@@ -153,7 +198,11 @@ export class CloseLeaseBroker<Owner> {
   }
 
   private sendRelease(owner: Owner, ticket: CloseLeaseTicket, reason: string): void {
-    try { this.options.release(owner, { ...ticket }, reason) } catch { /* Permission was already invalidated. */ }
+    try {
+      this.options.release(owner, { ...ticket }, reason)
+    } catch {
+      /* Permission was already invalidated. */
+    }
   }
 
   destroy(owner: Owner): void {
@@ -164,5 +213,4 @@ export class CloseLeaseBroker<Owner> {
     this.entries.delete(owner)
     this.sendRelease(owner, entry.ticket, 'destroyed')
   }
-
 }

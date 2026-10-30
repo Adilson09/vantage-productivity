@@ -3,12 +3,12 @@ import type { Editor } from '@tiptap/core'
 import { useI18n } from '../i18n/locale'
 import { hasRedactionIn } from '../editor/Redaction'
 import { RedactDialog } from '../editor/RedactDialog'
-import {mutateMarkdown} from '../close-lease'
+import { mutateMarkdown } from '../close-lease'
 
 interface Props {
   editor: Editor | null
   enabled: boolean
-  sourceCurrent?:()=>boolean
+  sourceCurrent?: () => boolean
 }
 
 /**
@@ -19,7 +19,7 @@ interface Props {
  * not one to make by accident. The dialog repeats the decision and shows the
  * resulting marker before anything is committed.
  */
-export function RedactMenu({ editor, enabled,sourceCurrent=()=>true }: Props) {
+export function RedactMenu({ editor, enabled, sourceCurrent = () => true }: Props) {
   const { t } = useI18n()
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null)
   const [seed, setSeed] = useState('')
@@ -38,7 +38,7 @@ export function RedactMenu({ editor, enabled,sourceCurrent=()=>true }: Props) {
     if (!editor) return
     const dom = editor.view.dom
     const onContextMenu = (event: MouseEvent) => {
-      if (!enabled||!sourceCurrent()) return
+      if (!enabled || !sourceCurrent()) return
       // nothing to withhold without a selection, so leave the browser's menu
       if (editor.state.selection.empty) return
       event.preventDefault()
@@ -49,7 +49,7 @@ export function RedactMenu({ editor, enabled,sourceCurrent=()=>true }: Props) {
     }
     dom.addEventListener('contextmenu', onContextMenu)
     return () => dom.removeEventListener('contextmenu', onContextMenu)
-  }, [editor, enabled,sourceCurrent])
+  }, [editor, enabled, sourceCurrent])
 
   // The menu is dismissed the way a context menu anywhere else is: Escape, or a
   // click anywhere outside it. The listeners land on the next tick so the very
@@ -93,8 +93,11 @@ export function RedactMenu({ editor, enabled,sourceCurrent=()=>true }: Props) {
             type="button"
             className="redact-menu-item"
             onClick={() => {
-              if(!sourceCurrent())return
-              mutateMarkdown(()=>{setPoint(null);setDialogOpen(true)})
+              if (!sourceCurrent()) return
+              mutateMarkdown(() => {
+                setPoint(null)
+                setDialogOpen(true)
+              })
             }}
           >
             {t('redactMenuLabel')}
@@ -110,8 +113,11 @@ export function RedactMenu({ editor, enabled,sourceCurrent=()=>true }: Props) {
               type="button"
               className="redact-menu-item"
               onClick={() => {
-                if(!sourceCurrent())return
-                mutateMarkdown(()=>{setPoint(null);editor!.chain().focus().unsetRedaction().run()})
+                if (!sourceCurrent()) return
+                mutateMarkdown(() => {
+                  setPoint(null)
+                  editor!.chain().focus().unsetRedaction().run()
+                })
               }}
             >
               {t('redactShowLabel')}
@@ -124,8 +130,11 @@ export function RedactMenu({ editor, enabled,sourceCurrent=()=>true }: Props) {
           seed={seed}
           onCancel={() => setDialogOpen(false)}
           onSubmit={(label) => {
-            if(!sourceCurrent())return
-            mutateMarkdown(()=>{setDialogOpen(false);editor.chain().focus().setRedaction(label).run()})
+            if (!sourceCurrent()) return
+            mutateMarkdown(() => {
+              setDialogOpen(false)
+              editor.chain().focus().setRedaction(label).run()
+            })
           }}
         />
       )}

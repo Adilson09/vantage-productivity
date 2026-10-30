@@ -208,7 +208,7 @@ describe('insert actions use the measured frames', () => {
     api.addSmartArt.mockResolvedValue(result)
     api.addImageBytes.mockResolvedValue(result)
     api.setLink.mockResolvedValue(slides[0])
-    api.beginOwnedHistoryBatch.mockResolvedValue({nonce:'12345678-1234-4234-8234-123456789abc'})
+    api.beginOwnedHistoryBatch.mockResolvedValue({ nonce: '12345678-1234-4234-8234-123456789abc' })
     api.finishOwnedHistoryBatch.mockResolvedValue(null)
     // The engine mints a GUID for every section written without an id
     api.setSections.mockImplementation(async (list: Array<{ id: string; name: string }>) =>

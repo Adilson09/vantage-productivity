@@ -82,13 +82,30 @@ describe('HTML recovery off-main bounded worker', () => {
     const result = await Promise.allSettled(work)
     expect(result.every((value) => value.status === 'rejected')).toBe(true)
   })
-  it('requires explicit bounded executable-seal metadata only for close-proof jobs',async()=>{
-    const oldWire=await fixture("require('node:worker_threads').parentPort.postMessage({bytes:new ArrayBuffer(0),remoteReferences:0})")
-    await expect(new HtmlDraftMaterializer(oldWire).prepare(Buffer.from('x'),grant,{purpose:'close-proof'})).rejects.toThrow(/response/)
-    const sealed=await fixture("require('node:worker_threads').parentPort.postMessage({bytes:new ArrayBuffer(0),remoteReferences:0,unsealedExecutableReferences:false})")
-    await expect(new HtmlDraftMaterializer(sealed).prepare(Buffer.from('x'),grant,{purpose:'close-proof'})).resolves.toMatchObject({unsealedExecutableReferences:false})
-    const invalid=await fixture("require('node:worker_threads').parentPort.postMessage({bytes:new ArrayBuffer(0),remoteReferences:0,unsealedExecutableReferences:'false'})")
-    await expect(new HtmlDraftMaterializer(invalid).prepare(Buffer.from('x'),grant,{purpose:'close-proof'})).rejects.toThrow(/response/)
+  it('requires explicit bounded executable-seal metadata only for close-proof jobs', async () => {
+    const oldWire = await fixture(
+      "require('node:worker_threads').parentPort.postMessage({bytes:new ArrayBuffer(0),remoteReferences:0})",
+    )
+    await expect(
+      new HtmlDraftMaterializer(oldWire).prepare(Buffer.from('x'), grant, {
+        purpose: 'close-proof',
+      }),
+    ).rejects.toThrow(/response/)
+    const sealed = await fixture(
+      "require('node:worker_threads').parentPort.postMessage({bytes:new ArrayBuffer(0),remoteReferences:0,unsealedExecutableReferences:false})",
+    )
+    await expect(
+      new HtmlDraftMaterializer(sealed).prepare(Buffer.from('x'), grant, {
+        purpose: 'close-proof',
+      }),
+    ).resolves.toMatchObject({ unsealedExecutableReferences: false })
+    const invalid = await fixture(
+      "require('node:worker_threads').parentPort.postMessage({bytes:new ArrayBuffer(0),remoteReferences:0,unsealedExecutableReferences:'false'})",
+    )
+    await expect(
+      new HtmlDraftMaterializer(invalid).prepare(Buffer.from('x'), grant, {
+        purpose: 'close-proof',
+      }),
+    ).rejects.toThrow(/response/)
   })
-
 })

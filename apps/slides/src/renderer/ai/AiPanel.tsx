@@ -1,5 +1,10 @@
-import {slidesAuthored} from '../slides-authored'
-import {captureSlidesHistoryBatches,runSlidesHistoryBatch,type SlidesHistoryBatchAccess,type SlidesHistoryBatchLease} from '../slides-history-batch'
+import { slidesAuthored } from '../slides-authored'
+import {
+  captureSlidesHistoryBatches,
+  runSlidesHistoryBatch,
+  type SlidesHistoryBatchAccess,
+  type SlidesHistoryBatchLease,
+} from '../slides-history-batch'
 import {
   aiPanelWidthAtPointer,
   AiPanelSideButton,
@@ -409,27 +414,58 @@ export function AiPanel({
   onQueueConsume,
 }: AiPanelProps) {
   const { t, lang } = useI18n()
-  const ownershipRef=useRef({runtime:slidesAuthored(),scope:slidesAuthored()?.scope()})
-  const {runtime:authoredRuntime,scope:authoredScope}=ownershipRef.current
-  const ownedApi=authoredRuntime&&authoredScope?authoredRuntime.bindApi(window.slidesApi,authoredScope):window.slidesApi
-  const historyAccessRef=useRef<SlidesHistoryBatchAccess|null>(null),historyMountedRef=useRef(false)
-  const getHistoryAccess=()=>{
-    if(!historyMountedRef.current)throw new Error('This AI history owner has ended.')
-    return historyAccessRef.current??=captureSlidesHistoryBatches(window.slidesApi,authoredRuntime,authoredScope)
+  const ownershipRef = useRef({ runtime: slidesAuthored(), scope: slidesAuthored()?.scope() })
+  const { runtime: authoredRuntime, scope: authoredScope } = ownershipRef.current
+  const ownedApi =
+    authoredRuntime && authoredScope
+      ? authoredRuntime.bindApi(window.slidesApi, authoredScope)
+      : window.slidesApi
+  const historyAccessRef = useRef<SlidesHistoryBatchAccess | null>(null),
+    historyMountedRef = useRef(false)
+  const getHistoryAccess = () => {
+    if (!historyMountedRef.current) throw new Error('This AI history owner has ended.')
+    return (historyAccessRef.current ??= captureSlidesHistoryBatches(
+      window.slidesApi,
+      authoredRuntime,
+      authoredScope,
+    ))
   }
-  useEffect(()=>{
-    historyMountedRef.current=true
-    const access=getHistoryAccess()
-    return()=>{
-      historyMountedRef.current=false;access.retire()
-      if(historyAccessRef.current===access)historyAccessRef.current=null
-      const lease=historyBatchActiveRef.current;historyBatchActiveRef.current=null
-      if(lease)void lease.finish().catch(error=>console.warn('[slides] Owned AI history cleanup remains pending.',error))
+  useEffect(() => {
+    historyMountedRef.current = true
+    const access = getHistoryAccess()
+    return () => {
+      historyMountedRef.current = false
+      access.retire()
+      if (historyAccessRef.current === access) historyAccessRef.current = null
+      const lease = historyBatchActiveRef.current
+      historyBatchActiveRef.current = null
+      if (lease)
+        void lease
+          .finish()
+          .catch((error) =>
+            console.warn('[slides] Owned AI history cleanup remains pending.', error),
+          )
     }
-  },[authoredRuntime,authoredScope])
-  useEffect(()=>{authoredRuntime?.notifyReady()})
-  const waitSource=<Result,>(work:PromiseLike<Result>|Result):Promise<Result>=>authoredRuntime&&authoredScope?authoredRuntime.wait(authoredScope,work):Promise.resolve(work)
-  useEffect(()=>authoredRuntime?.registerParticipant(()=>loopRef.current?.busy||runStartingRef.current||qcRunningRef.current||historyBatchActiveRef.current?'Finish or stop the active presentation AI run before Save and Close.':null),[authoredRuntime])
+  }, [authoredRuntime, authoredScope])
+  useEffect(() => {
+    authoredRuntime?.notifyReady()
+  })
+  const waitSource = <Result,>(work: PromiseLike<Result> | Result): Promise<Result> =>
+    authoredRuntime && authoredScope
+      ? authoredRuntime.wait(authoredScope, work)
+      : Promise.resolve(work)
+  useEffect(
+    () =>
+      authoredRuntime?.registerParticipant(() =>
+        loopRef.current?.busy ||
+        runStartingRef.current ||
+        qcRunningRef.current ||
+        historyBatchActiveRef.current
+          ? 'Finish or stop the active presentation AI run before Save and Close.'
+          : null,
+      ),
+    [authoredRuntime],
+  )
   // Panel chrome follows the UI language; message text follows its own content (dir=auto below)
   const isRtl = lang === 'ar' || lang === 'he'
   const [input, setInput] = useState('')
@@ -782,7 +818,7 @@ export function AiPanel({
   const accessRef = useRef<DeckAccess | null>(null)
   /** Wall-clock start of the current run, drives the elapsed badge */
   const runStartedAtRef = useRef(0)
-  const historyBatchActiveRef = useRef<SlidesHistoryBatchLease|null>(null)
+  const historyBatchActiveRef = useRef<SlidesHistoryBatchLease | null>(null)
   const inputEditedSinceRunRef = useRef(false)
   /** This run's rollback batch — carried onto the QC entry when a QC pass
       follows (mid-turn segments never show the action toolbar) */
@@ -814,23 +850,31 @@ export function AiPanel({
   }
 
   const finishHistoryBatch = async () => {
-    const lease=historyBatchActiveRef.current
-    if(!lease)return
-    historyBatchActiveRef.current=null
-    const id=await lease.finish()
-    if(!historyMountedRef.current||authoredRuntime&&authoredScope&&!authoredRuntime.current(authoredScope))return
+    const lease = historyBatchActiveRef.current
+    if (!lease) return
+    historyBatchActiveRef.current = null
+    const id = await lease.finish()
+    if (
+      !historyMountedRef.current ||
+      (authoredRuntime && authoredScope && !authoredRuntime.current(authoredScope))
+    )
+      return
     if (typeof id !== 'number') return
     runSnapshotIdRef.current = id
     patchLastAssistant({ snapshotId: id })
   }
-  const beginPersistentHistoryBatch=async()=>{
-    const access=getHistoryAccess(),lease=await access.acquire()
-    if(!lease)throw new Error('The AI history batch is unavailable.')
-    try{
+  const beginPersistentHistoryBatch = async () => {
+    const access = getHistoryAccess(),
+      lease = await access.acquire()
+    if (!lease) throw new Error('The AI history batch is unavailable.')
+    try {
       access.assertCurrent()
-      if(historyBatchActiveRef.current)throw new Error('An AI history batch is already active.')
-      historyBatchActiveRef.current=lease
-    }catch(error){await lease.finish();throw error}
+      if (historyBatchActiveRef.current) throw new Error('An AI history batch is already active.')
+      historyBatchActiveRef.current = lease
+    } catch (error) {
+      await lease.finish()
+      throw error
+    }
   }
 
   const rollback = async (snapshotId: number) => {
@@ -973,14 +1017,16 @@ export function AiPanel({
       signal?: AbortSignal,
       maxTokens?: number,
     ): Promise<LlmResult> => {
-      const first = await waitSource(runLlmAttempt(
-        useGenModel ? settingsForGen() : settingsRef.current,
-        system,
-        user,
-        timeoutMs,
-        signal,
-        maxTokens,
-      ))
+      const first = await waitSource(
+        runLlmAttempt(
+          useGenModel ? settingsForGen() : settingsRef.current,
+          system,
+          user,
+          timeoutMs,
+          signal,
+          maxTokens,
+        ),
+      )
       if (first.ok || !useGenModel || signal?.aborted) return first
       // Only "request errors" fall back to the user's model for a retry; timeouts/empty output don't switch models (mostly network/output problems, switching won't help)
       if (first.errKind) return first
@@ -1005,14 +1051,17 @@ export function AiPanel({
         insertAt?: number,
       ) => {
         try {
-          const res = await waitSource(ownedApi.landGeneratedPages(
-            pageMarkers,
-            fitWidthPx,
-            mode,
-            insertAt,
-            deckName,
-          ))
-          if(res&&'sourceCandidateId'in res&&res.sourceCandidateId)return{ok:true,pages:res.slides.length,appendedFrom:0,fallbackReason:'The generated presentation was published; switching the editor awaits its Save/Discard approval.'}
+          const res = await waitSource(
+            ownedApi.landGeneratedPages(pageMarkers, fitWidthPx, mode, insertAt, deckName),
+          )
+          if (res && 'sourceCandidateId' in res && res.sourceCandidateId)
+            return {
+              ok: true,
+              pages: res.slides.length,
+              appendedFrom: 0,
+              fallbackReason:
+                'The generated presentation was published; switching the editor awaits its Save/Discard approval.',
+            }
           if (res && 'slides' in res && Array.isArray(res.slides)) {
             const appendedFrom =
               'appendedFrom' in res && typeof res.appendedFrom === 'number' ? res.appendedFrom : 0
@@ -1058,12 +1107,9 @@ export function AiPanel({
       },
       regenerateSlide: async (slideIndex: number, marker: string) => {
         try {
-          const res = await waitSource(ownedApi.landGeneratedPages(
-            [marker],
-            fitWidthPx,
-            'replace_at',
-            slideIndex,
-          ))
+          const res = await waitSource(
+            ownedApi.landGeneratedPages([marker], fitWidthPx, 'replace_at', slideIndex),
+          )
           if (res && 'slides' in res && Array.isArray(res.slides)) {
             applyDeckRef.current(res.slides, slideIndex)
             if (res.path) onPathChangeRef.current?.(res.path)
@@ -1787,15 +1833,17 @@ export function AiPanel({
   /** the attached skills' full text in front of the request; a skill that vanished is skipped */
   const withSkillBodies = async (instruction: string, names: readonly string[]) => {
     if (names.length === 0) return instruction
-    const bodies = await waitSource(Promise.all(
-      names.map(async (name) => {
-        try {
-          return { name, body: await waitSource(ownedApi.skillText(name)) }
-        } catch {
-          return null
-        }
-      }),
-    ))
+    const bodies = await waitSource(
+      Promise.all(
+        names.map(async (name) => {
+          try {
+            return { name, body: await waitSource(ownedApi.skillText(name)) }
+          } catch {
+            return null
+          }
+        }),
+      ),
+    )
     return withAttachedSkills(
       instruction,
       bodies.filter((b): b is { name: string; body: string } => b !== null),
@@ -1803,7 +1851,10 @@ export function AiPanel({
   }
 
   const listSkillsForMenu = async () =>
-    (await waitSource(ownedApi.skillsList())).map(({ name, description }) => ({ name, description }))
+    (await waitSource(ownedApi.skillsList())).map(({ name, description }) => ({
+      name,
+      description,
+    }))
   const toggleSkill = (name: string) =>
     setAttachedSkills((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
@@ -1954,29 +2005,34 @@ export function AiPanel({
           if (slidesRef.current[page]) lines.push(tGlobal('aiQcPageSkipped', { n: page + 1 }))
           continue
         }
-        const batchResult=await runSlidesHistoryBatch(getHistoryAccess(),async()=>{
-        let result = await waitSource(qcSlidePage({
-          access,
-          transport,
-          pageIndex: page,
-          screenshot: shot,
-          systemSuffix: aiLangDirective,
-          signal: controller.signal,
-        }))
-        if (shot && result.error && isUnsupportedImageInputError(result.error)) {
-          forceGeometryOnly = true
-          result = await waitSource(qcSlidePage({
-            access,
-            transport,
-            pageIndex: page,
-            screenshot: null,
-            systemSuffix: aiLangDirective,
-            signal: controller.signal,
-          }))
-        }
-        return result
+        const batchResult = await runSlidesHistoryBatch(getHistoryAccess(), async () => {
+          let result = await waitSource(
+            qcSlidePage({
+              access,
+              transport,
+              pageIndex: page,
+              screenshot: shot,
+              systemSuffix: aiLangDirective,
+              signal: controller.signal,
+            }),
+          )
+          if (shot && result.error && isUnsupportedImageInputError(result.error)) {
+            forceGeometryOnly = true
+            result = await waitSource(
+              qcSlidePage({
+                access,
+                transport,
+                pageIndex: page,
+                screenshot: null,
+                systemSuffix: aiLangDirective,
+                signal: controller.signal,
+              }),
+            )
+          }
+          return result
         })
-        const result=batchResult.value,batchId=batchResult.snapshotId
+        const result = batchResult.value,
+          batchId = batchResult.snapshotId
         if (controller.signal.aborted) break
         if (result.error) {
           // QC is optional polish. Keep provider/network details in diagnostics instead of
@@ -2090,7 +2146,8 @@ export function AiPanel({
     }
   }
 
-  const pickAttachments = async () => mergeAttachments(await waitSource(window.desktop.pickAttachments()))
+  const pickAttachments = async () =>
+    mergeAttachments(await waitSource(window.desktop.pickAttachments()))
 
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault()
@@ -2099,7 +2156,8 @@ export function AiPanel({
     const paths = Array.from(e.dataTransfer.files)
       .map((f) => window.desktop.getPathForFile(f))
       .filter(Boolean)
-    if (paths.length > 0) mergeAttachments(await waitSource(window.desktop.addAttachmentPaths(paths)))
+    if (paths.length > 0)
+      mergeAttachments(await waitSource(window.desktop.addAttachmentPaths(paths)))
   }
 
   /** Files pasted into the input box: those with local paths go the regular attachment route; pure bitmaps like screenshots land in a temp file first */
@@ -2112,9 +2170,12 @@ export function AiPanel({
         continue
       }
       const ext = PASTE_MIME_EXT[f.type] ?? f.name.split('.').pop()?.toLowerCase() ?? 'bin'
-      mergeAttachments(await waitSource(window.desktop.addPastedImage(await waitSource(f.arrayBuffer()), ext)))
+      mergeAttachments(
+        await waitSource(window.desktop.addPastedImage(await waitSource(f.arrayBuffer()), ext)),
+      )
     }
-    if (paths.length > 0) mergeAttachments(await waitSource(window.desktop.addAttachmentPaths(paths)))
+    if (paths.length > 0)
+      mergeAttachments(await waitSource(window.desktop.addAttachmentPaths(paths)))
   }
 
   const removeAttachment = (path: string) =>
@@ -2203,10 +2264,7 @@ export function AiPanel({
           {t('aiPanelTitle')}
         </span>
         <div className="ai-panel-header-actions">
-          <AiPanelSideButton
-            lang={lang}
-            onMove={(side) => ownedApi.setAiPanelPrefs({ side })}
-          />
+          <AiPanelSideButton lang={lang} onMove={(side) => ownedApi.setAiPanelPrefs({ side })} />
           {(chat.length > 0 || historicChat.length > 0) && (
             <button
               className="ai-header-btn"

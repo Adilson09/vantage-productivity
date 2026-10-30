@@ -1,4 +1,4 @@
-import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
+import { slidesActionApi, slidesActionWait, slidesActionWork } from './slides-action-ownership'
 /**
  * Transition and animation actions extracted from App.tsx.
  * Functions take the ActionCtx built fresh per call.
@@ -14,18 +14,19 @@ export async function applyTransition(
   kind: TransitionKind,
   allSlides: boolean,
 ): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const ok = await slidesActionWait(ctx, slidesActionApi(ctx).setTransition({
-    slideIndex: allSlides ? -1 : ctx.current,
-    kind,
-  }))
-  if (ok) {
-    ctx.setTransition(kind)
-    ctx.setDirty(true)
-    ctx.setStatus(allSlides ? t('appStatusTransitionAll') : t('appStatusTransitionSet'))
-  }
-
+  return slidesActionWork(ctx, async () => {
+    const ok = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).setTransition({
+        slideIndex: allSlides ? -1 : ctx.current,
+        kind,
+      }),
+    )
+    if (ok) {
+      ctx.setTransition(kind)
+      ctx.setDirty(true)
+      ctx.setStatus(allSlides ? t('appStatusTransitionAll') : t('appStatusTransitionSet'))
+    }
   })
 }
 
@@ -61,16 +62,17 @@ export function hoverPreviewAnimation(
 
 /** Commit the whole page's animation list overwrite-style, then read back on success (target names/stale items per the main process). */
 export async function commitAnimations(ctx: ActionCtx, items: AnimationItem[]): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const ok = await slidesActionWait(ctx, slidesActionApi(ctx).setAnimations({
-    slideIndex: ctx.current,
-    items: items.map(({ targetName: _t, ...rest }) => rest),
-  }))
-  if (!ok) return
-  ctx.setDirty(true)
-  ctx.setAnimations(await slidesActionWait(ctx, slidesActionApi(ctx).getAnimations(ctx.current)))
-
+  return slidesActionWork(ctx, async () => {
+    const ok = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).setAnimations({
+        slideIndex: ctx.current,
+        items: items.map(({ targetName: _t, ...rest }) => rest),
+      }),
+    )
+    if (!ok) return
+    ctx.setDirty(true)
+    ctx.setAnimations(await slidesActionWait(ctx, slidesActionApi(ctx).getAnimations(ctx.current)))
   })
 }
 

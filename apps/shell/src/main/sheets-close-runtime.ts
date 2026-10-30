@@ -1,11 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { beginCloseCleanup } from '../../../../packages/electron-utils/src/close-cleanup-runtime'
-import { registerCloseCustodyProvider, type CloseCustodyProvider } from '../../../../packages/electron-utils/src/close-custody-providers'
+import {
+  registerCloseCustodyProvider,
+  type CloseCustodyProvider,
+} from '../../../../packages/electron-utils/src/close-custody-providers'
 import { requireRecoveryRuntime } from '../../../../packages/electron-utils/src/recovery-bootstrap'
-import type { CloseCleanupAdmission, CloseCleanupTask } from '../../../../packages/electron-utils/src/close-cleanup'
-import { createNativeCloseCustodyProvider, type NativeCloseCustodyProvider, type NativeCustodyLineage } from '../../../sheets/src/main/native-close-custody'
-import { beginSheetsMemoryClose, type SheetsMemoryCloseLedger } from '../../../sheets/src/main/sheets-memory-close'
+import type {
+  CloseCleanupAdmission,
+  CloseCleanupTask,
+} from '../../../../packages/electron-utils/src/close-cleanup'
+import {
+  createNativeCloseCustodyProvider,
+  type NativeCloseCustodyProvider,
+  type NativeCustodyLineage,
+} from '../../../sheets/src/main/native-close-custody'
+import {
+  beginSheetsMemoryClose,
+  type SheetsMemoryCloseLedger,
+} from '../../../sheets/src/main/sheets-memory-close'
 import type { SheetsCloseRuntime } from '../../../sheets/src/main/sheets-main'
 import type { SheetsCloseState } from '../../../sheets/src/shared/sheets-close'
 import type { SheetsCleanupAdmission } from '../../../sheets/src/main/sheets-close-coordinator'
@@ -36,7 +49,11 @@ export interface SheetsCloseRuntimeDependencies {
   createProvider(): NativeCloseCustodyProvider
   registerProvider(provider: CloseCustodyProvider): void
   beginPersistent(task: CloseCleanupTask): CloseCleanupAdmission
-  beginMemory(authority: CapturedNativeCloseAuthority, lineage: string, ledger: SheetsMemoryCloseLedger): SheetsCleanupAdmission
+  beginMemory(
+    authority: CapturedNativeCloseAuthority,
+    lineage: string,
+    ledger: SheetsMemoryCloseLedger,
+  ): SheetsCleanupAdmission
   requireRecovery(operation: string): void
   uuid(): string
 }
@@ -55,7 +72,11 @@ export function createSheetsCloseRuntimeInstaller(dependencies: SheetsCloseRunti
     if (nativeObserver && nativeObserver.ledger !== options.ledger)
       throw new Error('Sheets native work already belongs to another quit ledger.')
     if (installed) {
-      if (options.ledger !== installedOptions!.ledger || options.setRuntime !== installedOptions!.setRuntime || options.closeState !== installedOptions!.closeState)
+      if (
+        options.ledger !== installedOptions!.ledger ||
+        options.setRuntime !== installedOptions!.setRuntime ||
+        options.closeState !== installedOptions!.closeState
+      )
         throw new Error('Sheets close runtime already belongs to another main host or quit ledger.')
       return installed
     }
@@ -64,7 +85,7 @@ export function createSheetsCloseRuntimeInstaller(dependencies: SheetsCloseRunti
       nativeObserver = binding
       // Keep this process-lifetime observer across a setter failure. Retrying
       // startup must neither replay work twice nor switch the owning ledger.
-      dependencies.observeNativeWork(actual => binding.ledger.holdUntilSettled(actual))
+      dependencies.observeNativeWork((actual) => binding.ledger.holdUntilSettled(actual))
       binding.ready = true
     }
     if (nativeObserver && !nativeObserver.ready)
@@ -80,21 +101,31 @@ export function createSheetsCloseRuntimeInstaller(dependencies: SheetsCloseRunti
     }
     const assertOwner = (owner: WebContents, authority: CapturedNativeCloseAuthority) => {
       if (owner.isDestroyed() || authority.ownerId !== String(owner.id) || authority.cancelled)
-        throw new Error('The close cleanup authority no longer belongs to this exact live Sheets owner.')
+        throw new Error(
+          'The close cleanup authority no longer belongs to this exact live Sheets owner.',
+        )
     }
     const runtime: SheetsCloseRuntime = {
       stagePersistent: (owner, lineage, authority) => {
         // Never even mint an opaque persistent input for protected memory.
-        if (authority.encrypted) throw new Error('Protected Sheets close must use its memory-only stage.')
+        if (authority.encrypted)
+          throw new Error('Protected Sheets close must use its memory-only stage.')
         assertOwner(owner, authority)
         dependencies.requireRecovery('Sheets close snapshot custody')
-        const exact: NativeCustodyLineage = Object.freeze({ id: dependencies.uuid(), module: 'sheets',
-          ownerKey: authority.ownerId, source: lineage, generation: authority.generation,
-          token: authority.producer, documentPath: authority.originalPath })
-        const admission = dependencies.beginPersistent({ ...exact,
+        const exact: NativeCustodyLineage = Object.freeze({
+          id: dependencies.uuid(),
+          module: 'sheets',
+          ownerKey: authority.ownerId,
+          source: lineage,
+          generation: authority.generation,
+          token: authority.producer,
+          documentPath: authority.originalPath,
+        })
+        const admission = dependencies.beginPersistent({
+          ...exact,
           custody: { provider: provider.id, input: provider.captureInput(authority, exact) },
           ready: authority.ready,
-          run: signal => {
+          run: (signal) => {
             // The shared queue's bounded execution outcome is not a native I/O
             // finalizer. Keep the actual provider promise in the memory ledger.
             const actual = provider.runCaptured(authority, signal)
@@ -107,14 +138,16 @@ export function createSheetsCloseRuntimeInstaller(dependencies: SheetsCloseRunti
         return admission
       },
       stageMemory: (owner, lineage, authority) => {
-        if (!authority.encrypted) throw new Error('Memory-only Sheets close requires a protected authority.')
+        if (!authority.encrypted)
+          throw new Error('Memory-only Sheets close requires a protected authority.')
         assertOwner(owner, authority)
         // Do not require/read/status/stage the shared disk runtime here. This
         // path remains available when persistent recovery bootstrap failed.
         return dependencies.beginMemory(authority, lineage, options.ledger)
       },
       holdNativeUntilSettled: (_owner, actual) => options.ledger.holdUntilSettled(actual),
-      coverageComplete: owner => !!installed && !!registration && !owner.isDestroyed() && options.closeState(owner) !== null,
+      coverageComplete: (owner) =>
+        !!installed && !!registration && !owner.isDestroyed() && options.closeState(owner) !== null,
     }
     options.setRuntime(runtime)
     installedOptions = options
@@ -134,6 +167,8 @@ const productionInstaller = createSheetsCloseRuntimeInstaller({
 })
 
 /** Call after initializeShellRecovery and the memory quit guard, before GUI editor services. */
-export function installSheetsCloseRuntime(options: SheetsCloseRuntimeInstallationOptions): SheetsCloseRuntimeInstallation {
+export function installSheetsCloseRuntime(
+  options: SheetsCloseRuntimeInstallationOptions,
+): SheetsCloseRuntimeInstallation {
   return productionInstaller(options)
 }

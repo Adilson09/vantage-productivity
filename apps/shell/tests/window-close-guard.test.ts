@@ -9,10 +9,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * without Electron; only the six app-mains that own the prompts are faked.
  */
 
-const docReceipt:DocsCloseReceipt={kind:'lease' as const,intent:'save' as const,published:false,clean:true,source:'A',closeLease:{ticket:{id:'test-close',sequence:1,source:'main-A'},stamp:{source:'renderer-A',revision:'1'}}}
-const prepareDocsNativeClose = vi.fn<(...args:unknown[])=>Promise<DocsCloseReceipt|null>>(async()=>docReceipt)
-const completeDocsClose = vi.fn((_contents:unknown,_receipt:unknown,remove:()=>boolean)=>remove())
-const cancelDocsClose = vi.fn(async()=>{})
+const docReceipt: DocsCloseReceipt = {
+  kind: 'lease' as const,
+  intent: 'save' as const,
+  published: false,
+  clean: true,
+  source: 'A',
+  closeLease: {
+    ticket: { id: 'test-close', sequence: 1, source: 'main-A' },
+    stamp: { source: 'renderer-A', revision: '1' },
+  },
+}
+const prepareDocsNativeClose = vi.fn<(...args: unknown[]) => Promise<DocsCloseReceipt | null>>(
+  async () => docReceipt,
+)
+const completeDocsClose = vi.fn((_contents: unknown, _receipt: unknown, remove: () => boolean) =>
+  remove(),
+)
+const cancelDocsClose = vi.fn(async () => {})
 const requestSheetsClose = vi.fn(() => Promise.resolve(true))
 const resetSheetsShuttingDown = vi.fn()
 const requestSlidesClose = vi.fn(() => Promise.resolve(true))
@@ -21,9 +35,9 @@ const requestMarkdownClose = vi.fn(() => Promise.resolve(true))
 const requestHtmlClose = vi.fn(() => Promise.resolve(true))
 
 vi.mock('../../docs/src/main/docs-main', () => ({
-  prepareDocsNativeClose: (...args:unknown[])=>prepareDocsNativeClose(...args),
-  completeDocsClose: (...args:Parameters<typeof completeDocsClose>)=>completeDocsClose(...args),
-  cancelDocsClose: ()=>cancelDocsClose(),
+  prepareDocsNativeClose: (...args: unknown[]) => prepareDocsNativeClose(...args),
+  completeDocsClose: (...args: Parameters<typeof completeDocsClose>) => completeDocsClose(...args),
+  cancelDocsClose: () => cancelDocsClose(),
 }))
 
 vi.mock('../../sheets/src/main/sheets-main', () => ({
@@ -139,8 +153,8 @@ let consoleError: ReturnType<typeof vi.spyOn>
 
 beforeEach(async () => {
   vi.clearAllMocks()
-  prepareDocsNativeClose.mockImplementation(async()=>docReceipt)
-  completeDocsClose.mockImplementation((_contents,_receipt,remove)=>remove())
+  prepareDocsNativeClose.mockImplementation(async () => docReceipt)
+  completeDocsClose.mockImplementation((_contents, _receipt, remove) => remove())
   for (const ask of [
     requestSheetsClose,
     requestSlidesClose,
@@ -176,7 +190,9 @@ describe('clean fast path', () => {
     install(win as never, fakeManager({ docs: [docsTab] }) as never, fakeQuit())
     expect(win.requestClose()).toBe(true)
     await flush()
-    expect(prepareDocsNativeClose).toHaveBeenCalledWith(docsTab.webContents,win,{allowForce:false})
+    expect(prepareDocsNativeClose).toHaveBeenCalledWith(docsTab.webContents, win, {
+      allowForce: false,
+    })
     expect(completeDocsClose).toHaveBeenCalledTimes(1)
     expect(cancelDocsClose).toHaveBeenCalledTimes(1)
     expect(win.destroyed).toBe(true)
@@ -359,19 +375,39 @@ describe('failure in the prompt chain', () => {
   })
 })
 
-describe('Docs held actual-removal boundary',()=>{
-  it('keeps the window when a ready receipt expires before commit and releases every receipt',async()=>{
+describe('Docs held actual-removal boundary', () => {
+  it('keeps the window when a ready receipt expires before commit and releases every receipt', async () => {
     completeDocsClose.mockReturnValueOnce(false)
-    const win=new FakeWindow(),quit=fakeQuit(true)
-    install(win as never,fakeManager({docs:[{id:'d',webContents:{id:1}}]}) as never,quit)
-    win.requestClose();await flush()
-    expect(win.destroyed).toBe(false);expect(quit.reset).toHaveBeenCalled();expect(cancelDocsClose).toHaveBeenCalledTimes(1)
+    const win = new FakeWindow(),
+      quit = fakeQuit(true)
+    install(
+      win as never,
+      fakeManager({ docs: [{ id: 'd', webContents: { id: 1 } }] }) as never,
+      quit,
+    )
+    win.requestClose()
+    await flush()
+    expect(win.destroyed).toBe(false)
+    expect(quit.reset).toHaveBeenCalled()
+    expect(cancelDocsClose).toHaveBeenCalledTimes(1)
   })
-  it('refuses whole-window force dispositions instead of carrying destructive approval across later prompts',async()=>{
-    prepareDocsNativeClose.mockResolvedValueOnce({kind:'force',id:'force',source:'A',published:false,clean:false})
-    const win=new FakeWindow()
-    install(win as never,fakeManager({docs:[{id:'d',webContents:{id:1}}]}) as never,fakeQuit())
-    win.requestClose();await flush()
-    expect(win.destroyed).toBe(false);expect(completeDocsClose).not.toHaveBeenCalled()
+  it('refuses whole-window force dispositions instead of carrying destructive approval across later prompts', async () => {
+    prepareDocsNativeClose.mockResolvedValueOnce({
+      kind: 'force',
+      id: 'force',
+      source: 'A',
+      published: false,
+      clean: false,
+    })
+    const win = new FakeWindow()
+    install(
+      win as never,
+      fakeManager({ docs: [{ id: 'd', webContents: { id: 1 } }] }) as never,
+      fakeQuit(),
+    )
+    win.requestClose()
+    await flush()
+    expect(win.destroyed).toBe(false)
+    expect(completeDocsClose).not.toHaveBeenCalled()
   })
 })

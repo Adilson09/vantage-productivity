@@ -84,9 +84,21 @@ vi.mock('electron', () => ({
 
 vi.mock('../../docs/src/main/docs-main', () => ({
   docsQueryDirty: vi.fn(() => Promise.resolve(false)),
-  prepareDocsNativeClose:vi.fn(async()=>({kind:'lease' as const,intent:'save' as const,published:false,clean:true,source:'A',closeLease:{ticket:{id:'test-close',sequence:1,source:'main-A'},stamp:{source:'renderer-A',revision:'1'}}})),
-  completeDocsClose:vi.fn((_contents:unknown,_receipt:unknown,remove:()=>boolean)=>remove()),
-  cancelDocsClose:vi.fn(async()=>{}),
+  prepareDocsNativeClose: vi.fn(async () => ({
+    kind: 'lease' as const,
+    intent: 'save' as const,
+    published: false,
+    clean: true,
+    source: 'A',
+    closeLease: {
+      ticket: { id: 'test-close', sequence: 1, source: 'main-A' },
+      stamp: { source: 'renderer-A', revision: '1' },
+    },
+  })),
+  completeDocsClose: vi.fn((_contents: unknown, _receipt: unknown, remove: () => boolean) =>
+    remove(),
+  ),
+  cancelDocsClose: vi.fn(async () => {}),
   setActiveDocsResolver: vi.fn(),
   teardownDocsRenderer: vi.fn(),
 }))
@@ -512,11 +524,16 @@ describe('dockBandFor', () => {
   })
 })
 
-describe('detached Docs actual-removal fencing',()=>{
-  it('keeps the exact detached owner when its ready receipt cannot be committed',async()=>{
-    const {completeDocsClose,cancelDocsClose}=await import('../../docs/src/main/docs-main')
+describe('detached Docs actual-removal fencing', () => {
+  it('keeps the exact detached owner when its ready receipt cannot be committed', async () => {
+    const { completeDocsClose, cancelDocsClose } = await import('../../docs/src/main/docs-main')
     vi.mocked(completeDocsClose).mockReturnValueOnce(false)
-    const win=detached.createDetachedEditorWindow({view:fakeView(771) as never,kind:'docs',title:'a.docx',applyMenuFor:()=>{}})
+    const win = detached.createDetachedEditorWindow({
+      view: fakeView(771) as never,
+      kind: 'docs',
+      title: 'a.docx',
+      applyMenuFor: () => {},
+    })
     ;(win as unknown as FakeWindow).close()
     await flush()
     expect(win.isDestroyed()).toBe(false)

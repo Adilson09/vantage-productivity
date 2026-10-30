@@ -1,6 +1,15 @@
 import { renameOwnedPdf } from './pdf-auto-rename'
-import { publishNewUserOutput, publishSelectedUserOutputs } from '@vantage/electron-utils/user-output-publication'
-import { configureRecoveryProfile, initializeStandaloneRecovery, requireRecoveryRuntime, recoveryRuntimeState, queueRecoveryWarning } from '../../../../packages/electron-utils/src/recovery-bootstrap'
+import {
+  publishNewUserOutput,
+  publishSelectedUserOutputs,
+} from '@vantage/electron-utils/user-output-publication'
+import {
+  configureRecoveryProfile,
+  initializeStandaloneRecovery,
+  requireRecoveryRuntime,
+  recoveryRuntimeState,
+  queueRecoveryWarning,
+} from '../../../../packages/electron-utils/src/recovery-bootstrap'
 import {
   constants,
   copyFileSync,
@@ -84,14 +93,48 @@ import { PdfDraftController, type PdfRestoreHandoff } from './pdf-draft-controll
 import { PdfCloseCoordinator, pdfCloseOptionsCurrent, type PdfCloseOptions } from './pdf-close'
 import { preparePdfNativeCloseFlow } from './pdf-native-close'
 import { NativeCloseAdmission } from '@vantage/electron-utils/native-close-admission'
-import { PdfFileBindings, readPinnedPdf, assertPdfFileVersion, observePublishedPdf, publishPinnedPdf, type PdfLoadedFile } from './pdf-publication'
+import {
+  PdfFileBindings,
+  readPinnedPdf,
+  assertPdfFileVersion,
+  observePublishedPdf,
+  publishPinnedPdf,
+  type PdfLoadedFile,
+} from './pdf-publication'
 import { isCloseLeaseTicket } from '@vantage/electron-utils/close-lease'
 import type { CloseLeaseStamp, CloseLeaseTicket } from '@vantage/electron-utils/close-lease'
-import { PdfPrivateBases, readPdfWorkspaceFile, pdfRepresentation, pdfDigest } from './pdf-workspace'
-import { writeDraftJournal, discardDraftJournal, listDraftJournal } from '@vantage/electron-utils/draft-journal'
-import { stageCloseCleanup, beginCloseCleanup, retireCloseCleanupCustody, queryCloseCleanupCustody,  getCloseCleanupStatus, awaitCloseCleanup, recordCloseCleanupFailure, prepareCloseCleanupRestore } from '@vantage/electron-utils/close-cleanup-runtime'
-import { atomicWriteFile, readAtomicFileVersion, type AtomicFileVersion } from '@vantage/electron-utils/atomic-write'
-import type { PdfSourceRead, PdfWorkspaceSaveProof, PdfCloseIntent, PdfCloseReceipt } from '../shared/pdf-workspace'
+import {
+  PdfPrivateBases,
+  readPdfWorkspaceFile,
+  pdfRepresentation,
+  pdfDigest,
+} from './pdf-workspace'
+import {
+  writeDraftJournal,
+  discardDraftJournal,
+  listDraftJournal,
+} from '@vantage/electron-utils/draft-journal'
+import {
+  stageCloseCleanup,
+  beginCloseCleanup,
+  retireCloseCleanupCustody,
+  queryCloseCleanupCustody,
+  getCloseCleanupStatus,
+  awaitCloseCleanup,
+  recordCloseCleanupFailure,
+  prepareCloseCleanupRestore,
+} from '@vantage/electron-utils/close-cleanup-runtime'
+import {
+  atomicWriteFile,
+  readAtomicFileVersion,
+  type AtomicFileVersion,
+} from '@vantage/electron-utils/atomic-write'
+import type {
+  PdfSourceRead,
+  PdfWorkspaceSaveProof,
+  PdfCloseIntent,
+  PdfCloseReceipt,
+} from '../shared/pdf-workspace'
 import {
   cropPagesBytes,
   extractPagesBytes,
@@ -705,12 +748,14 @@ async function createStandaloneDocument(
           new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } }),
       )
       const path = uniqueGeneratedPdfPath(configuredDefaultSaveDir(app), `${title}.pdf`)
-      await publishNewUserOutput(path, bytes,()=>openGeneratedPdf(path))
+      await publishNewUserOutput(path, bytes, () => openGeneratedPdf(path))
       return { ok: true, path }
     }
     // md / html: the source is the file; standalone has no sibling editor to open it in
     const path = uniqueGeneratedTextPath(configuredDefaultSaveDir(app), title, request.type)
-    await publishNewUserOutput(path, Buffer.from(request.content, 'utf8'),()=>shell.showItemInFolder(path))
+    await publishNewUserOutput(path, Buffer.from(request.content, 'utf8'), () =>
+      shell.showItemInFolder(path),
+    )
     return { ok: true, path }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -737,16 +782,50 @@ function openGeneratedPdf(path: string): void {
 const openPathByWc = new Map<number, string>()
 const pdfCloseSessionByWc = new Map<number, string>()
 const pdfWritersByWc = new Map<number, number>()
-const pdfWriteBasesByWc = new Map<number, { path: string; readId: string; session: string; version: AtomicFileVersion; binding: PdfLoadedFile }>()
+const pdfWriteBasesByWc = new Map<
+  number,
+  {
+    path: string
+    readId: string
+    session: string
+    version: AtomicFileVersion
+    binding: PdfLoadedFile
+  }
+>()
 const pdfFiles = new PdfFileBindings()
 const nativePdfWrites = new NativeCloseAdmission<string>()
-function pdfPublicationDomain(owner: number): string { return pdfFiles.domain(owner, pdfCloseSessionByWc.get(owner) ?? '', draftController?.source(owner)?.helperPath ?? openPathByWc.get(owner) ?? `blank-view-${owner}`) }
-async function rememberPdfRead(owner: number, session: string, read: PdfSourceRead, ticket?: CloseLeaseTicket, expectedVersion?: AtomicFileVersion): Promise<void> {
+function pdfPublicationDomain(owner: number): string {
+  return pdfFiles.domain(
+    owner,
+    pdfCloseSessionByWc.get(owner) ?? '',
+    draftController?.source(owner)?.helperPath ?? openPathByWc.get(owner) ?? `blank-view-${owner}`,
+  )
+}
+async function rememberPdfRead(
+  owner: number,
+  session: string,
+  read: PdfSourceRead,
+  ticket?: CloseLeaseTicket,
+  expectedVersion?: AtomicFileVersion,
+): Promise<void> {
   const version = await readAtomicFileVersion(read.helperPath)
-  if (!version || version.sha256 !== read.baseSha256) throw new Error('The parsed PDF source changed before its read receipt was established.')
+  if (!version || version.sha256 !== read.baseSha256)
+    throw new Error('The parsed PDF source changed before its read receipt was established.')
   if (expectedVersion) await assertPdfFileVersion(read.helperPath, expectedVersion)
-  if (session !== pdfCloseSessionByWc.get(owner) || !allowedByWc.has(owner) || (ticket && !pdfCloses().claim(owner, ticket))) throw new Error('The PDF source changed before its read receipt could be handed back.')
-  pdfFiles.remember(owner, { path: read.helperPath, version, sha256: read.baseSha256, readId: read.readId, session, ...(ticket ? { closeTicket: ticket } : {}) })
+  if (
+    session !== pdfCloseSessionByWc.get(owner) ||
+    !allowedByWc.has(owner) ||
+    (ticket && !pdfCloses().claim(owner, ticket))
+  )
+    throw new Error('The PDF source changed before its read receipt could be handed back.')
+  pdfFiles.remember(owner, {
+    path: read.helperPath,
+    version,
+    sha256: read.baseSha256,
+    readId: read.readId,
+    session,
+    ...(ticket ? { closeTicket: ticket } : {}),
+  })
 }
 /** File paths granted to each view — readFile only allows these */
 const allowedByWc = new Map<number, Set<string>>()
@@ -756,7 +835,10 @@ const closeSaveWaiters = new Map<number, (ok: boolean) => void>()
 const saveAsWaiters = new Map<number, (ok: boolean) => void>()
 /** Save As destination granted per view (main-process dialog pick); the save handler refuses any other non-source target */
 const saveAsTargetByWc = new Map<number, string>()
-const saveAsTargetVersions = new Map<number, { path: string; session: string; version: AtomicFileVersion | null }>()
+const saveAsTargetVersions = new Map<
+  number,
+  { path: string; session: string; version: AtomicFileVersion | null }
+>()
 const saveAsPreparing = new Set<number>()
 /** Only a copy produced by this view may receive subsequent in-place redactions. */
 const redactionPathByWc = new Map<number, string>()
@@ -768,47 +850,114 @@ let draftController: PdfDraftController | undefined
 let privateBases: PdfPrivateBases | undefined
 let closeCoordinator: PdfCloseCoordinator | undefined
 function pdfCloses(): PdfCloseCoordinator {
-  const send = (owner: number, channel: string, value: unknown) => { const view = webContents.fromId(owner); if (view && !view.isDestroyed()) view.send(channel, value) }
-  return closeCoordinator ??= new PdfCloseCoordinator({
-    alive: owner => { const view = webContents.fromId(owner); return !!view && !view.isDestroyed() && allowedByWc.has(owner) },
-    source: owner => pdfCloseSessionByWc.get(owner) ?? '',
-    canReady: owner => !(pdfWritersByWc.get(owner) ?? 0) && !draftController?.hasForkWriter(owner) && !workspaceCopies.has(owner) && !workspaceCopyPickers.has(owner) && !saveAsWaiters.has(owner) && !saveAsPreparing.has(owner),
-    unpublished: owner => draftController?.hasUnpublishedBase(owner) ?? false,
-    draftToken: owner => draftController?.source(owner)?.token || null,
+  const send = (owner: number, channel: string, value: unknown) => {
+    const view = webContents.fromId(owner)
+    if (view && !view.isDestroyed()) view.send(channel, value)
+  }
+  return (closeCoordinator ??= new PdfCloseCoordinator({
+    alive: (owner) => {
+      const view = webContents.fromId(owner)
+      return !!view && !view.isDestroyed() && allowedByWc.has(owner)
+    },
+    source: (owner) => pdfCloseSessionByWc.get(owner) ?? '',
+    canReady: (owner) =>
+      !(pdfWritersByWc.get(owner) ?? 0) &&
+      !draftController?.hasForkWriter(owner) &&
+      !workspaceCopies.has(owner) &&
+      !workspaceCopyPickers.has(owner) &&
+      !saveAsWaiters.has(owner) &&
+      !saveAsPreparing.has(owner),
+    unpublished: (owner) => draftController?.hasUnpublishedBase(owner) ?? false,
+    draftToken: (owner) => draftController?.source(owner)?.token || null,
     stage: (owner, floor, cleanupId) => {
       const staged = pdfDrafts().stageClose(owner, floor)
       let earlierFailure = false
-      const preparation = beginCloseCleanup({ id: cleanupId, module: 'pdf', ownerKey: String(owner), source: staged.source,
-        generation: staged.generation, token: staged.token, documentPath: staged.documentPath,
-        ready: Promise.all([staged.drained, privateBases!.drainOwnership(staged.helperPath)]).then(() => {}),
-        custody: { recoveryRoot: join(app.getPath('userData'), 'recovery'), draftId: staged.token, attest: () => {
-          const binding = staged.journalBinding()
-          return binding ? { expectedDocumentPath: binding.documentPath, expectedSha256: binding.sha256 } : { expectedDocumentPath: staged.documentPath }
-        } },
-        run: async signal => {
+      const preparation = beginCloseCleanup({
+        id: cleanupId,
+        module: 'pdf',
+        ownerKey: String(owner),
+        source: staged.source,
+        generation: staged.generation,
+        token: staged.token,
+        documentPath: staged.documentPath,
+        ready: Promise.all([staged.drained, privateBases!.drainOwnership(staged.helperPath)]).then(
+          () => {},
+        ),
+        custody: {
+          recoveryRoot: join(app.getPath('userData'), 'recovery'),
+          draftId: staged.token,
+          attest: () => {
+            const binding = staged.journalBinding()
+            return binding
+              ? { expectedDocumentPath: binding.documentPath, expectedSha256: binding.sha256 }
+              : { expectedDocumentPath: staged.documentPath }
+          },
+        },
+        run: async (signal) => {
           signal.throwIfAborted()
           await pdfDrafts().discardCaptured(staged.token)
           signal.throwIfAborted()
           // Prior canceled closes for this exact trusted UUID can retain custody.
-          await retireCloseCleanupCustody({ module: 'pdf', tokens: [staged.token], excludeIds: [cleanupId] }, 'This captured PDF producer was closed successfully.')
-          if (earlierFailure || pdfDrafts().hasEarlierCleanup(owner) || privateBases!.hasRetainedFor(owner)) throw new Error('This PDF closed successfully, but earlier owned recovery/checkpoint cleanup remains incomplete. Review its separate retained recovery statuses; no all-drafts-clean claim was made.')
-        } })
-      return { ...preparation, ready: preparation.ready.then(handle => { earlierFailure = pdfDrafts().hasEarlierCleanup(owner) || privateBases!.hasRetainedFor(owner); return handle }) }
+          await retireCloseCleanupCustody(
+            { module: 'pdf', tokens: [staged.token], excludeIds: [cleanupId] },
+            'This captured PDF producer was closed successfully.',
+          )
+          if (
+            earlierFailure ||
+            pdfDrafts().hasEarlierCleanup(owner) ||
+            privateBases!.hasRetainedFor(owner)
+          )
+            throw new Error(
+              'This PDF closed successfully, but earlier owned recovery/checkpoint cleanup remains incomplete. Review its separate retained recovery statuses; no all-drafts-clean claim was made.',
+            )
+        },
+      })
+      return {
+        ...preparation,
+        ready: preparation.ready.then((handle) => {
+          earlierFailure =
+            pdfDrafts().hasEarlierCleanup(owner) || privateBases!.hasRetainedFor(owner)
+          return handle
+        }),
+      }
     },
     resume: (owner, floor) => pdfDrafts().resumeClose(owner, floor),
     prepare: (owner, request) => send(owner, PDF_CHANNELS.closePrepare, request),
     release: (owner, response) => send(owner, PDF_CHANNELS.closeRelease, response),
     query: (owner, id) => send(owner, PDF_CHANNELS.closeStateRequest, id),
-  })
+  }))
 }
 let pdfFailureMarkers: PdfOwnedFailureMarkers | undefined
-function failureMarkers(): PdfOwnedFailureMarkers { return pdfFailureMarkers ??= new PdfOwnedFailureMarkers(join(app.getPath('userData'), 'pdf-owned-cleanup-failures')) }
-function recordPdfOwnedFailure(value: { id: string; ownerKey: string; source: string; generation: number; token: string; documentPath: string | null; error: string }): void {
+function failureMarkers(): PdfOwnedFailureMarkers {
+  return (pdfFailureMarkers ??= new PdfOwnedFailureMarkers(
+    join(app.getPath('userData'), 'pdf-owned-cleanup-failures'),
+  ))
+}
+function recordPdfOwnedFailure(value: {
+  id: string
+  ownerKey: string
+  source: string
+  generation: number
+  token: string
+  documentPath: string | null
+  error: string
+}): void {
   const { error, ...lineage } = value
   let markerFailure: unknown
-  try { failureMarkers().record(value) } catch (failure) { markerFailure = failure }
   try {
-    const related = queryCloseCleanupCustody({ module: 'pdf' }).find(status => (status.id === lineage.id || status.id.startsWith(lineage.id + ':')) && status.phase === 'retained' && status.source === lineage.source && status.generation === lineage.generation && status.token === lineage.token)
+    failureMarkers().record(value)
+  } catch (failure) {
+    markerFailure = failure
+  }
+  try {
+    const related = queryCloseCleanupCustody({ module: 'pdf' }).find(
+      (status) =>
+        (status.id === lineage.id || status.id.startsWith(lineage.id + ':')) &&
+        status.phase === 'retained' &&
+        status.source === lineage.source &&
+        status.generation === lineage.generation &&
+        status.token === lineage.token,
+    )
     if (!related) {
       const id = getCloseCleanupStatus(lineage.id) ? `${lineage.id}:${randomUUID()}` : lineage.id
       recordCloseCleanupFailure({ ...lineage, id, module: 'pdf' }, error)
@@ -816,50 +965,102 @@ function recordPdfOwnedFailure(value: { id: string; ownerKey: string; source: st
   } catch {
     // A durable metadata marker admits this failure on the next startup even if
     // the shared status quota is full. If BOTH stores failed, say so explicitly.
-    queueRecoveryWarning('pdf-owned-cleanup-status', markerFailure ? 'Both PDF cleanup status stores failed; this warning could not be recorded durably. Known recovery files need review. No complete cleanup was certified.' : 'PDF cleanup is incomplete. An independent failure marker was kept for Recovery review; originals, workspaces and history are unchanged.')
+    queueRecoveryWarning(
+      'pdf-owned-cleanup-status',
+      markerFailure
+        ? 'Both PDF cleanup status stores failed; this warning could not be recorded durably. Known recovery files need review. No complete cleanup was certified.'
+        : 'PDF cleanup is incomplete. An independent failure marker was kept for Recovery review; originals, workspaces and history are unchanged.',
+    )
   }
 }
 async function resolvePdfOwnedFailure(id: string): Promise<void> {
-  const ids = queryCloseCleanupCustody({ module: 'pdf' }).filter(status => status.id === id || status.id.startsWith(id + ':')).map(status => status.id)
-  if (ids.length) await retireCloseCleanupCustody({ module: 'pdf', ids }, 'Checked owned PDF maintenance completed.')
+  const ids = queryCloseCleanupCustody({ module: 'pdf' })
+    .filter((status) => status.id === id || status.id.startsWith(id + ':'))
+    .map((status) => status.id)
+  if (ids.length)
+    await retireCloseCleanupCustody(
+      { module: 'pdf', ids },
+      'Checked owned PDF maintenance completed.',
+    )
   failureMarkers().clearResolved(id)
 }
 function pdfDrafts(): PdfDraftController {
   privateBases ??= new PdfPrivateBases(join(app.getPath('userData'), 'pdf-workspace-bases'), {
-    inUse: path => draftController?.usesPrivateBase(path) ?? false,
-    retained: record => recordPdfOwnedFailure({ ...record.lineage, id: `pdf-private:${record.id}`, error: record.error ?? 'An owned private PDF checkpoint remains for review.' }),
-    resolved: id => resolvePdfOwnedFailure(`pdf-private:${id}`),
+    inUse: (path) => draftController?.usesPrivateBase(path) ?? false,
+    retained: (record) =>
+      recordPdfOwnedFailure({
+        ...record.lineage,
+        id: `pdf-private:${record.id}`,
+        error: record.error ?? 'An owned private PDF checkpoint remains for review.',
+      }),
+    resolved: (id) => resolvePdfOwnedFailure(`pdf-private:${id}`),
   })
-  return draftController ??= new PdfDraftController({
+  return (draftController ??= new PdfDraftController({
     recoveryAvailable: () => recoveryRuntimeState().available,
-    alive: (owner) => { const view = webContents.fromId(owner); return !!view && !view.isDestroyed() && allowedByWc.has(owner) },
+    alive: (owner) => {
+      const view = webContents.fromId(owner)
+      return !!view && !view.isDestroyed() && allowedByWc.has(owner)
+    },
     bases: privateBases,
-    write: (id, documentPath, bytes) => writeDraftJournal(join(app.getPath('userData'), 'recovery'), { id, module: 'pdf', documentPath, extension: '.vpdfdraft', bytes }),
-    discard: (id, expectedSha256) => discardDraftJournal(join(app.getPath('userData'), 'recovery'), id, expectedSha256 ? { expectedSha256 } : undefined),
-    retireCustody: async lineage => {
+    write: (id, documentPath, bytes) =>
+      writeDraftJournal(join(app.getPath('userData'), 'recovery'), {
+        id,
+        module: 'pdf',
+        documentPath,
+        extension: '.vpdfdraft',
+        bytes,
+      }),
+    discard: (id, expectedSha256) =>
+      discardDraftJournal(
+        join(app.getPath('userData'), 'recovery'),
+        id,
+        expectedSha256 ? { expectedSha256 } : undefined,
+      ),
+    retireCustody: async (lineage) => {
       const inherited = new Set(lineage.inheritedEntries.map(([token]) => token))
-      if (queryCloseCleanupCustody({ module: 'pdf', tokens: [...inherited] }).some(status => status.custody && status.phase !== 'purged')) throw new Error('An independently retained original-view recovery copy remains. Its snapshot may be newer and was not erased by this recovered workspace.')
-      await retireCloseCleanupCustody({ module: 'pdf', tokens: lineage.tokens }, 'A verified sanitized PDF retired its earlier automatic recovery lineage.')
+      if (
+        queryCloseCleanupCustody({ module: 'pdf', tokens: [...inherited] }).some(
+          (status) => status.custody && status.phase !== 'purged',
+        )
+      )
+        throw new Error(
+          'An independently retained original-view recovery copy remains. Its snapshot may be newer and was not erased by this recovered workspace.',
+        )
+      await retireCloseCleanupCustody(
+        { module: 'pdf', tokens: lineage.tokens },
+        'A verified sanitized PDF retired its earlier automatic recovery lineage.',
+      )
     },
     failure: recordPdfOwnedFailure,
     resolvedFailure: resolvePdfOwnedFailure,
-    notify: (owner, value) => { const view = webContents.fromId(owner); if (view && !view.isDestroyed()) view.send(PDF_CHANNELS.draftRetired, value) },
-  })
+    notify: (owner, value) => {
+      const view = webContents.fromId(owner)
+      if (view && !view.isDestroyed()) view.send(PDF_CHANNELS.draftRetired, value)
+    },
+  }))
 }
 /** Root startup calls after registering the shared app-owned cleanup runtime.
  * This bounded metadata inspection never deletes a previous process's files. */
 export async function inspectRetainedPdfPrivateBases(): Promise<void> {
   pdfDrafts()
   for (const failure of failureMarkers().inspect()) recordPdfOwnedFailure(failure)
-  for (const record of await privateBases!.inspectRetained()) recordPdfOwnedFailure({ ...record.lineage, id: `pdf-private:${record.id}`, error: record.error ?? 'An owned private PDF checkpoint remains for review.' })
+  for (const record of await privateBases!.inspectRetained())
+    recordPdfOwnedFailure({
+      ...record.lineage,
+      id: `pdf-private:${record.id}`,
+      error: record.error ?? 'An owned private PDF checkpoint remains for review.',
+    })
 }
 /** Root passes only a selected persisted status ID, never a renderer file path. */
 export async function retryRetainedPdfPrivateBase(id: string): Promise<void> {
-  const match = typeof id === 'string' ? /^pdf-private:([0-9a-f-]{36})(?::[0-9a-f-]{36})?$/.exec(id) : null
+  const match =
+    typeof id === 'string' ? /^pdf-private:([0-9a-f-]{36})(?::[0-9a-f-]{36})?$/.exec(id) : null
   if (!match) throw new Error('Choose a retained private PDF checkpoint status.')
   const status = getCloseCleanupStatus(id)
-  if (!status || status.module !== 'pdf' || status.custody || status.phase !== 'retained') throw new Error('That private PDF cleanup status is not available for checked retry.')
-  pdfDrafts(); await privateBases!.inspectRetained()
+  if (!status || status.module !== 'pdf' || status.custody || status.phase !== 'retained')
+    throw new Error('That private PDF cleanup status is not available for checked retry.')
+  pdfDrafts()
+  await privateBases!.inspectRetained()
   await privateBases!.retryRetained(match[1]!)
   await resolvePdfOwnedFailure(id)
 }
@@ -868,35 +1069,96 @@ export async function discardActivePdfDraft(id: string): Promise<boolean> {
   if (owner !== undefined) closeCoordinator?.cancel(owner, undefined, 'explicit draft discard')
   return draftController ? draftController.discardEntry(id) : false
 }
-export function pdfIsWorkspace(owner: number): boolean { return draftController?.source(owner)?.mode === 'workspace' }
+export function pdfIsWorkspace(owner: number): boolean {
+  return draftController?.source(owner)?.mode === 'workspace'
+}
 /** Called by trusted Root after exclusive restore and before its host-owned open. */
-export async function registerPdfRecoveryRestore(path: string, token: string, sha256: string, handoff?: PdfRestoreHandoff): Promise<void> {
+export async function registerPdfRecoveryRestore(
+  path: string,
+  token: string,
+  sha256: string,
+  handoff?: PdfRestoreHandoff,
+): Promise<void> {
   const bytes = await readPdfWorkspaceFile(path)
-  if (pdfDigest(bytes) !== sha256) throw new Error('The restored PDF workspace changed before opening. The saved copy was retained.')
+  if (pdfDigest(bytes) !== sha256)
+    throw new Error(
+      'The restored PDF workspace changed before opening. The saved copy was retained.',
+    )
   pdfDrafts().grantRestoredOrigin(path, token, sha256, handoff)
 }
 /** Trusted Root only. Raw source custody is registered before reading and retained
  * through the final synchronous main activation after the renderer parsed it. */
-export async function preparePdfJournalRecovery(id: string, destination: string): Promise<{ cleanupId: string; destination: string; cancel(reason?: string): void }> {
-  if (!/\.vpdfdraft$/i.test(destination)) throw new Error('Recover the complete PDF workspace to a separate .vpdfdraft file.')
+export async function preparePdfJournalRecovery(
+  id: string,
+  destination: string,
+): Promise<{ cleanupId: string; destination: string; cancel(reason?: string): void }> {
+  if (!/\.vpdfdraft$/i.test(destination))
+    throw new Error('Recover the complete PDF workspace to a separate .vpdfdraft file.')
   const recoveryRoot = join(app.getPath('userData'), 'recovery')
-  const entry = (await listDraftJournal(recoveryRoot)).find(item => item.id === id && item.module === 'pdf' && item.extension === '.vpdfdraft')
+  const entry = (await listDraftJournal(recoveryRoot)).find(
+    (item) => item.id === id && item.module === 'pdf' && item.extension === '.vpdfdraft',
+  )
   if (!entry) throw new Error('That complete PDF recovery entry is no longer available.')
-  const nonce = randomUUID(), captured = { token: entry.id, path: entry.documentPath, sha256: entry.sha256 }
-  const custody = await stageCloseCleanup({ id: nonce, module: 'pdf', ownerKey: 'root-recovery', source: `root-pdf-recovery:${nonce}`, generation: 0, token: captured.token, documentPath: captured.path,
-    custody: { recoveryRoot, draftId: captured.token, attest: () => ({ expectedDocumentPath: captured.path, expectedSha256: captured.sha256 }) },
-    run: async () => { throw new Error('A Root restoration reservation cannot authorize source journal deletion.') },
+  const nonce = randomUUID(),
+    captured = { token: entry.id, path: entry.documentPath, sha256: entry.sha256 }
+  const custody = await stageCloseCleanup({
+    id: nonce,
+    module: 'pdf',
+    ownerKey: 'root-recovery',
+    source: `root-pdf-recovery:${nonce}`,
+    generation: 0,
+    token: captured.token,
+    documentPath: captured.path,
+    custody: {
+      recoveryRoot,
+      draftId: captured.token,
+      attest: () => ({ expectedDocumentPath: captured.path, expectedSha256: captured.sha256 }),
+    },
+    run: async () => {
+      throw new Error('A Root restoration reservation cannot authorize source journal deletion.')
+    },
   })
-  custody.cancel('Root is preserving the source journal while restoring a separate user-owned workspace.')
+  custody.cancel(
+    'Root is preserving the source journal while restoring a separate user-owned workspace.',
+  )
   const prepared = await prepareCloseCleanupRestore(nonce, destination)
   const actualDestination = prepared.destination
   try {
     await registerPdfRecoveryRestore(actualDestination, captured.token, prepared.sha256, {
-      commitHandoff: action => prepared.commitHandoff(action), cancel: reason => prepared.cancel(reason),
-      completed: () => { void retireCloseCleanupCustody({ module: 'pdf', ids: [nonce] }, 'The separate recovered workspace was handed to its parsed PDF editor; temporary restoration custody is no longer needed.').catch(error => recordPdfOwnedFailure({ id: `pdf-restore:${nonce}`, ownerKey: 'root-recovery', source: `root-pdf-recovery:${nonce}`, generation: 0, token: captured.token, documentPath: captured.path, error: String(error) })) },
+      commitHandoff: (action) => prepared.commitHandoff(action),
+      cancel: (reason) => prepared.cancel(reason),
+      completed: () => {
+        void retireCloseCleanupCustody(
+          { module: 'pdf', ids: [nonce] },
+          'The separate recovered workspace was handed to its parsed PDF editor; temporary restoration custody is no longer needed.',
+        ).catch((error) =>
+          recordPdfOwnedFailure({
+            id: `pdf-restore:${nonce}`,
+            ownerKey: 'root-recovery',
+            source: `root-pdf-recovery:${nonce}`,
+            generation: 0,
+            token: captured.token,
+            documentPath: captured.path,
+            error: String(error),
+          }),
+        )
+      },
     })
-  } catch (error) { prepared.cancel(String(error)); throw error }
-  return { cleanupId: nonce, destination: actualDestination, cancel: reason => { pdfDrafts().cancelRestoredOrigin(actualDestination, reason ?? 'The Root host refused the restored workspace.'); prepared.cancel(reason) } }
+  } catch (error) {
+    prepared.cancel(String(error))
+    throw error
+  }
+  return {
+    cleanupId: nonce,
+    destination: actualDestination,
+    cancel: (reason) => {
+      pdfDrafts().cancelRestoredOrigin(
+        actualDestination,
+        reason ?? 'The Root host refused the restored workspace.',
+      )
+      prepared.cancel(reason)
+    },
+  }
 }
 async function writePdfOwnedSource(owner: number, path: string, bytes: Uint8Array): Promise<void> {
   const immutableBytes = Buffer.from(bytes)
@@ -909,80 +1171,175 @@ async function writePdfOwnedSource(owner: number, path: string, bytes: Uint8Arra
 async function assertPdfWriteBase(owner: number, path: string) {
   const captured = pdfWriteBasesByWc.get(owner)
   const current = pdfDrafts().source(owner)
-  if (!captured || captured.path !== path || captured.session !== pdfCloseSessionByWc.get(owner) || !allowedByWc.get(owner)?.has(path) || (current && (current.helperPath !== path || current.readId !== captured.readId))) throw new Error('The PDF source changed during this file operation.')
+  if (
+    !captured ||
+    captured.path !== path ||
+    captured.session !== pdfCloseSessionByWc.get(owner) ||
+    !allowedByWc.get(owner)?.has(path) ||
+    (current && (current.helperPath !== path || current.readId !== captured.readId))
+  )
+    throw new Error('The PDF source changed during this file operation.')
   await assertPdfFileVersion(path, captured.version)
   return captured
 }
-function registerPdfWrite<Arguments extends unknown[], Result>(channel: string, handler: (event: IpcMainInvokeEvent, ...args: Arguments) => Result | Promise<Result>): void {
+function registerPdfWrite<Arguments extends unknown[], Result>(
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: Arguments) => Result | Promise<Result>,
+): void {
   ipcMain.handle(channel, async (event, ...args: Arguments) => {
     const request = args[0] as { closeTicket?: CloseLeaseTicket; automaticSave?: unknown } | null
     const automatic = channel === PDF_CHANNELS.save && request?.automaticSave === true
-    if (channel === PDF_CHANNELS.save && request?.automaticSave !== undefined && typeof request.automaticSave !== 'boolean') throw new Error('Invalid automatic PDF save flag.')
+    if (
+      channel === PDF_CHANNELS.save &&
+      request?.automaticSave !== undefined &&
+      typeof request.automaticSave !== 'boolean'
+    )
+      throw new Error('Invalid automatic PDF save flag.')
     const ownedClose = channel === PDF_CHANNELS.save && request?.closeTicket !== undefined
-    if (ownedClose && (automatic || !pdfCloses().claim(event.sender.id, request!.closeTicket))) throw new Error('The PDF close/save authorization expired.')
-    if (pdfWritersByWc.get(event.sender.id)) throw new Error('Another PDF writer is still finishing. Retry after it completes.')
-    if (draftController?.hasForkWriter(event.sender.id)) throw new Error('The complete PDF recovery workspace is still being recorded.')
+    if (ownedClose && (automatic || !pdfCloses().claim(event.sender.id, request!.closeTicket)))
+      throw new Error('The PDF close/save authorization expired.')
+    if (pdfWritersByWc.get(event.sender.id))
+      throw new Error('Another PDF writer is still finishing. Retry after it completes.')
+    if (draftController?.hasForkWriter(event.sender.id))
+      throw new Error('The complete PDF recovery workspace is still being recorded.')
     // Admit BEFORE canceling close permission. Blur-triggered automatic writes
     // defer without invalidating the native prompt or entering any serializer.
-    const releaseWrite = nativePdfWrites.write(pdfPublicationDomain(event.sender.id), automatic, ownedClose ? event.sender.id : undefined)
-    if (!releaseWrite) return { ok: false, deferred: true, error: 'Background PDF saving is deferred while a close decision is unresolved.' } as Result
+    const releaseWrite = nativePdfWrites.write(
+      pdfPublicationDomain(event.sender.id),
+      automatic,
+      ownedClose ? event.sender.id : undefined,
+    )
+    if (!releaseWrite)
+      return {
+        ok: false,
+        deferred: true,
+        error: 'Background PDF saving is deferred while a close decision is unresolved.',
+      } as Result
     const capturedSession = pdfCloseSessionByWc.get(event.sender.id)
     pdfWritersByWc.set(event.sender.id, (pdfWritersByWc.get(event.sender.id) ?? 0) + 1)
     try {
-      if (!ownedClose) closeCoordinator?.cancel(event.sender.id, undefined, 'PDF mutation requested')
+      if (!ownedClose)
+        closeCoordinator?.cancel(event.sender.id, undefined, 'PDF mutation requested')
       if (channel !== PDF_CHANNELS.save) {
         const path = (args[0] as { path?: unknown } | null)?.path
-        if (typeof path !== 'string' || !allowedByWc.get(event.sender.id)?.has(path)) throw new Error('The PDF source is not granted to this view.')
+        if (typeof path !== 'string' || !allowedByWc.get(event.sender.id)?.has(path))
+          throw new Error('The PDF source is not granted to this view.')
         pdfDrafts().assertWritableSource(event.sender.id, path)
         const binding = pdfFiles.loaded(event.sender.id, capturedSession ?? '', path)
         await assertPdfFileVersion(path, binding.version)
-        if (!capturedSession || capturedSession !== pdfCloseSessionByWc.get(event.sender.id)) throw new Error('The PDF renderer changed before its file operation could start.')
-        pdfWriteBasesByWc.set(event.sender.id, { path, readId: binding.readId, session: capturedSession, version: binding.version, binding })
+        if (!capturedSession || capturedSession !== pdfCloseSessionByWc.get(event.sender.id))
+          throw new Error('The PDF renderer changed before its file operation could start.')
+        pdfWriteBasesByWc.set(event.sender.id, {
+          path,
+          readId: binding.readId,
+          session: capturedSession,
+          version: binding.version,
+          binding,
+        })
       }
       return await handler(event, ...args)
-    }
-    catch (error) {
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      return (channel === PDF_CHANNELS.signWithCertificate ? { ok: false, error: 'sign-failed', message } : { ok: false, error: message }) as Result
-    }
-    finally {
+      return (
+        channel === PDF_CHANNELS.signWithCertificate
+          ? { ok: false, error: 'sign-failed', message }
+          : { ok: false, error: message }
+      ) as Result
+    } finally {
       pdfWriteBasesByWc.delete(event.sender.id)
       const remaining = (pdfWritersByWc.get(event.sender.id) ?? 1) - 1
-      if (remaining) pdfWritersByWc.set(event.sender.id, remaining); else pdfWritersByWc.delete(event.sender.id)
+      if (remaining) pdfWritersByWc.set(event.sender.id, remaining)
+      else pdfWritersByWc.delete(event.sender.id)
       releaseWrite() // actual handler/serializer/publication settlement, never caller timeout
     }
   })
 }
-export async function preparePdfClose(contents: WebContents, filePath?: string, intent: PdfCloseIntent = 'save', approvedStamp?: CloseLeaseStamp, options: PdfCloseOptions = {}): Promise<PdfCloseReceipt> {
-  if (!pdfCloseOptionsCurrent(options)) throw new Error('The PDF close group changed before Save or Discard was dispatched.')
-  if (contents.isDestroyed() || !allowedByWc.has(contents.id)) throw new Error('The PDF editor is no longer open.')
+export async function preparePdfClose(
+  contents: WebContents,
+  filePath?: string,
+  intent: PdfCloseIntent = 'save',
+  approvedStamp?: CloseLeaseStamp,
+  options: PdfCloseOptions = {},
+): Promise<PdfCloseReceipt> {
+  if (!pdfCloseOptionsCurrent(options))
+    throw new Error('The PDF close group changed before Save or Discard was dispatched.')
+  if (contents.isDestroyed() || !allowedByWc.has(contents.id))
+    throw new Error('The PDF editor is no longer open.')
   const source = draftController?.source(contents.id)
-  if (filePath && filePath !== source?.path && filePath !== source?.helperPath && filePath !== openPathByWc.get(contents.id)) throw new Error('The PDF source changed before closing.')
+  if (
+    filePath &&
+    filePath !== source?.path &&
+    filePath !== source?.helperPath &&
+    filePath !== openPathByWc.get(contents.id)
+  )
+    throw new Error('The PDF source changed before closing.')
   return pdfCloses().prepare(contents.id, intent, approvedStamp, options)
 }
-export async function preparePdfNativeClose(contents: WebContents, parent?: BrowserWindow | null, options: PdfCloseOptions = {}): Promise<PdfCloseReceipt | null> {
+export async function preparePdfNativeClose(
+  contents: WebContents,
+  parent?: BrowserWindow | null,
+  options: PdfCloseOptions = {},
+): Promise<PdfCloseReceipt | null> {
   if (contents.isDestroyed()) return null
-  return preparePdfNativeCloseFlow({
-    alive: () => !contents.isDestroyed() && allowedByWc.has(contents.id),
-    source: () => pdfCloseSessionByWc.get(contents.id) ?? '',
-    hold: () => nativePdfWrites.hold(contents.id, pdfPublicationDomain(contents.id)),
-    query: queryOptions => pdfCloses().query(contents.id, queryOptions),
-    prompt: async () => {
-      const dialogOptions = { type: 'warning' as const, message: tm('closeUnsavedMsg'), detail: tm('closeUnsavedDetail'), buttons: [tm('btnSave'), tm('btnDontSave'), tm('btnCancel')], defaultId: 0, cancelId: 2, noLink: true }
-      const result = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, dialogOptions) : await dialog.showMessageBox(dialogOptions)
-      return result.response
+  return preparePdfNativeCloseFlow(
+    {
+      alive: () => !contents.isDestroyed() && allowedByWc.has(contents.id),
+      source: () => pdfCloseSessionByWc.get(contents.id) ?? '',
+      hold: () => nativePdfWrites.hold(contents.id, pdfPublicationDomain(contents.id)),
+      query: (queryOptions) => pdfCloses().query(contents.id, queryOptions),
+      prompt: async () => {
+        const dialogOptions = {
+          type: 'warning' as const,
+          message: tm('closeUnsavedMsg'),
+          detail: tm('closeUnsavedDetail'),
+          buttons: [tm('btnSave'), tm('btnDontSave'), tm('btnCancel')],
+          defaultId: 0,
+          cancelId: 2,
+          noLink: true,
+        }
+        const result =
+          parent && !parent.isDestroyed()
+            ? await dialog.showMessageBox(parent, dialogOptions)
+            : await dialog.showMessageBox(dialogOptions)
+        return result.response
+      },
+      prepare: (intent, stamp, closeOptions) =>
+        preparePdfClose(contents, undefined, intent, stamp, closeOptions),
+      cancel: (receipt, reason) => pdfCloses().cancel(contents.id, receipt.ticket, reason),
     },
-    prepare: (intent, stamp, closeOptions) => preparePdfClose(contents, undefined, intent, stamp, closeOptions),
-    cancel: (receipt, reason) => pdfCloses().cancel(contents.id, receipt.ticket, reason),
-  }, options)
+    options,
+  )
 }
-export function isPdfClosePrepared(contents: WebContents, receipt: PdfCloseReceipt): boolean { return !contents.isDestroyed() && pdfCloses().isPrepared(contents.id, receipt) }
-export function sealPdfClose(contents: WebContents, receipt: PdfCloseReceipt): PdfCloseReceipt | null { return contents.isDestroyed() ? null : pdfCloses().seal(contents.id, receipt) }
-export function completePdfClose(contents: WebContents, receipt: PdfCloseReceipt, removeSync: () => boolean): boolean { return pdfCloses().complete(contents.id, receipt, removeSync) }
-export async function cancelPdfClose(contents: WebContents, receipt: PdfCloseReceipt, reason = 'PDF host canceled closing'): Promise<void> { pdfCloses().cancel(contents.id, receipt.ticket, reason) }
+export function isPdfClosePrepared(contents: WebContents, receipt: PdfCloseReceipt): boolean {
+  return !contents.isDestroyed() && pdfCloses().isPrepared(contents.id, receipt)
+}
+export function sealPdfClose(
+  contents: WebContents,
+  receipt: PdfCloseReceipt,
+): PdfCloseReceipt | null {
+  return contents.isDestroyed() ? null : pdfCloses().seal(contents.id, receipt)
+}
+export function completePdfClose(
+  contents: WebContents,
+  receipt: PdfCloseReceipt,
+  removeSync: () => boolean,
+): boolean {
+  return pdfCloses().complete(contents.id, receipt, removeSync)
+}
+export async function cancelPdfClose(
+  contents: WebContents,
+  receipt: PdfCloseReceipt,
+  reason = 'PDF host canceled closing',
+): Promise<void> {
+  pdfCloses().cancel(contents.id, receipt.ticket, reason)
+}
 /** Main-owned status remains queryable after the PDF renderer is destroyed. */
-export function pdfCloseCleanupStatus(receipt: PdfCloseReceipt) { return receipt.cleanupId ? getCloseCleanupStatus(receipt.cleanupId) : undefined }
-export async function awaitPdfCloseCleanup(receipt: PdfCloseReceipt) { return receipt.cleanupId ? awaitCloseCleanup(receipt.cleanupId) : undefined }
+export function pdfCloseCleanupStatus(receipt: PdfCloseReceipt) {
+  return receipt.cleanupId ? getCloseCleanupStatus(receipt.cleanupId) : undefined
+}
+export async function awaitPdfCloseCleanup(receipt: PdfCloseReceipt) {
+  return receipt.cleanupId ? awaitCloseCleanup(receipt.cleanupId) : undefined
+}
 /** A derived copy (redacted or certificate-signed) becomes this tab's document */
 let pdfRedactionSavedHook: ((wc: WebContents, path: string) => void) | null = null
 
@@ -1137,7 +1494,8 @@ export function clearPdfDirty(webContentsId: number): void {
 /** Paths of shell-created blank PDFs still carrying their untitled name; only these may auto-rename */
 const untitledPdfPaths = new Set<string>()
 /** Shell hook fired after an auto-rename so the tab title / recents / project mapping follow the file */
-let pdfRenamedHook: ((wc: WebContents, oldPath: string, newPath: string) => void | Promise<void>) | null = null
+let pdfRenamedHook:
+  ((wc: WebContents, oldPath: string, newPath: string) => void | Promise<void>) | null = null
 
 /** Called by the shell right after "New PDF" writes the blank file to disk */
 export function markPdfUntitledPath(path: string): void {
@@ -1153,14 +1511,28 @@ export function pdfFileRenamed(contents: WebContents, oldPath: string, newPath: 
   const wcId = contents.id
   draftController?.renamed(wcId, oldPath, newPath)
   let movedVersion: AtomicFileVersion | null = null
-  try { const value = statSync(newPath); movedVersion = { size: value.size, mtimeMs: value.mtimeMs, ctimeMs: value.ctimeMs, ino: value.ino, dev: value.dev } } catch { /* old loaded authority is invalidated below */ }
+  try {
+    const value = statSync(newPath)
+    movedVersion = {
+      size: value.size,
+      mtimeMs: value.mtimeMs,
+      ctimeMs: value.ctimeMs,
+      ino: value.ino,
+      dev: value.dev,
+    }
+  } catch {
+    /* old loaded authority is invalidated below */
+  }
   pdfFiles.renamed(wcId, oldPath, newPath, movedVersion)
   if (openPathByWc.get(wcId) === oldPath) openPathByWc.set(wcId, newPath)
   if (redactionPathByWc.get(wcId) === oldPath) redactionPathByWc.set(wcId, newPath)
   const allowed = allowedByWc.get(wcId)
   if (allowed?.delete(oldPath)) allowed.add(newPath)
   // A renamed picker destination needs a new explicit grant/fingerprint.
-  if (saveAsTargetByWc.get(wcId) === oldPath) { saveAsTargetByWc.delete(wcId); saveAsTargetVersions.delete(wcId) }
+  if (saveAsTargetByWc.get(wcId) === oldPath) {
+    saveAsTargetByWc.delete(wcId)
+    saveAsTargetVersions.delete(wcId)
+  }
   if (untitledPdfPaths.delete(oldPath)) untitledPdfPaths.add(newPath)
   if (!contents.isDestroyed()) contents.send(PDF_CHANNELS.fileRenamed, newPath)
 }
@@ -1299,7 +1671,9 @@ export async function requestPdfClose(
   _contents: WebContents,
   _parent?: BrowserWindow | null,
 ): Promise<boolean> {
-  throw new Error('This PDF host requires correlated Close preparation and synchronous actual-removal completion. The document was kept open.')
+  throw new Error(
+    'This PDF host requires correlated Close preparation and synchronous actual-removal completion. The document was kept open.',
+  )
 }
 
 function requestRendererSave(contents: WebContents, flushAll: boolean): Promise<boolean> {
@@ -1343,9 +1717,14 @@ export function setPdfSaveAsInFlight(contents: WebContents, inFlight: boolean): 
  * pending edits onto the source bytes and write the result to targetPath only.
  * The original file is never written (non-destructive Save As).
  */
-export async function requestPdfSaveAs(contents: WebContents, targetPath: string): Promise<boolean> {
-  if (contents.isDestroyed() || saveAsWaiters.has(contents.id) || saveAsPreparing.has(contents.id)) return false
-  const wcId = contents.id, session = pdfCloseSessionByWc.get(wcId)
+export async function requestPdfSaveAs(
+  contents: WebContents,
+  targetPath: string,
+): Promise<boolean> {
+  if (contents.isDestroyed() || saveAsWaiters.has(contents.id) || saveAsPreparing.has(contents.id))
+    return false
+  const wcId = contents.id,
+    session = pdfCloseSessionByWc.get(wcId)
   if (!session) return false
   saveAsPreparing.add(wcId)
   try {
@@ -1357,14 +1736,31 @@ export async function requestPdfSaveAs(contents: WebContents, targetPath: string
     saveAsTargetVersions.set(wcId, grant)
     return await new Promise<boolean>((resolve) => {
       const done = (ok: boolean) => {
-        if (saveAsTargetVersions.get(wcId) === grant) { saveAsTargetByWc.delete(wcId); saveAsTargetVersions.delete(wcId) }
+        if (saveAsTargetVersions.get(wcId) === grant) {
+          saveAsTargetByWc.delete(wcId)
+          saveAsTargetVersions.delete(wcId)
+        }
         resolve(ok)
       }
-      const timer = setTimeout(() => { saveAsWaiters.delete(wcId); done(false) }, 120_000)
-      saveAsWaiters.set(wcId, (ok) => { clearTimeout(timer); done(ok) })
-      try { contents.send(PDF_CHANNELS.saveAsRequest, targetPath) } catch { saveAsWaiters.delete(wcId); clearTimeout(timer); done(false) }
+      const timer = setTimeout(() => {
+        saveAsWaiters.delete(wcId)
+        done(false)
+      }, 120_000)
+      saveAsWaiters.set(wcId, (ok) => {
+        clearTimeout(timer)
+        done(ok)
+      })
+      try {
+        contents.send(PDF_CHANNELS.saveAsRequest, targetPath)
+      } catch {
+        saveAsWaiters.delete(wcId)
+        clearTimeout(timer)
+        done(false)
+      }
     })
-  } finally { saveAsPreparing.delete(wcId) }
+  } finally {
+    saveAsPreparing.delete(wcId)
+  }
 }
 
 /** Saved signatures live in userData, shared by all documents and windows */
@@ -1434,10 +1830,23 @@ export async function readMergeInputs(
 function registerPdfIpc(): void {
   if (ipcRegistered) return
   ipcRegistered = true
-  ipcMain.handle(PDF_CHANNELS.closeClaim, (event, ticket) => pdfCloses().claim(event.sender.id, ticket))
-  ipcMain.handle(PDF_CHANNELS.closeCancel, (event, ticket: CloseLeaseTicket, reason: unknown) => { if (ticket && typeof ticket.id === 'string') pdfCloses().cancel(event.sender.id, ticket, typeof reason === 'string' ? reason.slice(0, 512) : 'PDF renderer canceled') })
-  ipcMain.on(PDF_CHANNELS.closePrepared, (event, response) => { void pdfCloses().prepared(event.sender.id, response) })
-  ipcMain.on(PDF_CHANNELS.closeStateResponse, (event, id, state) => pdfCloses().queried(event.sender.id, id, state))
+  ipcMain.handle(PDF_CHANNELS.closeClaim, (event, ticket) =>
+    pdfCloses().claim(event.sender.id, ticket),
+  )
+  ipcMain.handle(PDF_CHANNELS.closeCancel, (event, ticket: CloseLeaseTicket, reason: unknown) => {
+    if (ticket && typeof ticket.id === 'string')
+      pdfCloses().cancel(
+        event.sender.id,
+        ticket,
+        typeof reason === 'string' ? reason.slice(0, 512) : 'PDF renderer canceled',
+      )
+  })
+  ipcMain.on(PDF_CHANNELS.closePrepared, (event, response) => {
+    void pdfCloses().prepared(event.sender.id, response)
+  })
+  ipcMain.on(PDF_CHANNELS.closeStateResponse, (event, id, state) =>
+    pdfCloses().queried(event.sender.id, id, state),
+  )
 
   ipcMain.handle(PDF_CHANNELS.consumePending, (e) => openPathByWc.get(e.sender.id) ?? null)
 
@@ -1468,88 +1877,187 @@ function registerPdfIpc(): void {
   })
 
   ipcMain.handle(PDF_CHANNELS.readFile, async (e, path: unknown, closeTicket: unknown) => {
-    const owner = e.sender.id, session = pdfCloseSessionByWc.get(owner)
-    if (typeof path !== 'string' || !allowedByWc.get(owner)?.has(path) || !session) throw new Error('pdf: path not granted to this view')
-    if (closeTicket !== undefined && (!isCloseLeaseTicket(closeTicket) || !pdfCloses().claim(owner, closeTicket))) throw new Error('The PDF close/save reload authorization expired.')
+    const owner = e.sender.id,
+      session = pdfCloseSessionByWc.get(owner)
+    if (typeof path !== 'string' || !allowedByWc.get(owner)?.has(path) || !session)
+      throw new Error('pdf: path not granted to this view')
+    if (
+      closeTicket !== undefined &&
+      (!isCloseLeaseTicket(closeTicket) || !pdfCloses().claim(owner, closeTicket))
+    )
+      throw new Error('The PDF close/save reload authorization expired.')
     const pinned = await readPinnedPdf(path)
-    if (e.sender.isDestroyed() || pdfCloseSessionByWc.get(owner) !== session || !allowedByWc.get(owner)?.has(path)) throw new Error('The PDF source changed while reading.')
-    pdfFiles.remember(owner, { path, session, readId: '', version: pinned.version, sha256: pinned.sha256, ...(isCloseLeaseTicket(closeTicket) ? { closeTicket } : {}) })
+    if (
+      e.sender.isDestroyed() ||
+      pdfCloseSessionByWc.get(owner) !== session ||
+      !allowedByWc.get(owner)?.has(path)
+    )
+      throw new Error('The PDF source changed while reading.')
+    pdfFiles.remember(owner, {
+      path,
+      session,
+      readId: '',
+      version: pinned.version,
+      sha256: pinned.sha256,
+      ...(isCloseLeaseTicket(closeTicket) ? { closeTicket } : {}),
+    })
     const buf = pinned.bytes
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
   })
-  ipcMain.handle(PDF_CHANNELS.readSource, async (e, path: unknown, closeTicket: unknown): Promise<PdfSourceRead> => {
-    const owner = e.sender.id, session = pdfCloseSessionByWc.get(owner)
-    if (typeof path !== 'string' || !allowedByWc.get(owner)?.has(path) || !session) throw new Error('pdf: source not granted to this view')
-    if (closeTicket !== undefined) {
-      if (!isCloseLeaseTicket(closeTicket) || !pdfCloses().claim(owner, closeTicket)) throw new Error('The PDF close/save reload authorization expired.')
-    } else {
-      closeCoordinator?.cancel(owner, undefined, 'PDF source read requested')
-      nativePdfWrites.write(pdfPublicationDomain(owner), false)?.()
-    }
-    const version = await readAtomicFileVersion(path)
-    if (!version) throw new Error('The PDF source is unavailable.')
-    const result = await pdfDrafts().read(owner, path)
-    if (e.sender.isDestroyed() || !allowedByWc.get(owner)?.has(path) || pdfCloseSessionByWc.get(owner) !== session) throw new Error('pdf: source owner changed during reading')
-    await rememberPdfRead(owner, session, result, isCloseLeaseTicket(closeTicket) ? closeTicket : undefined, result.mode === 'native' ? version : undefined)
-    allowedByWc.get(owner)!.add(result.helperPath)
-    return result
-  })
+  ipcMain.handle(
+    PDF_CHANNELS.readSource,
+    async (e, path: unknown, closeTicket: unknown): Promise<PdfSourceRead> => {
+      const owner = e.sender.id,
+        session = pdfCloseSessionByWc.get(owner)
+      if (typeof path !== 'string' || !allowedByWc.get(owner)?.has(path) || !session)
+        throw new Error('pdf: source not granted to this view')
+      if (closeTicket !== undefined) {
+        if (!isCloseLeaseTicket(closeTicket) || !pdfCloses().claim(owner, closeTicket))
+          throw new Error('The PDF close/save reload authorization expired.')
+      } else {
+        closeCoordinator?.cancel(owner, undefined, 'PDF source read requested')
+        nativePdfWrites.write(pdfPublicationDomain(owner), false)?.()
+      }
+      const version = await readAtomicFileVersion(path)
+      if (!version) throw new Error('The PDF source is unavailable.')
+      const result = await pdfDrafts().read(owner, path)
+      if (
+        e.sender.isDestroyed() ||
+        !allowedByWc.get(owner)?.has(path) ||
+        pdfCloseSessionByWc.get(owner) !== session
+      )
+        throw new Error('pdf: source owner changed during reading')
+      await rememberPdfRead(
+        owner,
+        session,
+        result,
+        isCloseLeaseTicket(closeTicket) ? closeTicket : undefined,
+        result.mode === 'native' ? version : undefined,
+      )
+      allowedByWc.get(owner)!.add(result.helperPath)
+      return result
+    },
+  )
   ipcMain.handle(PDF_CHANNELS.activateDraft, (e, readId: unknown, unjournaledPath: unknown) => {
-    const owner = e.sender.id, session = pdfCloseSessionByWc.get(owner)
-    if (typeof readId !== 'string' || readId.length > 128 || !session) throw new Error('Invalid PDF read receipt.')
-    if (!readId && (typeof unjournaledPath !== 'string' || !allowedByWc.get(owner)?.has(unjournaledPath))) throw new Error('The unjournaled PDF source is not granted to this view.')
-    const candidate = pdfFiles.candidate(owner, session, readId, typeof unjournaledPath === 'string' ? unjournaledPath : undefined)
-    if (candidate.closeTicket && !pdfCloses().claim(owner, candidate.closeTicket)) throw new Error('The PDF owned-save activation permission expired.')
-    const result = readId ? pdfDrafts().activate(owner, readId) : pdfDrafts().acceptUnjournaled(owner, candidate.path)
+    const owner = e.sender.id,
+      session = pdfCloseSessionByWc.get(owner)
+    if (typeof readId !== 'string' || readId.length > 128 || !session)
+      throw new Error('Invalid PDF read receipt.')
+    if (
+      !readId &&
+      (typeof unjournaledPath !== 'string' || !allowedByWc.get(owner)?.has(unjournaledPath))
+    )
+      throw new Error('The unjournaled PDF source is not granted to this view.')
+    const candidate = pdfFiles.candidate(
+      owner,
+      session,
+      readId,
+      typeof unjournaledPath === 'string' ? unjournaledPath : undefined,
+    )
+    if (candidate.closeTicket && !pdfCloses().claim(owner, candidate.closeTicket))
+      throw new Error('The PDF owned-save activation permission expired.')
+    const result = readId
+      ? pdfDrafts().activate(owner, readId)
+      : pdfDrafts().acceptUnjournaled(owner, candidate.path)
     // Rotate only after successful parse/activation. An exact MAIN-correlated
     // close Save may adopt its own checkpoint without becoming another source.
     const sameRead = pdfFiles.isActive(owner, candidate)
     const nextSession = candidate.closeTicket || sameRead ? session : randomUUID()
-    if (!candidate.closeTicket && !sameRead) { closeCoordinator?.cancel(owner, undefined, 'A parsed PDF source was activated'); nativePdfWrites.write(pdfPublicationDomain(owner), false)?.() }
+    if (!candidate.closeTicket && !sameRead) {
+      closeCoordinator?.cancel(owner, undefined, 'A parsed PDF source was activated')
+      nativePdfWrites.write(pdfPublicationDomain(owner), false)?.()
+    }
     pdfCloseSessionByWc.set(owner, nextSession)
     pdfFiles.activate(owner, candidate, nextSession)
     return result
   })
-  ipcMain.handle(PDF_CHANNELS.writeDraft, (e, request) => pdfDrafts().snapshot(e.sender.id, request))
+  ipcMain.handle(PDF_CHANNELS.writeDraft, (e, request) =>
+    pdfDrafts().snapshot(e.sender.id, request),
+  )
   ipcMain.handle(PDF_CHANNELS.discardDraft, (e, token: unknown) => {
-    if (typeof token !== 'string' || token.length > 128) throw new Error('Invalid PDF draft receipt.')
+    if (typeof token !== 'string' || token.length > 128)
+      throw new Error('Invalid PDF draft receipt.')
     return pdfDrafts().discard(e.sender.id, token)
   })
-  ipcMain.handle(PDF_CHANNELS.acknowledgeCopy, (e, request) => pdfDrafts().acknowledgeCopy(e.sender.id, request))
+  ipcMain.handle(PDF_CHANNELS.acknowledgeCopy, (e, request) =>
+    pdfDrafts().acknowledgeCopy(e.sender.id, request),
+  )
   ipcMain.handle(PDF_CHANNELS.forkAfterSave, async (event, request) => {
     const result = await pdfDrafts().forkAfterSave(event.sender.id, request)
-    if (event.sender.isDestroyed() || !allowedByWc.has(event.sender.id)) throw new Error('The PDF view closed before its recovery workspace could be handed back.')
+    if (event.sender.isDestroyed() || !allowedByWc.has(event.sender.id))
+      throw new Error('The PDF view closed before its recovery workspace could be handed back.')
     const session = pdfCloseSessionByWc.get(event.sender.id)
     if (!session) throw new Error('The PDF source changed during recovery fallback.')
     await rememberPdfRead(event.sender.id, session, result.read)
     allowedByWc.get(event.sender.id)!.add(result.read.helperPath)
     return result
   })
-  ipcMain.handle(PDF_CHANNELS.retryDraftCleanup, async event => {
+  ipcMain.handle(PDF_CHANNELS.retryDraftCleanup, async (event) => {
     const owner = event.sender.id
     if (!allowedByWc.has(owner)) throw new Error('This PDF cleanup owner is no longer open.')
     let work = pdfCleanupRetries.get(owner)
     if (!work) {
-      work = pdfDrafts().retryCleanup(owner).then(() => privateBases!.retryPublicationCleanup(owner))
+      work = pdfDrafts()
+        .retryCleanup(owner)
+        .then(() => privateBases!.retryPublicationCleanup(owner))
       pdfCleanupRetries.set(owner, work)
-      void work.then(() => { if (pdfCleanupRetries.get(owner) === work) pdfCleanupRetries.delete(owner) }, () => { if (pdfCleanupRetries.get(owner) === work) pdfCleanupRetries.delete(owner) })
+      void work.then(
+        () => {
+          if (pdfCleanupRetries.get(owner) === work) pdfCleanupRetries.delete(owner)
+        },
+        () => {
+          if (pdfCleanupRetries.get(owner) === work) pdfCleanupRetries.delete(owner)
+        },
+      )
     }
     let timer: ReturnType<typeof setTimeout> | undefined
-    try { await Promise.race([work, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Earlier automatic PDF cleanup is still finishing. Its known files remain tracked; no complete-cleanup claim was made.')), 5000) })]) }
-    finally { if (timer) clearTimeout(timer) }
+    try {
+      await Promise.race([
+        work,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'Earlier automatic PDF cleanup is still finishing. Its known files remain tracked; no complete-cleanup claim was made.',
+                ),
+              ),
+            5000,
+          )
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   })
   ipcMain.handle(PDF_CHANNELS.requestWorkspaceCopy, async (e, path: unknown) => {
     const source = pdfDrafts().source(e.sender.id)
-    if (!source || source.mode !== 'workspace' || path !== source.helperPath || workspaceCopies.has(e.sender.id) || workspaceCopyPickers.has(e.sender.id)) return false
+    if (
+      !source ||
+      source.mode !== 'workspace' ||
+      path !== source.helperPath ||
+      workspaceCopies.has(e.sender.id) ||
+      workspaceCopyPickers.has(e.sender.id)
+    )
+      return false
     workspaceCopyPickers.add(e.sender.id)
     try {
-    const parent = BrowserWindow.fromWebContents(e.sender)
-    const options = { title: 'Save a new PDF copy', defaultPath: basename(source.path).replace(/\.vpdfdraft$/i, '') + '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] }
-    const picked = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options)
-    if (picked.canceled || !picked.filePath || !/\.pdf$/i.test(picked.filePath)) return false
-    if (e.sender.isDestroyed() || pdfDrafts().source(e.sender.id)?.token !== source.token) return false
-    return await requestPdfSaveAs(e.sender, picked.filePath)
-    } finally { workspaceCopyPickers.delete(e.sender.id) }
+      const parent = BrowserWindow.fromWebContents(e.sender)
+      const options = {
+        title: 'Save a new PDF copy',
+        defaultPath: basename(source.path).replace(/\.vpdfdraft$/i, '') + '.pdf',
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      }
+      const picked = parent
+        ? await dialog.showSaveDialog(parent, options)
+        : await dialog.showSaveDialog(options)
+      if (picked.canceled || !picked.filePath || !/\.pdf$/i.test(picked.filePath)) return false
+      if (e.sender.isDestroyed() || pdfDrafts().source(e.sender.id)?.token !== source.token)
+        return false
+      return await requestPdfSaveAs(e.sender, picked.filePath)
+    } finally {
+      workspaceCopyPickers.delete(e.sender.id)
+    }
   })
 
   ipcMain.handle(
@@ -1570,144 +2078,239 @@ function registerPdfIpc(): void {
     },
   )
 
-  registerPdfWrite(PDF_CHANNELS.save, async (e, request: SavePdfRequest): Promise<SavePdfResult> => {
-    const requestSession = pdfCloseSessionByWc.get(e.sender.id)
-    const path = request?.path
-    if (typeof path !== 'string' || !allowedByWc.get(e.sender.id)?.has(path)) {
-      return { ok: false, error: 'pdf: path not granted to this view' }
-    }
-    const loaded = pdfFiles.loaded(e.sender.id, requestSession ?? '', path)
-    // Save As targets must have been granted by requestPdfSaveAs (main-process dialog pick)
-    const target = typeof request.targetPath === 'string' ? request.targetPath : path
-    if (target !== path && saveAsTargetByWc.get(e.sender.id) !== target) {
-      return { ok: false, error: 'pdf: target path not granted to this view' }
-    }
-    const targetGrant = saveAsTargetVersions.get(e.sender.id)
-    if (target !== path && (!targetGrant || targetGrant.path !== target || targetGrant.session !== requestSession)) return { ok: false, error: 'The PDF Save As destination grant expired.' }
-    const pinnedTarget = { path: target, version: target === path ? loaded.version : targetGrant!.version }
-    const assertCurrentSave = () => {
-      if (!requestSession || requestSession !== pdfCloseSessionByWc.get(e.sender.id)) throw new Error('The PDF renderer changed before output publication.')
-      if (request.closeTicket && !pdfCloses().claim(e.sender.id, request.closeTicket)) throw new Error('The PDF close Save permission expired before publication.')
-      if (target !== path && saveAsTargetVersions.get(e.sender.id) !== targetGrant) throw new Error('The PDF Save As grant expired before publication.')
-    }
-    const workspace = pdfDrafts().source(e.sender.id)?.mode === 'workspace' || !!privateBases?.owns(path) || /\.vpdfdraft$/i.test(path)
-    if (workspace && (target === path || !/\.pdf$/i.test(target))) return { ok: false, error: 'Save this recovery workspace to a new .pdf copy. The workspace and original remain unchanged.' }
-    if (workspace && !request.workspaceProof) return { ok: false, error: 'The complete PDF workspace state must accompany Save.' }
-    if (workspaceCopies.has(e.sender.id)) return { ok: false, error: 'A PDF workspace copy is already being saved.' }
-    if (request.redactions !== undefined) {
-      if (!redactionFlows.has(e.sender.id)) return { ok: false, error: 'Permanent redaction requires a fresh Apply action and a separately selected copy.' }
-      let regions
-      try {
-        regions = validateRedactionRegions(request.redactions)
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  registerPdfWrite(
+    PDF_CHANNELS.save,
+    async (e, request: SavePdfRequest): Promise<SavePdfResult> => {
+      const requestSession = pdfCloseSessionByWc.get(e.sender.id)
+      const path = request?.path
+      if (typeof path !== 'string' || !allowedByWc.get(e.sender.id)?.has(path)) {
+        return { ok: false, error: 'pdf: path not granted to this view' }
       }
-      if (isSameRedactionCopyPath(path, target)) {
-        return { ok: false, error: 'pdf: permanent redaction requires Save As copy' }
+      const loaded = pdfFiles.loaded(e.sender.id, requestSession ?? '', path)
+      // Save As targets must have been granted by requestPdfSaveAs (main-process dialog pick)
+      const target = typeof request.targetPath === 'string' ? request.targetPath : path
+      if (target !== path && saveAsTargetByWc.get(e.sender.id) !== target) {
+        return { ok: false, error: 'pdf: target path not granted to this view' }
       }
-      // A redaction is intentionally its own irreversible transaction. Persist normal
-      // changes first; otherwise a later annotation/form write could add recoverable
-      // data after native removal.
+      const targetGrant = saveAsTargetVersions.get(e.sender.id)
       if (
-        request.markups.length ||
-        request.annotDeletes?.length ||
-        request.drawings.length ||
-        request.noteEdits?.length ||
-        request.formValues.length ||
-        request.stamps.length ||
-        request.textEdits?.length ||
-        request.textInserts?.length ||
-        request.imageEdits?.length ||
-        request.rotations?.length ||
-        request.deletedPages?.length ||
-        request.pageOrder?.length ||
-        request.metadata
-      ) {
-        return { ok: false, error: 'pdf: save other pending edits before applying redactions' }
+        target !== path &&
+        (!targetGrant || targetGrant.path !== target || targetGrant.session !== requestSession)
+      )
+        return { ok: false, error: 'The PDF Save As destination grant expired.' }
+      const pinnedTarget = {
+        path: target,
+        version: target === path ? loaded.version : targetGrant!.version,
       }
-      request = { ...request, redactions: regions }
-    }
-    let outputPublished = false
-    try {
-      const capture = request.workspaceProof ? pdfDrafts().captureCopy(e.sender.id, request.workspaceProof) : null
-      if (capture && pdfDrafts().source(e.sender.id)?.helperPath !== path) throw new Error('The PDF save belongs to an obsolete source path.')
-      if (capture && request.redactions?.length && pdfRepresentation(capture.state, request, capture.pageCount, capture.renderedStampConfig).skipped.length) throw new Error('Finish or save all pending PDF content before applying redactions.')
-      if (workspace) workspaceCopies.add(e.sender.id)
-      let skippedTextEdits, skippedTextInserts, skippedImageEdits
-      let written: Buffer | undefined
-      let inputSha256: string | undefined
-      let cleanupWarning: string | undefined
-      if (capture?.savedPublication) {
-        const published = await readAtomicFileVersion(capture.savedPublication.path)
-        if (!published || published.sha256 !== capture.savedPublication.sha256) cleanupWarning = 'The earlier saved PDF changed outside this view. Only the separately chosen exclusive new copy is being published; the external replacement is left unchanged.'
+      const assertCurrentSave = () => {
+        if (!requestSession || requestSession !== pdfCloseSessionByWc.get(e.sender.id))
+          throw new Error('The PDF renderer changed before output publication.')
+        if (request.closeTicket && !pdfCloses().claim(e.sender.id, request.closeTicket))
+          throw new Error('The PDF close Save permission expired before publication.')
+        if (target !== path && saveAsTargetVersions.get(e.sender.id) !== targetGrant)
+          throw new Error('The PDF Save As grant expired before publication.')
       }
-      if (!capture) await assertPdfFileVersion(path, loaded.version)
-      const sourceBytes = capture ? capture.bytes : await readPdfWorkspaceFile(path, loaded.version.size)
-      inputSha256 = pdfDigest(sourceBytes)
-      const published = await publishPinnedPdf({
-        source: loaded, target: pinnedTarget, input: sourceBytes,
-        serialize: bytes => applySaveRequest(bytes, request),
-        output: applied => applied.bytes,
-        verify: applied => verifyContentEdits(applied.bytes, request, applied),
-        current: () => { assertCurrentSave(); if (capture) pdfDrafts().checkCopy(e.sender.id, capture) },
-        publish: async (bytes, expectedVersion) => {
-          assertCurrentSave()
-          if (workspace || request.redactions?.length) {
-            const publication = await privateBases!.publishNew(bytes, target, e.sender.id)
-            cleanupWarning = [cleanupWarning, publication.cleanupWarning].filter(Boolean).join(' ') || undefined
-          } else await atomicWriteFile(target, bytes, { expectedVersion })
-          outputPublished = true
-        },
-      })
-      written = published.bytes
-      ;({ skippedTextEdits, skippedTextInserts, skippedImageEdits } = published.result)
-      if (target === path) {
-        const outputVersion = await observePublishedPdf(target, written)
-        pdfFiles.ownPublication(e.sender.id, loaded, outputVersion, written)
-      }
-      if (!request.redactions?.length && target === path && written && inputSha256) pdfDrafts().bindNativeWrite(e.sender.id, path, inputSha256, written)
-      if (request.redactions?.length && !capture) cleanupWarning = [cleanupWarning, 'The sanitized PDF was saved. Complete recovery was unavailable for this source, so earlier automatic recovery cleanup was not certified. Earlier user-owned files and backups remain.'].filter(Boolean).join(' ')
-      if (request.redactions !== undefined && (!capture || pdfDrafts().source(e.sender.id)?.token === capture.activeToken)) {
-        // Revoke old-source read/write grants immediately after verified publication,
-        // before recovery classification or cleanup can await storage.
-        allowedByWc.set(e.sender.id, new Set([target]))
-        openPathByWc.set(e.sender.id, target)
-        redactionPathByWc.set(e.sender.id, target)
-        try { pdfRedactionSavedHook?.(e.sender, target) }
-        catch { cleanupWarning = [cleanupWarning, 'The sanitized PDF was saved, but its workspace tab could not be renamed automatically.'].filter(Boolean).join(' ') }
-      }
-      let copyReceipt
-      if (capture && written) {
-        const represented = pdfRepresentation(capture.state, request, capture.pageCount, capture.renderedStampConfig)
-        const failures = [...represented.skipped, ...skippedTextEdits.map(value => `text:${value.reason}`), ...skippedTextInserts.map(value => `insert:${value.reason}`), ...skippedImageEdits.map(value => `image:${value.reason}`)]
-        copyReceipt = await pdfDrafts().publication(e.sender.id, capture, { bytes: written, outputPath: target, representedIds: represented.representedIds, pageMap: represented.pageMap, skipped: failures, redacted: !!request.redactions?.length })
-        if (cleanupWarning) copyReceipt.cleanupWarning = [copyReceipt.cleanupWarning, cleanupWarning].filter(Boolean).join(' ')
-        if (copyReceipt.checkpoint) {
-          await rememberPdfRead(e.sender.id, requestSession!, copyReceipt.checkpoint, request.closeTicket)
-          allowedByWc.get(e.sender.id)?.add(copyReceipt.checkpoint.helperPath)
+      const workspace =
+        pdfDrafts().source(e.sender.id)?.mode === 'workspace' ||
+        !!privateBases?.owns(path) ||
+        /\.vpdfdraft$/i.test(path)
+      if (workspace && (target === path || !/\.pdf$/i.test(target)))
+        return {
+          ok: false,
+          error:
+            'Save this recovery workspace to a new .pdf copy. The workspace and original remain unchanged.',
         }
-        if (workspace && !request.redactions?.length) openGeneratedPdf(target)
+      if (workspace && !request.workspaceProof)
+        return { ok: false, error: 'The complete PDF workspace state must accompany Save.' }
+      if (workspaceCopies.has(e.sender.id))
+        return { ok: false, error: 'A PDF workspace copy is already being saved.' }
+      if (request.redactions !== undefined) {
+        if (!redactionFlows.has(e.sender.id))
+          return {
+            ok: false,
+            error:
+              'Permanent redaction requires a fresh Apply action and a separately selected copy.',
+          }
+        let regions
+        try {
+          regions = validateRedactionRegions(request.redactions)
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) }
+        }
+        if (isSameRedactionCopyPath(path, target)) {
+          return { ok: false, error: 'pdf: permanent redaction requires Save As copy' }
+        }
+        // A redaction is intentionally its own irreversible transaction. Persist normal
+        // changes first; otherwise a later annotation/form write could add recoverable
+        // data after native removal.
+        if (
+          request.markups.length ||
+          request.annotDeletes?.length ||
+          request.drawings.length ||
+          request.noteEdits?.length ||
+          request.formValues.length ||
+          request.stamps.length ||
+          request.textEdits?.length ||
+          request.textInserts?.length ||
+          request.imageEdits?.length ||
+          request.rotations?.length ||
+          request.deletedPages?.length ||
+          request.pageOrder?.length ||
+          request.metadata
+        ) {
+          return { ok: false, error: 'pdf: save other pending edits before applying redactions' }
+        }
+        request = { ...request, redactions: regions }
       }
-      return {
-        ok: true,
-        ...(copyReceipt ? { copyReceipt } : {}),
-        ...(cleanupWarning && !copyReceipt ? { warning: cleanupWarning } : {}),
-        ...(skippedTextEdits.length > 0 ? { skippedTextEdits } : {}),
-        ...(skippedTextInserts.length > 0 ? { skippedTextInserts } : {}),
-        ...(skippedImageEdits.length > 0 ? { skippedImageEdits } : {}),
+      let outputPublished = false
+      try {
+        const capture = request.workspaceProof
+          ? pdfDrafts().captureCopy(e.sender.id, request.workspaceProof)
+          : null
+        if (capture && pdfDrafts().source(e.sender.id)?.helperPath !== path)
+          throw new Error('The PDF save belongs to an obsolete source path.')
+        if (
+          capture &&
+          request.redactions?.length &&
+          pdfRepresentation(capture.state, request, capture.pageCount, capture.renderedStampConfig)
+            .skipped.length
+        )
+          throw new Error('Finish or save all pending PDF content before applying redactions.')
+        if (workspace) workspaceCopies.add(e.sender.id)
+        let skippedTextEdits, skippedTextInserts, skippedImageEdits
+        let written: Buffer | undefined
+        let inputSha256: string | undefined
+        let cleanupWarning: string | undefined
+        if (capture?.savedPublication) {
+          const published = await readAtomicFileVersion(capture.savedPublication.path)
+          if (!published || published.sha256 !== capture.savedPublication.sha256)
+            cleanupWarning =
+              'The earlier saved PDF changed outside this view. Only the separately chosen exclusive new copy is being published; the external replacement is left unchanged.'
+        }
+        if (!capture) await assertPdfFileVersion(path, loaded.version)
+        const sourceBytes = capture
+          ? capture.bytes
+          : await readPdfWorkspaceFile(path, loaded.version.size)
+        inputSha256 = pdfDigest(sourceBytes)
+        const published = await publishPinnedPdf({
+          source: loaded,
+          target: pinnedTarget,
+          input: sourceBytes,
+          serialize: (bytes) => applySaveRequest(bytes, request),
+          output: (applied) => applied.bytes,
+          verify: (applied) => verifyContentEdits(applied.bytes, request, applied),
+          current: () => {
+            assertCurrentSave()
+            if (capture) pdfDrafts().checkCopy(e.sender.id, capture)
+          },
+          publish: async (bytes, expectedVersion) => {
+            assertCurrentSave()
+            if (workspace || request.redactions?.length) {
+              const publication = await privateBases!.publishNew(bytes, target, e.sender.id)
+              cleanupWarning =
+                [cleanupWarning, publication.cleanupWarning].filter(Boolean).join(' ') || undefined
+            } else await atomicWriteFile(target, bytes, { expectedVersion })
+            outputPublished = true
+          },
+        })
+        written = published.bytes
+        ;({ skippedTextEdits, skippedTextInserts, skippedImageEdits } = published.result)
+        if (target === path) {
+          const outputVersion = await observePublishedPdf(target, written)
+          pdfFiles.ownPublication(e.sender.id, loaded, outputVersion, written)
+        }
+        if (!request.redactions?.length && target === path && written && inputSha256)
+          pdfDrafts().bindNativeWrite(e.sender.id, path, inputSha256, written)
+        if (request.redactions?.length && !capture)
+          cleanupWarning = [
+            cleanupWarning,
+            'The sanitized PDF was saved. Complete recovery was unavailable for this source, so earlier automatic recovery cleanup was not certified. Earlier user-owned files and backups remain.',
+          ]
+            .filter(Boolean)
+            .join(' ')
+        if (
+          request.redactions !== undefined &&
+          (!capture || pdfDrafts().source(e.sender.id)?.token === capture.activeToken)
+        ) {
+          // Revoke old-source read/write grants immediately after verified publication,
+          // before recovery classification or cleanup can await storage.
+          allowedByWc.set(e.sender.id, new Set([target]))
+          openPathByWc.set(e.sender.id, target)
+          redactionPathByWc.set(e.sender.id, target)
+          try {
+            pdfRedactionSavedHook?.(e.sender, target)
+          } catch {
+            cleanupWarning = [
+              cleanupWarning,
+              'The sanitized PDF was saved, but its workspace tab could not be renamed automatically.',
+            ]
+              .filter(Boolean)
+              .join(' ')
+          }
+        }
+        let copyReceipt
+        if (capture && written) {
+          const represented = pdfRepresentation(
+            capture.state,
+            request,
+            capture.pageCount,
+            capture.renderedStampConfig,
+          )
+          const failures = [
+            ...represented.skipped,
+            ...skippedTextEdits.map((value) => `text:${value.reason}`),
+            ...skippedTextInserts.map((value) => `insert:${value.reason}`),
+            ...skippedImageEdits.map((value) => `image:${value.reason}`),
+          ]
+          copyReceipt = await pdfDrafts().publication(e.sender.id, capture, {
+            bytes: written,
+            outputPath: target,
+            representedIds: represented.representedIds,
+            pageMap: represented.pageMap,
+            skipped: failures,
+            redacted: !!request.redactions?.length,
+          })
+          if (cleanupWarning)
+            copyReceipt.cleanupWarning = [copyReceipt.cleanupWarning, cleanupWarning]
+              .filter(Boolean)
+              .join(' ')
+          if (copyReceipt.checkpoint) {
+            await rememberPdfRead(
+              e.sender.id,
+              requestSession!,
+              copyReceipt.checkpoint,
+              request.closeTicket,
+            )
+            allowedByWc.get(e.sender.id)?.add(copyReceipt.checkpoint.helperPath)
+          }
+          if (workspace && !request.redactions?.length) openGeneratedPdf(target)
+        }
+        return {
+          ok: true,
+          ...(copyReceipt ? { copyReceipt } : {}),
+          ...(cleanupWarning && !copyReceipt ? { warning: cleanupWarning } : {}),
+          ...(skippedTextEdits.length > 0 ? { skippedTextEdits } : {}),
+          ...(skippedTextInserts.length > 0 ? { skippedTextInserts } : {}),
+          ...(skippedImageEdits.length > 0 ? { skippedImageEdits } : {}),
+        }
+      } catch (err) {
+        if (outputPublished)
+          return {
+            ok: true,
+            warning: `The PDF output was saved, but its recovery checkpoint could not be completed. ${err instanceof Error ? err.message : String(err)}`,
+          }
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      } finally {
+        workspaceCopies.delete(e.sender.id)
       }
-    } catch (err) {
-      if (outputPublished) return { ok: true, warning: `The PDF output was saved, but its recovery checkpoint could not be completed. ${err instanceof Error ? err.message : String(err)}` }
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    } finally {
-      workspaceCopies.delete(e.sender.id)
-    }
-  })
+    },
+  )
 
   ipcMain.handle(PDF_CHANNELS.requestRedactionCopy, async (e, path: unknown): Promise<boolean> => {
     if (typeof path !== 'string' || !allowedByWc.get(e.sender.id)?.has(path)) return false
     if (redactionFlows.has(e.sender.id) || saveAsWaiters.has(e.sender.id)) return false
-    const session = pdfCloseSessionByWc.get(e.sender.id), source = pdfDrafts().source(e.sender.id)
+    const session = pdfCloseSessionByWc.get(e.sender.id),
+      source = pdfDrafts().source(e.sender.id)
     if (!session || (source && source.helperPath !== path)) return false
     redactionFlows.add(e.sender.id)
     const base = basename(path).replace(/\.pdf$/i, '')
@@ -1725,7 +2328,13 @@ function registerPdfIpc(): void {
       if (picked.canceled || !picked.filePath || isSameRedactionCopyPath(path, picked.filePath))
         return false
       const current = pdfDrafts().source(e.sender.id)
-      if (e.sender.isDestroyed() || pdfCloseSessionByWc.get(e.sender.id) !== session || current?.readId !== source?.readId || (current && current.helperPath !== path)) return false
+      if (
+        e.sender.isDestroyed() ||
+        pdfCloseSessionByWc.get(e.sender.id) !== session ||
+        current?.readId !== source?.readId ||
+        (current && current.helperPath !== path)
+      )
+        return false
       return await requestPdfSaveAs(e.sender, picked.filePath)
     } finally {
       redactionFlows.delete(e.sender.id)
@@ -1744,25 +2353,50 @@ function registerPdfIpc(): void {
   ipcMain.handle(
     PDF_CHANNELS.autoRename,
     async (e, path: unknown, baseName: unknown): Promise<PdfAutoRenameResult> => {
-      if(typeof path!=='string'||!allowedByWc.get(e.sender.id)?.has(path)||!untitledPdfPaths.has(path)||typeof baseName!=='string')return {renamed:false}
-      const base=sanitizeAutoRenameBase(baseName)
-      if(!base)return {renamed:false}
-      try{
-        const session=pdfCloseSessionByWc.get(e.sender.id)
-        const source=pdfFiles.loaded(e.sender.id,session??'',path)
-        const target=await renameOwnedPdf({source,baseName:base,
-          current:()=>{if(e.sender.isDestroyed()||pdfCloseSessionByWc.get(e.sender.id)!==session||!pdfFiles.isActive(e.sender.id,source)||!allowedByWc.get(e.sender.id)?.has(path)||!untitledPdfPaths.has(path))throw new Error('The PDF source changed before automatic rename')},
-          cancelClose:()=>closeCoordinator?.cancel(e.sender.id,undefined,'PDF automatic rename'),
-          move:movePdfFileNoClobber,
-          adopt:async newPath=>{
-            pdfFileRenamed(e.sender,path,newPath)
-            allowedByWc.set(e.sender.id,new Set([newPath]))
+      if (
+        typeof path !== 'string' ||
+        !allowedByWc.get(e.sender.id)?.has(path) ||
+        !untitledPdfPaths.has(path) ||
+        typeof baseName !== 'string'
+      )
+        return { renamed: false }
+      const base = sanitizeAutoRenameBase(baseName)
+      if (!base) return { renamed: false }
+      try {
+        const session = pdfCloseSessionByWc.get(e.sender.id)
+        const source = pdfFiles.loaded(e.sender.id, session ?? '', path)
+        const target = await renameOwnedPdf({
+          source,
+          baseName: base,
+          current: () => {
+            if (
+              e.sender.isDestroyed() ||
+              pdfCloseSessionByWc.get(e.sender.id) !== session ||
+              !pdfFiles.isActive(e.sender.id, source) ||
+              !allowedByWc.get(e.sender.id)?.has(path) ||
+              !untitledPdfPaths.has(path)
+            )
+              throw new Error('The PDF source changed before automatic rename')
+          },
+          cancelClose: () =>
+            closeCoordinator?.cancel(e.sender.id, undefined, 'PDF automatic rename'),
+          move: movePdfFileNoClobber,
+          adopt: async (newPath) => {
+            pdfFileRenamed(e.sender, path, newPath)
+            allowedByWc.set(e.sender.id, new Set([newPath]))
             untitledPdfPaths.delete(newPath)
-            try{await pdfRenamedHook?.(e.sender,path,newPath)}catch(err){console.warn('[pdf] auto-rename hook failed:',err)}
+            try {
+              await pdfRenamedHook?.(e.sender, path, newPath)
+            } catch (err) {
+              console.warn('[pdf] auto-rename hook failed:', err)
+            }
           },
         })
-        return target?{renamed:true,path:target,name:basename(target)}:{renamed:false}
-      }catch(err){console.warn('[pdf] auto-rename refused:',err);return {renamed:false}}
+        return target ? { renamed: true, path: target, name: basename(target) } : { renamed: false }
+      } catch (err) {
+        console.warn('[pdf] auto-rename refused:', err)
+        return { renamed: false }
+      }
     },
   )
 
@@ -2218,7 +2852,12 @@ function registerPdfIpc(): void {
       if (picked.canceled || !dir) return { ok: true, canceled: true }
       try {
         const outputPaths = buildExportImagePaths(dir, baseName, pageNumbers)
-        await publishSelectedUserOutputs(outputPaths.map((path,index)=>({path,prepare:async()=>Buffer.from(images[index]!, 'base64')})))
+        await publishSelectedUserOutputs(
+          outputPaths.map((path, index) => ({
+            path,
+            prepare: async () => Buffer.from(images[index]!, 'base64'),
+          })),
+        )
         // Reveal the exported images so success is never silent
         shell.showItemInFolder(outputPaths[0]!)
         return { ok: true, savedDir: dir, count: images.length }
@@ -2500,14 +3139,16 @@ function grantAndTrack(wc: WebContents, openPath?: string | null): void {
   wc.on('did-start-loading', () => {
     pdfCloseSessionByWc.set(wcId, randomUUID())
     closeCoordinator?.cancel(wcId, undefined, 'PDF renderer reloaded')
-    nativePdfWrites.destroy(wcId); pdfFiles.retire(wcId)
+    nativePdfWrites.destroy(wcId)
+    pdfFiles.retire(wcId)
     draftController?.retire(wcId)
     dirtyByWc.delete(wcId)
   })
   wc.on('render-process-gone', () => {
     pdfCloseSessionByWc.set(wcId, randomUUID())
     closeCoordinator?.cancel(wcId, undefined, 'PDF renderer crashed')
-    nativePdfWrites.destroy(wcId); pdfFiles.retire(wcId)
+    nativePdfWrites.destroy(wcId)
+    pdfFiles.retire(wcId)
     draftController?.retire(wcId)
     dirtyByWc.delete(wcId)
   })
@@ -2533,11 +3174,25 @@ export function startPdfStandalone(): void {
   registerRendererScheme()
   installNavigationGuard(app)
   installContextMenu(app, () => contextMenuLabels(getUiLang()))
-  const standaloneRecoveryProfile = configureRecoveryProfile({ app, mode: 'gui', guiProfile: process.env.VANTAGE_USER_DATA || app.getPath('userData') })
-  if (!app.requestSingleInstanceLock()) { app.quit(); return }
-  initializeStandaloneRecovery({ app, ...standaloneRecoveryProfile, lockAcquired: true,
-    warning: message => { void dialog.showMessageBox({ type: 'warning', message }).catch(() => {}) },
-    terminal: cleanup => { app.once('will-quit', cleanup) },
+  const standaloneRecoveryProfile = configureRecoveryProfile({
+    app,
+    mode: 'gui',
+    guiProfile: process.env.VANTAGE_USER_DATA || app.getPath('userData'),
+  })
+  if (!app.requestSingleInstanceLock()) {
+    app.quit()
+    return
+  }
+  initializeStandaloneRecovery({
+    app,
+    ...standaloneRecoveryProfile,
+    lockAcquired: true,
+    warning: (message) => {
+      void dialog.showMessageBox({ type: 'warning', message }).catch(() => {})
+    },
+    terminal: (cleanup) => {
+      app.once('will-quit', cleanup)
+    },
   })
   configurePdfRuntime({
     preloadPath: join(__dirname, '../preload/index.js'),
@@ -2546,8 +3201,16 @@ export function startPdfStandalone(): void {
     createDocument: createStandaloneDocument,
   })
   void app.whenReady().then(() => {
-  // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
-    if (recoveryRuntimeState().available) void inspectRetainedPdfPrivateBases().catch(() => { void dialog.showMessageBox({ type: 'warning', message: 'Private PDF recovery storage needs review. Retained files were kept.' }).catch(() => {}) })
+    // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
+    if (recoveryRuntimeState().available)
+      void inspectRetainedPdfPrivateBases().catch(() => {
+        void dialog
+          .showMessageBox({
+            type: 'warning',
+            message: 'Private PDF recovery storage needs review. Retained files were kept.',
+          })
+          .catch(() => {})
+      })
     installRendererProtocol({ pdf: join(__dirname, '../renderer') })
     registerPdfIpc()
     const win = new BrowserWindow({
@@ -2560,7 +3223,9 @@ export function startPdfStandalone(): void {
         sandbox: true,
       },
     })
-    const argPath = process.argv.slice(1).find((a) => /\.(pdf|vpdfdraft)$/i.test(a) && existsSync(a))
+    const argPath = process.argv
+      .slice(1)
+      .find((a) => /\.(pdf|vpdfdraft)$/i.test(a) && existsSync(a))
     grantAndTrack(win.webContents, argPath)
     let preparingClose = false
     win.on('close', (event) => {
@@ -2572,9 +3237,23 @@ export function startPdfStandalone(): void {
         let receipt: PdfCloseReceipt | null = null
         try {
           receipt = await preparePdfNativeClose(contents, win)
-          if (receipt) completePdfClose(contents, receipt, () => { if (win.isDestroyed() || win.webContents !== contents) return false; win.destroy(); return win.isDestroyed() })
-        } catch (error) { if (!win.isDestroyed()) await dialog.showMessageBox(win, { type: 'error', message: 'The PDF remains open', detail: error instanceof Error ? error.message : String(error) }) }
-        finally { if (receipt) await cancelPdfClose(contents, receipt); preparingClose = false }
+          if (receipt)
+            completePdfClose(contents, receipt, () => {
+              if (win.isDestroyed() || win.webContents !== contents) return false
+              win.destroy()
+              return win.isDestroyed()
+            })
+        } catch (error) {
+          if (!win.isDestroyed())
+            await dialog.showMessageBox(win, {
+              type: 'error',
+              message: 'The PDF remains open',
+              detail: error instanceof Error ? error.message : String(error),
+            })
+        } finally {
+          if (receipt) await cancelPdfClose(contents, receipt)
+          preparingClose = false
+        }
       })()
     })
     void win.loadURL(rendererUrl(runtime.rendererUrl, 'pdf'))

@@ -48,8 +48,8 @@ import type { ActionCtx } from '../src/renderer/action-context'
 import type { RenderSlide } from '@vantage/pptx-render'
 
 const WC = 1
-const sender={id:WC,isDestroyed:()=>false,mainFrame:{processId:1,routingId:1}}
-const event = { sender,senderFrame:sender.mainFrame } as never
+const sender = { id: WC, isDestroyed: () => false, mainFrame: { processId: 1, routingId: 1 } }
+const event = { sender, senderFrame: sender.mainFrame } as never
 
 /** Forward a renderer call straight into the real main-process handler. */
 function ipc(channel: string, ...args: unknown[]): unknown {
@@ -85,7 +85,8 @@ beforeEach(async () => {
       addElement: (op: unknown) => ipc('slides:add-element', op),
       flipElements: (op: unknown) => ipc('slides:flip-elements', op),
       beginOwnedHistoryBatch: () => ipc('slides:history-batch-begin'),
-      finishOwnedHistoryBatch: (ticket:unknown) => ipc('slides:history-batch-owned-finish',ticket),
+      finishOwnedHistoryBatch: (ticket: unknown) =>
+        ipc('slides:history-batch-owned-finish', ticket),
     },
   })
 })

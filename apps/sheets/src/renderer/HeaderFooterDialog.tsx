@@ -183,11 +183,7 @@ export function HeaderFooterDialog({
           <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
-          <button
-            className="primary-action"
-            disabled={pending}
-            onClick={() => void apply()}
-          >
+          <button className="primary-action" disabled={pending} onClick={() => void apply()}>
             {t('dlgOk')}
           </button>
         </div>

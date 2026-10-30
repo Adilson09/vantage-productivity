@@ -14,7 +14,9 @@ setModuleLang('en')
 const noop = () => {}
 const refuse = () => false
 const editors: Editor[] = []
-afterEach(() => { for (const editor of editors.splice(0)) editor.destroy() })
+afterEach(() => {
+  for (const editor of editors.splice(0)) editor.destroy()
+})
 
 function mount(onDelete = noop): { root: Root; container: HTMLElement } {
   adoptCommentDraftRecovery()

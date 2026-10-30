@@ -871,10 +871,14 @@ const vantageApi: VantageApi = {
   },
   draftList: () => ipcRenderer.invoke(VANTAGE_CHANNELS.draftList),
   retainedRecoveryList: () => ipcRenderer.invoke(VANTAGE_CHANNELS.retainedRecoveryList),
-  recoverRetainedCopy: (selection) => ipcRenderer.invoke(VANTAGE_CHANNELS.recoverRetainedCopy, selection),
-  removeRetainedCopy: (selection) => ipcRenderer.invoke(VANTAGE_CHANNELS.removeRetainedCopy, selection),
-  retryRetainedRecovery: (selection) => ipcRenderer.invoke(VANTAGE_CHANNELS.retryRetainedRecovery, selection),
-  keepRetainedOutput: (selection, outputId) => ipcRenderer.invoke(VANTAGE_CHANNELS.keepRetainedOutput, selection, outputId),
+  recoverRetainedCopy: (selection) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.recoverRetainedCopy, selection),
+  removeRetainedCopy: (selection) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.removeRetainedCopy, selection),
+  retryRetainedRecovery: (selection) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.retryRetainedRecovery, selection),
+  keepRetainedOutput: (selection, outputId) =>
+    ipcRenderer.invoke(VANTAGE_CHANNELS.keepRetainedOutput, selection, outputId),
   restoreDraft: (id) => ipcRenderer.invoke(VANTAGE_CHANNELS.restoreDraft, id),
   discardDraft: (id) => ipcRenderer.invoke(VANTAGE_CHANNELS.discardDraft, id),
   exportRecoveryBackup: (password) =>

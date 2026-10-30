@@ -1,4 +1,8 @@
-import type { SlidesToolSaveRequest, SlidesToolSaveIdentity, SlidesToolSaveResult } from '../shared/slides-tool-save'
+import type {
+  SlidesToolSaveRequest,
+  SlidesToolSaveIdentity,
+  SlidesToolSaveResult,
+} from '../shared/slides-tool-save'
 import type { AiPanelPrefs } from '@vantage/ui'
 import type {
   SlidesDraftDiscarded,
@@ -7,10 +11,17 @@ import type {
 } from '../shared/slides-draft'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
-import type {CloseLeaseTicket} from '../../../../packages/electron-utils/src/close-lease'
-import type {SlidesCloseQuery} from '../shared/slides-tool-save'
-let authoredSource=''
-const invokeSlides=(channel:string,...args:unknown[])=>ipcRenderer.invoke(channel,...args,...(channel.startsWith('slides:')||channel.startsWith('ai:')?[{__slidesAuthoredSource:authoredSource}]:[]))
+import type { CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
+import type { SlidesCloseQuery } from '../shared/slides-tool-save'
+let authoredSource = ''
+const invokeSlides = (channel: string, ...args: unknown[]) =>
+  ipcRenderer.invoke(
+    channel,
+    ...args,
+    ...(channel.startsWith('slides:') || channel.startsWith('ai:')
+      ? [{ __slidesAuthoredSource: authoredSource }]
+      : []),
+  )
 
 import type { ProjectApi } from '@vantage/project-store'
 import { installDropOpenBridge } from '@vantage/electron-utils/drop-open'
@@ -173,16 +184,8 @@ const api: SlidesApi = {
     atIndex?: number,
     deckName?: string,
   ) =>
-    invokeSlides(
-      'slides:land-generated-pages',
-      pageMarkers,
-      fitWidthPx,
-      mode,
-      atIndex,
-      deckName,
-    ),
-  localGeneratePage: (op: { specJson: string }) =>
-    invokeSlides('slides:local-page-generate', op),
+    invokeSlides('slides:land-generated-pages', pageMarkers, fitWidthPx, mode, atIndex, deckName),
+  localGeneratePage: (op: { specJson: string }) => invokeSlides('slides:local-page-generate', op),
   editText: (op: EditTextOp) => invokeSlides('slides:edit-text', op),
   setElementFont: (op: SetElementFontOp) => invokeSlides('slides:set-element-font', op),
   setElementParagraphFormat: (op: SetElementParagraphFormatOp) =>
@@ -194,14 +197,12 @@ const api: SlidesApi = {
   editTransform: (op: EditTransformOp) => invokeSlides('slides:edit-transform', op),
   cancelTransformPreview: (op: { slideIndex: number }) =>
     invokeSlides('slides:cancel-transform-preview', op),
-  editTransformMulti: (op: EditTransformMultiOp) =>
-    invokeSlides('slides:edit-transform-multi', op),
+  editTransformMulti: (op: EditTransformMultiOp) => invokeSlides('slides:edit-transform-multi', op),
   editConnectorEndpoints: (op: EditConnectorEndpointsOp) =>
     invokeSlides('slides:edit-connector-endpoints', op),
   editPictureSrcRect: (op: EditPictureSrcRectOp) =>
     invokeSlides('slides:edit-picture-src-rect', op),
-  editPictureOpacity: (op: EditPictureOpacityOp) =>
-    invokeSlides('slides:edit-picture-opacity', op),
+  editPictureOpacity: (op: EditPictureOpacityOp) => invokeSlides('slides:edit-picture-opacity', op),
   editImageFill: (op: EditFillImageOp) => invokeSlides('slides:edit-image-fill', op),
   changeShape: (op: { slideIndex: number; sourceId: string; prst: string; groupId?: string }) =>
     invokeSlides('slides:change-shape', op),
@@ -233,8 +234,7 @@ const api: SlidesApi = {
   clipboardExternal: () => invokeSlides('slides:clipboard-external'),
   groupElements: (op: GroupElementsOp) => invokeSlides('slides:group-elements', op),
   ungroupElement: (op: UngroupElementOp) => invokeSlides('slides:ungroup-element', op),
-  batchEditTransform: (op: BatchEditTransformOp) =>
-    invokeSlides('slides:batch-edit-transform', op),
+  batchEditTransform: (op: BatchEditTransformOp) => invokeSlides('slides:batch-edit-transform', op),
   getRenderSlides: () => invokeSlides('slides:get-render-slides'),
   addElement: (op: AddElementOp) => invokeSlides('slides:add-element', op),
   deleteElement: (op: DeleteElementOp) => invokeSlides('slides:delete-element', op),
@@ -274,10 +274,8 @@ const api: SlidesApi = {
   editTableCell: (op: EditTableCellOp) => invokeSlides('slides:edit-table-cell', op),
   tableStructure: (op: TableStructureIpcOp) => invokeSlides('slides:table-structure', op),
   tableMerge: (op: TableMergeIpcOp) => invokeSlides('slides:table-merge', op),
-  setTableColWidth: (op: SetTableColWidthOp) =>
-    invokeSlides('slides:set-table-col-width', op),
-  setTableRowHeight: (op: SetTableRowHeightOp) =>
-    invokeSlides('slides:set-table-row-height', op),
+  setTableColWidth: (op: SetTableColWidthOp) => invokeSlides('slides:set-table-col-width', op),
+  setTableRowHeight: (op: SetTableRowHeightOp) => invokeSlides('slides:set-table-row-height', op),
   setTableCellAnchor: (op: SetTableCellAnchorOp) =>
     invokeSlides('slides:set-table-cell-anchor', op),
   editTableStyle: (op: EditTableStyleOp) => invokeSlides('slides:edit-table-style', op),
@@ -289,8 +287,7 @@ const api: SlidesApi = {
   copyElementsImage: (clipboardToken: string, pngBase64: string) =>
     invokeSlides('slides:copy-elements-image', clipboardToken, pngBase64),
   pasteElements: (op: PasteElementsOp) => invokeSlides('slides:paste-elements', op),
-  duplicateElements: (op: DuplicateElementsOp) =>
-    invokeSlides('slides:duplicate-elements', op),
+  duplicateElements: (op: DuplicateElementsOp) => invokeSlides('slides:duplicate-elements', op),
   addTable: (op: AddTableOp) => invokeSlides('slides:add-table', op),
   addInk: (op: AddInkOp) => invokeSlides('slides:add-ink', op),
   addChart: (op: AddChartOp) => invokeSlides('slides:add-chart', op),
@@ -314,16 +311,14 @@ const api: SlidesApi = {
   getSlideLinks: (slideIndex: number) => invokeSlides('slides:get-slide-links', slideIndex),
   getRunLinks: (slideIndex: number) => invokeSlides('slides:get-run-links', slideIndex),
   applyHeaderFooter: (op: HeaderFooterOp) => invokeSlides('slides:apply-header-footer', op),
-  getHeaderFooter: (slideIndex: number) =>
-    invokeSlides('slides:get-header-footer', slideIndex),
+  getHeaderFooter: (slideIndex: number) => invokeSlides('slides:get-header-footer', slideIndex),
   applyTheme: (op: ApplyThemeOp) => invokeSlides('slides:apply-theme', op),
   setTransition: (op: SetTransitionOp) => invokeSlides('slides:set-transition', op),
   getTransition: (slideIndex: number) => invokeSlides('slides:get-transition', slideIndex),
   getShowTiming: (slideIndex: number) => invokeSlides('slides:get-show-timing', slideIndex),
   setAdvanceTimes: (op: SetAdvanceTimesOp) => invokeSlides('slides:set-advance-times', op),
   saveRecording: (op: SaveRecordingOp) => invokeSlides('slides:save-recording', op),
-  clearNarration: (slideIndexes: number[]) =>
-    invokeSlides('slides:clear-narration', slideIndexes),
+  clearNarration: (slideIndexes: number[]) => invokeSlides('slides:clear-narration', slideIndexes),
   microphoneAccess: () => invokeSlides('slides:microphone-access'),
   getAnimations: (slideIndex: number) => invokeSlides('slides:get-animations', slideIndex),
   getShapeKeys: (slideIndex: number) => invokeSlides('slides:get-shape-keys', slideIndex),
@@ -346,18 +341,19 @@ const api: SlidesApi = {
   getComments: (slideIndex: number) => invokeSlides('slides:get-comments', slideIndex),
   addComment: (op) => invokeSlides('slides:add-comment', op),
   deleteComment: (op) => invokeSlides('slides:delete-comment', op),
-  nativeClipboard: (op: 'cut' | 'copy' | 'paste') =>
-    invokeSlides('slides:native-clipboard', op),
+  nativeClipboard: (op: 'cut' | 'copy' | 'paste') => invokeSlides('slides:native-clipboard', op),
   beginOwnedHistoryBatch: () => invokeSlides('slides:history-batch-begin'),
   // Only this exact receipt can authorize its captured batch cleanup after a
   // callback generation retires. No ordinary mutation bypass is exposed.
-  finishOwnedHistoryBatch: (ticket) => ipcRenderer.invoke('slides:history-batch-owned-finish',ticket),
+  finishOwnedHistoryBatch: (ticket) =>
+    ipcRenderer.invoke('slides:history-batch-owned-finish', ticket),
   applyEditScript: (op: ApplyEditScriptOp) => invokeSlides('slides:apply-edit-script', op),
   applyTxn: (op: ApplyTxnOp) => invokeSlides('slides:apply-txn', op),
   aiSnapshotRestore: (id: number) => invokeSlides('slides:ai-snapshot-restore', id),
   undo: () => invokeSlides('slides:undo'),
   redo: () => invokeSlides('slides:redo'),
-  pickExportDir: (plan:{baseName:string;count:number}) => invokeSlides('slides:pick-export-dir',plan),
+  pickExportDir: (plan: { baseName: string; count: number }) =>
+    invokeSlides('slides:pick-export-dir', plan),
   exportImages: (op: ExportImagesOp) => invokeSlides('slides:export-images', op),
   pickExportPdfPath: (defaultName: string) =>
     invokeSlides('slides:pick-export-pdf-path', defaultName),
@@ -374,21 +370,41 @@ const api: SlidesApi = {
     ipcRenderer.on('slides:tool-save-release', listener)
     return () => ipcRenderer.removeListener('slides:tool-save-release', listener)
   },
-  probeToolSave: (identity: SlidesToolSaveIdentity) => invokeSlides('slides:tool-save-probe', identity),
-  saveToolToPath: (identity: SlidesToolSaveIdentity) => invokeSlides('slides:tool-save-write', identity),
-  reportToolSaveResult: (result: SlidesToolSaveResult) => ipcRenderer.send('slides:tool-save-result', result),
+  probeToolSave: (identity: SlidesToolSaveIdentity) =>
+    invokeSlides('slides:tool-save-probe', identity),
+  saveToolToPath: (identity: SlidesToolSaveIdentity) =>
+    invokeSlides('slides:tool-save-write', identity),
+  reportToolSaveResult: (result: SlidesToolSaveResult) =>
+    ipcRenderer.send('slides:tool-save-result', result),
   cancelToolSave: (requestId: string) => invokeSlides('slides:tool-save-cancel', requestId),
-  confirmSourceAdoption:(candidateId:string)=>invokeSlides('slides:source-confirm',candidateId),
-  onSourceAdopted:(handler:(result:OpenResult)=>void)=>{const listener=(_event:IpcRendererEvent,result:OpenResult)=>handler(result);ipcRenderer.on('slides:source-adopted',listener);return()=>ipcRenderer.removeListener('slides:source-adopted',listener)},
-  claimCloseLease:(ticket:CloseLeaseTicket)=>invokeSlides('slides:close-claim',ticket),
-  cancelCloseLease:(ticket:CloseLeaseTicket,reason:string)=>invokeSlides('slides:close-cancel',ticket,reason),
-  onCloseRelease:(handler:(ticket:CloseLeaseTicket)=>void)=>{const listener=(_event:IpcRendererEvent,ticket:CloseLeaseTicket)=>handler(ticket);ipcRenderer.on('slides:close-release',listener);return()=>ipcRenderer.removeListener('slides:close-release',listener)},
-  onCloseQuery:(handler:(id:string)=>void)=>{const listener=(_event:IpcRendererEvent,id:string)=>handler(id);ipcRenderer.on('slides:close-query',listener);return()=>ipcRenderer.removeListener('slides:close-query',listener)},
-  reportCloseQuery:(result:SlidesCloseQuery)=>ipcRenderer.send('slides:close-query-result',result),
-  save: (automatic=false) => invokeSlides('slides:save',automatic),
-  activateDraft:(path:string|null,sourceIdentity?:string)=>{if(sourceIdentity)authoredSource=sourceIdentity;return invokeSlides('slides:draft-activate',path,authoredSource)},
-  writeDraft: (request: SlidesDraftWriteRequest) =>
-    invokeSlides('slides:draft-write', request),
+  confirmSourceAdoption: (candidateId: string) =>
+    invokeSlides('slides:source-confirm', candidateId),
+  onSourceAdopted: (handler: (result: OpenResult) => void) => {
+    const listener = (_event: IpcRendererEvent, result: OpenResult) => handler(result)
+    ipcRenderer.on('slides:source-adopted', listener)
+    return () => ipcRenderer.removeListener('slides:source-adopted', listener)
+  },
+  claimCloseLease: (ticket: CloseLeaseTicket) => invokeSlides('slides:close-claim', ticket),
+  cancelCloseLease: (ticket: CloseLeaseTicket, reason: string) =>
+    invokeSlides('slides:close-cancel', ticket, reason),
+  onCloseRelease: (handler: (ticket: CloseLeaseTicket) => void) => {
+    const listener = (_event: IpcRendererEvent, ticket: CloseLeaseTicket) => handler(ticket)
+    ipcRenderer.on('slides:close-release', listener)
+    return () => ipcRenderer.removeListener('slides:close-release', listener)
+  },
+  onCloseQuery: (handler: (id: string) => void) => {
+    const listener = (_event: IpcRendererEvent, id: string) => handler(id)
+    ipcRenderer.on('slides:close-query', listener)
+    return () => ipcRenderer.removeListener('slides:close-query', listener)
+  },
+  reportCloseQuery: (result: SlidesCloseQuery) =>
+    ipcRenderer.send('slides:close-query-result', result),
+  save: (automatic = false) => invokeSlides('slides:save', automatic),
+  activateDraft: (path: string | null, sourceIdentity?: string) => {
+    if (sourceIdentity) authoredSource = sourceIdentity
+    return invokeSlides('slides:draft-activate', path, authoredSource)
+  },
+  writeDraft: (request: SlidesDraftWriteRequest) => invokeSlides('slides:draft-write', request),
   acknowledgeDraftSave: (request: SlidesDraftSaveAcknowledgment) =>
     invokeSlides('slides:draft-saved', request),
   draftState: () => invokeSlides('slides:draft-state'),
@@ -560,8 +576,7 @@ const api: SlidesApi = {
  * API, and a partial one in an editor window would shadow it there.
  */
 const aiNamingApi = {
-  suggestFileName: (input: { content: string }) =>
-    invokeSlides('ai:suggest-file-name', input),
+  suggestFileName: (input: { content: string }) => invokeSlides('ai:suggest-file-name', input),
 }
 
 contextBridge.exposeInMainWorld('slidesApi', api)

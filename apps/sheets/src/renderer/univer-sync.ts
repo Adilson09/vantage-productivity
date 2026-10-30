@@ -1924,7 +1924,9 @@ export function configureWorkbookReaderRecovery(
 ): () => void {
   const previous = recoverImmutableReader
   recoverImmutableReader = recover
-  return () => { if (recoverImmutableReader === recover) recoverImmutableReader = previous }
+  return () => {
+    if (recoverImmutableReader === recover) recoverImmutableReader = previous
+  }
 }
 /// Workbooks already given one automatic recovery. A second loss in the same
 /// open workbook is a real failure, not the same crash seen twice — re-opening
@@ -1939,7 +1941,8 @@ const sessionRecoveryAttempted = new WeakSet<object>()
 /// leaving them would claim the windows are already loaded and keep the grid
 /// blank.
 export async function recoverSidecarSession(state: LazyWorkbookState): Promise<boolean> {
-  if (sessionRecoveryInFlight) return sessionRecoveryState === state ? sessionRecoveryInFlight : false
+  if (sessionRecoveryInFlight)
+    return sessionRecoveryState === state ? sessionRecoveryInFlight : false
   if (sessionRecoveryAttempted.has(state)) {
     // Keep the existing terminal policy after one accepted replacement. A
     // second crash is surfaced, not lent to an unrelated later session.

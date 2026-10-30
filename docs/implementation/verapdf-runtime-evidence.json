@@ -118,9 +118,7 @@
         "status": "pass",
         "code": 0,
         "complete": true,
-        "checkedProfileIds": [
-          "1b"
-        ],
+        "checkedProfileIds": ["1b"],
         "sourceSha256": "0a578e09d02ca14e2b669cae84e66056d646d47680688f62468d527bc4c9e222",
         "sourceUnchanged": true,
         "qpdf": {
@@ -135,9 +133,7 @@
         "status": "fail",
         "code": 1,
         "complete": true,
-        "checkedProfileIds": [
-          "1b"
-        ],
+        "checkedProfileIds": ["1b"],
         "sourceSha256": "ee0792dbe6a3802a31e9e73abe7bb372e01d21d738c7abc785d46d8521bb5643",
         "sourceUnchanged": true,
         "qpdf": {
@@ -152,9 +148,7 @@
         "status": "pass",
         "code": 0,
         "complete": true,
-        "checkedProfileIds": [
-          "ua1"
-        ],
+        "checkedProfileIds": ["ua1"],
         "sourceSha256": "853fc52f5dca32dd257cac1da4ca9c1702623e357b48a361f835c4f271bd2c68",
         "sourceUnchanged": true,
         "qpdf": {
@@ -169,9 +163,7 @@
         "status": "fail",
         "code": 1,
         "complete": true,
-        "checkedProfileIds": [
-          "ua1"
-        ],
+        "checkedProfileIds": ["ua1"],
         "sourceSha256": "33d9008d84746cb8cf7cf11f50d8e67a97b3640978d845050e18ee47bfb95310",
         "sourceUnchanged": true,
         "qpdf": {
@@ -249,13 +241,8 @@
     "stagedAt": "2026-10-29T21:36:53.977Z",
     "packageRoot": "D:\\Codex-builds\\vantage-engine-tools-next\\staging-smoke\\win-unpacked",
     "manifest": "D:\\Codex-builds\\vantage-engine-tools-next\\staging-smoke\\win-unpacked\\resources\\engines\\engines.json",
-    "engineIds": [
-      "qpdf",
-      "verapdf"
-    ],
-    "skippedEngineIds": [
-      "libreoffice"
-    ],
+    "engineIds": ["qpdf", "verapdf"],
+    "skippedEngineIds": ["libreoffice"],
     "copiedAndVerifiedFiles": 615,
     "distributionBytes": 255315161,
     "executableSha256": "1bdaf878f37eaffea1ea3c30591214c77636a0f2fc7432427516b6e22e36c0ff",
@@ -346,10 +333,7 @@
         "jar": "verapdf-1.30.3/bin/cli-1.30.3.jar",
         "sha256": "19f6edd5c92841a38d9b3b018a555b7ba173b13e4e0d29edecc232e5ba6c1d70"
       },
-      "licenseFiles": [
-        "verapdf-1.30.3/LICENSE.MPL",
-        "verapdf-1.30.3/LICENSE.GPL"
-      ],
+      "licenseFiles": ["verapdf-1.30.3/LICENSE.MPL", "verapdf-1.30.3/LICENSE.GPL"],
       "dependencyNotices": "Unmodified CLI JAR retains its bundled META-INF/LICENSE*, META-INF/NOTICE* and org/xmlresolver/notices/ files."
     },
     {

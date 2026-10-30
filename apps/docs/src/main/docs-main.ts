@@ -1,11 +1,36 @@
-import { DocsOutputGrants, configuredDocsExportTarget, type DocsExportFileLease } from './export-output-grants'
+import {
+  DocsOutputGrants,
+  configuredDocsExportTarget,
+  type DocsExportFileLease,
+} from './export-output-grants'
 import { DocsHeadlessOutputAdmission } from './headless-output-admission'
-import { publishNewUserOutput, publishSelectedUserOutput } from '@vantage/electron-utils/user-output-publication'
-import { configureRecoveryProfile, initializeStandaloneRecovery, requireRecoveryRuntime } from '../../../../packages/electron-utils/src/recovery-bootstrap'
-import {loadedDocVersion,prepareAndPublishDocx,readAtomicFileVersion,rebindDocRename,sameDocPublicationPath,type AtomicFileVersion} from './doc-publication'
-import {beginCloseCleanup,retireCloseCleanupCustody} from '../../../../packages/electron-utils/src/close-cleanup-runtime'
+import {
+  publishNewUserOutput,
+  publishSelectedUserOutput,
+} from '@vantage/electron-utils/user-output-publication'
+import {
+  configureRecoveryProfile,
+  initializeStandaloneRecovery,
+  requireRecoveryRuntime,
+} from '../../../../packages/electron-utils/src/recovery-bootstrap'
+import {
+  loadedDocVersion,
+  prepareAndPublishDocx,
+  readAtomicFileVersion,
+  rebindDocRename,
+  sameDocPublicationPath,
+  type AtomicFileVersion,
+} from './doc-publication'
+import {
+  beginCloseCleanup,
+  retireCloseCleanupCustody,
+} from '../../../../packages/electron-utils/src/close-cleanup-runtime'
 import type { DocReplacementApproval } from '../shared/ipc'
-import { DocNativeCloseCoordinator, type DocsCloseReceipt, type DocsClosePrepareOptions } from './doc-native-close'
+import {
+  DocNativeCloseCoordinator,
+  type DocsCloseReceipt,
+  type DocsClosePrepareOptions,
+} from './doc-native-close'
 import { isCloseLeaseStamp } from '../../../../packages/electron-utils/src/close-lease'
 import { createHash, randomUUID } from 'node:crypto'
 import { handOffBytes } from './byte-handoff'
@@ -3542,10 +3567,14 @@ export function openExternalDocx(filePath: string | null): void {
     const prepared = await prepareDocumentForOpen(filePath, win)
     if (!prepared) return null
     const needsApproval = rendererReady && !(await opensAsPasswordPrompt(prepared, wcId))
-    const approval = needsApproval ? await requestDocsReplacementApproval(win.webContents, win) : null
+    const approval = needsApproval
+      ? await requestDocsReplacementApproval(win.webContents, win)
+      : null
     if (needsApproval && !approval) return
     const result = await loadDocx(prepared, wcId)
-    return result && !('needsPassword' in result) && approval ? {...result,replacementApproval:approval} : result
+    return result && !('needsPassword' in result) && approval
+      ? { ...result, replacementApproval: approval }
+      : result
   })()
     .then((result) => {
       if (!result || win.isDestroyed()) return
@@ -3616,22 +3645,41 @@ export function removeRecentFiles(filePaths: string[]): void {
 /** shell notification: the file of an open view was renamed on disk (renamed in
  *  the Home list) — push to the matching renderer so it syncs its save path and
  *  title bar (docs keeps path state on the renderer side). */
-export async function docsFileRenamed(wc:WebContents,oldPath:string,newPath:string):Promise<void>{
+export async function docsFileRenamed(
+  wc: WebContents,
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
   invalidateDocsClose(wc.id)
-  const original=docDiskVersions.get(wc.id)?.get(oldPath),recorded=docDiskStates.get(wc.id)?.get(oldPath),source=docCloseSourceIdentities.get(wc.id)
+  const original = docDiskVersions.get(wc.id)?.get(oldPath),
+    recorded = docDiskStates.get(wc.id)?.get(oldPath),
+    source = docCloseSourceIdentities.get(wc.id)
   // Revoke the old overwrite grant synchronously, before any disk-read await.
   docWritablePaths.get(wc.id)?.delete(oldPath)
-  if(!original||!recorded)throw new Error('The original file version is unavailable; keep this document open and use Save As.')
-  const version=await rebindDocRename(newPath,original,recorded.hash)
-  if(wc.isDestroyed()||tornDownWcIds.has(wc.id)||docCloseSourceIdentities.get(wc.id)!==source||docDiskVersions.get(wc.id)?.get(oldPath)!==original)throw new Error('The document changed while its moved file was being verified.')
-  const versions=docDiskVersions.get(wc.id)!,states=docDiskStates.get(wc.id)!
-  versions.delete(oldPath);versions.set(newPath,version)
-  states.delete(oldPath);states.set(newPath,{...recorded,mtimeMs:version.mtimeMs,size:version.size})
-  allowDocWrite(wc.id,newPath);rememberOpenDoc(wc.id,newPath)
-  renameDocPassword(wc.id,oldPath,newPath)
-  moveLazyMediaSource(oldPath,newPath)
-  docDrafts.rename(wc.id,oldPath,newPath)
-  wc.send('docs:renamed',{oldPath,newPath})
+  if (!original || !recorded)
+    throw new Error(
+      'The original file version is unavailable; keep this document open and use Save As.',
+    )
+  const version = await rebindDocRename(newPath, original, recorded.hash)
+  if (
+    wc.isDestroyed() ||
+    tornDownWcIds.has(wc.id) ||
+    docCloseSourceIdentities.get(wc.id) !== source ||
+    docDiskVersions.get(wc.id)?.get(oldPath) !== original
+  )
+    throw new Error('The document changed while its moved file was being verified.')
+  const versions = docDiskVersions.get(wc.id)!,
+    states = docDiskStates.get(wc.id)!
+  versions.delete(oldPath)
+  versions.set(newPath, version)
+  states.delete(oldPath)
+  states.set(newPath, { ...recorded, mtimeMs: version.mtimeMs, size: version.size })
+  allowDocWrite(wc.id, newPath)
+  rememberOpenDoc(wc.id, newPath)
+  renameDocPassword(wc.id, oldPath, newPath)
+  moveLazyMediaSource(oldPath, newPath)
+  docDrafts.rename(wc.id, oldPath, newPath)
+  wc.send('docs:renamed', { oldPath, newPath })
 }
 
 /** keep a renamed file at its old position in the recent/starred lists */
@@ -3760,9 +3808,12 @@ const docDrafts = new DocDraftController({
   },
 })
 
-const docsOutputGrants=new DocsOutputGrants<WebContents>()
-const docsExportOwners=new Map<number,WebContents>()
-const docsHeadlessExportActive=new Map<number,{owner:WebContents;input:string;outPath:string}>()
+const docsOutputGrants = new DocsOutputGrants<WebContents>()
+const docsExportOwners = new Map<number, WebContents>()
+const docsHeadlessExportActive = new Map<
+  number,
+  { owner: WebContents; input: string; outPath: string }
+>()
 const docCloseSourceIdentities = new Map<number, string>()
 const docCloseSourceEpochs = new WeakMap<WebContents, number>()
 let docsCloseInvalidationHook = (_owner: number): void => {}
@@ -3783,30 +3834,75 @@ export function docsCloseSourceToken(owner: number): string {
   if (!source) throw new Error('The document source identity has not been confirmed.')
   return `${owner}:${source}`
 }
-function docsMarkdownMediaDirectory(path:string):string{return join(dirname(path),basename(path).replace(/\.md$/i,'')+'_files')}
-function docsNativeCloseSource(owner:WebContents):string{return `${owner.id}:${docCloseSourceEpochs.get(owner)??0}:${docCloseSourceIdentities.get(owner.id)??'pending'}`}
-function captureDocsExportSource(event:IpcMainInvokeEvent){
-  const owner=event.sender,source=docsCloseSourceToken(owner.id),epoch=docCloseSourceEpochs.get(owner),path=openDocByWc.get(owner.id),frame=owner.mainFrame
-  docsExportOwners.set(owner.id,owner)
-  return{sourcePaths:path?[path]:[],assertCurrent:()=>{
-    if(owner.isDestroyed()||tornDownWcIds.has(owner.id)||event.senderFrame!==frame||owner.mainFrame!==frame||docsCloseSourceToken(owner.id)!==source||docCloseSourceEpochs.get(owner)!==epoch||openDocByWc.get(owner.id)!==path)throw new Error('The loaded document changed before export publication.')
-  }}
+function docsMarkdownMediaDirectory(path: string): string {
+  return join(dirname(path), basename(path).replace(/\.md$/i, '') + '_files')
+}
+function docsNativeCloseSource(owner: WebContents): string {
+  return `${owner.id}:${docCloseSourceEpochs.get(owner) ?? 0}:${docCloseSourceIdentities.get(owner.id) ?? 'pending'}`
+}
+function captureDocsExportSource(event: IpcMainInvokeEvent) {
+  const owner = event.sender,
+    source = docsCloseSourceToken(owner.id),
+    epoch = docCloseSourceEpochs.get(owner),
+    path = openDocByWc.get(owner.id),
+    frame = owner.mainFrame
+  docsExportOwners.set(owner.id, owner)
+  return {
+    sourcePaths: path ? [path] : [],
+    assertCurrent: () => {
+      if (
+        owner.isDestroyed() ||
+        tornDownWcIds.has(owner.id) ||
+        event.senderFrame !== frame ||
+        owner.mainFrame !== frame ||
+        docsCloseSourceToken(owner.id) !== source ||
+        docCloseSourceEpochs.get(owner) !== epoch ||
+        openDocByWc.get(owner.id) !== path
+      )
+        throw new Error('The loaded document changed before export publication.')
+    },
+  }
 }
 /** Headless owner must await this before loading its renderer. */
-export async function pinDocsHeadlessExportTarget(owner:WebContents,input:string,outPath:string):Promise<void>{
-  const active={owner,input,outPath},format=headlessExportTargets.get(owner.id)?.format
-  docsExportOwners.set(owner.id,owner);docsHeadlessExportActive.set(owner.id,active)
-  await docsOutputGrants.captureFile(owner,outPath,{sourcePaths:[input],assertCurrent:()=>{
-    if(owner.isDestroyed()||docsHeadlessExportActive.get(owner.id)!==active)throw new Error('The headless export has ended.')
-  }},format==='md'?{mediaDirectory:docsMarkdownMediaDirectory(outPath)}:{})
+export async function pinDocsHeadlessExportTarget(
+  owner: WebContents,
+  input: string,
+  outPath: string,
+): Promise<void> {
+  const active = { owner, input, outPath },
+    format = headlessExportTargets.get(owner.id)?.format
+  docsExportOwners.set(owner.id, owner)
+  docsHeadlessExportActive.set(owner.id, active)
+  await docsOutputGrants.captureFile(
+    owner,
+    outPath,
+    {
+      sourcePaths: [input],
+      assertCurrent: () => {
+        if (owner.isDestroyed() || docsHeadlessExportActive.get(owner.id) !== active)
+          throw new Error('The headless export has ended.')
+      },
+    },
+    format === 'md' ? { mediaDirectory: docsMarkdownMediaDirectory(outPath) } : {},
+  )
 }
 /** Close admission synchronously on terminal report/timeout/crash, then join actual work. */
-export function closeDocsExportAdmission(owner:WebContents):void{if(docsHeadlessExportActive.get(owner.id)?.owner===owner)docsHeadlessExportActive.delete(owner.id);docsOutputGrants.closeAdmission(owner)}
-export async function awaitDocsExportSettlement(owner:WebContents):Promise<void>{await docsOutputGrants.drain(owner)}
-export function docsExportSelectionId(owner:WebContents,path:string):string{return docsOutputGrants.fileSelection(owner,path)}
+export function closeDocsExportAdmission(owner: WebContents): void {
+  if (docsHeadlessExportActive.get(owner.id)?.owner === owner)
+    docsHeadlessExportActive.delete(owner.id)
+  docsOutputGrants.closeAdmission(owner)
+}
+export async function awaitDocsExportSettlement(owner: WebContents): Promise<void> {
+  await docsOutputGrants.drain(owner)
+}
+export function docsExportSelectionId(owner: WebContents, path: string): string {
+  return docsOutputGrants.fileSelection(owner, path)
+}
 
 setDocsCloseSourceReader((owner) => docsCloseSourceToken(owner.id))
-setDocsCloseStampValidator((owner, stamp) => docCloseSourceIdentities.get(owner.id) === stamp.source)
+setDocsCloseStampValidator(
+  (owner, stamp) => docCloseSourceIdentities.get(owner.id) === stamp.source,
+)
 
 function registerDocDraftOwner(contents: WebContents): void {
   const owner = contents.id
@@ -3889,8 +3985,6 @@ function allowPdfWrite(wcId: number, filePath: string): void {
 // is treated as pre-authorized for PDF export.
 const testExportDir = process.env.VANTAGE_TEST_EXPORT_DIR || null
 
-
-
 function canPdfWrite(wcId: number, filePath: string): boolean {
   if (testExportDir && filePath.startsWith(testExportDir + '/')) return true
   return pdfWritablePaths.get(wcId)?.has(filePath) === true
@@ -3926,8 +4020,12 @@ function releaseSpellIgnores(wcId: number): void {
 }
 
 function dropDocWriter(wcId: number): void {
-  const exportOwner=docsExportOwners.get(wcId)
-  if(exportOwner){closeDocsExportAdmission(exportOwner);void awaitDocsExportSettlement(exportOwner).catch(()=>{});docsExportOwners.delete(wcId)}
+  const exportOwner = docsExportOwners.get(wcId)
+  if (exportOwner) {
+    closeDocsExportAdmission(exportOwner)
+    void awaitDocsExportSettlement(exportOwner).catch(() => {})
+    docsExportOwners.delete(wcId)
+  }
   docDrafts.retire(wcId)
   docDraftOwners.delete(wcId)
   preserveDraftOnClose.delete(wcId)
@@ -3952,23 +4050,31 @@ function dropDocWriter(wcId: number): void {
 // ── External-modification detection: remember the disk state at every read/write
 // so docs:save can refuse to clobber edits made by Word/another window ──
 const docDiskStates = new Map<number, Map<string, DiskFileState>>()
-const docDiskVersions = new Map<number,Map<string,AtomicFileVersion>>()
-function docLoadedVersion(owner:number,path:string):AtomicFileVersion|undefined{return [...(docDiskVersions.get(owner)??[])].find(([candidate])=>sameDocPublicationPath(candidate,path))?.[1]}
+const docDiskVersions = new Map<number, Map<string, AtomicFileVersion>>()
+function docLoadedVersion(owner: number, path: string): AtomicFileVersion | undefined {
+  return [...(docDiskVersions.get(owner) ?? [])].find(([candidate]) =>
+    sameDocPublicationPath(candidate, path),
+  )?.[1]
+}
 
 const sha256Hex = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
 
-async function rememberDiskState(wcId:number,filePath:string,hash:string):Promise<void>{
-  try{
-    const version=await readAtomicFileVersion(filePath)
-    if(!version||(version.sha256!==undefined&&version.sha256!==hash))throw new Error('The file changed before its saved baseline could be verified.')
-    const states=docDiskStates.get(wcId)??new Map<string,DiskFileState>()
-    states.set(filePath,{mtimeMs:version.mtimeMs,size:version.size,hash});docDiskStates.set(wcId,states)
-    const versions=docDiskVersions.get(wcId)??new Map<string,AtomicFileVersion>()
-    versions.set(filePath,Object.freeze({...version}));docDiskVersions.set(wcId,versions)
-  }catch{
+async function rememberDiskState(wcId: number, filePath: string, hash: string): Promise<void> {
+  try {
+    const version = await readAtomicFileVersion(filePath)
+    if (!version || (version.sha256 !== undefined && version.sha256 !== hash))
+      throw new Error('The file changed before its saved baseline could be verified.')
+    const states = docDiskStates.get(wcId) ?? new Map<string, DiskFileState>()
+    states.set(filePath, { mtimeMs: version.mtimeMs, size: version.size, hash })
+    docDiskStates.set(wcId, states)
+    const versions = docDiskVersions.get(wcId) ?? new Map<string, AtomicFileVersion>()
+    versions.set(filePath, Object.freeze({ ...version }))
+    docDiskVersions.set(wcId, versions)
+  } catch {
     // An unknown baseline must refuse the next ordinary overwrite, not adopt a
     // fresh live-disk version after edits/materialization have already begun.
-    docDiskVersions.get(wcId)?.delete(filePath);docDiskStates.get(wcId)?.delete(filePath)
+    docDiskVersions.get(wcId)?.delete(filePath)
+    docDiskStates.get(wcId)?.delete(filePath)
   }
 }
 
@@ -4123,10 +4229,14 @@ async function prepareDocumentForOpen(
   )
   if (picked.canceled || !picked.filePath) return null
   try {
-    await publishSelectedUserOutput(picked.filePath,async()=>{
-      const result=await convertOdtToDocx(new Uint8Array(await readFile(filePath)))
-      return Buffer.from(result.docx)
-    },{sourcePaths:[filePath]})
+    await publishSelectedUserOutput(
+      picked.filePath,
+      async () => {
+        const result = await convertOdtToDocx(new Uint8Array(await readFile(filePath)))
+        return Buffer.from(result.docx)
+      },
+      { sourcePaths: [filePath] },
+    )
   } catch {
     if (parent && !parent.isDestroyed()) {
       await dialog.showMessageBox(parent, {
@@ -5040,10 +5150,21 @@ export function registerDocsIpc(): void {
   // Takes effect on the next save (docs:save / save-as / save-new all consult the store).
   ipcMain.handle(
     'docs:set-password',
-    (event, filePath: string | null, password: string | null, sourceIdentity:unknown): { ok: boolean;error?:string } => {
+    (
+      event,
+      filePath: string | null,
+      password: string | null,
+      sourceIdentity: unknown,
+    ): { ok: boolean; error?: string } => {
       if (tornDownWcIds.has(event.sender.id)) return { ok: false }
-      if (typeof sourceIdentity !== 'string' || sourceIdentity !== docCloseSourceIdentities.get(event.sender.id))
-        return {ok:false,error:'The document changed before the password request could be applied.'}
+      if (
+        typeof sourceIdentity !== 'string' ||
+        sourceIdentity !== docCloseSourceIdentities.get(event.sender.id)
+      )
+        return {
+          ok: false,
+          error: 'The document changed before the password request could be applied.',
+        }
       if (filePath !== null && typeof filePath !== 'string') return { ok: false }
       if (password !== null && (typeof password !== 'string' || password.length === 0)) {
         return { ok: false }
@@ -5136,17 +5257,23 @@ export function registerDocsIpc(): void {
 
   // ---- headless export mode (--headless-export) ----
 
-  ipcMain.handle('docs:consume-headless-export', (event): (HeadlessExportTarget & { selectionId: string }) | null => {
-    const target = headlessExportTargets.get(event.sender.id) ?? null
-    if (!target) return null
-    const selectionId = docsExportSelectionId(event.sender, target.outPath)
-    if (typeof selectionId !== 'string' || selectionId.length === 0 ||
-      headlessExportTargets.get(event.sender.id) !== target) {
-      throw new Error('The headless document export selection is no longer current.')
-    }
-    headlessExportTargets.delete(event.sender.id)
-    return { ...target, selectionId }
-  })
+  ipcMain.handle(
+    'docs:consume-headless-export',
+    (event): (HeadlessExportTarget & { selectionId: string }) | null => {
+      const target = headlessExportTargets.get(event.sender.id) ?? null
+      if (!target) return null
+      const selectionId = docsExportSelectionId(event.sender, target.outPath)
+      if (
+        typeof selectionId !== 'string' ||
+        selectionId.length === 0 ||
+        headlessExportTargets.get(event.sender.id) !== target
+      ) {
+        throw new Error('The headless document export selection is no longer current.')
+      }
+      headlessExportTargets.delete(event.sender.id)
+      return { ...target, selectionId }
+    },
+  )
 
   ipcMain.on('docs:headless-export-done', (event, result: unknown) => {
     const settle = headlessExportWaiters.get(event.sender.id)
@@ -5163,84 +5290,110 @@ export function registerDocsIpc(): void {
   ipcMain.handle(
     'docs:save',
     async (event, filePath: string, data: ArrayBuffer, auto?: boolean, closeTicket?: unknown) => {
-      const finishWrite=nativeDocsClose.beginWrite(event.sender,auto === true,closeTicket)
-      if(!finishWrite)return{ok:false,reason:'close-pending',error:'Another save or close decision is still finishing.'}
-      try{
-      try {
-        // only paths this renderer opened or chose via save-as may be overwritten
-        if (typeof filePath !== 'string' || !canDocWrite(event.sender.id, filePath)) {
-          return { ok: false, error: 'save target is not an opened document' }
-        }
-        let expectedVersion=loadedDocVersion(docLoadedVersion(event.sender.id,filePath))
-        if (await diskChangedExternally(event.sender.id, filePath)) {
-          // autosave must never clobber another program's edits silently; the
-          // renderer stays dirty and the next manual save raises the dialog
-          if (auto === true) return { ok: false, reason: 'external-modified' }
-          const approvedVersion=await readAtomicFileVersion(filePath)
-          if(!approvedVersion)return{ok:false,reason:'external-modified',error:'The original file moved or was removed. Use Save As to a separate file.'}
-          const options = {
-            type: 'warning' as const,
-            message: tm('extModifiedMsg'),
-            detail: tm('extModifiedDetail'),
-            buttons: [tm('btnOverwrite'), tm('btnCancel')],
-            defaultId: 0,
-            cancelId: 1,
-            noLink: true,
-          }
-          const parent = dialogParent(event)
-          const { response } =
-            parent && !parent.isDestroyed()
-              ? await dialog.showMessageBox(parent, options)
-              : await dialog.showMessageBox(options)
-          if (response !== 0) return { ok: false, reason: 'external-modified' }
-          expectedVersion=loadedDocVersion(approvedVersion)
-        }
-        // The tab may have been closed while the external-change check or the
-        // overwrite prompt was pending: a Don't Save close revoked this tab's
-        // grants, and landing the write now would persist discarded edits.
-        if (tornDownWcIds.has(event.sender.id) || !canDocWrite(event.sender.id, filePath)) {
-          return { ok: false, error: 'save target is not an opened document' }
-        }
-        // Snapshot desired state: the disk password remains unchanged until the
-        // atomic write succeeds, and a newer ribbon intent survives this save.
-        const passwordState = snapshotDocPassword(event.sender.id, filePath)
-        const {plain,hashes,bytes}=await prepareAndPublishDocx(filePath,expectedVersion,async()=>{
-          const {bytes:plain,hashes}=await materializeLazyDocx(Buffer.from(data))
-          return{plain,hashes,bytes:passwordState.password?encryptDocx(plain,passwordState.password):plain}
-        },closeTicket===undefined?undefined:()=>{if(!nativeDocsClose.canPublish(event.sender,closeTicket))throw new Error('The close-save permission became obsolete before publication.')})
-        // Teardown may have cleared all in-memory secrets while the atomic
-        // write was pending. Never resurrect state for an orphaned renderer.
-        if (tornDownWcIds.has(event.sender.id)) {
-          return { ok: false, error: 'save target is not an opened document' }
-        }
-        await rememberDiskState(event.sender.id, filePath, sha256Hex(bytes))
-        if (tornDownWcIds.has(event.sender.id)) {
-          return { ok: false, error: 'save target is not an opened document' }
-        }
-        pointLazyMediaAt(
-          hashes,
-          filePath,
-          event.sender.id,
-          passwordState.password ? plain : undefined,
-        )
-        // Commit immediately after the final await: intents received during
-        // post-write bookkeeping are included, with no later async race.
-        const passwordIntentPending = commitDocPasswordSave(
-          event.sender.id,
-          passwordState,
-          filePath,
-        )
-        clearRecoveryCopy(filePath)
-        pushRecent(filePath)
+      const finishWrite = nativeDocsClose.beginWrite(event.sender, auto === true, closeTicket)
+      if (!finishWrite)
         return {
-          ok: true,
-          passwordIntentPending,
-          ...reissuedDoc(!!passwordState.password, hashes, plain),
+          ok: false,
+          reason: 'close-pending',
+          error: 'Another save or close decision is still finishing.',
         }
-      } catch (err) {
-        return { ok: false, error: String(err) }
+      try {
+        try {
+          // only paths this renderer opened or chose via save-as may be overwritten
+          if (typeof filePath !== 'string' || !canDocWrite(event.sender.id, filePath)) {
+            return { ok: false, error: 'save target is not an opened document' }
+          }
+          let expectedVersion = loadedDocVersion(docLoadedVersion(event.sender.id, filePath))
+          if (await diskChangedExternally(event.sender.id, filePath)) {
+            // autosave must never clobber another program's edits silently; the
+            // renderer stays dirty and the next manual save raises the dialog
+            if (auto === true) return { ok: false, reason: 'external-modified' }
+            const approvedVersion = await readAtomicFileVersion(filePath)
+            if (!approvedVersion)
+              return {
+                ok: false,
+                reason: 'external-modified',
+                error: 'The original file moved or was removed. Use Save As to a separate file.',
+              }
+            const options = {
+              type: 'warning' as const,
+              message: tm('extModifiedMsg'),
+              detail: tm('extModifiedDetail'),
+              buttons: [tm('btnOverwrite'), tm('btnCancel')],
+              defaultId: 0,
+              cancelId: 1,
+              noLink: true,
+            }
+            const parent = dialogParent(event)
+            const { response } =
+              parent && !parent.isDestroyed()
+                ? await dialog.showMessageBox(parent, options)
+                : await dialog.showMessageBox(options)
+            if (response !== 0) return { ok: false, reason: 'external-modified' }
+            expectedVersion = loadedDocVersion(approvedVersion)
+          }
+          // The tab may have been closed while the external-change check or the
+          // overwrite prompt was pending: a Don't Save close revoked this tab's
+          // grants, and landing the write now would persist discarded edits.
+          if (tornDownWcIds.has(event.sender.id) || !canDocWrite(event.sender.id, filePath)) {
+            return { ok: false, error: 'save target is not an opened document' }
+          }
+          // Snapshot desired state: the disk password remains unchanged until the
+          // atomic write succeeds, and a newer ribbon intent survives this save.
+          const passwordState = snapshotDocPassword(event.sender.id, filePath)
+          const { plain, hashes, bytes } = await prepareAndPublishDocx(
+            filePath,
+            expectedVersion,
+            async () => {
+              const { bytes: plain, hashes } = await materializeLazyDocx(Buffer.from(data))
+              return {
+                plain,
+                hashes,
+                bytes: passwordState.password ? encryptDocx(plain, passwordState.password) : plain,
+              }
+            },
+            closeTicket === undefined
+              ? undefined
+              : () => {
+                  if (!nativeDocsClose.canPublish(event.sender, closeTicket))
+                    throw new Error('The close-save permission became obsolete before publication.')
+                },
+          )
+          // Teardown may have cleared all in-memory secrets while the atomic
+          // write was pending. Never resurrect state for an orphaned renderer.
+          if (tornDownWcIds.has(event.sender.id)) {
+            return { ok: false, error: 'save target is not an opened document' }
+          }
+          await rememberDiskState(event.sender.id, filePath, sha256Hex(bytes))
+          if (tornDownWcIds.has(event.sender.id)) {
+            return { ok: false, error: 'save target is not an opened document' }
+          }
+          pointLazyMediaAt(
+            hashes,
+            filePath,
+            event.sender.id,
+            passwordState.password ? plain : undefined,
+          )
+          // Commit immediately after the final await: intents received during
+          // post-write bookkeeping are included, with no later async race.
+          const passwordIntentPending = commitDocPasswordSave(
+            event.sender.id,
+            passwordState,
+            filePath,
+          )
+          clearRecoveryCopy(filePath)
+          pushRecent(filePath)
+          return {
+            ok: true,
+            passwordIntentPending,
+            ...reissuedDoc(!!passwordState.password, hashes, plain),
+          }
+        } catch (err) {
+          return { ok: false, error: String(err) }
+        }
+      } finally {
+        finishWrite()
       }
-      }finally{finishWrite()}
     },
   )
 
@@ -5249,8 +5402,9 @@ export function registerDocsIpc(): void {
       if (sourceIdentity !== undefined) {
         if (typeof sourceIdentity !== 'string' || !sourceIdentity || sourceIdentity.length > 1024)
           throw new Error('Invalid document source identity.')
-        docsOutputGrants.transitionSource(event.sender,()=>{
-          if (docCloseSourceIdentities.get(event.sender.id) !== sourceIdentity) invalidateDocsClose(event.sender.id)
+        docsOutputGrants.transitionSource(event.sender, () => {
+          if (docCloseSourceIdentities.get(event.sender.id) !== sourceIdentity)
+            invalidateDocsClose(event.sender.id)
           docCloseSourceIdentities.set(event.sender.id, sourceIdentity)
           return docsNativeCloseSource(event.sender)
         })
@@ -5405,113 +5559,176 @@ export function registerDocsIpc(): void {
 
   ipcMain.handle(
     'docs:save-as',
-    async (event, defaultName: string, data: ArrayBuffer, sourcePath?: string | null, closeTicket?: unknown) => {
-      const finishWrite=nativeDocsClose.beginWrite(event.sender,false,closeTicket)
-      if(!finishWrite)return{ok:false,reason:'close-pending',error:'Another save or close decision is still finishing.'}
-      try{
-      // an orphaned (closed-tab) renderer must not open dialogs or land new files
-      if (tornDownWcIds.has(event.sender.id)) return { ok: false }
-      const result = await saveDialog(event, {
-        title: tm('dlgSaveAs'),
-        defaultPath: saveAsSuggestion(
-          typeof sourcePath === 'string' ? sourcePath : null,
-          defaultName,
-        ),
-        filters: [{ name: tm('filterWord'), extensions: ['docx'] }],
-      })
-      if (result.canceled || !result.filePath) return { ok: false }
-      // the tab may have been closed while the dialog was open; checked before the
-      // write because Save As may overwrite an existing file (no safe rollback)
-      if (tornDownWcIds.has(event.sender.id)) return { ok: false }
-      try {
-        const expectedVersion=await readAtomicFileVersion(result.filePath)
-        const passwordState = snapshotDocPassword(
-          event.sender.id,
-          typeof sourcePath === 'string' && sourcePath ? sourcePath : null,
-        )
-        const {plain,hashes,bytes}=await prepareAndPublishDocx(result.filePath,expectedVersion,async()=>{
-          const {bytes:plain,hashes}=await materializeLazyDocx(Buffer.from(data))
-          return{plain,hashes,bytes:passwordState.password?encryptDocx(plain,passwordState.password):plain}
-        },closeTicket===undefined?undefined:()=>{if(!nativeDocsClose.canPublish(event.sender,closeTicket))throw new Error('The close-save permission became obsolete before publication.')})
-        if (tornDownWcIds.has(event.sender.id)) return { ok: false }
-        allowDocWrite(event.sender.id, result.filePath)
-        rememberOpenDoc(event.sender.id, result.filePath)
-        await rememberDiskState(event.sender.id, result.filePath, sha256Hex(bytes))
-        pointLazyMediaAt(
-          hashes,
-          result.filePath,
-          event.sender.id,
-          passwordState.password ? plain : undefined,
-        )
-        if (tornDownWcIds.has(event.sender.id)) return { ok: false }
-        const passwordIntentPending = commitDocPasswordSave(
-          event.sender.id,
-          passwordState,
-          result.filePath,
-        )
-        pushRecent(result.filePath)
-        // the renderer has no path yet to match a rename notification against,
-        // so the reply must carry the path it may save to next
-        const savedPath = notifyFileSaved(event.sender, result.filePath)
+    async (
+      event,
+      defaultName: string,
+      data: ArrayBuffer,
+      sourcePath?: string | null,
+      closeTicket?: unknown,
+    ) => {
+      const finishWrite = nativeDocsClose.beginWrite(event.sender, false, closeTicket)
+      if (!finishWrite)
         return {
-          ok: true,
-          path: savedPath,
-          passwordIntentPending,
-          ...reissuedDoc(!!passwordState.password, hashes, plain),
+          ok: false,
+          reason: 'close-pending',
+          error: 'Another save or close decision is still finishing.',
         }
-      } catch (err) {
-        return { ok: false, error: String(err) }
+      try {
+        // an orphaned (closed-tab) renderer must not open dialogs or land new files
+        if (tornDownWcIds.has(event.sender.id)) return { ok: false }
+        const result = await saveDialog(event, {
+          title: tm('dlgSaveAs'),
+          defaultPath: saveAsSuggestion(
+            typeof sourcePath === 'string' ? sourcePath : null,
+            defaultName,
+          ),
+          filters: [{ name: tm('filterWord'), extensions: ['docx'] }],
+        })
+        if (result.canceled || !result.filePath) return { ok: false }
+        // the tab may have been closed while the dialog was open; checked before the
+        // write because Save As may overwrite an existing file (no safe rollback)
+        if (tornDownWcIds.has(event.sender.id)) return { ok: false }
+        try {
+          const expectedVersion = await readAtomicFileVersion(result.filePath)
+          const passwordState = snapshotDocPassword(
+            event.sender.id,
+            typeof sourcePath === 'string' && sourcePath ? sourcePath : null,
+          )
+          const { plain, hashes, bytes } = await prepareAndPublishDocx(
+            result.filePath,
+            expectedVersion,
+            async () => {
+              const { bytes: plain, hashes } = await materializeLazyDocx(Buffer.from(data))
+              return {
+                plain,
+                hashes,
+                bytes: passwordState.password ? encryptDocx(plain, passwordState.password) : plain,
+              }
+            },
+            closeTicket === undefined
+              ? undefined
+              : () => {
+                  if (!nativeDocsClose.canPublish(event.sender, closeTicket))
+                    throw new Error('The close-save permission became obsolete before publication.')
+                },
+          )
+          if (tornDownWcIds.has(event.sender.id)) return { ok: false }
+          allowDocWrite(event.sender.id, result.filePath)
+          rememberOpenDoc(event.sender.id, result.filePath)
+          await rememberDiskState(event.sender.id, result.filePath, sha256Hex(bytes))
+          pointLazyMediaAt(
+            hashes,
+            result.filePath,
+            event.sender.id,
+            passwordState.password ? plain : undefined,
+          )
+          if (tornDownWcIds.has(event.sender.id)) return { ok: false }
+          const passwordIntentPending = commitDocPasswordSave(
+            event.sender.id,
+            passwordState,
+            result.filePath,
+          )
+          pushRecent(result.filePath)
+          // the renderer has no path yet to match a rename notification against,
+          // so the reply must carry the path it may save to next
+          const savedPath = notifyFileSaved(event.sender, result.filePath)
+          return {
+            ok: true,
+            path: savedPath,
+            passwordIntentPending,
+            ...reissuedDoc(!!passwordState.password, hashes, plain),
+          }
+        } catch (err) {
+          return { ok: false, error: String(err) }
+        }
+      } finally {
+        finishWrite()
       }
-      }finally{finishWrite()}
     },
   )
 
-  ipcMain.handle('docs:save-new', async (event, defaultName: string, data: ArrayBuffer, closeTicket?: unknown) => {
-      const finishWrite=nativeDocsClose.beginWrite(event.sender,false,closeTicket)
-      if(!finishWrite)return{ok:false,reason:'close-pending',error:'Another save or close decision is still finishing.'}
-      try{
-    try {
-      // a discarded draft in an orphaned renderer must not silently persist
-      // itself to the default folder after the user chose Don't Save
-      if (tornDownWcIds.has(event.sender.id)) return { ok: false }
-      const filePath = uniquePathIn(defaultSaveDir(), defaultName)
-      const expectedVersion=null
-      const passwordState = snapshotDocPassword(event.sender.id, null)
-      const {plain,hashes,bytes}=await prepareAndPublishDocx(filePath,expectedVersion,async()=>{
-        const {bytes:plain,hashes}=await materializeLazyDocx(Buffer.from(data))
-        return{plain,hashes,bytes:passwordState.password?encryptDocx(plain,passwordState.password):plain}
-      },closeTicket===undefined?undefined:()=>{if(!nativeDocsClose.canPublish(event.sender,closeTicket))throw new Error('The close-save permission became obsolete before publication.')})
-      // A successful creation does not prove later pathname ownership. Keep a
-      // published output visible when its renderer has already closed.
-      if (tornDownWcIds.has(event.sender.id)) {
-        return {ok:false,error:'The editor closed after publication; the saved output was retained for review.'}
+  ipcMain.handle(
+    'docs:save-new',
+    async (event, defaultName: string, data: ArrayBuffer, closeTicket?: unknown) => {
+      const finishWrite = nativeDocsClose.beginWrite(event.sender, false, closeTicket)
+      if (!finishWrite)
+        return {
+          ok: false,
+          reason: 'close-pending',
+          error: 'Another save or close decision is still finishing.',
+        }
+      try {
+        try {
+          // a discarded draft in an orphaned renderer must not silently persist
+          // itself to the default folder after the user chose Don't Save
+          if (tornDownWcIds.has(event.sender.id)) return { ok: false }
+          const filePath = uniquePathIn(defaultSaveDir(), defaultName)
+          const expectedVersion = null
+          const passwordState = snapshotDocPassword(event.sender.id, null)
+          const { plain, hashes, bytes } = await prepareAndPublishDocx(
+            filePath,
+            expectedVersion,
+            async () => {
+              const { bytes: plain, hashes } = await materializeLazyDocx(Buffer.from(data))
+              return {
+                plain,
+                hashes,
+                bytes: passwordState.password ? encryptDocx(plain, passwordState.password) : plain,
+              }
+            },
+            closeTicket === undefined
+              ? undefined
+              : () => {
+                  if (!nativeDocsClose.canPublish(event.sender, closeTicket))
+                    throw new Error('The close-save permission became obsolete before publication.')
+                },
+          )
+          // A successful creation does not prove later pathname ownership. Keep a
+          // published output visible when its renderer has already closed.
+          if (tornDownWcIds.has(event.sender.id)) {
+            return {
+              ok: false,
+              error:
+                'The editor closed after publication; the saved output was retained for review.',
+            }
+          }
+          allowDocWrite(event.sender.id, filePath)
+          rememberOpenDoc(event.sender.id, filePath)
+          await rememberDiskState(event.sender.id, filePath, sha256Hex(bytes))
+          pointLazyMediaAt(
+            hashes,
+            filePath,
+            event.sender.id,
+            passwordState.password ? plain : undefined,
+          )
+          if (tornDownWcIds.has(event.sender.id)) {
+            return {
+              ok: false,
+              error:
+                'The editor closed after publication; the saved output was retained for review.',
+            }
+          }
+          const passwordIntentPending = commitDocPasswordSave(
+            event.sender.id,
+            passwordState,
+            filePath,
+          )
+          pushRecent(filePath)
+          const savedPath = notifyFileSaved(event.sender, filePath)
+          return {
+            ok: true,
+            path: savedPath,
+            passwordIntentPending,
+            ...reissuedDoc(!!passwordState.password, hashes, plain),
+          }
+        } catch (err) {
+          return { ok: false, error: String(err) }
+        }
+      } finally {
+        finishWrite()
       }
-      allowDocWrite(event.sender.id, filePath)
-      rememberOpenDoc(event.sender.id, filePath)
-      await rememberDiskState(event.sender.id, filePath, sha256Hex(bytes))
-      pointLazyMediaAt(
-        hashes,
-        filePath,
-        event.sender.id,
-        passwordState.password ? plain : undefined,
-      )
-      if (tornDownWcIds.has(event.sender.id)) {
-        return {ok:false,error:'The editor closed after publication; the saved output was retained for review.'}
-      }
-      const passwordIntentPending = commitDocPasswordSave(event.sender.id, passwordState, filePath)
-      pushRecent(filePath)
-      const savedPath = notifyFileSaved(event.sender, filePath)
-      return {
-        ok: true,
-        path: savedPath,
-        passwordIntentPending,
-        ...reissuedDoc(!!passwordState.password, hashes, plain),
-      }
-    } catch (err) {
-      return { ok: false, error: String(err) }
-    }
-      }finally{finishWrite()}
-  })
+    },
+  )
 
   ipcMain.handle(
     'docs:create-document',
@@ -5525,69 +5742,104 @@ export function registerDocsIpc(): void {
   // clobber an existing file unless the caller asked for overwrite.
   ipcMain.handle(
     'docs:save-to',
-    async (event, filePath: string, data: ArrayBuffer, overwrite: boolean, closeTicket?: unknown) => {
-      const finishWrite=nativeDocsClose.beginWrite(event.sender,false,closeTicket)
-      if(!finishWrite)return{ok:false,reason:'close-pending',error:'Another save or close decision is still finishing.'}
-      try{
-      try {
-        if (tornDownWcIds.has(event.sender.id)) return { ok: false }
-        if (typeof filePath !== 'string' || !isAbsolute(filePath)) {
-          return { ok: false, error: 'path must be absolute' }
-        }
-        if (extname(filePath).toLowerCase() !== '.docx') {
-          return { ok: false, error: 'path must point to a .docx file' }
-        }
-        // only a target the MCP layer resolved for this tab may be written
-        if (!canDocWrite(event.sender.id, filePath)) {
-          return { ok: false, error: 'save target was not authorized' }
-        }
-        const expectedVersion=(openDocByWc.get(event.sender.id)!==undefined&&sameDocPublicationPath(openDocByWc.get(event.sender.id)!,filePath))?loadedDocVersion(docLoadedVersion(event.sender.id,filePath)):await readAtomicFileVersion(filePath)
-        const existed=expectedVersion!==null
-        if (!overwrite && existed) {
-          return {
-            ok: false,
-            error: `file already exists: ${filePath} (pass overwrite:true to replace it)`,
-          }
-        }
-        await mkdir(dirname(filePath), { recursive: true })
-        const passwordState = snapshotDocPassword(event.sender.id, null)
-        const {plain,hashes,bytes}=await prepareAndPublishDocx(filePath,expectedVersion,async()=>{
-          const {bytes:plain,hashes}=await materializeLazyDocx(Buffer.from(data))
-          return{plain,hashes,bytes:passwordState.password?encryptDocx(plain,passwordState.password):plain}
-        },closeTicket===undefined?undefined:()=>{if(!nativeDocsClose.canPublish(event.sender,closeTicket))throw new Error('The close-save permission became obsolete before publication.')})
-        // A late orphan does not grant permission to delete the current path.
-        const retainedOutput = async (): Promise<{ ok: false; error?:string }> => {
-          // Publication does not prove later pathname ownership. Keep an
-          // uncertain separate output visible rather than unlink a replacement.
-          return {ok:false,error:'The editor closed after publication; the saved output was retained for review.'}
-        }
-        if (tornDownWcIds.has(event.sender.id)) return retainedOutput()
-        await rememberDiskState(event.sender.id, filePath, sha256Hex(bytes))
-        pointLazyMediaAt(
-          hashes,
-          filePath,
-          event.sender.id,
-          passwordState.password ? plain : undefined,
-        )
-        if (tornDownWcIds.has(event.sender.id)) return retainedOutput()
-        const passwordIntentPending = commitDocPasswordSave(
-          event.sender.id,
-          passwordState,
-          filePath,
-        )
-        pushRecent(filePath)
-        rememberOpenDoc(event.sender.id, filePath)
-        notifyFileSaved(event.sender, filePath)
+    async (
+      event,
+      filePath: string,
+      data: ArrayBuffer,
+      overwrite: boolean,
+      closeTicket?: unknown,
+    ) => {
+      const finishWrite = nativeDocsClose.beginWrite(event.sender, false, closeTicket)
+      if (!finishWrite)
         return {
-          ok: true,
-          path: filePath,
-          passwordIntentPending,
-          ...reissuedDoc(!!passwordState.password, hashes, plain),
+          ok: false,
+          reason: 'close-pending',
+          error: 'Another save or close decision is still finishing.',
         }
-      } catch (err) {
-        return { ok: false, error: String(err) }
+      try {
+        try {
+          if (tornDownWcIds.has(event.sender.id)) return { ok: false }
+          if (typeof filePath !== 'string' || !isAbsolute(filePath)) {
+            return { ok: false, error: 'path must be absolute' }
+          }
+          if (extname(filePath).toLowerCase() !== '.docx') {
+            return { ok: false, error: 'path must point to a .docx file' }
+          }
+          // only a target the MCP layer resolved for this tab may be written
+          if (!canDocWrite(event.sender.id, filePath)) {
+            return { ok: false, error: 'save target was not authorized' }
+          }
+          const expectedVersion =
+            openDocByWc.get(event.sender.id) !== undefined &&
+            sameDocPublicationPath(openDocByWc.get(event.sender.id)!, filePath)
+              ? loadedDocVersion(docLoadedVersion(event.sender.id, filePath))
+              : await readAtomicFileVersion(filePath)
+          const existed = expectedVersion !== null
+          if (!overwrite && existed) {
+            return {
+              ok: false,
+              error: `file already exists: ${filePath} (pass overwrite:true to replace it)`,
+            }
+          }
+          await mkdir(dirname(filePath), { recursive: true })
+          const passwordState = snapshotDocPassword(event.sender.id, null)
+          const { plain, hashes, bytes } = await prepareAndPublishDocx(
+            filePath,
+            expectedVersion,
+            async () => {
+              const { bytes: plain, hashes } = await materializeLazyDocx(Buffer.from(data))
+              return {
+                plain,
+                hashes,
+                bytes: passwordState.password ? encryptDocx(plain, passwordState.password) : plain,
+              }
+            },
+            closeTicket === undefined
+              ? undefined
+              : () => {
+                  if (!nativeDocsClose.canPublish(event.sender, closeTicket))
+                    throw new Error('The close-save permission became obsolete before publication.')
+                },
+          )
+          // A late orphan does not grant permission to delete the current path.
+          const retainedOutput = async (): Promise<{ ok: false; error?: string }> => {
+            // Publication does not prove later pathname ownership. Keep an
+            // uncertain separate output visible rather than unlink a replacement.
+            return {
+              ok: false,
+              error:
+                'The editor closed after publication; the saved output was retained for review.',
+            }
+          }
+          if (tornDownWcIds.has(event.sender.id)) return retainedOutput()
+          await rememberDiskState(event.sender.id, filePath, sha256Hex(bytes))
+          pointLazyMediaAt(
+            hashes,
+            filePath,
+            event.sender.id,
+            passwordState.password ? plain : undefined,
+          )
+          if (tornDownWcIds.has(event.sender.id)) return retainedOutput()
+          const passwordIntentPending = commitDocPasswordSave(
+            event.sender.id,
+            passwordState,
+            filePath,
+          )
+          pushRecent(filePath)
+          rememberOpenDoc(event.sender.id, filePath)
+          notifyFileSaved(event.sender, filePath)
+          return {
+            ok: true,
+            path: filePath,
+            passwordIntentPending,
+            ...reissuedDoc(!!passwordState.password, hashes, plain),
+          }
+        } catch (err) {
+          return { ok: false, error: String(err) }
+        }
+      } finally {
+        finishWrite()
       }
-      }finally{finishWrite()}
     },
   )
 
@@ -5640,41 +5892,77 @@ export function registerDocsIpc(): void {
   // overwrite each other. The bytes carry the document's lazily served
   // pictures, so they are materialized first — the merged file is a document
   // of its own, not a view of the open one.
-  ipcMain.handle('docs:pin-configured-export-target',async(event,path:unknown,format:unknown)=>{
-    if(typeof path!=='string'||!configuredDocsExportTarget(testExportDir,path)||(format!=='pdf'&&format!=='html'&&format!=='md'))return null
-    const proof=captureDocsExportSource(event)
-    return docsOutputGrants.captureFile(event.sender,path,proof,format==='md'?{mediaDirectory:docsMarkdownMediaDirectory(path)}:{})
-  })
+  ipcMain.handle(
+    'docs:pin-configured-export-target',
+    async (event, path: unknown, format: unknown) => {
+      if (
+        typeof path !== 'string' ||
+        !configuredDocsExportTarget(testExportDir, path) ||
+        (format !== 'pdf' && format !== 'html' && format !== 'md')
+      )
+        return null
+      const proof = captureDocsExportSource(event)
+      return docsOutputGrants.captureFile(
+        event.sender,
+        path,
+        proof,
+        format === 'md' ? { mediaDirectory: docsMarkdownMediaDirectory(path) } : {},
+      )
+    },
+  )
 
   ipcMain.handle('docs:merge-output', async (event, request: MergeOutputRequest) => {
-    const files=Array.isArray(request?.files)?request.files:[]
-    if(!files.length||files.length>4096)return{ok:false,error:'Invalid merge output count'}
-    const sourceProof=captureDocsExportSource(event)
-    try{
-      if(request.mode==='single'){
-        const file=files[0]!,name=mergeOutputFileName(file.name)
-        const picked=await saveDialog(event,{title:tm('dlgSaveAs'),defaultPath:name,filters:[{name:tm('filterWord'),extensions:['docx']}]})
-        if(picked.canceled||!picked.filePath)return{ok:false,canceled:true}
-        const path=picked.filePath
-        const selectionId=await docsOutputGrants.captureFile(event.sender,path,sourceProof)
-        return await docsOutputGrants.runFile(event.sender,path,selectionId,async lease=>{
-          const{bytes}=await materializeLazyDocx(Buffer.from(file.data));sourceProof.assertCurrent();await lease.publish(bytes)
-          return{ok:true,path,count:1}
+    const files = Array.isArray(request?.files) ? request.files : []
+    if (!files.length || files.length > 4096)
+      return { ok: false, error: 'Invalid merge output count' }
+    const sourceProof = captureDocsExportSource(event)
+    try {
+      if (request.mode === 'single') {
+        const file = files[0]!,
+          name = mergeOutputFileName(file.name)
+        const picked = await saveDialog(event, {
+          title: tm('dlgSaveAs'),
+          defaultPath: name,
+          filters: [{ name: tm('filterWord'), extensions: ['docx'] }],
+        })
+        if (picked.canceled || !picked.filePath) return { ok: false, canceled: true }
+        const path = picked.filePath
+        const selectionId = await docsOutputGrants.captureFile(event.sender, path, sourceProof)
+        return await docsOutputGrants.runFile(event.sender, path, selectionId, async (lease) => {
+          const { bytes } = await materializeLazyDocx(Buffer.from(file.data))
+          sourceProof.assertCurrent()
+          await lease.publish(bytes)
+          return { ok: true, path, count: 1 }
         })
       }
-      const picked=await openDialog(event,{title:tm('dlgPickExportDir'),properties:['openDirectory','createDirectory']})
-      if(picked.canceled||!picked.filePaths[0])return{ok:false,canceled:true}
-      const folder=picked.filePaths[0],reserved=new Set<string>()
-      const paths=files.map(file=>{const path=mergeOutputPath(folder,file.name,reserved);reserved.add(process.platform==='win32'?path.toLowerCase():path);return path})
-      const selectionId=await docsOutputGrants.captureFile(event.sender,paths[0]!,sourceProof,{additionalPaths:paths.slice(1),fresh:true})
-      return await docsOutputGrants.runFile(event.sender,paths[0]!,selectionId,async lease=>{
-        for(let index=0;index<files.length;index++){
-          const{bytes}=await materializeLazyDocx(Buffer.from(files[index]!.data));sourceProof.assertCurrent()
-          if(index===0)await lease.publish(bytes);else await lease.publishAdditional(paths[index]!,bytes)
-        }
-        return{ok:true,folder,count:files.length}
+      const picked = await openDialog(event, {
+        title: tm('dlgPickExportDir'),
+        properties: ['openDirectory', 'createDirectory'],
       })
-    }catch(error){return{ok:false,error:error instanceof Error?error.message:String(error)}}
+      if (picked.canceled || !picked.filePaths[0]) return { ok: false, canceled: true }
+      const folder = picked.filePaths[0],
+        reserved = new Set<string>()
+      const paths = files.map((file) => {
+        const path = mergeOutputPath(folder, file.name, reserved)
+        reserved.add(process.platform === 'win32' ? path.toLowerCase() : path)
+        return path
+      })
+      const selectionId = await docsOutputGrants.captureFile(event.sender, paths[0]!, sourceProof, {
+        additionalPaths: paths.slice(1),
+        fresh: true,
+      })
+      return await docsOutputGrants.runFile(event.sender, paths[0]!, selectionId, async (lease) => {
+        for (let index = 0; index < files.length; index++) {
+          const { bytes } = await materializeLazyDocx(Buffer.from(files[index]!.data))
+          sourceProof.assertCurrent()
+          if (index === 0) await lease.publish(bytes)
+          else await lease.publishAdditional(paths[index]!, bytes)
+        }
+        return { ok: true, folder, count: files.length }
+      })
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 
   ipcMain.handle('files:pick', async (event): Promise<AttachmentAddResult | null> => {
@@ -5847,8 +6135,8 @@ export function registerDocsIpc(): void {
       outPath?: string,
       scale?: number,
       links?: unknown,
-    
-      selectionId?:unknown,
+
+      selectionId?: unknown,
     ) => {
       // Renderer-supplied page geometry reaches Chromium printToPDF verbatim:
       // reject non-finite/out-of-range sizes (0.1in..50in) and scales (0.1..5),
@@ -5858,8 +6146,8 @@ export function registerDocsIpc(): void {
         return { ok: false, error: 'invalid page size or scale' }
       }
       // renderer-supplied outPath is only honored when a save dialog authorized it before
-      const sourceProof=captureDocsExportSource(event)
-      let selectedOutputId=selectionId
+      const sourceProof = captureDocsExportSource(event)
+      let selectedOutputId = selectionId
       let filePath = outPath ?? null
       if (filePath && !canPdfWrite(event.sender.id, filePath)) {
         return { ok: false, error: 'export target is not an authorized path' }
@@ -5873,30 +6161,40 @@ export function registerDocsIpc(): void {
         if (result.canceled || !result.filePath) return { ok: false }
         filePath = result.filePath
         allowPdfWrite(event.sender.id, filePath)
-        selectedOutputId=await docsOutputGrants.captureFile(event.sender,filePath,sourceProof)
+        selectedOutputId = await docsOutputGrants.captureFile(event.sender, filePath, sourceProof)
       }
-      const outputPath=filePath
+      const outputPath = filePath
       try {
-        return await docsOutputGrants.runFile(event.sender,outputPath,selectedOutputId,async lease=>{
-        const printed = await event.sender.printToPDF({
-          printBackground: true,
-          // custom pageSize is in inches; the docx page padding provides the margins
-          pageSize: {
-            width: pageWidthTwips / TWIPS_PER_INCH,
-            height: pageHeightTwips / TWIPS_PER_INCH,
+        return await docsOutputGrants.runFile(
+          event.sender,
+          outputPath,
+          selectedOutputId,
+          async (lease) => {
+            const printed = await event.sender.printToPDF({
+              printBackground: true,
+              // custom pageSize is in inches; the docx page padding provides the margins
+              pageSize: {
+                width: pageWidthTwips / TWIPS_PER_INCH,
+                height: pageHeightTwips / TWIPS_PER_INCH,
+              },
+              margins: { top: 0, bottom: 0, left: 0, right: 0 },
+              ...pdfScale(scale),
+            })
+            const data = await withInternalLinks(printed, links)
+            sourceProof.assertCurrent()
+            await lease.publish(data)
+            if (!isImageExportTemp(event.sender.id, outputPath)) openGeneratedFile(outputPath)
+            return { ok: true, path: outputPath }
           },
-          margins: { top: 0, bottom: 0, left: 0, right: 0 },
-          ...pdfScale(scale),
-        })
-        const data = await withInternalLinks(printed, links)
-        sourceProof.assertCurrent()
-        await lease.publish(data)
-        if (!isImageExportTemp(event.sender.id, outputPath)) openGeneratedFile(outputPath)
-        return { ok: true, path: outputPath }
-        })
+        )
       } catch (err) {
         // path is already authorized, so the renderer can retry chunked to the same target
-        return { ok: false, error: String(err), path:filePath,selectionId:typeof selectedOutputId==='string'?selectedOutputId:undefined }
+        return {
+          ok: false,
+          error: String(err),
+          path: filePath,
+          selectionId: typeof selectedOutputId === 'string' ? selectedOutputId : undefined,
+        }
       }
     },
   )
@@ -5910,7 +6208,7 @@ export function registerDocsIpc(): void {
   })
 
   ipcMain.handle('docs:pick-export-images-target', async (event) => {
-    const sourceProof=captureDocsExportSource(event)
+    const sourceProof = captureDocsExportSource(event)
     let dir = testExportDir
     if (!dir) {
       const r = await openDialog(event, {
@@ -5923,12 +6221,12 @@ export function registerDocsIpc(): void {
     const wcId = event.sender.id
     const pdfPath = join(tmpdir(), `vantage-docs-images-${randomUUID()}.pdf`)
     sourceProof.assertCurrent()
-    const pdfSelectionId=await docsOutputGrants.captureFile(event.sender,pdfPath,sourceProof)
-    const selectionId=await docsOutputGrants.captureDirectory(event.sender,dir,sourceProof)
+    const pdfSelectionId = await docsOutputGrants.captureFile(event.sender, pdfPath, sourceProof)
+    const selectionId = await docsOutputGrants.captureDirectory(event.sender, dir, sourceProof)
     allowPdfWrite(wcId, pdfPath)
     imageExportTemps.set(wcId, (imageExportTemps.get(wcId) ?? new Set()).add(pdfPath))
     imageExportDirs.set(wcId, (imageExportDirs.get(wcId) ?? new Set()).add(dir))
-    return { dir,pdfPath,selectionId,pdfSelectionId }
+    return { dir, pdfPath, selectionId, pdfSelectionId }
   })
 
   ipcMain.handle('docs:take-export-pdf', async (event, pdfPath: string) => {
@@ -5949,7 +6247,7 @@ export function registerDocsIpc(): void {
 
   ipcMain.handle(
     'docs:write-export-image',
-    async (event, dir: string, fileName: string, pngBase64: string,selectionId:unknown) => {
+    async (event, dir: string, fileName: string, pngBase64: string, selectionId: unknown) => {
       if (typeof dir !== 'string' || !imageExportDirs.get(event.sender.id)?.has(dir)) {
         return { ok: false, error: 'export target is not an authorized folder' }
       }
@@ -5962,7 +6260,13 @@ export function registerDocsIpc(): void {
       }
       try {
         const filePath = join(dir, fileName)
-        await docsOutputGrants.publishDirectoryImage(event.sender,dir,fileName,Buffer.from(String(pngBase64),'base64'),selectionId)
+        await docsOutputGrants.publishDirectoryImage(
+          event.sender,
+          dir,
+          fileName,
+          Buffer.from(String(pngBase64), 'base64'),
+          selectionId,
+        )
         return { ok: true, path: filePath }
       } catch (err) {
         return { ok: false, error: String(err) }
@@ -5972,12 +6276,10 @@ export function registerDocsIpc(): void {
 
   ipcMain.handle(
     'docs:export-html',
-    async (event, defaultName: string, html: string, outPath?: string,
-      selectionId?:unknown,
-    ) => {
+    async (event, defaultName: string, html: string, outPath?: string, selectionId?: unknown) => {
       if (typeof html !== 'string' || !html) return { ok: false, error: 'empty document' }
-      const sourceProof=captureDocsExportSource(event)
-      let selectedOutputId=selectionId
+      const sourceProof = captureDocsExportSource(event)
+      let selectedOutputId = selectionId
       let filePath = outPath ?? null
       if (filePath && !canPdfWrite(event.sender.id, filePath)) {
         return { ok: false, error: 'export target is not an authorized path' }
@@ -5991,19 +6293,29 @@ export function registerDocsIpc(): void {
         if (result.canceled || !result.filePath) return { ok: false }
         filePath = result.filePath
         allowPdfWrite(event.sender.id, filePath)
-        selectedOutputId=await docsOutputGrants.captureFile(event.sender,filePath,sourceProof)
+        selectedOutputId = await docsOutputGrants.captureFile(event.sender, filePath, sourceProof)
       }
-      const outputPath=filePath
+      const outputPath = filePath
       try {
-        return await docsOutputGrants.runFile(event.sender,outputPath,selectedOutputId,async lease=>{
-        const bytes=Buffer.from(await inlineLazyMediaInHtml(html,readLazyMedia),'utf8')
-        sourceProof.assertCurrent()
-        await lease.publish(bytes)
-        openGeneratedFile(outputPath)
-        return { ok: true, path: outputPath }
-        })
+        return await docsOutputGrants.runFile(
+          event.sender,
+          outputPath,
+          selectedOutputId,
+          async (lease) => {
+            const bytes = Buffer.from(await inlineLazyMediaInHtml(html, readLazyMedia), 'utf8')
+            sourceProof.assertCurrent()
+            await lease.publish(bytes)
+            openGeneratedFile(outputPath)
+            return { ok: true, path: outputPath }
+          },
+        )
       } catch (err) {
-        return { ok: false, error: String(err), path:filePath,selectionId:typeof selectedOutputId==='string'?selectedOutputId:undefined }
+        return {
+          ok: false,
+          error: String(err),
+          path: filePath,
+          selectionId: typeof selectedOutputId === 'string' ? selectedOutputId : undefined,
+        }
       }
     },
   )
@@ -6016,13 +6328,14 @@ export function registerDocsIpc(): void {
       markdown: string,
       images: MarkdownImage[],
       outPath?: string,
-    
-      selectionId?:unknown,
+
+      selectionId?: unknown,
     ) => {
       if (typeof markdown !== 'string' || !markdown) return { ok: false, error: 'empty document' }
-      if (!Array.isArray(images)||images.length>4095) return { ok: false, error: 'bad image list' }
-      const sourceProof=captureDocsExportSource(event)
-      let selectedOutputId=selectionId
+      if (!Array.isArray(images) || images.length > 4095)
+        return { ok: false, error: 'bad image list' }
+      const sourceProof = captureDocsExportSource(event)
+      let selectedOutputId = selectionId
       let filePath = outPath ?? null
       if (filePath && !canPdfWrite(event.sender.id, filePath)) {
         return { ok: false, error: 'export target is not an authorized path' }
@@ -6036,23 +6349,40 @@ export function registerDocsIpc(): void {
         if (result.canceled || !result.filePath) return { ok: false }
         filePath = result.filePath
         allowPdfWrite(event.sender.id, filePath)
-        selectedOutputId=await docsOutputGrants.captureFile(event.sender,filePath,sourceProof,{mediaDirectory:docsMarkdownMediaDirectory(filePath)})
-      }
-      const outputPath=filePath
-      try {
-        return await docsOutputGrants.runFile(event.sender,outputPath,selectedOutputId,async lease=>{
-        const written = await writeMarkdownMedia(outputPath, images,lease)
-        // the Markdown destination was escaped before the swap: parentheses must not survive it
-        const mediaDir = encodeURIComponent(
-          basename(outputPath).replace(/\.md$/i, '') + '_files',
-        ).replace(/[()]/g, (c) => (c === '(' ? '%28' : '%29'))
-        sourceProof.assertCurrent()
-        await lease.publish(Buffer.from(markdown.split(`${MARKDOWN_MEDIA_DIR_TOKEN}/`).join(`${mediaDir}/`),'utf8'))
-        openGeneratedFile(outputPath)
-        return { ok: true, path: outputPath, imagesDropped: images.length - written }
+        selectedOutputId = await docsOutputGrants.captureFile(event.sender, filePath, sourceProof, {
+          mediaDirectory: docsMarkdownMediaDirectory(filePath),
         })
+      }
+      const outputPath = filePath
+      try {
+        return await docsOutputGrants.runFile(
+          event.sender,
+          outputPath,
+          selectedOutputId,
+          async (lease) => {
+            const written = await writeMarkdownMedia(outputPath, images, lease)
+            // the Markdown destination was escaped before the swap: parentheses must not survive it
+            const mediaDir = encodeURIComponent(
+              basename(outputPath).replace(/\.md$/i, '') + '_files',
+            ).replace(/[()]/g, (c) => (c === '(' ? '%28' : '%29'))
+            sourceProof.assertCurrent()
+            await lease.publish(
+              Buffer.from(
+                markdown.split(`${MARKDOWN_MEDIA_DIR_TOKEN}/`).join(`${mediaDir}/`),
+                'utf8',
+              ),
+            )
+            openGeneratedFile(outputPath)
+            return { ok: true, path: outputPath, imagesDropped: images.length - written }
+          },
+        )
       } catch (err) {
-        return { ok: false, error: String(err), path:filePath,selectionId:typeof selectedOutputId==='string'?selectedOutputId:undefined }
+        return {
+          ok: false,
+          error: String(err),
+          path: filePath,
+          selectionId: typeof selectedOutputId === 'string' ? selectedOutputId : undefined,
+        }
       }
     },
   )
@@ -6092,11 +6422,11 @@ export function registerDocsIpc(): void {
       base64Parts: string[],
       outPath?: string,
       links?: unknown,
-    
-      selectionId?:unknown,
+
+      selectionId?: unknown,
     ) => {
-      const sourceProof=captureDocsExportSource(event)
-      let selectedOutputId=selectionId
+      const sourceProof = captureDocsExportSource(event)
+      let selectedOutputId = selectionId
       let filePath = outPath ?? null
       if (filePath && !canPdfWrite(event.sender.id, filePath)) {
         return { ok: false, error: 'export target is not an authorized path' }
@@ -6110,25 +6440,30 @@ export function registerDocsIpc(): void {
         if (result.canceled || !result.filePath) return { ok: false }
         filePath = result.filePath
         allowPdfWrite(event.sender.id, filePath)
-        selectedOutputId=await docsOutputGrants.captureFile(event.sender,filePath,sourceProof)
+        selectedOutputId = await docsOutputGrants.captureFile(event.sender, filePath, sourceProof)
       }
-      const outputPath=filePath
+      const outputPath = filePath
       try {
-        return await docsOutputGrants.runFile(event.sender,outputPath,selectedOutputId,async lease=>{
-        const { PDFDocument } = await import('pdf-lib')
-        const merged = await PDFDocument.create()
-        for (const b64 of base64Parts) {
-          const part = await PDFDocument.load(Buffer.from(b64, 'base64'))
-          const pages = await merged.copyPages(part, part.getPageIndices())
-          for (const page of pages) merged.addPage(page)
-        }
-        if (Array.isArray(links) && links.length > 0) addPdfInternalLinks(merged, links)
-        const bytes=Buffer.from(await merged.save())
-        sourceProof.assertCurrent()
-        await lease.publish(bytes)
-        if (!isImageExportTemp(event.sender.id, outputPath)) openGeneratedFile(outputPath)
-        return { ok: true, path: outputPath }
-        })
+        return await docsOutputGrants.runFile(
+          event.sender,
+          outputPath,
+          selectedOutputId,
+          async (lease) => {
+            const { PDFDocument } = await import('pdf-lib')
+            const merged = await PDFDocument.create()
+            for (const b64 of base64Parts) {
+              const part = await PDFDocument.load(Buffer.from(b64, 'base64'))
+              const pages = await merged.copyPages(part, part.getPageIndices())
+              for (const page of pages) merged.addPage(page)
+            }
+            if (Array.isArray(links) && links.length > 0) addPdfInternalLinks(merged, links)
+            const bytes = Buffer.from(await merged.save())
+            sourceProof.assertCurrent()
+            await lease.publish(bytes)
+            if (!isImageExportTemp(event.sender.id, outputPath)) openGeneratedFile(outputPath)
+            return { ok: true, path: outputPath }
+          },
+        )
       } catch (err) {
         return { ok: false, error: String(err) }
       }
@@ -6193,7 +6528,11 @@ export function setDocsShellHooks(hooks: DocsShellHooks | null): void {
  * browser's "save page" folder. Returns how many were written; unreadable
  * sources are skipped and the reference in the Markdown dangles.
  */
-async function writeMarkdownMedia(mdPath: string, images: MarkdownImage[],lease:DocsExportFileLease): Promise<number> {
+async function writeMarkdownMedia(
+  mdPath: string,
+  images: MarkdownImage[],
+  lease: DocsExportFileLease,
+): Promise<number> {
   if (images.length === 0) return 0
   const dir = join(dirname(mdPath), basename(mdPath).replace(/\.md$/i, '') + '_files')
   let written = 0
@@ -6207,7 +6546,7 @@ async function writeMarkdownMedia(mdPath: string, images: MarkdownImage[],lease:
     if (!body || body.length === 0) continue
     lease.assertCurrent()
     if (written === 0) await lease.ensureMediaDirectory()
-    await lease.publishAdditional(join(dir,img.name),body)
+    await lease.publishAdditional(join(dir, img.name), body)
     written++
   }
   return written
@@ -6269,12 +6608,14 @@ export async function createAiDocument(
           new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } }),
       )
       const filePath = uniquePathIn(defaultSaveDir(), `${title}.pdf`)
-      await publishNewUserOutput(filePath,bytes,()=>openGeneratedFile(filePath))
+      await publishNewUserOutput(filePath, bytes, () => openGeneratedFile(filePath))
       return { ok: true, path: filePath }
     }
     if (type === 'md' || type === 'html') {
       const filePath = uniquePathIn(defaultSaveDir(), `${title}.${type}`)
-      await publishNewUserOutput(filePath,Buffer.from(content,'utf8'),()=>openGeneratedFile(filePath))
+      await publishNewUserOutput(filePath, Buffer.from(content, 'utf8'), () =>
+        openGeneratedFile(filePath),
+      )
       return { ok: true, path: filePath }
     }
     return { ok: false, error: `unsupported document type: ${String(type)}` }
@@ -6790,16 +7131,20 @@ export function createDocsWindow(openPath?: string): BrowserWindow {
     void (async () => {
       const receipt = await prepareDocsNativeClose(contents, win)
       try {
-        if (receipt) completeDocsClose(contents, receipt, () => {
-          if (win.isDestroyed() || win.webContents !== contents) return false
-          win.destroy()
-          return win.isDestroyed()
-        })
+        if (receipt)
+          completeDocsClose(contents, receipt, () => {
+            if (win.isDestroyed() || win.webContents !== contents) return false
+            win.destroy()
+            return win.isDestroyed()
+          })
       } finally {
         if (receipt) await cancelDocsClose(contents, receipt, 'standalone close finished')
         closePromptInFlight = false
       }
-    })().catch((error) => { closePromptInFlight = false; warnDocDraft(contents.id, error) })
+    })().catch((error) => {
+      closePromptInFlight = false
+      warnDocDraft(contents.id, error)
+    })
   })
   win.on('closed', () => {
     pendingWindowOpens.delete(webContentsId)
@@ -6821,7 +7166,7 @@ export function createDocsWindow(openPath?: string): BrowserWindow {
 // ── Close guard (aligned with sheets/pdf/slides): dirty documents prompt Save/Don't Save/Cancel before closing a tab/window ──
 // docs' dirty state is a composite flag in the renderer; the main process doesn't mirror it and queries once at close time.
 interface DocsCloseState {
-  busy?:boolean
+  busy?: boolean
   stamp?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseStamp
   dirty: boolean
   autoSave: boolean
@@ -6855,11 +7200,26 @@ ipcMain.on('docs:view-menu-state', (event, state: unknown) => {
 
 ipcMain.on('docs:close-check-result', (event, state: unknown) => {
   const waiter = closeCheckWaiters.get(event.sender.id)
-  const s = state as { requestId?: unknown; busy?:unknown; dirty?: unknown; autoSave?: unknown; filePath?: unknown; stamp?: unknown } | null
-  if (!waiter || typeof s?.requestId !== 'string' || closeCheckIds.get(event.sender.id) !== s.requestId) return
+  const s = state as {
+    requestId?: unknown
+    busy?: unknown
+    dirty?: unknown
+    autoSave?: unknown
+    filePath?: unknown
+    stamp?: unknown
+  } | null
+  if (
+    !waiter ||
+    typeof s?.requestId !== 'string' ||
+    closeCheckIds.get(event.sender.id) !== s.requestId
+  )
+    return
   closeCheckWaiters.delete(event.sender.id)
   closeCheckIds.delete(event.sender.id)
-  waiter({ dirty: s.dirty === true, autoSave: s.autoSave === true, busy:s.busy===true,
+  waiter({
+    dirty: s.dirty === true,
+    autoSave: s.autoSave === true,
+    busy: s.busy === true,
     filePath: typeof s.filePath === 'string' ? s.filePath : null,
     ...(isCloseLeaseStamp(s.stamp) ? { stamp: s.stamp } : {}),
   })
@@ -6869,9 +7229,16 @@ ipcMain.on('docs:close-save-result', (event, ok: unknown) => {
   const waiter = closeSaveWaiters.get(event.sender.id)
   if (!waiter) return
   closeSaveWaiters.delete(event.sender.id)
-  const result = ok as {ok?:unknown;stamp?:unknown} | null
-  const saved = result?.ok === true && isCloseLeaseStamp(result.stamp) && docCloseSourceIdentities.get(event.sender.id) === result.stamp.source
-  if (saved) docsReplacementApprovals.set(event.sender.id, {stamp:result!.stamp as DocReplacementApproval['stamp'],intent:'save'})
+  const result = ok as { ok?: unknown; stamp?: unknown } | null
+  const saved =
+    result?.ok === true &&
+    isCloseLeaseStamp(result.stamp) &&
+    docCloseSourceIdentities.get(event.sender.id) === result.stamp.source
+  if (saved)
+    docsReplacementApprovals.set(event.sender.id, {
+      stamp: result!.stamp as DocReplacementApproval['stamp'],
+      intent: 'save',
+    })
   waiter(saved)
 })
 
@@ -6897,8 +7264,14 @@ function queryCloseState(contents: WebContents): Promise<DocsCloseState> {
       clearTimeout(timer)
       resolve(state)
     })
-    try { contents.send('docs:close-check', requestId) }
-    catch { clearTimeout(timer); closeCheckWaiters.delete(contents.id); closeCheckIds.delete(contents.id); resolve({dirty:true,autoSave:false,unresponsive:true}) }
+    try {
+      contents.send('docs:close-check', requestId)
+    } catch {
+      clearTimeout(timer)
+      closeCheckWaiters.delete(contents.id)
+      closeCheckIds.delete(contents.id)
+      resolve({ dirty: true, autoSave: false, unresponsive: true })
+    }
   }).finally(() => closeStateQueries.delete(contents.id))
   closeStateQueries.set(contents.id, query)
   return query
@@ -6909,88 +7282,191 @@ function queryCloseState(contents: WebContents): Promise<DocsCloseState> {
 const nativeDocsClose = new DocNativeCloseCoordinator<WebContents, BrowserWindow | null>({
   leases: docsCloseLeases,
   id: randomUUID,
-  ownerKey:contents=>String(contents.id),
+  ownerKey: (contents) => String(contents.id),
   alive: (contents) => !contents.isDestroyed(),
-  source:docsNativeCloseSource,
-  pauseOutputs:(contents,source)=>docsOutputGrants.pause(contents,source,()=>!contents.isDestroyed()&&docsNativeCloseSource(contents)===source),
+  source: docsNativeCloseSource,
+  pauseOutputs: (contents, source) =>
+    docsOutputGrants.pause(
+      contents,
+      source,
+      () => !contents.isDestroyed() && docsNativeCloseSource(contents) === source,
+    ),
   query: queryCloseState,
   choose: async (_contents, state, parent, allowForce) => {
     if (state.unresponsive) {
-      const options = { type: 'warning' as const, message: tm('closeNoReplyMsg'),
-        detail: allowForce ? tm('closeNoReplyDetail') : `${tm('closeNoReplyDetail')} Close this document individually with Close Anyway before retrying window close.`,
+      const options = {
+        type: 'warning' as const,
+        message: tm('closeNoReplyMsg'),
+        detail: allowForce
+          ? tm('closeNoReplyDetail')
+          : `${tm('closeNoReplyDetail')} Close this document individually with Close Anyway before retrying window close.`,
         buttons: allowForce ? [tm('btnCloseAnyway'), tm('btnCancel')] : [tm('btnCancel')],
-        defaultId: allowForce ? 1 : 0, cancelId: allowForce ? 1 : 0, noLink: true }
-      const { response } = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
+        defaultId: allowForce ? 1 : 0,
+        cancelId: allowForce ? 1 : 0,
+        noLink: true,
+      }
+      const { response } =
+        parent && !parent.isDestroyed()
+          ? await dialog.showMessageBox(parent, options)
+          : await dialog.showMessageBox(options)
       return allowForce && response === 0 ? 'force' : 'cancel'
     }
-    const options = { type: 'warning' as const, message: tm('closeUnsavedMsg'), detail: tm('closeUnsavedDetail'),
-      buttons: [tm('menuSave'), tm('btnDontSave'), tm('btnCancel')], defaultId: 0, cancelId: 2, noLink: true }
-    const { response } = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
+    const options = {
+      type: 'warning' as const,
+      message: tm('closeUnsavedMsg'),
+      detail: tm('closeUnsavedDetail'),
+      buttons: [tm('menuSave'), tm('btnDontSave'), tm('btnCancel')],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    }
+    const { response } =
+      parent && !parent.isDestroyed()
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options)
     return response === 0 ? 'save' : response === 1 ? 'discard' : 'cancel'
   },
   send: (contents, request) => contents.send('docs:prepare-close', request),
-  stage: (contents,_state,throughSequence) => {
-    const producer=docDrafts.stageClose(contents.id,throughSequence)
-    if(!producer)return{ready:Promise.resolve(null),actualSettled:Promise.resolve(),cancel:()=>{}}
-    const ownerKey=String(contents.id),sourceIdentity=docCloseSourceIdentities.get(contents.id)
-    if(!sourceIdentity){producer.cancel();throw new Error('The document source identity is unavailable.')}
-    const split=sourceIdentity.lastIndexOf(':'),source=sourceIdentity.slice(0,split),generation=Number(sourceIdentity.slice(split+1))
-    if(!source||!Number.isSafeInteger(generation)||generation<0){producer.cancel();throw new Error('Invalid document source generation.')}
-    const id=randomUUID(),token=producer.token,documentPath=producer.documentPath
-    let admission:ReturnType<typeof beginCloseCleanup>
-    try{admission=beginCloseCleanup({id,module:'docs',ownerKey,source,generation,token,documentPath,
-      custody:{recoveryRoot:userDataPath('recovery'),draftId:token,attest:()=>producer.binding()},
-      ready:producer.drained,
-      run:async signal=>{
-        signal.throwIfAborted()
-        // Legacy path-keyed recovery has no view/UUID ownership proof; retain it.
-        await producer.discardCaptured(signal)
-        await retireCloseCleanupCustody({module:'docs',source,throughGeneration:generation,tokens:[token],excludeIds:[id]},'A later approved close completed for this captured UUID.')
+  stage: (contents, _state, throughSequence) => {
+    const producer = docDrafts.stageClose(contents.id, throughSequence)
+    if (!producer)
+      return { ready: Promise.resolve(null), actualSettled: Promise.resolve(), cancel: () => {} }
+    const ownerKey = String(contents.id),
+      sourceIdentity = docCloseSourceIdentities.get(contents.id)
+    if (!sourceIdentity) {
+      producer.cancel()
+      throw new Error('The document source identity is unavailable.')
+    }
+    const split = sourceIdentity.lastIndexOf(':'),
+      source = sourceIdentity.slice(0, split),
+      generation = Number(sourceIdentity.slice(split + 1))
+    if (!source || !Number.isSafeInteger(generation) || generation < 0) {
+      producer.cancel()
+      throw new Error('Invalid document source generation.')
+    }
+    const id = randomUUID(),
+      token = producer.token,
+      documentPath = producer.documentPath
+    let admission: ReturnType<typeof beginCloseCleanup>
+    try {
+      admission = beginCloseCleanup({
+        id,
+        module: 'docs',
+        ownerKey,
+        source,
+        generation,
+        token,
+        documentPath,
+        custody: {
+          recoveryRoot: userDataPath('recovery'),
+          draftId: token,
+          attest: () => producer.binding(),
+        },
+        ready: producer.drained,
+        run: async (signal) => {
+          signal.throwIfAborted()
+          // Legacy path-keyed recovery has no view/UUID ownership proof; retain it.
+          await producer.discardCaptured(signal)
+          await retireCloseCleanupCustody(
+            {
+              module: 'docs',
+              source,
+              throughGeneration: generation,
+              tokens: [token],
+              excludeIds: [id],
+            },
+            'A later approved close completed for this captured UUID.',
+          )
+        },
+      })
+    } catch (error) {
+      producer.cancel()
+      throw error
+    }
+    return {
+      ready: admission.ready,
+      actualSettled: admission.actualSettled,
+      cancel: () => {
+        try {
+          admission.cancel('The document remains open.')
+        } finally {
+          producer.cancel()
+          void admission.ready
+            .then(
+              (handle) => handle.cancel('The document remains open.'),
+              () => {},
+            )
+            .catch((error) => warnDocDraft(contents.id, error))
+        }
       },
-    })}catch(error){producer.cancel();throw error}
-    return{ready:admission.ready,actualSettled:admission.actualSettled,cancel:()=>{try{admission.cancel('The document remains open.')}finally{producer.cancel();void admission.ready.then(handle=>handle.cancel('The document remains open.'),()=>{}).catch(error=>warnDocDraft(contents.id,error))}}}
+    }
   },
   preserveRecovery: (contents) => {
     const had = preserveDraftOnClose.has(contents.id)
     preserveDraftOnClose.add(contents.id)
-    return () => { if (!had) preserveDraftOnClose.delete(contents.id) }
+    return () => {
+      if (!had) preserveDraftOnClose.delete(contents.id)
+    }
   },
   report: (contents, error) => warnDocDraft(contents.id, error),
 })
 
-onDocsCloseLeaseRelease((owner,ticket,reason)=>nativeDocsClose.released(owner,ticket,reason))
+onDocsCloseLeaseRelease((owner, ticket, reason) => nativeDocsClose.released(owner, ticket, reason))
 setDocsCloseCompletionHooks({
- stage:async(owner,lease,published,throughSequence)=>{
-   const receipt=await nativeDocsClose.stageSaved(owner,lease,published,throughSequence)
-   return receipt?.kind==='lease'?{cleanupId:receipt.cleanupId}:null
- },
- complete:(owner,lease,remove)=>nativeDocsClose.completeEnvelope(owner,lease,remove)??false,
- cancel:(owner,lease)=>{docsCloseLeases.cancel(owner,lease.ticket,'caller canceled close')},
- cleanup:(ownerKey,lease)=>nativeDocsClose.cleanup(ownerKey,lease),
+  stage: async (owner, lease, published, throughSequence) => {
+    const receipt = await nativeDocsClose.stageSaved(owner, lease, published, throughSequence)
+    return receipt?.kind === 'lease' ? { cleanupId: receipt.cleanupId } : null
+  },
+  complete: (owner, lease, remove) =>
+    nativeDocsClose.completeEnvelope(owner, lease, remove) ?? false,
+  cancel: (owner, lease) => {
+    docsCloseLeases.cancel(owner, lease.ticket, 'caller canceled close')
+  },
+  cleanup: (ownerKey, lease) => nativeDocsClose.cleanup(ownerKey, lease),
 })
 
-ipcMain.on('docs:prepared-close', (event, requestId: unknown, result: unknown) => nativeDocsClose.receive(event.sender, requestId, result))
+ipcMain.on('docs:prepared-close', (event, requestId: unknown, result: unknown) =>
+  nativeDocsClose.receive(event.sender, requestId, result),
+)
 
 /** Held until the caller synchronously removes this exact owner, or explicitly cancels. */
-export function prepareDocsNativeClose(contents: WebContents, parent?: BrowserWindow | null, options: DocsClosePrepareOptions & {allowForce?: boolean} = {}): Promise<DocsCloseReceipt | null> {
+export function prepareDocsNativeClose(
+  contents: WebContents,
+  parent?: BrowserWindow | null,
+  options: DocsClosePrepareOptions & { allowForce?: boolean } = {},
+): Promise<DocsCloseReceipt | null> {
   return nativeDocsClose.prepare(contents, parent, options.allowForce !== false, options)
 }
 /** MCP's explicit discard is never a user force approval. */
-export function prepareDocsDiscardClose(contents: WebContents, sourcePath?:string|null): Promise<DocsCloseReceipt | null> {
-  return nativeDocsClose.prepareDiscard(contents,sourcePath)
+export function prepareDocsDiscardClose(
+  contents: WebContents,
+  sourcePath?: string | null,
+): Promise<DocsCloseReceipt | null> {
+  return nativeDocsClose.prepareDiscard(contents, sourcePath)
 }
 /** Local preparing authority, without the Root group predicate. */
 export function isDocsClosePrepared(contents: WebContents, receipt: DocsCloseReceipt): boolean {
   return nativeDocsClose.isPrepared(contents, receipt)
 }
 /** Synchronous final seal after every family has approved and drained. */
-export function sealDocsClose(contents: WebContents, receipt: DocsCloseReceipt): DocsCloseReceipt | null {
+export function sealDocsClose(
+  contents: WebContents,
+  receipt: DocsCloseReceipt,
+): DocsCloseReceipt | null {
   return nativeDocsClose.seal(contents, receipt)
 }
-export function completeDocsClose(contents: WebContents, receipt: DocsCloseReceipt, remove: () => boolean): boolean {
+export function completeDocsClose(
+  contents: WebContents,
+  receipt: DocsCloseReceipt,
+  remove: () => boolean,
+): boolean {
   return nativeDocsClose.complete(contents, receipt, remove)
 }
-export async function cancelDocsClose(contents: WebContents, receipt: DocsCloseReceipt, reason?: string): Promise<void> {
+export async function cancelDocsClose(
+  contents: WebContents,
+  receipt: DocsCloseReceipt,
+  reason?: string,
+): Promise<void> {
   nativeDocsClose.cancel(contents, receipt, reason)
 }
 export type { DocsCloseReceipt } from './doc-native-close'
@@ -7035,10 +7511,15 @@ export function requestDocsClose(
   return request
 }
 
-async function requestDocsReplacementApproval(contents: WebContents, parent?: BrowserWindow | null): Promise<DocReplacementApproval | null> {
+async function requestDocsReplacementApproval(
+  contents: WebContents,
+  parent?: BrowserWindow | null,
+): Promise<DocReplacementApproval | null> {
   if (!(await requestDocsClose(contents, parent)) || contents.isDestroyed()) return null
   const approval = docsReplacementApprovals.get(contents.id)
-  return approval && docCloseSourceIdentities.get(contents.id) === approval.stamp.source ? structuredClone(approval) : null
+  return approval && docCloseSourceIdentities.get(contents.id) === approval.stamp.source
+    ? structuredClone(approval)
+    : null
 }
 
 const docsCloseRequests = new Map<number, Promise<boolean>>()
@@ -7051,7 +7532,8 @@ async function performDocsClose(
   const state = await queryCloseState(contents)
   if (contents.isDestroyed() || state.busy) return false
   if (!state.dirty) {
-    if (state.stamp) docsReplacementApprovals.set(contents.id, {stamp:state.stamp,intent:'clean'})
+    if (state.stamp)
+      docsReplacementApprovals.set(contents.id, { stamp: state.stamp, intent: 'clean' })
     return true
   }
   if (state.unresponsive) {
@@ -7090,7 +7572,8 @@ async function performDocsClose(
   if (response === 2) return false
   if (response === 1) {
     // Bind approval before cleanup; a later authored edit must veto adoption.
-    if (state.stamp) docsReplacementApprovals.set(contents.id, {stamp:state.stamp,intent:'discard'})
+    if (state.stamp)
+      docsReplacementApprovals.set(contents.id, { stamp: state.stamp, intent: 'discard' })
     const token = docDrafts.tokenFor(contents.id)
     if (state.filePath) clearRecoveryCopy(state.filePath)
     try {
@@ -7156,7 +7639,8 @@ export function startDocsStandalone(): void {
   // the installed Vantage Docs is open and forwards its argv there instead.
   // AI_OFFICE_USER_DATA: E2E/screenshot runs isolate userData (and the
   // single-instance lock) so parallel automation sessions don't evict each other
-  if (process.env.AI_OFFICE_USER_DATA || process.env.VANTAGE_USER_DATA) app.setPath('userData', (process.env.AI_OFFICE_USER_DATA || process.env.VANTAGE_USER_DATA)!)
+  if (process.env.AI_OFFICE_USER_DATA || process.env.VANTAGE_USER_DATA)
+    app.setPath('userData', (process.env.AI_OFFICE_USER_DATA || process.env.VANTAGE_USER_DATA)!)
   else if (isDev) {
     // "Vantage Docs Dev" carried a space, against the XDG one-token
     // convention (vantage#1817); move the old profile once, as the shell does.
@@ -7176,15 +7660,26 @@ export function startDocsStandalone(): void {
     app.setPath('userData', userData)
   }
 
-  const standaloneRecoveryProfile = configureRecoveryProfile({ app, mode: 'gui', guiProfile: app.getPath('userData') })
+  const standaloneRecoveryProfile = configureRecoveryProfile({
+    app,
+    mode: 'gui',
+    guiProfile: app.getPath('userData'),
+  })
   const hasSingleInstanceLock = app.requestSingleInstanceLock()
   if (!hasSingleInstanceLock) {
     app.quit()
     return
   }
-  initializeStandaloneRecovery({ app, ...standaloneRecoveryProfile, lockAcquired: true,
-    warning: message => { void dialog.showMessageBox({ type: 'warning', message }).catch(() => {}) },
-    terminal: cleanup => { app.once('will-quit', cleanup) },
+  initializeStandaloneRecovery({
+    app,
+    ...standaloneRecoveryProfile,
+    lockAcquired: true,
+    warning: (message) => {
+      void dialog.showMessageBox({ type: 'warning', message }).catch(() => {})
+    },
+    terminal: (cleanup) => {
+      app.once('will-quit', cleanup)
+    },
   })
 
   app.on('open-file', (event, filePath) => {
@@ -7221,5 +7716,11 @@ export function startDocsStandalone(): void {
     if (process.platform !== 'darwin') app.quit()
   })
 }
-import { docsCloseLeases, installDocsCloseService, setDocsCloseSourceReader, setDocsCloseStampValidator, onDocsCloseLeaseRelease, setDocsCloseCompletionHooks } from './doc-close-service'
-
+import {
+  docsCloseLeases,
+  installDocsCloseService,
+  setDocsCloseSourceReader,
+  setDocsCloseStampValidator,
+  onDocsCloseLeaseRelease,
+  setDocsCloseCompletionHooks,
+} from './doc-close-service'

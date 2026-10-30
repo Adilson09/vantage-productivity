@@ -1,4 +1,9 @@
-import { markdownCloseLocked, markdownCloseStamp, mutateMarkdown, noteMarkdownAuthoredMutation } from '../close-lease'
+import {
+  markdownCloseLocked,
+  markdownCloseStamp,
+  mutateMarkdown,
+  noteMarkdownAuthoredMutation,
+} from '../close-lease'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { Annotation, Compartment, EditorState } from '@codemirror/state'
 import {
@@ -144,12 +149,15 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
         extensions: [
           ...extensionsFor(mode),
           closeCompartment.of([]),
-          EditorState.transactionFilter.of(transaction => {
+          EditorState.transactionFilter.of((transaction) => {
             if (!transaction.docChanged) return transaction
             if (!markdownCloseLocked()) return noteMarkdownAuthoredMutation() ? transaction : []
             const source = markdownCloseStamp().source
             mutateMarkdown(() => {
-              if (viewRef.current !== view || view.state !== transaction.startState) throw new Error('The pending source transaction changed before close cancellation; retry that edit.')
+              if (viewRef.current !== view || view.state !== transaction.startState)
+                throw new Error(
+                  'The pending source transaction changed before close cancellation; retry that edit.',
+                )
               view.dispatch(transaction)
             }, source)
             return []
@@ -211,10 +219,18 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, Props>(function
     findTarget: () => findTargetRef.current,
     composing: () => viewRef.current?.composing ?? false,
     lockForClose() {
-      const view = viewRef.current, compartment = closeLockRef.current
+      const view = viewRef.current,
+        compartment = closeLockRef.current
       if (!view || !compartment) return () => {}
-      view.dispatch({effects:compartment.reconfigure([EditorState.readOnly.of(true),EditorView.editable.of(false)])})
-      return () => { if (viewRef.current === view) view.dispatch({effects:compartment.reconfigure([])}) }
+      view.dispatch({
+        effects: compartment.reconfigure([
+          EditorState.readOnly.of(true),
+          EditorView.editable.of(false),
+        ]),
+      })
+      return () => {
+        if (viewRef.current === view) view.dispatch({ effects: compartment.reconfigure([]) })
+      }
     },
   }))
 

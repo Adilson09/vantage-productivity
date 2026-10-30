@@ -1,20 +1,139 @@
-import {beforeEach,describe,expect,it,vi} from 'vitest'
-import type {BrowserWindow} from 'electron'
-import type {TabManager} from '../src/main/tab-manager'
-const hooks=vi.hoisted(()=>({prepare:vi.fn(),complete:vi.fn(),cancel:vi.fn(),slides:vi.fn()}))
-vi.mock('electron',()=>({app:{on:vi.fn(),quit:vi.fn()}}))
-vi.mock('../../docs/src/main/docs-main',()=>({docsQueryDirty:vi.fn(),requestDocsClose:vi.fn()}))
-vi.mock('../../sheets/src/main/sheets-main',()=>({requestSheetsClose:vi.fn(),resetSheetsShuttingDown:vi.fn()}))
-vi.mock('../../slides/src/main/slides-main',()=>({requestSlidesClose:(...args:unknown[])=>hooks.slides(...args)}))
-vi.mock('../../pdf/src/main/pdf-main',()=>({requestPdfClose:vi.fn()}))
-vi.mock('../../html/src/main/html-main',()=>({requestHtmlClose:vi.fn()}))
-vi.mock('../../markdown/src/main/markdown-main',()=>({requestMarkdownClose:vi.fn(),prepareMarkdownNativeClose:(...args:unknown[])=>hooks.prepare(...args),completeMarkdownClose:(...args:unknown[])=>hooks.complete(...args),cancelMarkdownClose:(...args:unknown[])=>hooks.cancel(...args)}))
-import {installShellCloseGuard,type QuitTracker} from '../src/main/window-close-guard'
-function deferred(){let resolve!:(value:boolean)=>void;const promise=new Promise<boolean>(done=>{resolve=done});return {promise,resolve}}
-function fixture(){let close!:(event:{preventDefault:()=>void})=>void,destroyed=false;const contents={id:41,isDestroyed:()=>false},tab={id:'tab-1',webContents:contents},tabs=[tab];const win={on:vi.fn((_event:string,listener:typeof close)=>{close=listener}),isDestroyed:()=>destroyed,destroy:vi.fn(()=>{destroyed=true})};const manager={dirtySheetsTabs:()=>[],dirtyPdfTabs:()=>[],dirtyMarkdownTabs:()=>[],markdownTabs:()=>tabs,dirtyHtmlTabs:()=>[],htmlTabs:()=>[],dirtySlidesTabs:()=>[],docsTabs:()=>[],activateTab:vi.fn()};const quit={quitting:()=>false,hold:vi.fn(),release:vi.fn(),reset:vi.fn(),quit:vi.fn()};installShellCloseGuard(win as unknown as BrowserWindow,manager as unknown as TabManager,quit as QuitTracker);return {win,manager,tabs,tab,quit,close:()=>{const event={preventDefault:vi.fn()};close(event);return event}}}
-beforeEach(()=>{vi.clearAllMocks();hooks.prepare.mockResolvedValue({requestId:'held'});hooks.complete.mockImplementation((_contents:unknown,_receipt:unknown,remove:()=>boolean)=>remove());hooks.cancel.mockResolvedValue(undefined);hooks.slides.mockResolvedValue(true)})
-describe('Markdown native whole-window final removal',()=>{
- it('queries even a clean family view and consumes its held receipt around actual synchronous destruction',async()=>{const f=fixture();expect(f.close().preventDefault).toHaveBeenCalledOnce();await vi.waitFor(()=>expect(f.win.destroy).toHaveBeenCalledOnce());expect(hooks.prepare).toHaveBeenCalledWith(f.tab.webContents,f.win);expect(hooks.complete).toHaveBeenCalledOnce();expect(hooks.cancel).toHaveBeenCalledOnce()})
- it('keeps every view when an earlier receipt expires during a later prompt',async()=>{const later=deferred(),f=fixture();f.manager.dirtySlidesTabs=()=>[{id:'slides-2',webContents:{id:42,isDestroyed:()=>false}}] as never;hooks.slides.mockReturnValue(later.promise);let valid=true;hooks.complete.mockImplementation((_contents:unknown,_receipt:unknown,remove:()=>boolean)=>valid&&remove());f.close();await vi.waitFor(()=>expect(hooks.slides).toHaveBeenCalledOnce());valid=false;later.resolve(true);await vi.waitFor(()=>expect(hooks.cancel).toHaveBeenCalledOnce());expect(f.win.destroy).not.toHaveBeenCalled();expect(f.quit.reset).toHaveBeenCalled()})
- it('refuses a replaced view after preparation without consuming the old receipt for its replacement',async()=>{const prepared=deferred(),f=fixture();hooks.prepare.mockImplementation(async()=>{await prepared.promise;return {requestId:'old'}});f.close();f.tabs[0]={...f.tab,webContents:{id:99,isDestroyed:()=>false}};prepared.resolve(true);await vi.waitFor(()=>expect(hooks.cancel).toHaveBeenCalledOnce());expect(hooks.complete).not.toHaveBeenCalled();expect(f.win.destroy).not.toHaveBeenCalled()})
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { BrowserWindow } from 'electron'
+import type { TabManager } from '../src/main/tab-manager'
+const hooks = vi.hoisted(() => ({
+  prepare: vi.fn(),
+  complete: vi.fn(),
+  cancel: vi.fn(),
+  slides: vi.fn(),
+}))
+vi.mock('electron', () => ({ app: { on: vi.fn(), quit: vi.fn() } }))
+vi.mock('../../docs/src/main/docs-main', () => ({
+  docsQueryDirty: vi.fn(),
+  requestDocsClose: vi.fn(),
+}))
+vi.mock('../../sheets/src/main/sheets-main', () => ({
+  requestSheetsClose: vi.fn(),
+  resetSheetsShuttingDown: vi.fn(),
+}))
+vi.mock('../../slides/src/main/slides-main', () => ({
+  requestSlidesClose: (...args: unknown[]) => hooks.slides(...args),
+}))
+vi.mock('../../pdf/src/main/pdf-main', () => ({ requestPdfClose: vi.fn() }))
+vi.mock('../../html/src/main/html-main', () => ({ requestHtmlClose: vi.fn() }))
+vi.mock('../../markdown/src/main/markdown-main', () => ({
+  requestMarkdownClose: vi.fn(),
+  prepareMarkdownNativeClose: (...args: unknown[]) => hooks.prepare(...args),
+  completeMarkdownClose: (...args: unknown[]) => hooks.complete(...args),
+  cancelMarkdownClose: (...args: unknown[]) => hooks.cancel(...args),
+}))
+import { installShellCloseGuard, type QuitTracker } from '../src/main/window-close-guard'
+function deferred() {
+  let resolve!: (value: boolean) => void
+  const promise = new Promise<boolean>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+function fixture() {
+  let close!: (event: { preventDefault: () => void }) => void,
+    destroyed = false
+  const contents = { id: 41, isDestroyed: () => false },
+    tab = { id: 'tab-1', webContents: contents },
+    tabs = [tab]
+  const win = {
+    on: vi.fn((_event: string, listener: typeof close) => {
+      close = listener
+    }),
+    isDestroyed: () => destroyed,
+    destroy: vi.fn(() => {
+      destroyed = true
+    }),
+  }
+  const manager = {
+    dirtySheetsTabs: () => [],
+    dirtyPdfTabs: () => [],
+    dirtyMarkdownTabs: () => [],
+    markdownTabs: () => tabs,
+    dirtyHtmlTabs: () => [],
+    htmlTabs: () => [],
+    dirtySlidesTabs: () => [],
+    docsTabs: () => [],
+    activateTab: vi.fn(),
+  }
+  const quit = {
+    quitting: () => false,
+    hold: vi.fn(),
+    release: vi.fn(),
+    reset: vi.fn(),
+    quit: vi.fn(),
+  }
+  installShellCloseGuard(
+    win as unknown as BrowserWindow,
+    manager as unknown as TabManager,
+    quit as QuitTracker,
+  )
+  return {
+    win,
+    manager,
+    tabs,
+    tab,
+    quit,
+    close: () => {
+      const event = { preventDefault: vi.fn() }
+      close(event)
+      return event
+    },
+  }
+}
+beforeEach(() => {
+  vi.clearAllMocks()
+  hooks.prepare.mockResolvedValue({ requestId: 'held' })
+  hooks.complete.mockImplementation(
+    (_contents: unknown, _receipt: unknown, remove: () => boolean) => remove(),
+  )
+  hooks.cancel.mockResolvedValue(undefined)
+  hooks.slides.mockResolvedValue(true)
+})
+describe('Markdown native whole-window final removal', () => {
+  it('queries even a clean family view and consumes its held receipt around actual synchronous destruction', async () => {
+    const f = fixture()
+    expect(f.close().preventDefault).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(f.win.destroy).toHaveBeenCalledOnce())
+    expect(hooks.prepare).toHaveBeenCalledWith(f.tab.webContents, f.win)
+    expect(hooks.complete).toHaveBeenCalledOnce()
+    expect(hooks.cancel).toHaveBeenCalledOnce()
+  })
+  it('keeps every view when an earlier receipt expires during a later prompt', async () => {
+    const later = deferred(),
+      f = fixture()
+    f.manager.dirtySlidesTabs = () =>
+      [{ id: 'slides-2', webContents: { id: 42, isDestroyed: () => false } }] as never
+    hooks.slides.mockReturnValue(later.promise)
+    let valid = true
+    hooks.complete.mockImplementation(
+      (_contents: unknown, _receipt: unknown, remove: () => boolean) => valid && remove(),
+    )
+    f.close()
+    await vi.waitFor(() => expect(hooks.slides).toHaveBeenCalledOnce())
+    valid = false
+    later.resolve(true)
+    await vi.waitFor(() => expect(hooks.cancel).toHaveBeenCalledOnce())
+    expect(f.win.destroy).not.toHaveBeenCalled()
+    expect(f.quit.reset).toHaveBeenCalled()
+  })
+  it('refuses a replaced view after preparation without consuming the old receipt for its replacement', async () => {
+    const prepared = deferred(),
+      f = fixture()
+    hooks.prepare.mockImplementation(async () => {
+      await prepared.promise
+      return { requestId: 'old' }
+    })
+    f.close()
+    f.tabs[0] = { ...f.tab, webContents: { id: 99, isDestroyed: () => false } }
+    prepared.resolve(true)
+    await vi.waitFor(() => expect(hooks.cancel).toHaveBeenCalledOnce())
+    expect(hooks.complete).not.toHaveBeenCalled()
+    expect(f.win.destroy).not.toHaveBeenCalled()
+  })
 })

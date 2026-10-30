@@ -158,7 +158,16 @@ export function createSheetTabActions(deps: {
   }
   if (!deps.admission) return actions
   const wrapped = { ...actions }
-  for (const key of ['activate','insertBefore','remove','rename','moveOrCopy','setTabColor','hide','show'] as const) {
+  for (const key of [
+    'activate',
+    'insertBefore',
+    'remove',
+    'rename',
+    'moveOrCopy',
+    'setTabColor',
+    'hide',
+    'show',
+  ] as const) {
     const action = actions[key] as (...args: unknown[]) => Promise<unknown>
     const target = wrapped as unknown as Record<string, (...args: unknown[]) => unknown>
     target[key] = (...args: unknown[]) => {

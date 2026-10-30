@@ -32,10 +32,10 @@ const api: MarkdownApi = {
   headlessExportDone: (result: { ok: boolean; error?: string }) =>
     ipcRenderer.send(MARKDOWN_CHANNELS.headlessExportDone, result),
   readFile: (path) => ipcRenderer.invoke(MARKDOWN_CHANNELS.readFile, path),
-  readPublication: (path) => ipcRenderer.invoke(MARKDOWN_CHANNELS.readPublication,path),
-  publicationLoaded: request => ipcRenderer.send(MARKDOWN_CHANNELS.publicationLoaded,request),
+  readPublication: (path) => ipcRenderer.invoke(MARKDOWN_CHANNELS.readPublication, path),
+  publicationLoaded: (request) => ipcRenderer.send(MARKDOWN_CHANNELS.publicationLoaded, request),
   save: (request) => ipcRenderer.invoke(MARKDOWN_CHANNELS.save, request),
-  setDirty: (dirty,stamp) => ipcRenderer.send(MARKDOWN_CHANNELS.dirtyChanged, dirty,stamp),
+  setDirty: (dirty, stamp) => ipcRenderer.send(MARKDOWN_CHANNELS.dirtyChanged, dirty, stamp),
   writeDraft: (text) => ipcRenderer.invoke(MARKDOWN_CHANNELS.writeDraft, text),
   onSaveRequest: (handler) => {
     const listener = (_e: Electron.IpcRendererEvent, mode: SaveMode, request: MarkdownSaveTicket) =>
@@ -52,9 +52,13 @@ const api: MarkdownApi = {
   sendSaveRequestAck: (ok) => ipcRenderer.send(MARKDOWN_CHANNELS.saveRequestAck, ok),
   closeSourceState: (state) => ipcRenderer.send(MARKDOWN_CHANNELS.closeSourceState, state),
   claimCloseLease: (ticket) => ipcRenderer.invoke(MARKDOWN_CHANNELS.closeLeaseClaim, ticket),
-  cancelCloseLease: (ticket, reason) => ipcRenderer.invoke(MARKDOWN_CHANNELS.closeLeaseCancel, ticket, reason),
+  cancelCloseLease: (ticket, reason) =>
+    ipcRenderer.invoke(MARKDOWN_CHANNELS.closeLeaseCancel, ticket, reason),
   onCloseLeaseRelease: (handler) => {
-    const listener = (_e: Electron.IpcRendererEvent, ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket) => handler(ticket)
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+    ) => handler(ticket)
     ipcRenderer.on(MARKDOWN_CHANNELS.closeLeaseRelease, listener)
     return () => ipcRenderer.removeListener(MARKDOWN_CHANNELS.closeLeaseRelease, listener)
   },

@@ -1,9 +1,45 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { CloseMutationBarrier, installCloseInputFence } from '@vantage/electron-utils/renderer-close-barrier'
-import { usePdfAuthoredState, readPdfAuthored, configurePdfAuthoredBarrier, pdfAuthoredSource, pdfAuthoredSourceIsCurrent, installPdfAuthoredSource, runPdfAuthoredWork, submitPdfAuthored, retirePdfAuthoredSource, withPdfFileRewrite, pdfFileRewriteHeld } from './pdf-authored'
-import { PdfDraftClient, pendingPdfEditors, restorePdfPendingEditors, clearPdfPendingEditors, onPdfPendingContentChanged, hasPdfPendingEditors, pdfAuthoredFingerprint, discardPdfPendingEditors } from './pdf-draft'
-import { PdfSaveAuthoringChanged, assertPdfSaveUnchanged, preparePdfSaveAdoption } from './pdf-save-coherence'
-import { serializePdfEdits, deserializePdfEdits, pdfWorkspacePendingReasons, type PdfWorkspaceStateV1, type PdfSourceRead, type PdfCopyReceipt, type PdfWorkspaceSaveProof } from '../shared/pdf-workspace'
+import {
+  CloseMutationBarrier,
+  installCloseInputFence,
+} from '@vantage/electron-utils/renderer-close-barrier'
+import {
+  usePdfAuthoredState,
+  readPdfAuthored,
+  configurePdfAuthoredBarrier,
+  pdfAuthoredSource,
+  pdfAuthoredSourceIsCurrent,
+  installPdfAuthoredSource,
+  runPdfAuthoredWork,
+  submitPdfAuthored,
+  retirePdfAuthoredSource,
+  withPdfFileRewrite,
+  pdfFileRewriteHeld,
+} from './pdf-authored'
+import {
+  PdfDraftClient,
+  pendingPdfEditors,
+  restorePdfPendingEditors,
+  clearPdfPendingEditors,
+  onPdfPendingContentChanged,
+  hasPdfPendingEditors,
+  pdfAuthoredFingerprint,
+  discardPdfPendingEditors,
+} from './pdf-draft'
+import {
+  PdfSaveAuthoringChanged,
+  assertPdfSaveUnchanged,
+  preparePdfSaveAdoption,
+} from './pdf-save-coherence'
+import {
+  serializePdfEdits,
+  deserializePdfEdits,
+  pdfWorkspacePendingReasons,
+  type PdfWorkspaceStateV1,
+  type PdfSourceRead,
+  type PdfCopyReceipt,
+  type PdfWorkspaceSaveProof,
+} from '../shared/pdf-workspace'
 import { encodePdfWorkspaceState, type PdfCloseRequest } from '../shared/pdf-workspace'
 import { handlePdfControl, type ControlRequest } from './control'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
@@ -417,34 +453,53 @@ export default function App() {
   const saveFallbackInFlightRef = useRef<Promise<boolean> | null>(null)
   const [saveAuthoringHeld, setSaveAuthoringHeld] = useState(false)
   const redactionAuthoringRef = useRef<{ source: string; fingerprint: string } | null>(null)
-  const saveFallbackRef = useRef<{ copyId: string; fromReadId: string; source: string; baseSha256: string } | null>(null)
+  const saveFallbackRef = useRef<{
+    copyId: string
+    fromReadId: string
+    source: string
+    baseSha256: string
+  } | null>(null)
   const [, setChildPendingVersion] = useState(0)
-  useEffect(() => onPdfPendingContentChanged(() => setChildPendingVersion(value => value + 1)), [])
+  useEffect(
+    () => onPdfPendingContentChanged(() => setChildPendingVersion((value) => value + 1)),
+    [],
+  )
   const pdfSourceEpochRef = useRef(0)
   const ownPdfSaveRef = useRef<{ from: string; to: string; epoch: number } | null>(null)
   const nextSourceReadRef = useRef<PdfSourceRead | null>(null)
   const pendingPdfOpenPathRef = useRef<string | null>(null)
-  const captureWorkspaceRef = useRef<(forSave?: boolean) => PdfWorkspaceStateV1>(() => { throw new Error('The full PDF editor has not finished loading.') })
+  const captureWorkspaceRef = useRef<(forSave?: boolean) => PdfWorkspaceStateV1>(() => {
+    throw new Error('The full PDF editor has not finished loading.')
+  })
   const pdfToolWorkRef = useRef(0)
   const restoreWorkspaceRef = useRef<(state: PdfWorkspaceStateV1) => void>(() => {})
   const composingWorkspaceRef = useRef(false)
   const pointerWorkspaceRef = useRef(false)
   const reportWorkspaceRef = useRef<(message: string) => void>(() => {})
   const pdfDraftRef = useRef<PdfDraftClient | null>(null)
-  if (!pdfDraftRef.current) pdfDraftRef.current = new PdfDraftClient({ api: window.pdfApi,
-    capture: forSave => captureWorkspaceRef.current(forSave), composing: () => composingWorkspaceRef.current || pointerWorkspaceRef.current,
-    sanitized: () => { setStatus('loading'); setDoc(null) },
-    report: message => reportWorkspaceRef.current(message) })
+  if (!pdfDraftRef.current)
+    pdfDraftRef.current = new PdfDraftClient({
+      api: window.pdfApi,
+      capture: (forSave) => captureWorkspaceRef.current(forSave),
+      composing: () => composingWorkspaceRef.current || pointerWorkspaceRef.current,
+      sanitized: () => {
+        setStatus('loading')
+        setDoc(null)
+      },
+      report: (message) => reportWorkspaceRef.current(message),
+    })
   const closeBarrierRef = useRef<CloseMutationBarrier | null>(null)
   const closingPdfRequestRef = useRef<PdfCloseRequest | null>(null)
   const closedPdfTicketsRef = useRef(new Set<string>())
   const suppressPdfResumeRef = useRef(new Set<string>())
-  if (!closeBarrierRef.current) closeBarrierRef.current = new CloseMutationBarrier({
-    source: pdfAuthoredSource,
-    claim: ticket => window.pdfApi.claimClose(ticket),
-    cancel: (ticket, reason) => window.pdfApi.cancelClose(ticket, reason),
-    report: error => reportWorkspaceRef.current(error instanceof Error ? error.message : String(error)),
-  })
+  if (!closeBarrierRef.current)
+    closeBarrierRef.current = new CloseMutationBarrier({
+      source: pdfAuthoredSource,
+      claim: (ticket) => window.pdfApi.claimClose(ticket),
+      cancel: (ticket, reason) => window.pdfApi.cancelClose(ticket, reason),
+      report: (error) =>
+        reportWorkspaceRef.current(error instanceof Error ? error.message : String(error)),
+    })
   configurePdfAuthoredBarrier(closeBarrierRef.current)
   useEffect(() => {
     const barrier = closeBarrierRef.current!
@@ -453,41 +508,75 @@ export default function App() {
       const request = closingPdfRequestRef.current
       const floor = pdfDraftRef.current!.pauseForClose()
       const source = pdfAuthoredSource()
-      const controls = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement>('input,textarea,select,button')].map(element => ({ element, disabled: element.disabled }))
+      const controls = [
+        ...document.querySelectorAll<
+          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement
+        >('input,textarea,select,button'),
+      ].map((element) => ({ element, disabled: element.disabled }))
       for (const { element } of controls) element.disabled = true
-      const editables = [...document.querySelectorAll<HTMLElement>('[contenteditable]')].map(element => ({ element, value: element.contentEditable }))
+      const editables = [...document.querySelectorAll<HTMLElement>('[contenteditable]')].map(
+        (element) => ({ element, value: element.contentEditable }),
+      )
       for (const { element } of editables) element.contentEditable = 'false'
       return () => {
         for (const { element, disabled } of controls) element.disabled = disabled
         for (const { element, value } of editables) element.contentEditable = value
-        if (source === pdfAuthoredSource() && request && !closedPdfTicketsRef.current.has(request.ticket.id) && !suppressPdfResumeRef.current.has(request.ticket.id)) {
+        if (
+          source === pdfAuthoredSource() &&
+          request &&
+          !closedPdfTicketsRef.current.has(request.ticket.id) &&
+          !suppressPdfResumeRef.current.has(request.ticket.id)
+        ) {
           pdfDraftRef.current!.resumeClose(floor)
         }
       }
     })
-    const release = window.pdfApi.onCloseRelease(response => {
+    const release = window.pdfApi.onCloseRelease((response) => {
       if (response.closed) closedPdfTicketsRef.current.add(response.ticket.id)
       if (!response.resumeRecovery) suppressPdfResumeRef.current.add(response.ticket.id)
       barrier.release(response.ticket)
-      if (closingPdfRequestRef.current?.ticket.id === response.ticket.id) closingPdfRequestRef.current = null
-      while (closedPdfTicketsRef.current.size > 128) closedPdfTicketsRef.current.delete(closedPdfTicketsRef.current.values().next().value!)
-      while (suppressPdfResumeRef.current.size > 128) suppressPdfResumeRef.current.delete(suppressPdfResumeRef.current.values().next().value!)
+      if (closingPdfRequestRef.current?.ticket.id === response.ticket.id)
+        closingPdfRequestRef.current = null
+      while (closedPdfTicketsRef.current.size > 128)
+        closedPdfTicketsRef.current.delete(closedPdfTicketsRef.current.values().next().value!)
+      while (suppressPdfResumeRef.current.size > 128)
+        suppressPdfResumeRef.current.delete(suppressPdfResumeRef.current.values().next().value!)
     })
-    return () => { release(); lock(); input() }
+    return () => {
+      release()
+      lock()
+      input()
+    }
   }, [])
   useEffect(() => {
     const client = pdfDraftRef.current!
-    const begin = () => { composingWorkspaceRef.current = true }
-    const end = () => { composingWorkspaceRef.current = false }
-    const pointerBegin = () => { pointerWorkspaceRef.current = true }
-    const pointerEnd = () => { pointerWorkspaceRef.current = false }
+    const begin = () => {
+      composingWorkspaceRef.current = true
+    }
+    const end = () => {
+      composingWorkspaceRef.current = false
+    }
+    const pointerBegin = () => {
+      pointerWorkspaceRef.current = true
+    }
+    const pointerEnd = () => {
+      pointerWorkspaceRef.current = false
+    }
     document.addEventListener('compositionstart', begin, true)
     document.addEventListener('compositionend', end, true)
     document.addEventListener('pointerdown', pointerBegin, true)
     document.addEventListener('pointerup', pointerEnd, true)
     document.addEventListener('pointercancel', pointerEnd, true)
     client.start()
-    return () => { client.stop(); retirePdfAuthoredSource(pdfAuthoredSource()); document.removeEventListener('compositionstart', begin, true); document.removeEventListener('compositionend', end, true); document.removeEventListener('pointerdown', pointerBegin, true); document.removeEventListener('pointerup', pointerEnd, true); document.removeEventListener('pointercancel', pointerEnd, true) }
+    return () => {
+      client.stop()
+      retirePdfAuthoredSource(pdfAuthoredSource())
+      document.removeEventListener('compositionstart', begin, true)
+      document.removeEventListener('compositionend', end, true)
+      document.removeEventListener('pointerdown', pointerBegin, true)
+      document.removeEventListener('pointerup', pointerEnd, true)
+      document.removeEventListener('pointercancel', pointerEnd, true)
+    }
   }, [])
   const [status, setStatus] = useState<'loading' | 'error' | 'empty' | 'password' | 'ready'>(
     'loading',
@@ -500,8 +589,8 @@ export default function App() {
   blankPagesRef.current = blankPages
   const commitBlankPages = (next: LocalBlankPage[]) => {
     submitPdfAuthored(() => {
-    blankPagesRef.current = next
-    setBlankPages(next)
+      blankPagesRef.current = next
+      setBlankPages(next)
     }, authoredSourceAtRender)
   }
   const allSizes = useMemo(() => {
@@ -572,9 +661,7 @@ export default function App() {
     window.addEventListener('pointerup', onUp)
   }
   // Persisted so a closed AI panel stays closed on next launch (docs/slides parity)
-  const [aiCollapsed, setAiCollapsed] = useState(
-    () => !aiPanelInitiallyOpen('vantage-pdf-show-ai'),
-  )
+  const [aiCollapsed, setAiCollapsed] = useState(() => !aiPanelInitiallyOpen('vantage-pdf-show-ai'))
   /** the panel setter in the "true = visible" sense the sidebar hook expects */
   const setAiOpen = useCallback((open: boolean) => setAiCollapsed(!open), [])
   // the sidebar switch is a soft hide; it closes the panel when it turns off
@@ -608,7 +695,10 @@ export default function App() {
   const markupsRef = useRef(markups)
   markupsRef.current = markups
   /** Pending deletions of markup annotations already saved in the file */
-  const [annotDeletes, setAnnotDeletes] = usePdfAuthoredState<LocalAnnotDelete[]>('annotDeletes', [])
+  const [annotDeletes, setAnnotDeletes] = usePdfAuthoredState<LocalAnnotDelete[]>(
+    'annotDeletes',
+    [],
+  )
   const annotDeletesRef = useRef(annotDeletes)
   annotDeletesRef.current = annotDeletes
   /** Pending content rewrites of saved note comments (one entry per note, latest text) */
@@ -621,7 +711,10 @@ export default function App() {
   /** Saved note (Text) comments per original page index, loaded in the same pass */
   const [savedNotes, setSavedNotes] = useState<Map<number, SavedNoteAnnot[]>>(new Map())
   /** Active comment thread: its margin card is expanded and linked to its pin */
-  const [activeNote, setActiveNote] = usePdfAuthoredState<{ origIdx: number; rootKey: string } | null>('activeNote', null)
+  const [activeNote, setActiveNote] = usePdfAuthoredState<{
+    origIdx: number
+    rootKey: string
+  } | null>('activeNote', null)
   /** OS account name; the default author of new note comments */
   const [noteAuthor, setNoteAuthor] = usePdfAuthoredState('noteAuthor', '')
   useEffect(() => {
@@ -638,8 +731,14 @@ export default function App() {
   drawingsRef.current = drawings
   const [drawTool, setDrawTool] = useState<DrawTool | null>(null)
   const [redactions, setRedactions] = usePdfAuthoredState<LocalRedaction[]>('redactions', [])
-  const [selectedRedactionId, setSelectedRedactionId] = usePdfAuthoredState<string | null>('selectedRedactionId', null)
-  const [selectedOutlineTarget, setSelectedOutlineTarget] = usePdfAuthoredState<number[] | null>('selectedOutlineTarget', null)
+  const [selectedRedactionId, setSelectedRedactionId] = usePdfAuthoredState<string | null>(
+    'selectedRedactionId',
+    null,
+  )
+  const [selectedOutlineTarget, setSelectedOutlineTarget] = usePdfAuthoredState<number[] | null>(
+    'selectedOutlineTarget',
+    null,
+  )
   const redactionApplyConfirmedRef = useRef(false)
   const redactionRequestInFlightRef = useRef(false)
   const [redactionCopyInFlight, setRedactionCopyInFlight] = useState(false)
@@ -650,8 +749,8 @@ export default function App() {
   textInsertsRef.current = textInserts
   const commitTextInserts = (next: LocalTextInsert[]) => {
     submitPdfAuthored(() => {
-    textInsertsRef.current = next
-    setTextInserts(next)
+      textInsertsRef.current = next
+      setTextInserts(next)
     }, authoredSourceAtRender)
   }
   const [pendingTextInsert, setPendingTextInsert] = usePdfAuthoredState<Omit<
@@ -876,7 +975,8 @@ export default function App() {
   const updateImageEdits = (fn: (prev: LocalImageEdit[]) => LocalImageEdit[]) => {
     submitPdfAuthored(() => {
       const next = fn(readPdfAuthored('imageEdits', imageEditsRef.current))
-      imageEditsRef.current = next; setImageEdits(next)
+      imageEditsRef.current = next
+      setImageEdits(next)
     }, authoredSourceAtRender)
   }
   const [editImageMode, setEditImageMode] = useState(false)
@@ -885,16 +985,31 @@ export default function App() {
   /** Baseline metadata loaded from the PDF; pending imageEdits carry any changes. */
   const [savedStaticFormFills, setSavedStaticFormFills] = useState<StaticFormFillRecord[]>([])
   /** Picked image awaiting click-to-place (same overlay flow as signatures) */
-  const [imagePick, setImagePick] = usePdfAuthoredState<Extract<SignatureData, { kind: 'image' }> | null>('imagePick', null)
-  const [pendingStaticFill, setPendingStaticFill] = usePdfAuthoredState<StaticFormFillKind | null>('pendingStaticFill', null)
+  const [imagePick, setImagePick] = usePdfAuthoredState<Extract<
+    SignatureData,
+    { kind: 'image' }
+  > | null>('imagePick', null)
+  const [pendingStaticFill, setPendingStaticFill] = usePdfAuthoredState<StaticFormFillKind | null>(
+    'pendingStaticFill',
+    null,
+  )
   const [staticTextDialog, setStaticTextDialog] = usePdfAuthoredState('staticTextDialog', false)
-  const [staticTextPurpose, setStaticTextPurpose] = usePdfAuthoredState<'form' | 'insert'>('staticTextPurpose', 'form')
-  const [textInsertEditId, setTextInsertEditId] = usePdfAuthoredState<string | null>('textInsertEditId', null)
+  const [staticTextPurpose, setStaticTextPurpose] = usePdfAuthoredState<'form' | 'insert'>(
+    'staticTextPurpose',
+    'form',
+  )
+  const [textInsertEditId, setTextInsertEditId] = usePdfAuthoredState<string | null>(
+    'textInsertEditId',
+    null,
+  )
   const [staticText, setStaticText] = usePdfAuthoredState('staticText', '')
   const [staticTextSize, setStaticTextSize] = usePdfAuthoredState('staticTextSize', 14)
   const [staticTextColor, setStaticTextColor] = usePdfAuthoredState('staticTextColor', '#111111')
   const [staticTextColorOpen, setStaticTextColorOpen] = useState(false)
-  const [staticTextAlign, setStaticTextAlign] = usePdfAuthoredState<'left' | 'center' | 'right'>('staticTextAlign', 'left')
+  const [staticTextAlign, setStaticTextAlign] = usePdfAuthoredState<'left' | 'center' | 'right'>(
+    'staticTextAlign',
+    'left',
+  )
   useEffect(() => {
     if (!staticTextDialog) setStaticTextColorOpen(false)
   }, [staticTextDialog])
@@ -933,17 +1048,32 @@ export default function App() {
   const [drawColor, setDrawColor] = useState<[number, number, number]>(DRAW_COLORS[0]!.rgb)
   const [colorOpen, setColorOpen] = useState(false)
   /** Note just placed with the note tool; its content is typed into a margin draft card */
-  const [noteDraft, setNoteDraftCanonical] = usePdfAuthoredState<{ origIdx: number; at: [number, number] } | null>('noteDraft', null)
+  const [noteDraft, setNoteDraftCanonical] = usePdfAuthoredState<{
+    origIdx: number
+    at: [number, number]
+  } | null>('noteDraft', null)
   const [newNoteBody, setNewNoteBody] = usePdfAuthoredState('newNoteBody', '')
-  const [newNoteCreatedMs, setNewNoteCreatedMs] = usePdfAuthoredState<number | null>('newNoteCreatedMs', null)
-  const [noteReplies, setNoteReplies] = usePdfAuthoredState<Map<string, string>>('noteReplies', new Map())
-  const setNoteDraft = (action: typeof noteDraft | ((previous: typeof noteDraft) => typeof noteDraft)) => {
+  const [newNoteCreatedMs, setNewNoteCreatedMs] = usePdfAuthoredState<number | null>(
+    'newNoteCreatedMs',
+    null,
+  )
+  const [noteReplies, setNoteReplies] = usePdfAuthoredState<Map<string, string>>(
+    'noteReplies',
+    new Map(),
+  )
+  const setNoteDraft = (
+    action: typeof noteDraft | ((previous: typeof noteDraft) => typeof noteDraft),
+  ) => {
     submitPdfAuthored(() => {
       const previous = readPdfAuthored('noteDraft', noteDraft)
       const next = typeof action === 'function' ? action(previous) : action
-      const key = (value: typeof noteDraft) => value ? `${value.origIdx}:${value.at.join(':')}` : ''
+      const key = (value: typeof noteDraft) =>
+        value ? `${value.origIdx}:${value.at.join(':')}` : ''
       setNoteDraftCanonical(next)
-      if (key(previous) !== key(next)) { setNewNoteBody(''); setNewNoteCreatedMs(next ? Date.now() : null) }
+      if (key(previous) !== key(next)) {
+        setNewNoteBody('')
+        setNewNoteCreatedMs(next ? Date.now() : null)
+      }
     }, authoredSourceAtRender)
   }
   /** In-progress rewrite of an existing comment. Hoisted out of the margin card so a
@@ -976,7 +1106,8 @@ export default function App() {
   const applyTextEdits = (fn: (prev: LocalTextEdit[]) => LocalTextEdit[]) => {
     submitPdfAuthored(() => {
       const next = fn(readPdfAuthored('textEdits', textEditsRef.current))
-      textEditsRef.current = next; setTextEdits(next)
+      textEditsRef.current = next
+      setTextEdits(next)
     }, authoredSourceAtRender)
   }
   /** User-defined page order (original page indices); null means unreordered */
@@ -998,16 +1129,28 @@ export default function App() {
   const [batesDlg, setBatesDlg] = useState(false)
   const [signaturesDlg, setSignaturesDlg] = useState(false)
   /** Confirmed signature awaiting placement; when non-null the page enters click-to-place mode */
-  const [pendingSign, setPendingSign] = usePdfAuthoredState<SignatureData | null>('pendingSign', null)
+  const [pendingSign, setPendingSign] = usePdfAuthoredState<SignatureData | null>(
+    'pendingSign',
+    null,
+  )
   /** A /Sig widget selected from the form layer; confirmed signatures fit this rect directly. */
-  const [signatureTarget, setSignatureTarget] = usePdfAuthoredState<FormWidget | null>('signatureTarget', null)
+  const [signatureTarget, setSignatureTarget] = usePdfAuthoredState<FormWidget | null>(
+    'signatureTarget',
+    null,
+  )
   const [exporting, setExporting] = useState(false)
   const [formCatalog, setFormCatalog] = useState<FormCatalog | null>(null)
   const [formHasXfa, setFormHasXfa] = useState(false)
   const [documentEncrypted, setDocumentEncrypted] = useState(false)
-  const [activeFormWidgetId, setActiveFormWidgetId] = usePdfAuthoredState<string | null>('activeFormWidgetId', null)
+  const [activeFormWidgetId, setActiveFormWidgetId] = usePdfAuthoredState<string | null>(
+    'activeFormWidgetId',
+    null,
+  )
   const formControlRefs = useRef<Map<string, HTMLElement>>(new Map())
-  const [formEdits, setFormEdits] = usePdfAuthoredState<Map<string, FormValueInput>>('formEdits', new Map())
+  const [formEdits, setFormEdits] = usePdfAuthoredState<Map<string, FormValueInput>>(
+    'formEdits',
+    new Map(),
+  )
   const formEditsRef = useRef(formEdits)
   formEditsRef.current = formEdits
   const [formFields, setFormFields] = usePdfAuthoredState<LocalFormField[]>('formFields', [])
@@ -1017,19 +1160,25 @@ export default function App() {
   const formFieldsRef = useRef(formFields)
   const commitFormFields = (next: LocalFormField[]) => {
     submitPdfAuthored(() => {
-    formFieldsRef.current = next
-    setFormFields(next)
+      formFieldsRef.current = next
+      setFormFields(next)
     }, authoredSourceAtRender)
   }
-  const [formWidgetEdits, setFormWidgetEdits] = usePdfAuthoredState<Map<string, FormWidgetEditInput>>(
-    'formWidgetEdits', new Map(),
-  )
+  const [formWidgetEdits, setFormWidgetEdits] = usePdfAuthoredState<
+    Map<string, FormWidgetEditInput>
+  >('formWidgetEdits', new Map())
   const formWidgetEditsRef = useRef(formWidgetEdits)
   formWidgetEditsRef.current = formWidgetEdits
-  const [formDesignTool, setFormDesignTool] = usePdfAuthoredState<FormDesignTool | null>('formDesignTool', null)
+  const [formDesignTool, setFormDesignTool] = usePdfAuthoredState<FormDesignTool | null>(
+    'formDesignTool',
+    null,
+  )
   const [formDesignKeepTool, setFormDesignKeepTool] = useState(false)
   const [formDesignPreview, setFormDesignPreview] = usePdfAuthoredState('formDesignPreview', false)
-  const [selectedFormFieldIds, setSelectedFormFieldIds] = usePdfAuthoredState<string[]>('selectedFormFieldIds', [])
+  const [selectedFormFieldIds, setSelectedFormFieldIds] = usePdfAuthoredState<string[]>(
+    'selectedFormFieldIds',
+    [],
+  )
   const setSelectedFormFieldId = (id: string | null) => setSelectedFormFieldIds(id ? [id] : [])
   const [formMenu, setFormMenu] = useState<{
     x: number
@@ -1043,7 +1192,10 @@ export default function App() {
   const arrangeWrapRef = useRef<HTMLDivElement | null>(null)
   const formClipboardRef = useRef<FormFieldInput[]>([])
   /** The field just placed: its card takes focus and offers Cancel */
-  const [freshFormFieldId, setFreshFormFieldId] = usePdfAuthoredState<string | null>('freshFormFieldId', null)
+  const [freshFormFieldId, setFreshFormFieldId] = usePdfAuthoredState<string | null>(
+    'freshFormFieldId',
+    null,
+  )
   const [rotations, setRotations] = usePdfAuthoredState<Map<number, number>>('rotations', new Map())
   /** Latest rotations for same-turn AI geometry (an apply_ops rotation then an image bake) */
   const rotationsRef = useRef(rotations)
@@ -1321,383 +1473,474 @@ export default function App() {
       saved?: SavedSnapshot,
       waitForPageNos: number[] = [],
       expectedSource = pdfAuthoredSource(),
-    ) => runPdfAuthoredWork(async () => {
-      const sourceEpoch = ++pdfSourceEpochRef.current
-      let sourceRead = nextSourceReadRef.current
-      nextSourceReadRef.current = null
-      if (!sourceRead) {
-        try { sourceRead = await window.pdfApi.readSource(path, saved ? closingPdfRequestRef.current?.ticket : undefined) }
-        catch (error) {
-          if (/\.vpdfdraft$/i.test(path)) throw error
-          const fallback = await window.pdfApi.readFile(path, saved ? closingPdfRequestRef.current?.ticket : undefined)
-          sourceRead = { readId: '', mode: 'native', displayPath: path, helperPath: path, baseSha256: '', data: fallback,
-            draftCapability: { available: false, reason: error instanceof Error ? error.message : 'This source cannot be captured completely.' } }
-        }
-      }
-      if (sourceEpoch !== pdfSourceEpochRef.current) throw new Error('A newer PDF source replaced this read.')
-      const data = sourceRead.data
-      const bytes = new Uint8Array(data)
-      const task = getDocument({
-        data: bytes,
-        password: passwordRef.current,
-        ...DOC_OPTS,
-      })
-      let loaded: PDFDocumentProxy
-      try {
-        loaded = await task.promise
-      } catch (err) {
-        // a failed open (wrong password, corrupt file) leaves the rejected task
-        // holding the file bytes and its worker: retire it before surfacing
-        void task.destroy()
-        throw err
-      }
-      const prepareDetails = async () => {
-      const all: PageSize[] = []
-      const rots: number[] = []
-      const origins: [number, number][] = []
-      const userUnits: number[] = []
-      let nextDocInfo = { title: '', author: '', subject: '', keywords: '' }
-      let nextFormFeatures = { hasXfa: false, encrypted: false }
-      try {
-        const metadata = await loaded.getMetadata()
-        const documentInfo = metadata.info as {
-          EncryptFilterName?: string | null
-          IsXFAPresent?: boolean
-          Title?: string
-          Author?: string
-          Subject?: string
-          Keywords?: string
-        }
-        nextDocInfo = {
-          title: documentInfo.Title ?? '',
-          author: documentInfo.Author ?? '',
-          subject: documentInfo.Subject ?? '',
-          keywords: documentInfo.Keywords ?? '',
-        }
-        nextFormFeatures = documentFormFeatures(documentInfo, bytes)
-        for (let i = 1; i <= loaded.numPages; i++) {
-          const page = await loaded.getPage(i)
-          // Unrotated size; display size is derived by geom from the total rotation
-          const vp = page.getViewport({ scale: 1, rotation: 0 })
-          all.push({ width: vp.width, height: vp.height })
-          rots.push(page.rotate ?? 0)
-          origins.push([page.view[0]!, page.view[1]!])
-          userUnits.push(page.userUnit ?? 1)
-        }
-      } catch (err) {
-        // getMetadata/page probing failed after the document resolved but before
-        // setDoc adopted it: destroy the half-open document (pdfjs-dist 6.x
-        // removed PDFDocumentProxy.destroy(); go through the loading task) and
-        // keep the previous document on screen, then surface the error
-        void loaded.loadingTask.destroy()
-        throw err
-      }
-      let nextFormCatalog: Awaited<ReturnType<typeof buildFormCatalog>>
-      try {
-        nextFormCatalog = await buildFormCatalog(loaded)
-      } catch {
-        nextFormCatalog = {
-          widgets: [],
-          fields: new Map(),
-          byPage: new Map(),
-          otherFieldNames: new Set(),
-        }
-      }
-      let nextStaticFormFills: StaticFormFillRecord[]
-      try {
-        nextStaticFormFills = await window.pdfApi.listStaticFormFills(path)
-      } catch {
-        nextStaticFormFills = []
-      }
-      return { all, rots, origins, userUnits, nextDocInfo, nextFormFeatures, nextFormCatalog, nextStaticFormFills }
-      }
-      let details: Awaited<ReturnType<typeof prepareDetails>>
-      try {
-        details = saved?.authoredFingerprint ? await preparePdfSaveAdoption({
-          expected: saved.authoredFingerprint, capture: () => captureWorkspaceRef.current(true),
-          current: () => sourceEpoch === pdfSourceEpochRef.current && expectedSource === pdfAuthoredSource(),
-          prepare: prepareDetails, dispose: () => { void loaded.loadingTask.destroy() },
-        }) : await prepareDetails()
-      } catch (error) { void loaded.loadingTask.destroy(); throw error }
-      const { all, rots, origins, userUnits, nextDocInfo, nextFormFeatures, nextFormCatalog, nextStaticFormFills } = details
-      // A new canvas must never be shown with the old model while awaiting
-      // rendering. All reads are staged, then source+full-authoring are checked
-      // immediately before one synchronous adoption; the previous canvas stays
-      // alive if same-ID edits, removals or Undo happened during readback.
-      void waitForPageNos
-      try {
-        if (sourceEpoch !== pdfSourceEpochRef.current || expectedSource !== pdfAuthoredSource()) throw new Error('A newer PDF source replaced this read.')
-        if (saved?.authoredFingerprint) assertPdfSaveUnchanged(saved.authoredFingerprint, () => captureWorkspaceRef.current(true))
-      } catch (error) { void loaded.loadingTask.destroy(); throw error }
-      pdfDraftRef.current!.suspendForSource()
-      installPdfAuthoredSource(sourceRead.readId || `native-${sourceEpoch}`, () => {
-      setFormHasXfa(hasXfaMarker(bytes))
-      if (!saved) {
-        setFormCatalog(null); setSavedStaticFormFills([]); setActiveFormWidgetId(null)
-        formControlRefs.current.clear(); commitFormFields([]); commitBlankPages([])
-        setFormWidgetEdits(new Map()); setFormDesignTool(null); setFormDesignPreview(false)
-        setSelectedFormFieldId(null); setFreshFormFieldId(null)
-      }
-      if (!saved) {
-        setAiSelection(null)
-        setAskPop(null)
-        setMarkups([])
-        setRedactions([])
-        redactionApplyConfirmedRef.current = false
-        setAnnotDeletes([])
-        setNoteEdits([])
-        setDrawings([])
-        applyTextEdits(() => [])
-        commitTextInserts([])
-        setPendingTextInsert(null)
-        updateImageEdits(() => [])
-        setTextDraft(null)
-        setStampCfg(null)
-        setFormEdits(new Map())
-        setFormWidgetEdits(new Map())
-        setSignatureTarget(null)
-        rotationsRef.current = new Map()
-        setRotations(rotationsRef.current)
-        setDeleted(new Set())
-        setOrder(null)
-        setMetadata(null)
-      } else {
-        // Post-save reload: subtract exactly what the save wrote. Edits made while the
-        // write was in flight stay pending, with page indices remapped through the
-        // saved deletions/reorder (a page missing from pageMap is gone from the file).
-        const remap = new Map(saved.pageMap)
-        // Blank pages added while the write was in flight keep their edits: their virtual
-        // indices move past the reloaded document's pages and remap like any other page
-        const inFlightBlanks = blankPagesRef.current
-          .filter((b) => !saved.blankPageIds.has(b.id))
-          .sort((a, b) => a.input.pageIndex - b.input.pageIndex)
-          .map((b, k) => {
-            const pageIndex = loaded.numPages + k
-            remap.set(b.input.pageIndex, pageIndex)
-            return { ...b, input: { ...b.input, pageIndex } }
-          })
-        setOutline((prev) => (prev ? remapOutlinePages(prev, remap) : prev))
-        // Redaction marks are deliberately omitted from ordinary saves. Keep them
-        // through the reload, remapping their original page indices if this save
-        // changed page order or removed pages while it was running.
-        setRedactions((prev) =>
-          prev.flatMap((mark) => {
-            const ni = remap.get(mark.pageIndex)
-            return ni === undefined
-              ? []
-              : [ni === mark.pageIndex ? mark : { ...mark, pageIndex: ni }]
-          }),
-        )
-        setMarkups((prev) =>
-          prev.flatMap((mk) => {
-            if (saved.markupIds.has(mk.id)) return []
-            const ni = remap.get(mk.pageIndex)
-            return ni === undefined ? [] : [ni === mk.pageIndex ? mk : { ...mk, pageIndex: ni }]
-          }),
-        )
-        setAnnotDeletes((prev) =>
-          prev.flatMap((d) => {
-            if (saved.annotDeleteIds.has(d.id)) return []
-            const ni = remap.get(d.annot.pageIndex)
-            if (ni === undefined) return []
-            // The object number may be stale after the rewrite; the save path's
-            // subtype+rect fallback still finds the annotation
-            return [ni === d.annot.pageIndex ? d : { ...d, annot: { ...d.annot, pageIndex: ni } }]
-          }),
-        )
-        setNoteEdits((prev) =>
-          prev.flatMap((e) => {
-            if (saved.noteEditIds.has(e.id)) return []
-            const ni = remap.get(e.annot.pageIndex)
-            if (ni === undefined) return []
-            // An edit made while the write was in flight targets a note this save just
-            // rewrote: match on the new on-disk contents, and drop the edit entirely if
-            // it now says exactly what the file says
-            const written = saved.noteEditWritten.get(e.annot.objNum)
-            if (written !== undefined && e.contents === written) return []
-            const contents = written ?? e.annot.contents
-            if (ni === e.annot.pageIndex && contents === e.annot.contents) return [e]
-            return [{ ...e, annot: { ...e.annot, pageIndex: ni, contents } }]
-          }),
-        )
-        setDrawings((prev) =>
-          prev.flatMap((dr) => {
-            if (saved.drawingIds.has(dr.id)) return []
-            const ni = remap.get(dr.input.pageIndex)
-            if (ni === undefined) return []
-            return [
-              ni === dr.input.pageIndex ? dr : { ...dr, input: { ...dr.input, pageIndex: ni } },
-            ]
-          }),
-        )
-        applyTextEdits((prev) =>
-          prev.flatMap((te) => {
-            if (saved.textEditIds.has(te.id)) return []
-            const ni = remap.get(te.input.pageIndex)
-            if (ni === undefined) return []
-            return [
-              ni === te.input.pageIndex ? te : { ...te, input: { ...te.input, pageIndex: ni } },
-            ]
-          }),
-        )
-        commitTextInserts(
-          textInsertsRef.current.flatMap((insert) => {
-            if (saved.textInsertIds.has(insert.id)) return []
-            const ni = remap.get(insert.input.pageIndex)
-            if (ni === undefined) return []
-            return [
-              ni === insert.input.pageIndex
-                ? insert
-                : { ...insert, input: { ...insert.input, pageIndex: ni } },
-            ]
-          }),
-        )
-        commitBlankPages(inFlightBlanks)
-        commitFormFields(
-          formFieldsRef.current.flatMap((f) => {
-            if (saved.formFieldIds.has(f.id)) return []
-            const ni = remap.get(f.input.pageIndex)
-            if (ni === undefined) return []
-            return [ni === f.input.pageIndex ? f : { ...f, input: { ...f.input, pageIndex: ni } }]
-          }),
-        )
-        updateImageEdits((prev) =>
-          prev.flatMap((ie) => {
-            if (saved.imageEditIds.has(ie.id)) return []
-            const ni = remap.get(ie.input.pageIndex)
-            if (ni === undefined) return []
-            return [
-              ni === ie.input.pageIndex ? ie : { ...ie, input: { ...ie.input, pageIndex: ni } },
-            ]
-          }),
-        )
-        setTextDraft((prev) => {
-          if (!prev) return null
-          const ni = remap.get(prev.origIdx)
-          if (ni === undefined) return null
-          // A draft re-opened on an edit that just got saved becomes a fresh edit
-          const editId =
-            prev.editId !== undefined && saved.textEditIds.has(prev.editId)
-              ? undefined
-              : prev.editId
-          return ni === prev.origIdx && editId === prev.editId
-            ? prev
-            : { ...prev, origIdx: ni, editId }
-        })
-        // The full content fence above establishes unchanged authoring. Compare
-        // represented config values as data too: an equivalent cloned object is
-        // not a newer user edit and must not keep every normal Save dirty.
-        setStampCfg((prev) => (JSON.stringify(prev) === JSON.stringify(saved.stampCfg) ? null : prev))
-        setMetadata((prev) => (JSON.stringify(prev) === JSON.stringify(saved.metadata) ? null : prev))
-        // The tree this save wrote is in the file now: an open editing session keeps it
-        // as its clean base, a committed one is done. The save may have deleted or
-        // reordered pages, so the tree's page indices are the ones from before it —
-        // re-point them at the pages the file has now.
-        setPendingOutline((prev) =>
-          prev && saved.outline !== null && JSON.stringify(prev.tree) === JSON.stringify(saved.outline)
-            ? prev.editing
-              ? { ...prev, edited: false, tree: remapOutlineTree(prev.tree ?? [], remap) }
-              : null
-            : prev,
-        )
-        setFormEdits((prev) => {
-          const next = new Map<string, FormValueInput>()
-          for (const [k, v] of prev) if (JSON.stringify(saved.formEdits.get(k)) !== JSON.stringify(v)) next.set(k, v)
-          return next
-        })
-        setFormWidgetEdits((prev) => {
-          const next = new Map<string, FormWidgetEditInput>()
-          for (const [k, v] of prev) if (JSON.stringify(saved.formWidgetEdits.get(k)) !== JSON.stringify(v)) next.set(k, v)
-          return next
-        })
-        // Pending fields written by this save are gone from the design list; a selection pointing at
-        // them would keep Delete/Arrange armed with nothing to act on
-        setSelectedFormFieldIds((prev) => prev.filter((id) => !saved.formFieldIds.has(id)))
-        setFreshFormFieldId((prev) => (prev && saved.formFieldIds.has(prev) ? null : prev))
-        const nextRotations = new Map<number, number>()
-        for (const [oldIdx, delta] of rotationsRef.current) {
-          const residual = (((delta - (saved.rotations.get(oldIdx) ?? 0)) % 360) + 360) % 360
-          const ni = remap.get(oldIdx)
-          if (residual !== 0 && ni !== undefined) nextRotations.set(ni, residual)
-        }
-        rotationsRef.current = nextRotations
-        setRotations(nextRotations)
-        setDeleted((prev) => {
-          const next = new Set<number>()
-          // Saved deletions are absent from pageMap; the rest were deleted mid-save
-          for (const oldIdx of prev) {
-            const ni = remap.get(oldIdx)
-            if (ni !== undefined) next.add(ni)
+    ) =>
+      runPdfAuthoredWork(async () => {
+        const sourceEpoch = ++pdfSourceEpochRef.current
+        let sourceRead = nextSourceReadRef.current
+        nextSourceReadRef.current = null
+        if (!sourceRead) {
+          try {
+            sourceRead = await window.pdfApi.readSource(
+              path,
+              saved ? closingPdfRequestRef.current?.ticket : undefined,
+            )
+          } catch (error) {
+            if (/\.vpdfdraft$/i.test(path)) throw error
+            const fallback = await window.pdfApi.readFile(
+              path,
+              saved ? closingPdfRequestRef.current?.ticket : undefined,
+            )
+            sourceRead = {
+              readId: '',
+              mode: 'native',
+              displayPath: path,
+              helperPath: path,
+              baseSha256: '',
+              data: fallback,
+              draftCapability: {
+                available: false,
+                reason:
+                  error instanceof Error
+                    ? error.message
+                    : 'This source cannot be captured completely.',
+              },
+            }
           }
-          return next
+        }
+        if (sourceEpoch !== pdfSourceEpochRef.current)
+          throw new Error('A newer PDF source replaced this read.')
+        const data = sourceRead.data
+        const bytes = new Uint8Array(data)
+        const task = getDocument({
+          data: bytes,
+          password: passwordRef.current,
+          ...DOC_OPTS,
         })
-        setOrder((prev) => {
-          if (!prev) return null
-          const mapped = prev.flatMap((o) => {
-            const ni = remap.get(o)
-            return ni === undefined ? [] : [ni]
-          })
-          return mapped.every((n, i) => n === i) ? null : mapped
+        let loaded: PDFDocumentProxy
+        try {
+          loaded = await task.promise
+        } catch (err) {
+          // a failed open (wrong password, corrupt file) leaves the rejected task
+          // holding the file bytes and its worker: retire it before surfacing
+          void task.destroy()
+          throw err
+        }
+        const prepareDetails = async () => {
+          const all: PageSize[] = []
+          const rots: number[] = []
+          const origins: [number, number][] = []
+          const userUnits: number[] = []
+          let nextDocInfo = { title: '', author: '', subject: '', keywords: '' }
+          let nextFormFeatures = { hasXfa: false, encrypted: false }
+          try {
+            const metadata = await loaded.getMetadata()
+            const documentInfo = metadata.info as {
+              EncryptFilterName?: string | null
+              IsXFAPresent?: boolean
+              Title?: string
+              Author?: string
+              Subject?: string
+              Keywords?: string
+            }
+            nextDocInfo = {
+              title: documentInfo.Title ?? '',
+              author: documentInfo.Author ?? '',
+              subject: documentInfo.Subject ?? '',
+              keywords: documentInfo.Keywords ?? '',
+            }
+            nextFormFeatures = documentFormFeatures(documentInfo, bytes)
+            for (let i = 1; i <= loaded.numPages; i++) {
+              const page = await loaded.getPage(i)
+              // Unrotated size; display size is derived by geom from the total rotation
+              const vp = page.getViewport({ scale: 1, rotation: 0 })
+              all.push({ width: vp.width, height: vp.height })
+              rots.push(page.rotate ?? 0)
+              origins.push([page.view[0]!, page.view[1]!])
+              userUnits.push(page.userUnit ?? 1)
+            }
+          } catch (err) {
+            // getMetadata/page probing failed after the document resolved but before
+            // setDoc adopted it: destroy the half-open document (pdfjs-dist 6.x
+            // removed PDFDocumentProxy.destroy(); go through the loading task) and
+            // keep the previous document on screen, then surface the error
+            void loaded.loadingTask.destroy()
+            throw err
+          }
+          let nextFormCatalog: Awaited<ReturnType<typeof buildFormCatalog>>
+          try {
+            nextFormCatalog = await buildFormCatalog(loaded)
+          } catch {
+            nextFormCatalog = {
+              widgets: [],
+              fields: new Map(),
+              byPage: new Map(),
+              otherFieldNames: new Set(),
+            }
+          }
+          let nextStaticFormFills: StaticFormFillRecord[]
+          try {
+            nextStaticFormFills = await window.pdfApi.listStaticFormFills(path)
+          } catch {
+            nextStaticFormFills = []
+          }
+          return {
+            all,
+            rots,
+            origins,
+            userUnits,
+            nextDocInfo,
+            nextFormFeatures,
+            nextFormCatalog,
+            nextStaticFormFills,
+          }
+        }
+        let details: Awaited<ReturnType<typeof prepareDetails>>
+        try {
+          details = saved?.authoredFingerprint
+            ? await preparePdfSaveAdoption({
+                expected: saved.authoredFingerprint,
+                capture: () => captureWorkspaceRef.current(true),
+                current: () =>
+                  sourceEpoch === pdfSourceEpochRef.current &&
+                  expectedSource === pdfAuthoredSource(),
+                prepare: prepareDetails,
+                dispose: () => {
+                  void loaded.loadingTask.destroy()
+                },
+              })
+            : await prepareDetails()
+        } catch (error) {
+          void loaded.loadingTask.destroy()
+          throw error
+        }
+        const {
+          all,
+          rots,
+          origins,
+          userUnits,
+          nextDocInfo,
+          nextFormFeatures,
+          nextFormCatalog,
+          nextStaticFormFills,
+        } = details
+        // A new canvas must never be shown with the old model while awaiting
+        // rendering. All reads are staged, then source+full-authoring are checked
+        // immediately before one synchronous adoption; the previous canvas stays
+        // alive if same-ID edits, removals or Undo happened during readback.
+        void waitForPageNos
+        try {
+          if (sourceEpoch !== pdfSourceEpochRef.current || expectedSource !== pdfAuthoredSource())
+            throw new Error('A newer PDF source replaced this read.')
+          if (saved?.authoredFingerprint)
+            assertPdfSaveUnchanged(saved.authoredFingerprint, () =>
+              captureWorkspaceRef.current(true),
+            )
+        } catch (error) {
+          void loaded.loadingTask.destroy()
+          throw error
+        }
+        pdfDraftRef.current!.suspendForSource()
+        installPdfAuthoredSource(sourceRead.readId || `native-${sourceEpoch}`, () => {
+          setFormHasXfa(hasXfaMarker(bytes))
+          if (!saved) {
+            setFormCatalog(null)
+            setSavedStaticFormFills([])
+            setActiveFormWidgetId(null)
+            formControlRefs.current.clear()
+            commitFormFields([])
+            commitBlankPages([])
+            setFormWidgetEdits(new Map())
+            setFormDesignTool(null)
+            setFormDesignPreview(false)
+            setSelectedFormFieldId(null)
+            setFreshFormFieldId(null)
+          }
+          if (!saved) {
+            setAiSelection(null)
+            setAskPop(null)
+            setMarkups([])
+            setRedactions([])
+            redactionApplyConfirmedRef.current = false
+            setAnnotDeletes([])
+            setNoteEdits([])
+            setDrawings([])
+            applyTextEdits(() => [])
+            commitTextInserts([])
+            setPendingTextInsert(null)
+            updateImageEdits(() => [])
+            setTextDraft(null)
+            setStampCfg(null)
+            setFormEdits(new Map())
+            setFormWidgetEdits(new Map())
+            setSignatureTarget(null)
+            rotationsRef.current = new Map()
+            setRotations(rotationsRef.current)
+            setDeleted(new Set())
+            setOrder(null)
+            setMetadata(null)
+          } else {
+            // Post-save reload: subtract exactly what the save wrote. Edits made while the
+            // write was in flight stay pending, with page indices remapped through the
+            // saved deletions/reorder (a page missing from pageMap is gone from the file).
+            const remap = new Map(saved.pageMap)
+            // Blank pages added while the write was in flight keep their edits: their virtual
+            // indices move past the reloaded document's pages and remap like any other page
+            const inFlightBlanks = blankPagesRef.current
+              .filter((b) => !saved.blankPageIds.has(b.id))
+              .sort((a, b) => a.input.pageIndex - b.input.pageIndex)
+              .map((b, k) => {
+                const pageIndex = loaded.numPages + k
+                remap.set(b.input.pageIndex, pageIndex)
+                return { ...b, input: { ...b.input, pageIndex } }
+              })
+            setOutline((prev) => (prev ? remapOutlinePages(prev, remap) : prev))
+            // Redaction marks are deliberately omitted from ordinary saves. Keep them
+            // through the reload, remapping their original page indices if this save
+            // changed page order or removed pages while it was running.
+            setRedactions((prev) =>
+              prev.flatMap((mark) => {
+                const ni = remap.get(mark.pageIndex)
+                return ni === undefined
+                  ? []
+                  : [ni === mark.pageIndex ? mark : { ...mark, pageIndex: ni }]
+              }),
+            )
+            setMarkups((prev) =>
+              prev.flatMap((mk) => {
+                if (saved.markupIds.has(mk.id)) return []
+                const ni = remap.get(mk.pageIndex)
+                return ni === undefined ? [] : [ni === mk.pageIndex ? mk : { ...mk, pageIndex: ni }]
+              }),
+            )
+            setAnnotDeletes((prev) =>
+              prev.flatMap((d) => {
+                if (saved.annotDeleteIds.has(d.id)) return []
+                const ni = remap.get(d.annot.pageIndex)
+                if (ni === undefined) return []
+                // The object number may be stale after the rewrite; the save path's
+                // subtype+rect fallback still finds the annotation
+                return [
+                  ni === d.annot.pageIndex ? d : { ...d, annot: { ...d.annot, pageIndex: ni } },
+                ]
+              }),
+            )
+            setNoteEdits((prev) =>
+              prev.flatMap((e) => {
+                if (saved.noteEditIds.has(e.id)) return []
+                const ni = remap.get(e.annot.pageIndex)
+                if (ni === undefined) return []
+                // An edit made while the write was in flight targets a note this save just
+                // rewrote: match on the new on-disk contents, and drop the edit entirely if
+                // it now says exactly what the file says
+                const written = saved.noteEditWritten.get(e.annot.objNum)
+                if (written !== undefined && e.contents === written) return []
+                const contents = written ?? e.annot.contents
+                if (ni === e.annot.pageIndex && contents === e.annot.contents) return [e]
+                return [{ ...e, annot: { ...e.annot, pageIndex: ni, contents } }]
+              }),
+            )
+            setDrawings((prev) =>
+              prev.flatMap((dr) => {
+                if (saved.drawingIds.has(dr.id)) return []
+                const ni = remap.get(dr.input.pageIndex)
+                if (ni === undefined) return []
+                return [
+                  ni === dr.input.pageIndex ? dr : { ...dr, input: { ...dr.input, pageIndex: ni } },
+                ]
+              }),
+            )
+            applyTextEdits((prev) =>
+              prev.flatMap((te) => {
+                if (saved.textEditIds.has(te.id)) return []
+                const ni = remap.get(te.input.pageIndex)
+                if (ni === undefined) return []
+                return [
+                  ni === te.input.pageIndex ? te : { ...te, input: { ...te.input, pageIndex: ni } },
+                ]
+              }),
+            )
+            commitTextInserts(
+              textInsertsRef.current.flatMap((insert) => {
+                if (saved.textInsertIds.has(insert.id)) return []
+                const ni = remap.get(insert.input.pageIndex)
+                if (ni === undefined) return []
+                return [
+                  ni === insert.input.pageIndex
+                    ? insert
+                    : { ...insert, input: { ...insert.input, pageIndex: ni } },
+                ]
+              }),
+            )
+            commitBlankPages(inFlightBlanks)
+            commitFormFields(
+              formFieldsRef.current.flatMap((f) => {
+                if (saved.formFieldIds.has(f.id)) return []
+                const ni = remap.get(f.input.pageIndex)
+                if (ni === undefined) return []
+                return [
+                  ni === f.input.pageIndex ? f : { ...f, input: { ...f.input, pageIndex: ni } },
+                ]
+              }),
+            )
+            updateImageEdits((prev) =>
+              prev.flatMap((ie) => {
+                if (saved.imageEditIds.has(ie.id)) return []
+                const ni = remap.get(ie.input.pageIndex)
+                if (ni === undefined) return []
+                return [
+                  ni === ie.input.pageIndex ? ie : { ...ie, input: { ...ie.input, pageIndex: ni } },
+                ]
+              }),
+            )
+            setTextDraft((prev) => {
+              if (!prev) return null
+              const ni = remap.get(prev.origIdx)
+              if (ni === undefined) return null
+              // A draft re-opened on an edit that just got saved becomes a fresh edit
+              const editId =
+                prev.editId !== undefined && saved.textEditIds.has(prev.editId)
+                  ? undefined
+                  : prev.editId
+              return ni === prev.origIdx && editId === prev.editId
+                ? prev
+                : { ...prev, origIdx: ni, editId }
+            })
+            // The full content fence above establishes unchanged authoring. Compare
+            // represented config values as data too: an equivalent cloned object is
+            // not a newer user edit and must not keep every normal Save dirty.
+            setStampCfg((prev) =>
+              JSON.stringify(prev) === JSON.stringify(saved.stampCfg) ? null : prev,
+            )
+            setMetadata((prev) =>
+              JSON.stringify(prev) === JSON.stringify(saved.metadata) ? null : prev,
+            )
+            // The tree this save wrote is in the file now: an open editing session keeps it
+            // as its clean base, a committed one is done. The save may have deleted or
+            // reordered pages, so the tree's page indices are the ones from before it —
+            // re-point them at the pages the file has now.
+            setPendingOutline((prev) =>
+              prev &&
+              saved.outline !== null &&
+              JSON.stringify(prev.tree) === JSON.stringify(saved.outline)
+                ? prev.editing
+                  ? { ...prev, edited: false, tree: remapOutlineTree(prev.tree ?? [], remap) }
+                  : null
+                : prev,
+            )
+            setFormEdits((prev) => {
+              const next = new Map<string, FormValueInput>()
+              for (const [k, v] of prev)
+                if (JSON.stringify(saved.formEdits.get(k)) !== JSON.stringify(v)) next.set(k, v)
+              return next
+            })
+            setFormWidgetEdits((prev) => {
+              const next = new Map<string, FormWidgetEditInput>()
+              for (const [k, v] of prev)
+                if (JSON.stringify(saved.formWidgetEdits.get(k)) !== JSON.stringify(v))
+                  next.set(k, v)
+              return next
+            })
+            // Pending fields written by this save are gone from the design list; a selection pointing at
+            // them would keep Delete/Arrange armed with nothing to act on
+            setSelectedFormFieldIds((prev) => prev.filter((id) => !saved.formFieldIds.has(id)))
+            setFreshFormFieldId((prev) => (prev && saved.formFieldIds.has(prev) ? null : prev))
+            const nextRotations = new Map<number, number>()
+            for (const [oldIdx, delta] of rotationsRef.current) {
+              const residual = (((delta - (saved.rotations.get(oldIdx) ?? 0)) % 360) + 360) % 360
+              const ni = remap.get(oldIdx)
+              if (residual !== 0 && ni !== undefined) nextRotations.set(ni, residual)
+            }
+            rotationsRef.current = nextRotations
+            setRotations(nextRotations)
+            setDeleted((prev) => {
+              const next = new Set<number>()
+              // Saved deletions are absent from pageMap; the rest were deleted mid-save
+              for (const oldIdx of prev) {
+                const ni = remap.get(oldIdx)
+                if (ni !== undefined) next.add(ni)
+              }
+              return next
+            })
+            setOrder((prev) => {
+              if (!prev) return null
+              const mapped = prev.flatMap((o) => {
+                const ni = remap.get(o)
+                return ni === undefined ? [] : [ni]
+              })
+              return mapped.every((n, i) => n === i) ? null : mapped
+            })
+          }
+          setDocInfo(nextDocInfo)
+          setFormHasXfa(nextFormFeatures.hasXfa)
+          setDocumentEncrypted(nextFormFeatures.encrypted)
+          setFormCatalog(nextFormCatalog)
+          setSavedStaticFormFills(nextStaticFormFills)
+          setSizes(all)
+          setPageOrigins(origins)
+          setPageUserUnits(userUnits)
+          setBaseRots(rots)
+          setDoc(loaded)
+          setFileSize(data.byteLength)
+          setSelected(null)
+          setDeleteToast(false)
+          setUndoStack([])
+          setRedoStack([])
+          outlineDocRef.current = loaded
+          // A save-reload keeps the current tree (page indices already remapped
+          // above) visible while headings rescan
+          if (!saved) {
+            setOutline(null)
+            setOutlineGenerated(false)
+            setPendingOutline(null)
+          }
+          void loaded
+            .getOutline()
+            .then(
+              (o) => (o && o.length > 0 ? (o as OutlineNode[]) : null),
+              () => null,
+            )
+            .then(async (embedded) => {
+              const stale = () => outlineDocRef.current !== loaded
+              const generated = embedded
+                ? null
+                : await buildHeadingOutline(loaded, stale).catch(() => null)
+              if (stale()) return
+              setOutline(embedded ?? generated)
+              setOutlineGenerated(!embedded && generated !== null)
+            })
+          // pdfjs-dist 6.x removed PDFDocumentProxy.destroy(); go through the loading task
+          if (previous) void previous.loadingTask.destroy()
+          if (!saved) {
+            clearPdfPendingEditors()
+            setNewNoteBody('')
+            setNewNoteCreatedMs(null)
+            setNoteReplies(new Map())
+            setSelectedRedactionId(null)
+            setSelectedOutlineTarget(null)
+            if (sourceRead.recoveredState) restoreWorkspaceRef.current(sourceRead.recoveredState)
+          }
+          setFilePath(sourceRead.helperPath)
+          setDisplayPath(sourceRead.displayPath)
+          setWorkspaceMode(sourceRead.mode === 'workspace')
+          setWorkspaceUnpublishedBase(sourceRead.unpublishedBase === true)
+          unpublishedWorkspaceRef.current = sourceRead.unpublishedBase === true
+          saveFallbackRef.current = null
+          setSaveFallbackAvailable(false)
+          pendingPdfOpenPathRef.current = null
         })
-      }
-      setDocInfo(nextDocInfo)
-      setFormHasXfa(nextFormFeatures.hasXfa)
-      setDocumentEncrypted(nextFormFeatures.encrypted)
-      setFormCatalog(nextFormCatalog)
-      setSavedStaticFormFills(nextStaticFormFills)
-      setSizes(all); setPageOrigins(origins); setPageUserUnits(userUnits); setBaseRots(rots)
-      setDoc(loaded)
-      setFileSize(data.byteLength)
-      setSelected(null)
-      setDeleteToast(false)
-      setUndoStack([])
-      setRedoStack([])
-      outlineDocRef.current = loaded
-      // A save-reload keeps the current tree (page indices already remapped
-      // above) visible while headings rescan
-      if (!saved) {
-        setOutline(null)
-        setOutlineGenerated(false)
-        setPendingOutline(null)
-      }
-      void loaded
-        .getOutline()
-        .then(
-          (o) => (o && o.length > 0 ? (o as OutlineNode[]) : null),
-          () => null,
-        )
-        .then(async (embedded) => {
-          const stale = () => outlineDocRef.current !== loaded
-          const generated = embedded
-            ? null
-            : await buildHeadingOutline(loaded, stale).catch(() => null)
-          if (stale()) return
-          setOutline(embedded ?? generated)
-          setOutlineGenerated(!embedded && generated !== null)
-        })
-      // pdfjs-dist 6.x removed PDFDocumentProxy.destroy(); go through the loading task
-      if (previous) void previous.loadingTask.destroy()
-      if (!saved) {
-        clearPdfPendingEditors()
-        setNewNoteBody(''); setNewNoteCreatedMs(null); setNoteReplies(new Map())
-        setSelectedRedactionId(null); setSelectedOutlineTarget(null)
-        if (sourceRead.recoveredState) restoreWorkspaceRef.current(sourceRead.recoveredState)
-      }
-      setFilePath(sourceRead.helperPath)
-      setDisplayPath(sourceRead.displayPath)
-      setWorkspaceMode(sourceRead.mode === 'workspace')
-      setWorkspaceUnpublishedBase(sourceRead.unpublishedBase === true)
-      unpublishedWorkspaceRef.current = sourceRead.unpublishedBase === true
-      saveFallbackRef.current = null; setSaveFallbackAvailable(false)
-      pendingPdfOpenPathRef.current = null
-      })
-      await pdfDraftRef.current!.activate(sourceRead)
-      if (sourceEpoch !== pdfSourceEpochRef.current) throw new Error('A newer PDF source replaced this activation.')
-      return loaded.numPages
-    }, expectedSource),
+        await pdfDraftRef.current!.activate(sourceRead)
+        if (sourceEpoch !== pdfSourceEpochRef.current)
+          throw new Error('A newer PDF source replaced this activation.')
+        return loaded.numPages
+      }, expectedSource),
     [],
   )
-  const loadDoc = (path: string, previous: PDFDocumentProxy | null, saved?: SavedSnapshot, waitForPageNos: number[] = []) => loadDocCore(path, previous, saved, waitForPageNos, authoredSourceAtRender)
+  const loadDoc = (
+    path: string,
+    previous: PDFDocumentProxy | null,
+    saved?: SavedSnapshot,
+    waitForPageNos: number[] = [],
+  ) => loadDocCore(path, previous, saved, waitForPageNos, authoredSourceAtRender)
 
   const openPath = useCallback(
     async (path: string) => {
@@ -2189,8 +2432,20 @@ export default function App() {
   // and everything the reader does afterwards sees a text layer.
   const ordinaryDirty = dirtyBesidesFormFields || formFields.length > 0
   const savableDirty = dirtyBesidesFormFields || savableFormFields.length > 0
-  const pendingWorkspaceContent = !!textDraft || !!noteDraft || !!noteEditDraft || !!pendingTextInsert || !!linkDraft || staticTextDialog || !!pendingSign || !!imagePick || hasPdfPendingEditors() || newNoteBody.length > 0 || [...noteReplies.values()].some(value => value.length > 0)
-  const dirty = workspaceUnpublishedBase || redactions.length > 0 || ordinaryDirty || pendingWorkspaceContent
+  const pendingWorkspaceContent =
+    !!textDraft ||
+    !!noteDraft ||
+    !!noteEditDraft ||
+    !!pendingTextInsert ||
+    !!linkDraft ||
+    staticTextDialog ||
+    !!pendingSign ||
+    !!imagePick ||
+    hasPdfPendingEditors() ||
+    newNoteBody.length > 0 ||
+    [...noteReplies.values()].some((value) => value.length > 0)
+  const dirty =
+    workspaceUnpublishedBase || redactions.length > 0 || ordinaryDirty || pendingWorkspaceContent
 
   // Mirror dirty state to the main process (close-tab/close-window guard)
   useEffect(() => {
@@ -2283,9 +2538,26 @@ export default function App() {
    * display metadata (validated bounds, ghost PNGs) are the only direct writes left.
    */
   const applyEditOps = (ops: Op[], opts?: { coalesceKey?: string }): PlanResult => {
-    if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender) || closeBarrierRef.current!.locked || pdfFileRewriteHeld(authoredSourceAtRender)) {
-      if (closeBarrierRef.current!.locked) void closeBarrierRef.current!.beforeMutation(authoredSourceAtRender).catch(error => pdfDraftRef.current!.report(error))
-      return { ops: [], records: [], touched: new Set(), failures: ops.map((op, index) => ({ index, op, error: 'The PDF source or close decision changed. Retry this edit after the current operation finishes.' })) }
+    if (
+      !pdfAuthoredSourceIsCurrent(authoredSourceAtRender) ||
+      closeBarrierRef.current!.locked ||
+      pdfFileRewriteHeld(authoredSourceAtRender)
+    ) {
+      if (closeBarrierRef.current!.locked)
+        void closeBarrierRef
+          .current!.beforeMutation(authoredSourceAtRender)
+          .catch((error) => pdfDraftRef.current!.report(error))
+      return {
+        ops: [],
+        records: [],
+        touched: new Set(),
+        failures: ops.map((op, index) => ({
+          index,
+          op,
+          error:
+            'The PDF source or close decision changed. Retry this edit after the current operation finishes.',
+        })),
+      }
     }
     const structuralIndex = ops.findIndex(
       (op) => op.op === 'rotatePages' || op.op === 'deletePage' || op.op === 'setPageOrder',
@@ -2364,7 +2636,9 @@ export default function App() {
   applyEditOpsRef.current = applyEditOps
   const applyCurrentEditOps = (...args: Parameters<typeof applyEditOps>) => {
     if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender)) return applyEditOps(...args)
-    return Reflect.apply(applyEditOpsRef.current, undefined, args) as ReturnType<typeof applyEditOps>
+    return Reflect.apply(applyEditOpsRef.current, undefined, args) as ReturnType<
+      typeof applyEditOps
+    >
   }
 
   /** Ops turning the current text-edit list into `next`: the list-building paths keep
@@ -2399,49 +2673,57 @@ export default function App() {
     ])
 
   const applySnapshot = (s: EditSnapshot) => {
-    if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender) || closeBarrierRef.current!.locked) { showNotice('This PDF changed or is reserved for closing. Its pending content was kept.'); return }
+    if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender) || closeBarrierRef.current!.locked) {
+      showNotice('This PDF changed or is reserved for closing. Its pending content was kept.')
+      return
+    }
     submitPdfAuthored(() => {
-    markupsRef.current = s.markups
-    formEditsRef.current = s.formEdits
-    formWidgetEditsRef.current = s.formWidgetEdits
-    setFormWidgetEdits(s.formWidgetEdits)
-    annotDeletesRef.current = s.annotDeletes
-    noteEditsRef.current = s.noteEdits
-    drawingsRef.current = s.drawings
-    rotationsRef.current = s.rotations
-    deletedRef.current = s.deleted
-    orderRef.current = s.order
-    metadataRef.current = s.metadata
-    setMarkups(s.markups)
-    setAnnotDeletes(s.annotDeletes)
-    setNoteEdits(s.noteEdits)
-    setDrawings(s.drawings)
-    applyTextEdits(() => s.textEdits)
-    commitTextInserts(s.textInserts)
-    commitFormFields(s.formFields)
-    commitBlankPages(s.blankPages)
-    setSelectedFormFieldIds((cur) =>
-      cur.filter((id) => designWidgetId(id) || s.formFields.some((f) => f.id === id)),
-    )
-    setFreshFormFieldId((cur) => (cur && s.formFields.some((f) => f.id === cur) ? cur : null))
-    updateImageEdits(() => s.imageEdits)
-    setTextDraft(null)
-    // The comment being rewritten may not exist in the restored snapshot; confirming a
-    // stale edit box would reapply text that undo just reverted
-    setNoteEditDraft(null)
-    setStampCfg(s.stampCfg)
-    setFormEdits(s.formEdits)
-    setRotations(s.rotations)
-    setDeleted(s.deleted)
-    setOrder(s.order)
-    setMetadata(s.metadata)
-    // The selected annotation may no longer exist in the restored snapshot
-    setSelected(null)
+      markupsRef.current = s.markups
+      formEditsRef.current = s.formEdits
+      formWidgetEditsRef.current = s.formWidgetEdits
+      setFormWidgetEdits(s.formWidgetEdits)
+      annotDeletesRef.current = s.annotDeletes
+      noteEditsRef.current = s.noteEdits
+      drawingsRef.current = s.drawings
+      rotationsRef.current = s.rotations
+      deletedRef.current = s.deleted
+      orderRef.current = s.order
+      metadataRef.current = s.metadata
+      setMarkups(s.markups)
+      setAnnotDeletes(s.annotDeletes)
+      setNoteEdits(s.noteEdits)
+      setDrawings(s.drawings)
+      applyTextEdits(() => s.textEdits)
+      commitTextInserts(s.textInserts)
+      commitFormFields(s.formFields)
+      commitBlankPages(s.blankPages)
+      setSelectedFormFieldIds((cur) =>
+        cur.filter((id) => designWidgetId(id) || s.formFields.some((f) => f.id === id)),
+      )
+      setFreshFormFieldId((cur) => (cur && s.formFields.some((f) => f.id === cur) ? cur : null))
+      updateImageEdits(() => s.imageEdits)
+      setTextDraft(null)
+      // The comment being rewritten may not exist in the restored snapshot; confirming a
+      // stale edit box would reapply text that undo just reverted
+      setNoteEditDraft(null)
+      setStampCfg(s.stampCfg)
+      setFormEdits(s.formEdits)
+      setRotations(s.rotations)
+      setDeleted(s.deleted)
+      setOrder(s.order)
+      setMetadata(s.metadata)
+      // The selected annotation may no longer exist in the restored snapshot
+      setSelected(null)
     }, authoredSourceAtRender)
   }
 
   const undo = () => {
-    if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender) || closeBarrierRef.current!.locked || pdfFileRewriteHeld(authoredSourceAtRender)) return
+    if (
+      !pdfAuthoredSourceIsCurrent(authoredSourceAtRender) ||
+      closeBarrierRef.current!.locked ||
+      pdfFileRewriteHeld(authoredSourceAtRender)
+    )
+      return
     const top = undoStack[undoStack.length - 1]
     if (!top) return
     // Taken before applySnapshot rewrites the refs; the updater may run after it
@@ -2453,7 +2735,12 @@ export default function App() {
   }
 
   const redo = () => {
-    if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender) || closeBarrierRef.current!.locked || pdfFileRewriteHeld(authoredSourceAtRender)) return
+    if (
+      !pdfAuthoredSourceIsCurrent(authoredSourceAtRender) ||
+      closeBarrierRef.current!.locked ||
+      pdfFileRewriteHeld(authoredSourceAtRender)
+    )
+      return
     const top = redoStack[redoStack.length - 1]
     if (!top) return
     const cur = snapshot()
@@ -3771,7 +4058,10 @@ export default function App() {
       showNotice(t('textBlockOverflow'))
       return current
     }
-    if (!merged) { setTextDraft(null); return current }
+    if (!merged) {
+      setTextDraft(null)
+      return current
+    }
     const plan = applyEditOps(textEditListOps(current, merged))
     if (plan.failures.length) return current
     setTextDraft(null)
@@ -4567,55 +4857,100 @@ export default function App() {
   const queuedSavesRef = useRef<
     { autosave: boolean; flushAll: boolean; resolve: (ok: boolean) => void }[]
   >([])
-  const withHeldPdfAuthoring = async <Value,>(source: string, action: () => Promise<Value>): Promise<Value> => {
+  const withHeldPdfAuthoring = async <Value,>(
+    source: string,
+    action: () => Promise<Value>,
+  ): Promise<Value> => {
     const previousInert = document.body.inert
     return withPdfFileRewrite(async () => {
-      document.body.inert = true; setSaveAuthoringHeld(true)
-      try { return await action() }
-      finally { document.body.inert = previousInert; setSaveAuthoringHeld(false) }
+      document.body.inert = true
+      setSaveAuthoringHeld(true)
+      try {
+        return await action()
+      } finally {
+        document.body.inert = previousInert
+        setSaveAuthoringHeld(false)
+      }
     }, source)
   }
 
-  const retainCurrentSaveWorkspace = (publication: { copyId: string; fromReadId: string; source: string; baseSha256: string }): Promise<boolean> => {
+  const retainCurrentSaveWorkspace = (publication: {
+    copyId: string
+    fromReadId: string
+    source: string
+    baseSha256: string
+  }): Promise<boolean> => {
     if (saveFallbackInFlightRef.current) return saveFallbackInFlightRef.current
     if (publication.source !== pdfAuthoredSource()) return Promise.resolve(false)
     setSaveFallbackBusy(true)
     const run = (async (): Promise<boolean> => {
-    const epoch = pdfSourceEpochRef.current
-    saveFallbackRef.current = publication; setSaveFallbackAvailable(true)
-    // The destination contains the earlier captured publication. Until a complete
-    // fallback succeeds, never apply this old-base model to that destination.
-    unpublishedWorkspaceRef.current = true
-    setWorkspaceUnpublishedBase(true); setWorkspaceMode(true); setSaveState('idle')
-    try {
-      const state = pdfDraftRef.current!.capture(true)
-      const fingerprint = pdfAuthoredFingerprint(state)
-      const result = await window.pdfApi.forkAfterSave({ copyId: publication.copyId, fromReadId: publication.fromReadId, state: encodePdfWorkspaceState(state) })
-      if (epoch !== pdfSourceEpochRef.current || publication.source !== pdfAuthoredSource()) return false
-      if (result.read.baseSha256 !== publication.baseSha256 || !result.read.unpublishedBase || result.read.mode !== 'workspace') throw new Error('The complete fallback did not preserve this canvas\'s immutable base.')
-      // Keep every current canonical value and the old PDF.js canvas. No source
-      // installation, model subtraction, geometry remap or child remount occurs.
-      setFilePath(result.read.helperPath); setDisplayPath(result.read.displayPath)
-      await pdfDraftRef.current!.activate(result.read)
-      if (epoch !== pdfSourceEpochRef.current || publication.source !== pdfAuthoredSource()) return false
-      if (!pdfDraftRef.current!.available()) throw new Error('The complete fallback could not activate its owned recovery producer.')
-      ownPdfSaveRef.current = { from: publication.source, to: publication.source, epoch }
-      saveFallbackRef.current = null; setSaveFallbackAvailable(false)
-      let newestDurable = false
-      try { newestDurable = pdfAuthoredFingerprint(pdfDraftRef.current!.capture(true)) === fingerprint || await pdfDraftRef.current!.snapshot() }
-      catch (error) { pdfDraftRef.current!.report(error) }
-      if (epoch !== pdfSourceEpochRef.current || publication.source !== pdfAuthoredSource()) return false
-      const message = newestDurable
-        ? 'The captured PDF was saved. All current edits remain in a complete recovery workspace on their original base. Save a new PDF copy to finish them.'
-        : 'The captured PDF was saved. Current edits remain visible on their original base, but the newest recovery capture is incomplete. Finish pending work and retry recovery before relying on crash recovery.'
-      setRecoveryMessage(message); showNotice(message)
-      return false // publication succeeded; this view is deliberately still dirty
-    } catch (error) {
-      if (epoch === pdfSourceEpochRef.current && publication.source === pdfAuthoredSource()) pdfDraftRef.current!.report(`The captured PDF was saved. Current edits remain visible on their original base; their complete recovery capture failed and the prior complete entry was kept. ${error instanceof Error ? error.message : String(error)}`)
-      return false
-    }
+      const epoch = pdfSourceEpochRef.current
+      saveFallbackRef.current = publication
+      setSaveFallbackAvailable(true)
+      // The destination contains the earlier captured publication. Until a complete
+      // fallback succeeds, never apply this old-base model to that destination.
+      unpublishedWorkspaceRef.current = true
+      setWorkspaceUnpublishedBase(true)
+      setWorkspaceMode(true)
+      setSaveState('idle')
+      try {
+        const state = pdfDraftRef.current!.capture(true)
+        const fingerprint = pdfAuthoredFingerprint(state)
+        const result = await window.pdfApi.forkAfterSave({
+          copyId: publication.copyId,
+          fromReadId: publication.fromReadId,
+          state: encodePdfWorkspaceState(state),
+        })
+        if (epoch !== pdfSourceEpochRef.current || publication.source !== pdfAuthoredSource())
+          return false
+        if (
+          result.read.baseSha256 !== publication.baseSha256 ||
+          !result.read.unpublishedBase ||
+          result.read.mode !== 'workspace'
+        )
+          throw new Error("The complete fallback did not preserve this canvas's immutable base.")
+        // Keep every current canonical value and the old PDF.js canvas. No source
+        // installation, model subtraction, geometry remap or child remount occurs.
+        setFilePath(result.read.helperPath)
+        setDisplayPath(result.read.displayPath)
+        await pdfDraftRef.current!.activate(result.read)
+        if (epoch !== pdfSourceEpochRef.current || publication.source !== pdfAuthoredSource())
+          return false
+        if (!pdfDraftRef.current!.available())
+          throw new Error('The complete fallback could not activate its owned recovery producer.')
+        ownPdfSaveRef.current = { from: publication.source, to: publication.source, epoch }
+        saveFallbackRef.current = null
+        setSaveFallbackAvailable(false)
+        let newestDurable = false
+        try {
+          newestDurable =
+            pdfAuthoredFingerprint(pdfDraftRef.current!.capture(true)) === fingerprint ||
+            (await pdfDraftRef.current!.snapshot())
+        } catch (error) {
+          pdfDraftRef.current!.report(error)
+        }
+        if (epoch !== pdfSourceEpochRef.current || publication.source !== pdfAuthoredSource())
+          return false
+        const message = newestDurable
+          ? 'The captured PDF was saved. All current edits remain in a complete recovery workspace on their original base. Save a new PDF copy to finish them.'
+          : 'The captured PDF was saved. Current edits remain visible on their original base, but the newest recovery capture is incomplete. Finish pending work and retry recovery before relying on crash recovery.'
+        setRecoveryMessage(message)
+        showNotice(message)
+        return false // publication succeeded; this view is deliberately still dirty
+      } catch (error) {
+        if (epoch === pdfSourceEpochRef.current && publication.source === pdfAuthoredSource())
+          pdfDraftRef.current!.report(
+            `The captured PDF was saved. Current edits remain visible on their original base; their complete recovery capture failed and the prior complete entry was kept. ${error instanceof Error ? error.message : String(error)}`,
+          )
+        return false
+      }
     })()
-    const tracked = run.finally(() => { if (saveFallbackInFlightRef.current === tracked) { saveFallbackInFlightRef.current = null; setSaveFallbackBusy(false) } })
+    const tracked = run.finally(() => {
+      if (saveFallbackInFlightRef.current === tracked) {
+        saveFallbackInFlightRef.current = null
+        setSaveFallbackBusy(false)
+      }
+    })
     saveFallbackInFlightRef.current = tracked
     return tracked
   }
@@ -4623,22 +4958,44 @@ export default function App() {
   // flushAll also writes the field whose card is open: callers that treat success as
   // "everything is in the file" (close-tab Save, flushThen) must not leave it behind
   const save = (autosave = false, flushAll = false): Promise<boolean> => {
-    if (pointerWorkspaceRef.current || composingWorkspaceRef.current) { if (!autosave) showNotice('Finish the active PDF gesture or text composition before saving.'); return Promise.resolve(false) }
+    if (pointerWorkspaceRef.current || composingWorkspaceRef.current) {
+      if (!autosave) showNotice('Finish the active PDF gesture or text composition before saving.')
+      return Promise.resolve(false)
+    }
     if (redactionRequestInFlightRef.current) return Promise.resolve(false)
     const barrier = closeBarrierRef.current!
     if (barrier.locked) {
       if (autosave) return Promise.resolve(false)
       const source = pdfAuthoredSource()
-      return barrier.beforeMutation(source).then(() => save(autosave, flushAll)).catch(error => { pdfDraftRef.current!.report(error); return false })
+      return barrier
+        .beforeMutation(source)
+        .then(() => save(autosave, flushAll))
+        .catch((error) => {
+          pdfDraftRef.current!.report(error)
+          return false
+        })
     }
-    if (saveFallbackRef.current) return autosave ? Promise.resolve(false) : retainCurrentSaveWorkspace(saveFallbackRef.current)
-    if (!pdfDraftRef.current!.available() && pdfDraftRef.current!.currentRead()?.draftCapability.available) {
+    if (saveFallbackRef.current)
+      return autosave ? Promise.resolve(false) : retainCurrentSaveWorkspace(saveFallbackRef.current)
+    if (
+      !pdfDraftRef.current!.available() &&
+      pdfDraftRef.current!.currentRead()?.draftCapability.available
+    ) {
       const sourceEpoch = pdfSourceEpochRef.current
-      return pdfDraftRef.current!.ensureActiveForSave().then(() => sourceEpoch === pdfSourceEpochRef.current ? save(autosave, flushAll) : false).catch(error => { pdfDraftRef.current!.report(error); return false })
+      return pdfDraftRef
+        .current!.ensureActiveForSave()
+        .then(() => (sourceEpoch === pdfSourceEpochRef.current ? save(autosave, flushAll) : false))
+        .catch((error) => {
+          pdfDraftRef.current!.report(error)
+          return false
+        })
     }
     if (workspaceMode) {
       if (autosave) return Promise.resolve(false)
-      if (barrier.busy) { showNotice('Pending PDF work is still finishing. Retry Save after it completes.'); return Promise.resolve(false) }
+      if (barrier.busy) {
+        showNotice('Pending PDF work is still finishing. Retry Save after it completes.')
+        return Promise.resolve(false)
+      }
       return window.pdfApi.requestWorkspaceCopy(filePath)
     }
     // A save is already writing: queue behind it instead of reporting failure — the
@@ -4654,7 +5011,11 @@ export default function App() {
         queuedSavesRef.current.push({ autosave, flushAll, resolve }),
       )
     }
-    if (barrier.busy) { if (!autosave) showNotice('Pending PDF work is still finishing. Retry Save after it completes.'); return Promise.resolve(false) }
+    if (barrier.busy) {
+      if (!autosave)
+        showNotice('Pending PDF work is still finishing. Retry Save after it completes.')
+      return Promise.resolve(false)
+    }
     // Fold an open floating-editor draft in first: keyboard save and autosave can land
     // mid-typing, and the post-save reload closes the editor — without this the
     // in-progress replacement would be silently dropped
@@ -4674,7 +5035,9 @@ export default function App() {
       ocrBakeInserts.length > 0
     if (!anythingToSave || !filePath) {
       if (flushAll && pdfDraftRef.current!.hasPending()) {
-        showNotice('Some text, comments, form or link content is still pending. Finish or discard it before closing with Save.')
+        showNotice(
+          'Some text, comments, form or link content is still pending. Finish or discard it before closing with Save.',
+        )
         void pdfDraftRef.current!.snapshot()
         return Promise.resolve(false)
       }
@@ -4685,8 +5048,12 @@ export default function App() {
     // What this save writes — the post-save reload subtracts exactly this, keeping
     // any edits the user makes while the write is in flight
     let authoredFingerprint: string
-    try { authoredFingerprint = pdfAuthoredFingerprint(pdfDraftRef.current!.capture(true)) }
-    catch (error) { pdfDraftRef.current!.report(error); return Promise.resolve(false) }
+    try {
+      authoredFingerprint = pdfAuthoredFingerprint(pdfDraftRef.current!.capture(true))
+    } catch (error) {
+      pdfDraftRef.current!.report(error)
+      return Promise.resolve(false)
+    }
     const snapshot: SavedSnapshot = {
       authoredFingerprint,
       markupIds: new Set(markups.map((mk) => mk.id)),
@@ -4716,111 +5083,169 @@ export default function App() {
       let workspaceProof: PdfWorkspaceSaveProof | undefined
       let recoveryWarning: string | undefined
       if (pdfDraftRef.current!.available()) {
-        try { workspaceProof = copyProof(edits, noteFlush) }
-        catch (error) { recoveryWarning = 'The PDF can still be saved, but its complete recovery checkpoint is unavailable. The prior recovery entry was kept.'; pdfDraftRef.current!.report(error) }
+        try {
+          workspaceProof = copyProof(edits, noteFlush)
+        } catch (error) {
+          recoveryWarning =
+            'The PDF can still be saved, but its complete recovery checkpoint is unavailable. The prior recovery entry was kept.'
+          pdfDraftRef.current!.report(error)
+        }
       }
       const perform = async (): Promise<boolean> => {
-      if (sourceEpoch !== pdfSourceEpochRef.current || sourceIdentity !== pdfAuthoredSource() || (autosave && (barrier.locked || barrier.busy))) return false
-      setSaveState('saving')
-      const result = await window.pdfApi.save({
-        path: filePath,
-        automaticSave: autosave,
-        ...editsPayload(edits, noteFlush, fields),
-        ...(workspaceProof ? { workspaceProof } : {}),
-        ...(closingPdfRequestRef.current ? { closeTicket: closingPdfRequestRef.current.ticket } : {}),
-      })
-      if (sourceEpoch !== pdfSourceEpochRef.current || sourceIdentity !== pdfAuthoredSource()) return false
-      if (!result.ok) {
-        if (autosave && result.deferred) { setSaveState('idle'); return false }
-        opFailed(result.error)
-        return false
-      }
-      if (result.warning) showNotice(result.warning)
-      if (result.skippedTextEdits && result.skippedTextEdits.length > 0) {
-        noticeSkippedEdits(result.skippedTextEdits)
-      }
-      if (result.skippedTextInserts && result.skippedTextInserts.length > 0) {
-        noticeSkippedTextInserts(result.skippedTextInserts)
-      }
-      if (result.skippedImageEdits && result.skippedImageEdits.length > 0) {
-        noticeSkippedImages(result.skippedImageEdits)
-      }
-      // Reload: changes are in the file now, canvas renders directly, saved pending ops are cleared
-      try {
-        if (result.copyReceipt?.representedComplete === false) throw new PdfSaveAuthoringChanged()
-        assertPdfSaveUnchanged(snapshot.authoredFingerprint!, () => captureWorkspaceRef.current(true))
-        const el = scrollRef.current
-        const scrollTop = el?.scrollTop ?? 0
-        // Page structure/rotation changes cannot retain their old overlays because
-        // their geometry or page numbers no longer match the newly saved document.
-        const canRetainPreview = rotations.size === 0 && deleted.size === 0 && order === null
-        const renderedPageNos = canRetainPreview
-          ? [...visibleRows].flatMap((rowIdx) => (rows[rowIdx] ?? []).map((origIdx) => origIdx + 1))
-          : []
-        if (result.copyReceipt?.checkpoint) nextSourceReadRef.current = result.copyReceipt.checkpoint
-        await loadDocCore(result.copyReceipt?.checkpoint?.helperPath ?? filePath, doc, snapshot, renderedPageNos, sourceIdentity)
-        const adoptedEpoch = pdfSourceEpochRef.current
-        const adoptedIdentity = pdfAuthoredSource()
-        if (result.copyReceipt?.complete) {
-          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-          await pdfDraftRef.current!.acknowledge(result.copyReceipt)
-        }
-        if (adoptedEpoch !== pdfSourceEpochRef.current || adoptedIdentity !== pdfAuthoredSource()) return false
-        ownPdfSaveRef.current = { from: sourceIdentity, to: adoptedIdentity, epoch: adoptedEpoch }
-        requestAnimationFrame(() => {
-          if (scrollRef.current) scrollRef.current.scrollTop = scrollTop
+        if (
+          sourceEpoch !== pdfSourceEpochRef.current ||
+          sourceIdentity !== pdfAuthoredSource() ||
+          (autosave && (barrier.locked || barrier.busy))
+        )
+          return false
+        setSaveState('saving')
+        const result = await window.pdfApi.save({
+          path: filePath,
+          automaticSave: autosave,
+          ...editsPayload(edits, noteFlush, fields),
+          ...(workspaceProof ? { workspaceProof } : {}),
+          ...(closingPdfRequestRef.current
+            ? { closeTicket: closingPdfRequestRef.current.ticket }
+            : {}),
         })
-      } catch (error) {
-        const liveSource = pdfAuthoredSource(), liveRead = pdfDraftRef.current!.currentRead()
-        const ownAdopted = !!result.copyReceipt?.checkpoint && liveSource === result.copyReceipt.checkpoint.readId && liveRead?.readId === result.copyReceipt.checkpoint.readId
-        if (sourceIdentity !== liveSource && !ownAdopted) return false
-        const fallbackRead = ownAdopted ? liveRead : originalRead
-        if (fallbackRead && result.copyReceipt) return retainCurrentSaveWorkspace({ copyId: result.copyReceipt.copyId, fromReadId: fallbackRead.readId, source: liveSource, baseSha256: fallbackRead.baseSha256 })
-        showNotice('The PDF was saved, but its view could not adopt the new checkpoint. Reopen the saved PDF before another file operation. Pending recovery was kept.')
-        return false
-      }
-      // Content-derived naming (docs/sheets analog): a shell-created blank still
-      // carrying its untitled name takes its file name from the topmost text this
-      // save inserted; the main process no-ops for every other file, so
-      // user-chosen names are never touched.
-      const nameCandidate = [...textInserts]
-        .sort(
-          (a, b) => a.input.pageIndex - b.input.pageIndex || b.input.origin[1] - a.input.origin[1],
-        )[0]
-        ?.input.text.split('\n')[0]
-        ?.trim()
-      if (nameCandidate) {
-        try {
-          const own = ownPdfSaveRef.current
-          if (!own || own.from !== sourceIdentity || own.to !== pdfAuthoredSource() || own.epoch !== pdfSourceEpochRef.current) return false
-          const renamed = await window.pdfApi.autoRename(filePath, nameCandidate)
-          if (own.to !== pdfAuthoredSource() || own.epoch !== pdfSourceEpochRef.current) return false
-          if (renamed.renamed && renamed.path) { pdfDraftRef.current!.renamed(filePath, renamed.path); setFilePath(renamed.path); setDisplayPath(renamed.path) }
-        } catch {
-          /* naming is best-effort; the save itself already succeeded */
+        if (sourceEpoch !== pdfSourceEpochRef.current || sourceIdentity !== pdfAuthoredSource())
+          return false
+        if (!result.ok) {
+          if (autosave && result.deferred) {
+            setSaveState('idle')
+            return false
+          }
+          opFailed(result.error)
+          return false
         }
-      }
-      setSaveState('saved')
-      setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 2000)
-      if (flushAll) {
-        if (recoveryWarning || result.warning) return false
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-        return !pdfDraftRef.current!.hasPending()
-      }
-      return true
+        if (result.warning) showNotice(result.warning)
+        if (result.skippedTextEdits && result.skippedTextEdits.length > 0) {
+          noticeSkippedEdits(result.skippedTextEdits)
+        }
+        if (result.skippedTextInserts && result.skippedTextInserts.length > 0) {
+          noticeSkippedTextInserts(result.skippedTextInserts)
+        }
+        if (result.skippedImageEdits && result.skippedImageEdits.length > 0) {
+          noticeSkippedImages(result.skippedImageEdits)
+        }
+        // Reload: changes are in the file now, canvas renders directly, saved pending ops are cleared
+        try {
+          if (result.copyReceipt?.representedComplete === false) throw new PdfSaveAuthoringChanged()
+          assertPdfSaveUnchanged(snapshot.authoredFingerprint!, () =>
+            captureWorkspaceRef.current(true),
+          )
+          const el = scrollRef.current
+          const scrollTop = el?.scrollTop ?? 0
+          // Page structure/rotation changes cannot retain their old overlays because
+          // their geometry or page numbers no longer match the newly saved document.
+          const canRetainPreview = rotations.size === 0 && deleted.size === 0 && order === null
+          const renderedPageNos = canRetainPreview
+            ? [...visibleRows].flatMap((rowIdx) =>
+                (rows[rowIdx] ?? []).map((origIdx) => origIdx + 1),
+              )
+            : []
+          if (result.copyReceipt?.checkpoint)
+            nextSourceReadRef.current = result.copyReceipt.checkpoint
+          await loadDocCore(
+            result.copyReceipt?.checkpoint?.helperPath ?? filePath,
+            doc,
+            snapshot,
+            renderedPageNos,
+            sourceIdentity,
+          )
+          const adoptedEpoch = pdfSourceEpochRef.current
+          const adoptedIdentity = pdfAuthoredSource()
+          if (result.copyReceipt?.complete) {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+            await pdfDraftRef.current!.acknowledge(result.copyReceipt)
+          }
+          if (adoptedEpoch !== pdfSourceEpochRef.current || adoptedIdentity !== pdfAuthoredSource())
+            return false
+          ownPdfSaveRef.current = { from: sourceIdentity, to: adoptedIdentity, epoch: adoptedEpoch }
+          requestAnimationFrame(() => {
+            if (scrollRef.current) scrollRef.current.scrollTop = scrollTop
+          })
+        } catch (error) {
+          const liveSource = pdfAuthoredSource(),
+            liveRead = pdfDraftRef.current!.currentRead()
+          const ownAdopted =
+            !!result.copyReceipt?.checkpoint &&
+            liveSource === result.copyReceipt.checkpoint.readId &&
+            liveRead?.readId === result.copyReceipt.checkpoint.readId
+          if (sourceIdentity !== liveSource && !ownAdopted) return false
+          const fallbackRead = ownAdopted ? liveRead : originalRead
+          if (fallbackRead && result.copyReceipt)
+            return retainCurrentSaveWorkspace({
+              copyId: result.copyReceipt.copyId,
+              fromReadId: fallbackRead.readId,
+              source: liveSource,
+              baseSha256: fallbackRead.baseSha256,
+            })
+          showNotice(
+            'The PDF was saved, but its view could not adopt the new checkpoint. Reopen the saved PDF before another file operation. Pending recovery was kept.',
+          )
+          return false
+        }
+        // Content-derived naming (docs/sheets analog): a shell-created blank still
+        // carrying its untitled name takes its file name from the topmost text this
+        // save inserted; the main process no-ops for every other file, so
+        // user-chosen names are never touched.
+        const nameCandidate = [...textInserts]
+          .sort(
+            (a, b) =>
+              a.input.pageIndex - b.input.pageIndex || b.input.origin[1] - a.input.origin[1],
+          )[0]
+          ?.input.text.split('\n')[0]
+          ?.trim()
+        if (nameCandidate) {
+          try {
+            const own = ownPdfSaveRef.current
+            if (
+              !own ||
+              own.from !== sourceIdentity ||
+              own.to !== pdfAuthoredSource() ||
+              own.epoch !== pdfSourceEpochRef.current
+            )
+              return false
+            const renamed = await window.pdfApi.autoRename(filePath, nameCandidate)
+            if (own.to !== pdfAuthoredSource() || own.epoch !== pdfSourceEpochRef.current)
+              return false
+            if (renamed.renamed && renamed.path) {
+              pdfDraftRef.current!.renamed(filePath, renamed.path)
+              setFilePath(renamed.path)
+              setDisplayPath(renamed.path)
+            }
+          } catch {
+            /* naming is best-effort; the save itself already succeeded */
+          }
+        }
+        setSaveState('saved')
+        setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 2000)
+        if (flushAll) {
+          if (recoveryWarning || result.warning) return false
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+          return !pdfDraftRef.current!.hasPending()
+        }
+        return true
       }
       // If complete recovery cannot represent this source, normal Save must hold
       // authoring through its readback instead of silently losing a concurrent
       // edit that cannot be moved into a complete old-base fallback.
       return workspaceProof ? perform() : withHeldPdfAuthoring(sourceIdentity, perform)
     })()
-    const tracked = run.catch(error => { if (pdfAuthoredSourceIsCurrent(authoredSourceAtRender)) opFailed(error instanceof Error ? error.message : String(error)); return false }).finally(() => {
-      if (saveInFlightRef.current === tracked) {
-        saveInFlightRef.current = null
-        inFlightNoteWritesRef.current = new Map()
-        inFlightPageMapRef.current = null
-      }
-    })
+    const tracked = run
+      .catch((error) => {
+        if (pdfAuthoredSourceIsCurrent(authoredSourceAtRender))
+          opFailed(error instanceof Error ? error.message : String(error))
+        return false
+      })
+      .finally(() => {
+        if (saveInFlightRef.current === tracked) {
+          saveInFlightRef.current = null
+          inFlightNoteWritesRef.current = new Map()
+          inFlightPageMapRef.current = null
+        }
+      })
     saveInFlightRef.current = tracked
     return tracked
   }
@@ -4847,7 +5272,10 @@ export default function App() {
    */
   const saveAsTo = async (targetPath: string): Promise<boolean> => {
     if (!filePath) return false
-    if (pointerWorkspaceRef.current || composingWorkspaceRef.current) { showNotice('Finish the active PDF gesture or text composition before saving a copy.'); return false }
+    if (pointerWorkspaceRef.current || composingWorkspaceRef.current) {
+      showNotice('Finish the active PDF gesture or text composition before saving a copy.')
+      return false
+    }
     const sourceEpoch = pdfSourceEpochRef.current
     const sourceIdentity = pdfAuthoredSource()
     const originalRead = pdfDraftRef.current!.currentRead()
@@ -4895,17 +5323,34 @@ export default function App() {
     const applyingRedactions = redactionApplyConfirmedRef.current && redactions.length > 0
     if (applyingRedactions) {
       const approval = redactionAuthoringRef.current
-      if (!approval || approval.source !== sourceIdentity || !pdfFileRewriteHeld(sourceIdentity)) { showNotice('Apply Redactions requires a fresh held authoring approval. No sanitized publication was attempted.'); return false }
+      if (!approval || approval.source !== sourceIdentity || !pdfFileRewriteHeld(sourceIdentity)) {
+        showNotice(
+          'Apply Redactions requires a fresh held authoring approval. No sanitized publication was attempted.',
+        )
+        return false
+      }
       assertPdfSaveUnchanged(approval.fingerprint, () => captureWorkspaceRef.current(true))
     }
     const copySnapshot: SavedSnapshot = {
       authoredFingerprint: pdfAuthoredFingerprint(pdfDraftRef.current!.capture(true)),
-      markupIds: new Set(markups.map(value => value.id)), annotDeleteIds: new Set(annotDeletes.map(value => value.id)),
-      noteEditIds: new Set(noteFlush.noteEdits.map(value => value.id)), noteEditWritten: new Map(noteFlush.noteEdits.map(value => [value.annot.objNum, value.contents])),
-      drawingIds: new Set(noteFlush.drawings.map(value => value.id)), textEditIds: new Set(draftEdits.map(value => value.id)),
-      textInsertIds: new Set(textInserts.map(value => value.id)), imageEditIds: new Set(imageEdits.map(value => value.id)),
-      stampCfg, formEdits, formFieldIds: new Set(formFields.map(value => value.id)), blankPageIds: new Set(blankPages.map(value => value.id)),
-      formWidgetEdits, rotations, metadata, outline: pendingOutline?.edited ? pendingOutline.tree : null,
+      markupIds: new Set(markups.map((value) => value.id)),
+      annotDeleteIds: new Set(annotDeletes.map((value) => value.id)),
+      noteEditIds: new Set(noteFlush.noteEdits.map((value) => value.id)),
+      noteEditWritten: new Map(
+        noteFlush.noteEdits.map((value) => [value.annot.objNum, value.contents]),
+      ),
+      drawingIds: new Set(noteFlush.drawings.map((value) => value.id)),
+      textEditIds: new Set(draftEdits.map((value) => value.id)),
+      textInsertIds: new Set(textInserts.map((value) => value.id)),
+      imageEditIds: new Set(imageEdits.map((value) => value.id)),
+      stampCfg,
+      formEdits,
+      formFieldIds: new Set(formFields.map((value) => value.id)),
+      blankPageIds: new Set(blankPages.map((value) => value.id)),
+      formWidgetEdits,
+      rotations,
+      metadata,
+      outline: pendingOutline?.edited ? pendingOutline.tree : null,
       pageMap: new Map(visList.map((value, index) => [value, index])),
     }
     const edits = applyingRedactions
@@ -4933,20 +5378,39 @@ export default function App() {
           }
         : editsPayload(draftEdits, noteFlush, formFields)
     setSaveState('saving')
-    const result = await window.pdfApi.save({ path: filePath, targetPath, ...edits,
-      ...((workspaceMode || applyingRedactions) && pdfDraftRef.current!.available() ? { workspaceProof: copyProof(draftEdits, noteFlush) } : {}),
-      ...(closingPdfRequestRef.current ? { closeTicket: closingPdfRequestRef.current.ticket } : {}) })
-    if (sourceEpoch !== pdfSourceEpochRef.current || sourceIdentity !== pdfAuthoredSource()) return false
+    const result = await window.pdfApi.save({
+      path: filePath,
+      targetPath,
+      ...edits,
+      ...((workspaceMode || applyingRedactions) && pdfDraftRef.current!.available()
+        ? { workspaceProof: copyProof(draftEdits, noteFlush) }
+        : {}),
+      ...(closingPdfRequestRef.current ? { closeTicket: closingPdfRequestRef.current.ticket } : {}),
+    })
+    if (sourceEpoch !== pdfSourceEpochRef.current || sourceIdentity !== pdfAuthoredSource())
+      return false
     if (!result.ok) {
       opFailed(result.error)
       return false
     }
     if (result.warning) {
-      showNotice(result.warning); setRecoveryMessage(result.warning); setSaveState('idle')
+      showNotice(result.warning)
+      setRecoveryMessage(result.warning)
+      setSaveState('idle')
       if (applyingRedactions) {
-        setStatus('loading'); setDoc(null); setFilePath(targetPath)
-        try { await loadDoc(targetPath, doc); searchIndexCache.clear(); setSearchMatches([]); setSearchCur(0); setStatus('ready') }
-        catch (error) { setStatus('error'); opFailed(error instanceof Error ? error.message : String(error)) }
+        setStatus('loading')
+        setDoc(null)
+        setFilePath(targetPath)
+        try {
+          await loadDoc(targetPath, doc)
+          searchIndexCache.clear()
+          setSearchMatches([])
+          setSearchCur(0)
+          setStatus('ready')
+        } catch (error) {
+          setStatus('error')
+          opFailed(error instanceof Error ? error.message : String(error))
+        }
       }
       if (applyingRedactions) return false
     }
@@ -4962,25 +5426,43 @@ export default function App() {
     if (workspaceMode && !applyingRedactions) {
       const receipt = result.copyReceipt
       try {
-        if (!receipt?.complete || !receipt.checkpoint || receipt.representedComplete === false) throw new PdfSaveAuthoringChanged()
-        assertPdfSaveUnchanged(copySnapshot.authoredFingerprint!, () => captureWorkspaceRef.current(true))
+        if (!receipt?.complete || !receipt.checkpoint || receipt.representedComplete === false)
+          throw new PdfSaveAuthoringChanged()
+        assertPdfSaveUnchanged(copySnapshot.authoredFingerprint!, () =>
+          captureWorkspaceRef.current(true),
+        )
         nextSourceReadRef.current = receipt.checkpoint
         await loadDocCore(receipt.checkpoint.helperPath, doc, copySnapshot, [], sourceIdentity)
-        const adoptedEpoch = pdfSourceEpochRef.current, adoptedSource = pdfAuthoredSource()
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-        if (adoptedEpoch !== pdfSourceEpochRef.current || adoptedSource !== pdfAuthoredSource()) return false
+        const adoptedEpoch = pdfSourceEpochRef.current,
+          adoptedSource = pdfAuthoredSource()
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        if (adoptedEpoch !== pdfSourceEpochRef.current || adoptedSource !== pdfAuthoredSource())
+          return false
         await pdfDraftRef.current!.acknowledge(receipt)
-        if (adoptedEpoch !== pdfSourceEpochRef.current || adoptedSource !== pdfAuthoredSource()) return false
+        if (adoptedEpoch !== pdfSourceEpochRef.current || adoptedSource !== pdfAuthoredSource())
+          return false
         if (receipt.cleanupWarning) pdfDraftRef.current!.report(receipt.cleanupWarning)
         setSaveState('idle')
         return !result.warning && !receipt.cleanupWarning && !pdfDraftRef.current!.hasPending()
       } catch (error) {
-        const liveSource = pdfAuthoredSource(), liveRead = pdfDraftRef.current!.currentRead()
-        const ownAdopted = !!receipt?.checkpoint && liveSource === receipt.checkpoint.readId && liveRead?.readId === receipt.checkpoint.readId
+        const liveSource = pdfAuthoredSource(),
+          liveRead = pdfDraftRef.current!.currentRead()
+        const ownAdopted =
+          !!receipt?.checkpoint &&
+          liveSource === receipt.checkpoint.readId &&
+          liveRead?.readId === receipt.checkpoint.readId
         if (sourceIdentity !== liveSource && !ownAdopted) return false
         const fallbackRead = ownAdopted ? liveRead : originalRead
-        if (receipt && fallbackRead) return retainCurrentSaveWorkspace({ copyId: receipt.copyId, fromReadId: fallbackRead.readId, source: liveSource, baseSha256: fallbackRead.baseSha256 })
-        pdfDraftRef.current!.report(`A real PDF copy was saved, but its view could not adopt it. The prior complete workspace was retained. ${String(error)}`)
+        if (receipt && fallbackRead)
+          return retainCurrentSaveWorkspace({
+            copyId: receipt.copyId,
+            fromReadId: fallbackRead.readId,
+            source: liveSource,
+            baseSha256: fallbackRead.baseSha256,
+          })
+        pdfDraftRef.current!.report(
+          `A real PDF copy was saved, but its view could not adopt it. The prior complete workspace was retained. ${String(error)}`,
+        )
         return false
       }
     }
@@ -4991,14 +5473,16 @@ export default function App() {
       setFilePath(targetPath)
       setStatus('loading')
       try {
-        if (result.copyReceipt?.checkpoint) nextSourceReadRef.current = result.copyReceipt.checkpoint
+        if (result.copyReceipt?.checkpoint)
+          nextSourceReadRef.current = result.copyReceipt.checkpoint
         await loadDoc(result.copyReceipt?.checkpoint?.helperPath ?? targetPath, doc)
         // loadDoc leaves the text index and hits alone; both still hold the removed text
         searchIndexCache.clear()
         setSearchMatches([])
         setSearchCur(0)
         setStatus('ready')
-        if (result.copyReceipt?.cleanupWarning) pdfDraftRef.current!.report(result.copyReceipt.cleanupWarning)
+        if (result.copyReceipt?.cleanupWarning)
+          pdfDraftRef.current!.report(result.copyReceipt.cleanupWarning)
         requestAnimationFrame(() => {
           if (scrollRef.current) scrollRef.current.scrollTop = scrollTop
         })
@@ -5019,7 +5503,10 @@ export default function App() {
 
   const requestRedactionSaveAs = () => {
     if (redactions.length === 0 || redactionRequestInFlightRef.current) return
-    if (closeBarrierRef.current!.busy || pdfToolWorkRef.current > 0) { showNotice('PDF work is still finishing. Apply redactions after it completes.'); return }
+    if (closeBarrierRef.current!.busy || pdfToolWorkRef.current > 0) {
+      showNotice('PDF work is still finishing. Apply redactions after it completes.')
+      return
+    }
     const otherPending =
       saveInFlightRef.current !== null ||
       textDraft !== null ||
@@ -5044,11 +5531,28 @@ export default function App() {
       showNotice(t('redactSaveFirst'))
       return
     }
-    if (pendingWorkspaceContent || linkDraft || hasPdfPendingEditors()) { showNotice('Finish or discard all pending text, comments, links and form editors before applying redactions.'); return }
-    if (!window.confirm(`${t('redactConfirm')}\n\nEarlier original files, restored workspaces, saved history and external backups remain. This creates a sanitized PDF copy; it does not erase those earlier files.`)) return
+    if (pendingWorkspaceContent || linkDraft || hasPdfPendingEditors()) {
+      showNotice(
+        'Finish or discard all pending text, comments, links and form editors before applying redactions.',
+      )
+      return
+    }
+    if (
+      !window.confirm(
+        `${t('redactConfirm')}\n\nEarlier original files, restored workspaces, saved history and external backups remain. This creates a sanitized PDF copy; it does not erase those earlier files.`,
+      )
+    )
+      return
     const source = pdfAuthoredSource()
-    try { redactionAuthoringRef.current = { source, fingerprint: pdfAuthoredFingerprint(pdfDraftRef.current!.capture(true)) } }
-    catch (error) { pdfDraftRef.current!.report(error); return }
+    try {
+      redactionAuthoringRef.current = {
+        source,
+        fingerprint: pdfAuthoredFingerprint(pdfDraftRef.current!.capture(true)),
+      }
+    } catch (error) {
+      pdfDraftRef.current!.report(error)
+      return
+    }
     redactionApplyConfirmedRef.current = true
     redactionRequestInFlightRef.current = true
     setRedactionCopyInFlight(true)
@@ -5128,8 +5632,18 @@ export default function App() {
 
   /** Drawn link box waiting for its target (URL or page) in the dialog */
   captureWorkspaceRef.current = (forSave = false) => {
-    if (pointerWorkspaceRef.current || composingWorkspaceRef.current || (!forSave && (closeBarrierRef.current!.busy || pdfToolWorkRef.current > 0))) throw new Error('PDF authored work is still finishing. The last complete recovery entry was kept.')
-    if (certSignDlg) throw new Error('Finish or close the certificate dialog before a recovery copy can be captured. Credentials are never included.')
+    if (
+      pointerWorkspaceRef.current ||
+      composingWorkspaceRef.current ||
+      (!forSave && (closeBarrierRef.current!.busy || pdfToolWorkRef.current > 0))
+    )
+      throw new Error(
+        'PDF authored work is still finishing. The last complete recovery entry was kept.',
+      )
+    if (certSignDlg)
+      throw new Error(
+        'Finish or close the certificate dialog before a recovery copy can be captured. Credentials are never included.',
+      )
     const edits = snapshot()
     const draft = readPdfAuthored('textDraft', textDraftRef.current)
     const fields = readPdfAuthored('selectedFormFieldIds', selectedFormFieldIds)
@@ -5137,93 +5651,272 @@ export default function App() {
     const target = readPdfAuthored('signatureTarget', signatureTarget)
     const regions = readPdfAuthored('redactions', redactions)
     const regionId = readPdfAuthored('selectedRedactionId', selectedRedactionId)
-    const fills = new Map(savedStaticFormFills.map(record => [record.id, record]))
-    for (const edit of edits.imageEdits) if (edit.staticFill) {
-      if (edit.input.kind === 'deleteImage') fills.delete(edit.staticFill.id)
-      else fills.set(edit.staticFill.id, { ...edit.staticFill, pageIndex: edit.input.pageIndex, rect: edit.input.rect })
-    }
+    const fills = new Map(savedStaticFormFills.map((record) => [record.id, record]))
+    for (const edit of edits.imageEdits)
+      if (edit.staticFill) {
+        if (edit.input.kind === 'deleteImage') fills.delete(edit.staticFill.id)
+        else
+          fills.set(edit.staticFill.id, {
+            ...edit.staticFill,
+            pageIndex: edit.input.pageIndex,
+            rect: edit.input.rect,
+          })
+      }
     return {
-    version: 1,
-    edits: serializePdfEdits(edits),
-    outline: { pending: readPdfAuthored('pendingOutline', pendingOutline), selected: readPdfAuthored('selectedOutlineTarget', selectedOutlineTarget) },
-    text: { draft, caret: draftTaRef.current && draft ? [Math.min(draft.value.length, draftTaRef.current.selectionStart), Math.min(draft.value.length, draftTaRef.current.selectionEnd)] : draftPreselectRef.current,
-      pendingInsert: readPdfAuthored('pendingTextInsert', pendingTextInsert), insertPointer: readPdfAuthored('textInsertPointer', textInsertPointer), insertEditId: readPdfAuthored('textInsertEditId', textInsertEditId),
-      staticEditor: { open: readPdfAuthored('staticTextDialog', staticTextDialog), purpose: readPdfAuthored('staticTextPurpose', staticTextPurpose), value: readPdfAuthored('staticText', staticText), size: readPdfAuthored('staticTextSize', staticTextSize), color: readPdfAuthored('staticTextColor', staticTextColor), align: readPdfAuthored('staticTextAlign', staticTextAlign), target: readPdfAuthored('staticTextEditTarget', staticTextEditTarget) as unknown as PdfWorkspaceStateV1['text']['staticEditor']['target'] } },
-    comments: { placement: readPdfAuthored('noteDraft', noteDraft), newBody: readPdfAuthored('newNoteBody', newNoteBody), createdMs: readPdfAuthored('newNoteCreatedMs', newNoteCreatedMs), replies: [...readPdfAuthored('noteReplies', noteReplies)], rewrite: readPdfAuthored('noteEditDraft', noteEditDraft), active: readPdfAuthored('activeNote', activeNote), author: readPdfAuthored('noteAuthor', noteAuthor) },
-    forms: { activeWidgetId: readPdfAuthored('activeFormWidgetId', activeFormWidgetId), selectedFieldIds: fields, freshFieldId: readPdfAuthored('freshFormFieldId', freshFormFieldId), heldFieldId: !preview && fields.length === 1 && edits.formFields.some(field => field.id === fields[0]) ? fields[0]! : null, tool: readPdfAuthored('formDesignTool', formDesignTool), preview, signatureTarget: target ? (({ password: _masked, ...value }) => value)(target) : null },
-    annotations: { selected: readPdfAuthored('selected', selected), pendingLink: readPdfAuthored('linkDraft', linkDraft), pendingSign: readPdfAuthored('pendingSign', pendingSign), imagePick: readPdfAuthored('imagePick', imagePick), pendingStaticFill: readPdfAuthored('pendingStaticFill', pendingStaticFill), staticFormFills: [...fills.values()] },
-    redactions: { regions, selectedId: regions.some(region => region.id === regionId) ? regionId : null },
-    pendingEditors: pendingPdfEditors(),
-    view: { page: currentPage, scale, sidebar, ribbon: ribbonTab, dialogs: { properties: propsDlg, stamp: stampDlg, bates: batesDlg, signature: signDlg } },
-  } }
-  restoreWorkspaceRef.current = state => {
+      version: 1,
+      edits: serializePdfEdits(edits),
+      outline: {
+        pending: readPdfAuthored('pendingOutline', pendingOutline),
+        selected: readPdfAuthored('selectedOutlineTarget', selectedOutlineTarget),
+      },
+      text: {
+        draft,
+        caret:
+          draftTaRef.current && draft
+            ? [
+                Math.min(draft.value.length, draftTaRef.current.selectionStart),
+                Math.min(draft.value.length, draftTaRef.current.selectionEnd),
+              ]
+            : draftPreselectRef.current,
+        pendingInsert: readPdfAuthored('pendingTextInsert', pendingTextInsert),
+        insertPointer: readPdfAuthored('textInsertPointer', textInsertPointer),
+        insertEditId: readPdfAuthored('textInsertEditId', textInsertEditId),
+        staticEditor: {
+          open: readPdfAuthored('staticTextDialog', staticTextDialog),
+          purpose: readPdfAuthored('staticTextPurpose', staticTextPurpose),
+          value: readPdfAuthored('staticText', staticText),
+          size: readPdfAuthored('staticTextSize', staticTextSize),
+          color: readPdfAuthored('staticTextColor', staticTextColor),
+          align: readPdfAuthored('staticTextAlign', staticTextAlign),
+          target: readPdfAuthored(
+            'staticTextEditTarget',
+            staticTextEditTarget,
+          ) as unknown as PdfWorkspaceStateV1['text']['staticEditor']['target'],
+        },
+      },
+      comments: {
+        placement: readPdfAuthored('noteDraft', noteDraft),
+        newBody: readPdfAuthored('newNoteBody', newNoteBody),
+        createdMs: readPdfAuthored('newNoteCreatedMs', newNoteCreatedMs),
+        replies: [...readPdfAuthored('noteReplies', noteReplies)],
+        rewrite: readPdfAuthored('noteEditDraft', noteEditDraft),
+        active: readPdfAuthored('activeNote', activeNote),
+        author: readPdfAuthored('noteAuthor', noteAuthor),
+      },
+      forms: {
+        activeWidgetId: readPdfAuthored('activeFormWidgetId', activeFormWidgetId),
+        selectedFieldIds: fields,
+        freshFieldId: readPdfAuthored('freshFormFieldId', freshFormFieldId),
+        heldFieldId:
+          !preview &&
+          fields.length === 1 &&
+          edits.formFields.some((field) => field.id === fields[0])
+            ? fields[0]!
+            : null,
+        tool: readPdfAuthored('formDesignTool', formDesignTool),
+        preview,
+        signatureTarget: target ? (({ password: _masked, ...value }) => value)(target) : null,
+      },
+      annotations: {
+        selected: readPdfAuthored('selected', selected),
+        pendingLink: readPdfAuthored('linkDraft', linkDraft),
+        pendingSign: readPdfAuthored('pendingSign', pendingSign),
+        imagePick: readPdfAuthored('imagePick', imagePick),
+        pendingStaticFill: readPdfAuthored('pendingStaticFill', pendingStaticFill),
+        staticFormFills: [...fills.values()],
+      },
+      redactions: {
+        regions,
+        selectedId: regions.some((region) => region.id === regionId) ? regionId : null,
+      },
+      pendingEditors: pendingPdfEditors(),
+      view: {
+        page: currentPage,
+        scale,
+        sidebar,
+        ribbon: ribbonTab,
+        dialogs: { properties: propsDlg, stamp: stampDlg, bates: batesDlg, signature: signDlg },
+      },
+    }
+  }
+  restoreWorkspaceRef.current = (state) => {
     applySnapshot(deserializePdfEdits(state.edits))
-    setPendingOutline(state.outline.pending); setSelectedOutlineTarget(state.outline.selected)
-    setTextDraft(state.text.draft); draftPreselectRef.current = state.text.caret
-    setPendingTextInsert(state.text.pendingInsert); setTextInsertPointer(state.text.insertPointer); setTextInsertEditId(state.text.insertEditId)
-    setStaticTextDialog(state.text.staticEditor.open); setStaticTextPurpose(state.text.staticEditor.purpose); setStaticText(state.text.staticEditor.value)
-    setStaticTextSize(state.text.staticEditor.size); setStaticTextColor(state.text.staticEditor.color); setStaticTextAlign(state.text.staticEditor.align)
+    setPendingOutline(state.outline.pending)
+    setSelectedOutlineTarget(state.outline.selected)
+    setTextDraft(state.text.draft)
+    draftPreselectRef.current = state.text.caret
+    setPendingTextInsert(state.text.pendingInsert)
+    setTextInsertPointer(state.text.insertPointer)
+    setTextInsertEditId(state.text.insertEditId)
+    setStaticTextDialog(state.text.staticEditor.open)
+    setStaticTextPurpose(state.text.staticEditor.purpose)
+    setStaticText(state.text.staticEditor.value)
+    setStaticTextSize(state.text.staticEditor.size)
+    setStaticTextColor(state.text.staticEditor.color)
+    setStaticTextAlign(state.text.staticEditor.align)
     setStaticTextEditTarget(state.text.staticEditor.target as typeof staticTextEditTarget)
-    setNoteDraft(state.comments.placement); setNewNoteBody(state.comments.newBody); setNewNoteCreatedMs(state.comments.createdMs)
-    setNoteReplies(new Map(state.comments.replies)); setNoteEditDraft(state.comments.rewrite); setActiveNote(state.comments.active); setNoteAuthor(state.comments.author)
-    setActiveFormWidgetId(state.forms.activeWidgetId); setSelectedFormFieldIds(state.forms.selectedFieldIds); setFreshFormFieldId(state.forms.freshFieldId)
-    setFormDesignTool(state.forms.tool as FormDesignTool | null); setFormDesignPreview(state.forms.preview); setSignatureTarget(state.forms.signatureTarget ? { ...state.forms.signatureTarget, password: false } : null)
-    setSelected(state.annotations.selected); setLinkDraft(state.annotations.pendingLink); setPendingSign(state.annotations.pendingSign); setImagePick(state.annotations.imagePick)
+    setNoteDraft(state.comments.placement)
+    setNewNoteBody(state.comments.newBody)
+    setNewNoteCreatedMs(state.comments.createdMs)
+    setNoteReplies(new Map(state.comments.replies))
+    setNoteEditDraft(state.comments.rewrite)
+    setActiveNote(state.comments.active)
+    setNoteAuthor(state.comments.author)
+    setActiveFormWidgetId(state.forms.activeWidgetId)
+    setSelectedFormFieldIds(state.forms.selectedFieldIds)
+    setFreshFormFieldId(state.forms.freshFieldId)
+    setFormDesignTool(state.forms.tool as FormDesignTool | null)
+    setFormDesignPreview(state.forms.preview)
+    setSignatureTarget(
+      state.forms.signatureTarget ? { ...state.forms.signatureTarget, password: false } : null,
+    )
+    setSelected(state.annotations.selected)
+    setLinkDraft(state.annotations.pendingLink)
+    setPendingSign(state.annotations.pendingSign)
+    setImagePick(state.annotations.imagePick)
     setPendingStaticFill(state.annotations.pendingStaticFill as StaticFormFillKind | null)
     setSavedStaticFormFills(state.annotations.staticFormFills)
-    setRedactions(state.redactions.regions); setSelectedRedactionId(state.redactions.selectedId)
-    redactionApplyConfirmedRef.current = false; redactionRequestInFlightRef.current = false; setRedactionCopyInFlight(false)
+    setRedactions(state.redactions.regions)
+    setSelectedRedactionId(state.redactions.selectedId)
+    redactionApplyConfirmedRef.current = false
+    redactionRequestInFlightRef.current = false
+    setRedactionCopyInFlight(false)
     restorePdfPendingEditors(state.pendingEditors)
-    setCurrentPage(state.view.page); setScale(state.view.scale); setSidebar(state.view.sidebar as typeof sidebar); setRibbonTab(state.view.ribbon as RibbonTab)
-    setPropsDlg(state.view.dialogs.properties); setStampDlg(state.view.dialogs.stamp); setBatesDlg(state.view.dialogs.bates); setSignDlg(state.view.dialogs.signature)
+    setCurrentPage(state.view.page)
+    setScale(state.view.scale)
+    setSidebar(state.view.sidebar as typeof sidebar)
+    setRibbonTab(state.view.ribbon as RibbonTab)
+    setPropsDlg(state.view.dialogs.properties)
+    setStampDlg(state.view.dialogs.stamp)
+    setBatesDlg(state.view.dialogs.bates)
+    setSignDlg(state.view.dialogs.signature)
   }
-  reportWorkspaceRef.current = message => { setSaveError(message); setRecoveryMessage(message); showNotice(message) }
-  const discardPendingKind = (kind: string) => submitPdfAuthored(() => discardPdfPendingEditors({ kind }), authoredSourceAtRender)
-  const copyProof = (edits: LocalTextEdit[], notes: { drawings: LocalDrawing[]; noteEdits: LocalNoteEdit[] }) => {
+  reportWorkspaceRef.current = (message) => {
+    setSaveError(message)
+    setRecoveryMessage(message)
+    showNotice(message)
+  }
+  const discardPendingKind = (kind: string) =>
+    submitPdfAuthored(() => discardPdfPendingEditors({ kind }), authoredSourceAtRender)
+  const copyProof = (
+    edits: LocalTextEdit[],
+    notes: { drawings: LocalDrawing[]; noteEdits: LocalNoteEdit[] },
+  ) => {
     const state = pdfDraftRef.current!.capture(true)
-    state.edits.textEdits = edits; state.edits.drawings = notes.drawings; state.edits.noteEdits = notes.noteEdits
+    state.edits.textEdits = edits
+    state.edits.drawings = notes.drawings
+    state.edits.noteEdits = notes.noteEdits
     // Both editors have just been intentionally folded by their ordinary committers.
-    state.text.draft = null; state.comments.rewrite = null
+    state.text.draft = null
+    state.comments.rewrite = null
     return pdfDraftRef.current!.proof(state, stampCfg)
   }
   useEffect(() => {
     const barrier = closeBarrierRef.current!
-    const sameStamp = (left: { source: string; revision: string }, right: { source: string; revision: string }) => left.source === right.source && left.revision === right.revision
-    const query = window.pdfApi.onCloseStateRequest(id => {
+    const sameStamp = (
+      left: { source: string; revision: string },
+      right: { source: string; revision: string },
+    ) => left.source === right.source && left.revision === right.revision
+    const query = window.pdfApi.onCloseStateRequest((id) => {
       if (typeof id !== 'string' || id.length > 128) return
-      const busy = barrier.busy || pointerWorkspaceRef.current || composingWorkspaceRef.current || pdfToolWorkRef.current > 0 || saveInFlightRef.current !== null || saveFallbackInFlightRef.current !== null || saveAsFlowRef.current || redactionRequestInFlightRef.current
+      const busy =
+        barrier.busy ||
+        pointerWorkspaceRef.current ||
+        composingWorkspaceRef.current ||
+        pdfToolWorkRef.current > 0 ||
+        saveInFlightRef.current !== null ||
+        saveFallbackInFlightRef.current !== null ||
+        saveAsFlowRef.current ||
+        redactionRequestInFlightRef.current
       let pending = true
-      if (!busy) try { pending = unpublishedWorkspaceRef.current || pdfDraftRef.current!.hasPending() } catch (error) { pdfDraftRef.current!.report(error) }
+      if (!busy)
+        try {
+          pending = unpublishedWorkspaceRef.current || pdfDraftRef.current!.hasPending()
+        } catch (error) {
+          pdfDraftRef.current!.report(error)
+        }
       window.pdfApi.sendCloseState(id, { stamp: barrier.snapshot(), pending, busy })
     })
-    const prepare = window.pdfApi.onClosePrepare(request => {
+    const prepare = window.pdfApi.onClosePrepare((request) => {
       if (!request?.ticket || !['save', 'discard', 'clean'].includes(request.intent)) return
-      if (closingPdfRequestRef.current && closingPdfRequestRef.current.ticket.id !== request.ticket.id) {
-        window.pdfApi.sendClosePrepared({ ticket: request.ticket, ok: false, error: 'Another PDF close operation is still finishing.' }); return
+      if (
+        closingPdfRequestRef.current &&
+        closingPdfRequestRef.current.ticket.id !== request.ticket.id
+      ) {
+        window.pdfApi.sendClosePrepared({
+          ticket: request.ticket,
+          ok: false,
+          error: 'Another PDF close operation is still finishing.',
+        })
+        return
       }
       closingPdfRequestRef.current = request
       void (async () => {
         try {
-          if (request.approvedStamp && !sameStamp(request.approvedStamp, barrier.snapshot())) throw new Error('The PDF changed while the close prompt was open. Its pending content was kept.')
-          if (barrier.busy || pointerWorkspaceRef.current || pdfToolWorkRef.current > 0 || saveInFlightRef.current || saveFallbackInFlightRef.current || redactionRequestInFlightRef.current || composingWorkspaceRef.current) throw new Error('PDF editing or saving is still finishing.')
-          if (request.intent === 'save' && !(await save(false, true))) throw new Error('Some PDF content could not be fully saved. Finish its pending editors before closing with Save.')
-          if (request.intent !== 'discard' && (unpublishedWorkspaceRef.current || pdfDraftRef.current!.hasPending())) throw new Error('Some PDF content remains unsaved, unsubmitted or on an unpublished recovery base.')
+          if (request.approvedStamp && !sameStamp(request.approvedStamp, barrier.snapshot()))
+            throw new Error(
+              'The PDF changed while the close prompt was open. Its pending content was kept.',
+            )
+          if (
+            barrier.busy ||
+            pointerWorkspaceRef.current ||
+            pdfToolWorkRef.current > 0 ||
+            saveInFlightRef.current ||
+            saveFallbackInFlightRef.current ||
+            redactionRequestInFlightRef.current ||
+            composingWorkspaceRef.current
+          )
+            throw new Error('PDF editing or saving is still finishing.')
+          if (request.intent === 'save' && !(await save(false, true)))
+            throw new Error(
+              'Some PDF content could not be fully saved. Finish its pending editors before closing with Save.',
+            )
+          if (
+            request.intent !== 'discard' &&
+            (unpublishedWorkspaceRef.current || pdfDraftRef.current!.hasPending())
+          )
+            throw new Error(
+              'Some PDF content remains unsaved, unsubmitted or on an unpublished recovery base.',
+            )
           // Freeze complete canonical truth and its revision before the first acquire await.
-          const state = request.intent === 'discard' ? undefined : encodePdfWorkspaceState(pdfDraftRef.current!.capture())
+          const state =
+            request.intent === 'discard'
+              ? undefined
+              : encodePdfWorkspaceState(pdfDraftRef.current!.capture())
           const expected = barrier.snapshot()
-          const stamp = await barrier.acquire(request.ticket, () => sameStamp(expected, barrier.snapshot()) && !barrier.busy && !pointerWorkspaceRef.current && pdfToolWorkRef.current === 0 && saveInFlightRef.current === null && !redactionRequestInFlightRef.current && !composingWorkspaceRef.current)
+          const stamp = await barrier.acquire(
+            request.ticket,
+            () =>
+              sameStamp(expected, barrier.snapshot()) &&
+              !barrier.busy &&
+              !pointerWorkspaceRef.current &&
+              pdfToolWorkRef.current === 0 &&
+              saveInFlightRef.current === null &&
+              !redactionRequestInFlightRef.current &&
+              !composingWorkspaceRef.current,
+          )
           if (!stamp) throw new Error('The PDF changed before its close decision could be locked.')
-          window.pdfApi.sendClosePrepared({ ticket: request.ticket, ok: true, stamp, draftFloor: pdfDraftRef.current!.closeFloor(), ...(state ? { state } : {}) })
+          window.pdfApi.sendClosePrepared({
+            ticket: request.ticket,
+            ok: true,
+            stamp,
+            draftFloor: pdfDraftRef.current!.closeFloor(),
+            ...(state ? { state } : {}),
+          })
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           pdfDraftRef.current!.report(message)
           await window.pdfApi.cancelClose(request.ticket, message)
           window.pdfApi.sendClosePrepared({ ticket: request.ticket, ok: false, error: message })
-          if (closingPdfRequestRef.current?.ticket.id === request.ticket.id) closingPdfRequestRef.current = null
+          if (closingPdfRequestRef.current?.ticket.id === request.ticket.id)
+            closingPdfRequestRef.current = null
         }
-      })().catch(error => pdfDraftRef.current!.report(error))
+      })().catch((error) => pdfDraftRef.current!.report(error))
     })
-    return () => { query(); prepare() }
+    return () => {
+      query()
+      prepare()
+    }
   })
 
   const commitDrawing = (origIdx: number, input: DrawingInput) => {
@@ -5253,8 +5946,12 @@ export default function App() {
   )
 
   const applyStamps = (wm: WatermarkConfig | null, hf: HeaderFooterConfig | null) => {
-    if (wm || hf) { const result = applyEditOps([{ op: 'setStamps', cfg: { wm, hf } }]); if (result.failures.length) return }
-    discardPendingKind('stamp'); setStampDlg(false)
+    if (wm || hf) {
+      const result = applyEditOps([{ op: 'setStamps', cfg: { wm, hf } }])
+      if (result.failures.length) return
+    }
+    discardPendingKind('stamp')
+    setStampDlg(false)
   }
 
   /** Stamp preview for visible pages (only pages in rendered rows, so large docs don't render every canvas) */
@@ -5485,7 +6182,8 @@ export default function App() {
       showNotice(plan.failures[0]!.error)
       return
     }
-    discardPendingKind('bates'); setBatesDlg(false)
+    discardPendingKind('bates')
+    setBatesDlg(false)
     showNotice(t('batesApplied', { count: inserts.length }))
   }
 
@@ -5521,20 +6219,24 @@ export default function App() {
     imageFileRef.current?.click()
   }
 
-  const onImageFilePicked = async (file: File) => runPdfAuthoredWork(async () => {
-    const canvas = await fileToCanvas(file, 2400)
-    if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender)) throw new Error('The PDF changed while its image was loading. The new source was left intact.')
-    const base64 = canvas?.toDataURL('image/png').split(',')[1]
-    if (!canvas || !base64) return
-    const target = replaceTargetRef.current
-    if (target) {
-      replaceTargetRef.current = null
-      commitBaked(target, base64)
-      return
-    }
-    setImagePick({ kind: 'image', image: base64, width: canvas.width, height: canvas.height })
-    setPendingStaticFill(null)
-  }, authoredSourceAtRender)
+  const onImageFilePicked = async (file: File) =>
+    runPdfAuthoredWork(async () => {
+      const canvas = await fileToCanvas(file, 2400)
+      if (!pdfAuthoredSourceIsCurrent(authoredSourceAtRender))
+        throw new Error(
+          'The PDF changed while its image was loading. The new source was left intact.',
+        )
+      const base64 = canvas?.toDataURL('image/png').split(',')[1]
+      if (!canvas || !base64) return
+      const target = replaceTargetRef.current
+      if (target) {
+        replaceTargetRef.current = null
+        commitBaked(target, base64)
+        return
+      }
+      setImagePick({ kind: 'image', image: base64, width: canvas.width, height: canvas.height })
+      setPendingStaticFill(null)
+    }, authoredSourceAtRender)
 
   const pdfRectFromView = (
     geom: PageGeom,
@@ -6355,12 +7057,15 @@ export default function App() {
       if (!current || exporting) return
       setExporting(true)
       try {
-        const targets = allPages ? Array.from({ length: current.numPages }, (_, index) => index) : [Math.min(currentPage, current.numPages) - 1].filter(index => index >= 0)
+        const targets = allPages
+          ? Array.from({ length: current.numPages }, (_, index) => index)
+          : [Math.min(currentPage, current.numPages) - 1].filter((index) => index >= 0)
         const images: string[] = []
         const pageNumbers: number[] = []
         const canvas = document.createElement('canvas')
         for (const origIdx of targets) {
-          if (source !== pdfAuthoredSource()) throw new Error('The PDF source changed during image export.')
+          if (source !== pdfAuthoredSource())
+            throw new Error('The PDF source changed during image export.')
           const page = await current.getPage(origIdx + 1)
           const viewport = page.getViewport({
             scale: 150 / 72,
@@ -6409,7 +7114,9 @@ export default function App() {
       },
     ])
     if (plan.failures.length) return
-    setNoteDraft(null); setNewNoteBody(''); setNewNoteCreatedMs(null)
+    setNoteDraft(null)
+    setNewNoteBody('')
+    setNewNoteCreatedMs(null)
     setActiveNote({ origIdx: target.origIdx, rootKey: pendingNoteKey(id) })
   }
 
@@ -6556,7 +7263,10 @@ export default function App() {
       typed text). Returns the arrays the save must write — the setState calls here
       won't be visible to the caller's closure. */
   const commitNoteEdit = (): { drawings: LocalDrawing[]; noteEdits: LocalNoteEdit[] } => {
-    const unchanged = { drawings: readPdfAuthored('drawings', drawings), noteEdits: readPdfAuthored('noteEdits', noteEdits) }
+    const unchanged = {
+      drawings: readPdfAuthored('drawings', drawings),
+      noteEdits: readPdfAuthored('noteEdits', noteEdits),
+    }
     const draft = readPdfAuthored('noteEditDraft', noteEditDraft)
     if (!draft) return unchanged
     const item = noteThreadsOn(draft.origIdx)
@@ -6587,7 +7297,9 @@ export default function App() {
   }
 
   /** Extract/insert work on the file on disk — flush unsaved changes first; undefined = the save failed */
-  const flushThen = async <T,>(fn: (path: string, source: string) => Promise<T>): Promise<T | undefined> => {
+  const flushThen = async <T,>(
+    fn: (path: string, source: string) => Promise<T>,
+  ): Promise<T | undefined> => {
     if (redactions.length > 0) {
       opFailed(t('redactStructureBlocked'))
       return undefined
@@ -6597,15 +7309,29 @@ export default function App() {
     if (dirty) {
       if (!(await save(false, true))) return undefined
       const own = ownPdfSaveRef.current
-      if (!own || own.from !== source || own.to !== pdfAuthoredSource() || own.epoch !== pdfSourceEpochRef.current) return undefined
+      if (
+        !own ||
+        own.from !== source ||
+        own.to !== pdfAuthoredSource() ||
+        own.epoch !== pdfSourceEpochRef.current
+      )
+        return undefined
       source = own.to
     }
     const path = pdfDraftRef.current!.currentRead()?.helperPath ?? filePath
     const inert = document.body.inert
-    return await runPdfAuthoredWork(() => withPdfFileRewrite(async () => {
-      document.body.inert = true
-      try { return await fn(path, source) } finally { document.body.inert = inert }
-    }, source), source)
+    return await runPdfAuthoredWork(
+      () =>
+        withPdfFileRewrite(async () => {
+          document.body.inert = true
+          try {
+            return await fn(path, source)
+          } finally {
+            document.body.inert = inert
+          }
+        }, source),
+      source,
+    )
   }
 
   // File-level page operations shared by the ribbon dialogs and the AI tools. The
@@ -6624,13 +7350,22 @@ export default function App() {
     return result as Exclude<R, { canceled: true }>
   }
   const rewriteInPlace = async (
-    run: (path: string) => Promise<{ ok: true } | { ok: true; canceled: true } | { ok: false; error: string }>,
+    run: (
+      path: string,
+    ) => Promise<{ ok: true } | { ok: true; canceled: true } | { ok: false; error: string }>,
   ): Promise<FileOpResult> => {
     return runFileOp(async (path, source) => {
       const result = await run(path)
       if (!result.ok || 'canceled' in result) return result
-      if (source !== pdfAuthoredSource()) return { ok: false, error: 'The PDF changed after its file operation. The newer view was preserved.' }
-      return { ok: true, pageCount: await loadDocCore(path, outlineDocRef.current, undefined, [], source) }
+      if (source !== pdfAuthoredSource())
+        return {
+          ok: false,
+          error: 'The PDF changed after its file operation. The newer view was preserved.',
+        }
+      return {
+        ok: true,
+        pageCount: await loadDocCore(path, outlineDocRef.current, undefined, [], source),
+      }
     })
   }
   const baseName = () => fileName.replace(/\.pdf$/i, '')
@@ -6705,7 +7440,8 @@ export default function App() {
         opFailed(result.error)
         return
       }
-      if (!('canceled' in result)) await loadDocCore(path, outlineDocRef.current, undefined, [], source)
+      if (!('canceled' in result))
+        await loadDocCore(path, outlineDocRef.current, undefined, [], source)
     })
   }
 
@@ -6992,12 +7728,17 @@ export default function App() {
       const expectedSource = authoredSourceAtRender
       for (;;) {
         await closeBarrierRef.current!.beforeMutation(expectedSource)
-        if (!pdfAuthoredSourceIsCurrent(expectedSource)) throw new Error('The PDF source changed before its tool could begin.')
+        if (!pdfAuthoredSourceIsCurrent(expectedSource))
+          throw new Error('The PDF source changed before its tool could begin.')
         if (closeBarrierRef.current!.locked) continue
         pdfToolWorkRef.current++
         break
       }
-      try { return await action() } finally { pdfToolWorkRef.current-- }
+      try {
+        return await action()
+      } finally {
+        pdfToolWorkRef.current--
+      }
     },
     doc: () => doc,
     fileName: () => fileName,
@@ -7723,12 +8464,20 @@ export default function App() {
   }, [scale])
 
   // renamed / moved from the shell: keep saving to the file's new location
-  useEffect(() => window.pdfApi.onFileRenamed((next) => {
-    const read = pdfDraftRef.current!.currentRead()
-    if (read) pdfDraftRef.current!.renamed(read.mode === 'workspace' ? read.displayPath : read.helperPath, next)
-    if (read?.mode !== 'workspace') setFilePath(next)
-    setDisplayPath(next)
-  }), [])
+  useEffect(
+    () =>
+      window.pdfApi.onFileRenamed((next) => {
+        const read = pdfDraftRef.current!.currentRead()
+        if (read)
+          pdfDraftRef.current!.renamed(
+            read.mode === 'workspace' ? read.displayPath : read.helperPath,
+            next,
+          )
+        if (read?.mode !== 'workspace') setFilePath(next)
+        setDisplayPath(next)
+      }),
+    [],
+  )
 
   // Re-read the signatures whenever the document on screen is (re)loaded: a save rewrites the
   // file, which is exactly when an old signature stops matching
@@ -8189,7 +8938,11 @@ export default function App() {
   )
 
   return (
-    <div className="app" inert={redactionCopyInFlight || saveAuthoringHeld} aria-busy={redactionCopyInFlight || saveAuthoringHeld}>
+    <div
+      className="app"
+      inert={redactionCopyInFlight || saveAuthoringHeld}
+      aria-busy={redactionCopyInFlight || saveAuthoringHeld}
+    >
       <div className={`ribbon ${collapse.rootClass}`} ref={collapse.rootRef}>
         <div className="ribbon-tabs" onDoubleClick={collapse.onTabsDoubleClick}>
           <button
@@ -8272,13 +9025,56 @@ export default function App() {
             </span>
           )}
           {saveState === 'saved' && <span className="tb-save-ok">{t('savedOk')}</span>}
-          {recoveryMessage && <span role="status" title={recoveryMessage} style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{recoveryMessage}</span>}
-          {workspaceUnpublishedBase && <span role="status">Recovery workspace · current edits unsaved</span>}
-          {saveFallbackAvailable && <button type="button" disabled={saveFallbackBusy} onClick={() => { const pending = saveFallbackRef.current; if (pending) void retainCurrentSaveWorkspace(pending) }}>Retry complete recovery</button>}
-          {/cleanup/i.test(recoveryMessage) && <button type="button" disabled={retryingRecoveryCleanup} onClick={() => {
-            setRetryingRecoveryCleanup(true)
-            void window.pdfApi.retryDraftCleanup().then(() => setRecoveryMessage('Earlier owned automatic PDF cleanup completed. User-owned files and backups remain.'), error => pdfDraftRef.current!.report(error)).finally(() => setRetryingRecoveryCleanup(false))
-          }}>Retry recovery cleanup</button>}
+          {recoveryMessage && (
+            <span
+              role="status"
+              title={recoveryMessage}
+              style={{
+                maxWidth: 300,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {recoveryMessage}
+            </span>
+          )}
+          {workspaceUnpublishedBase && (
+            <span role="status">Recovery workspace · current edits unsaved</span>
+          )}
+          {saveFallbackAvailable && (
+            <button
+              type="button"
+              disabled={saveFallbackBusy}
+              onClick={() => {
+                const pending = saveFallbackRef.current
+                if (pending) void retainCurrentSaveWorkspace(pending)
+              }}
+            >
+              Retry complete recovery
+            </button>
+          )}
+          {/cleanup/i.test(recoveryMessage) && (
+            <button
+              type="button"
+              disabled={retryingRecoveryCleanup}
+              onClick={() => {
+                setRetryingRecoveryCleanup(true)
+                void window.pdfApi
+                  .retryDraftCleanup()
+                  .then(
+                    () =>
+                      setRecoveryMessage(
+                        'Earlier owned automatic PDF cleanup completed. User-owned files and backups remain.',
+                      ),
+                    (error) => pdfDraftRef.current!.report(error),
+                  )
+                  .finally(() => setRetryingRecoveryCleanup(false))
+              }}
+            >
+              Retry recovery cleanup
+            </button>
+          )}
           {formHasXfa && (
             <span className="tb-form-warning" data-tip={t('formXfaWarning')}>
               XFA
@@ -9131,7 +9927,7 @@ export default function App() {
         onChange={(e) => {
           const f = e.target.files?.[0]
           e.target.value = ''
-          if (f) void onImageFilePicked(f).catch(error => pdfDraftRef.current!.report(error))
+          if (f) void onImageFilePicked(f).catch((error) => pdfDraftRef.current!.report(error))
         }}
       />
       <div className="app-main">
@@ -9237,7 +10033,10 @@ export default function App() {
                     rename: t('outlineRename'),
                     delete: t('outlineDelete'),
                   }}
-                  onGoToPage={(pageIndex) => { setSelectedOutlineTarget([pageIndex]); scrollToPage(visList.indexOf(pageIndex) + 1) }}
+                  onGoToPage={(pageIndex) => {
+                    setSelectedOutlineTarget([pageIndex])
+                    scrollToPage(visList.indexOf(pageIndex) + 1)
+                  }}
                   onAdd={addBookmarkForCurrentPage}
                   onRename={renameBookmarkAt}
                   onDelete={deleteBookmarkAt}
@@ -10722,7 +11521,14 @@ export default function App() {
                         createdMs={newNoteCreatedMs ?? Date.now()}
                         replies={noteReplies}
                         onNewBody={setNewNoteBody}
-                        onReplyChange={(key, value) => setNoteReplies(previous => { const next = new Map(previous); if (value) next.set(key, value); else next.delete(key); return next })}
+                        onReplyChange={(key, value) =>
+                          setNoteReplies((previous) => {
+                            const next = new Map(previous)
+                            if (value) next.set(key, value)
+                            else next.delete(key)
+                            return next
+                          })
+                        }
                         width={NOTE_MARGIN_W}
                         threads={marginThreads}
                         draft={marginDraft}
@@ -11254,14 +12060,25 @@ export default function App() {
               </div>
             )}
             {stampDlg && (
-              <StampDialog key={authoredSourceAtRender} t={t} onCancel={() => { discardPendingKind('stamp'); setStampDlg(false) }} onApply={applyStamps} />
+              <StampDialog
+                key={authoredSourceAtRender}
+                t={t}
+                onCancel={() => {
+                  discardPendingKind('stamp')
+                  setStampDlg(false)
+                }}
+                onApply={applyStamps}
+              />
             )}
             {linkDraft && (
               <LinkDialog
                 key={authoredSourceAtRender}
                 t={t}
                 pageCount={pageCount}
-                onCancel={() => { discardPendingKind('link'); setLinkDraft(null) }}
+                onCancel={() => {
+                  discardPendingKind('link')
+                  setLinkDraft(null)
+                }}
                 onApply={(target) => {
                   const draft = linkDraft
                   if (!draft) return
@@ -11278,7 +12095,10 @@ export default function App() {
                       },
                     },
                   ])
-                  if (!result.failures.length) { discardPendingKind('link'); setLinkDraft(null) }
+                  if (!result.failures.length) {
+                    discardPendingKind('link')
+                    setLinkDraft(null)
+                  }
                 }}
               />
             )}
@@ -11314,10 +12134,16 @@ export default function App() {
                 pending={metadata}
                 readOnly={readOnly}
                 t={t}
-                onCancel={() => { discardPendingKind('properties'); setPropsDlg(false) }}
+                onCancel={() => {
+                  discardPendingKind('properties')
+                  setPropsDlg(false)
+                }}
                 onApply={(meta) => {
                   const result = applyEditOps([{ op: 'setMetadata', metadata: meta }])
-                  if (!result.failures.length) { discardPendingKind('properties'); setPropsDlg(false) }
+                  if (!result.failures.length) {
+                    discardPendingKind('properties')
+                    setPropsDlg(false)
+                  }
                 }}
               />
             )}
@@ -11327,7 +12153,10 @@ export default function App() {
                 t={t}
                 pageCount={sizes.length}
                 onApply={applyBates}
-                onClose={() => { discardPendingKind('bates'); setBatesDlg(false) }}
+                onClose={() => {
+                  discardPendingKind('bates')
+                  setBatesDlg(false)
+                }}
               />
             )}
             {certSignDlg && (

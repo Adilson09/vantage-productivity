@@ -25,10 +25,7 @@ test('the three groups cover the actual root test chain exactly once and in orde
   assert.equal(commands.length, 30)
   assert.equal(UNIT_GROUPS['core-docs'].at(-1), 'npm run test -w @vantage/docs')
   assert.deepEqual(UNIT_GROUPS['sheets-compat'], ['npm run test -w @vantage/sheets'])
-  assert.equal(
-    UNIT_GROUPS['editors-bridge'].at(-1),
-    'npm run test:release-evidence',
-  )
+  assert.equal(UNIT_GROUPS['editors-bridge'].at(-1), 'npm run test:release-evidence')
 })
 
 test('a newly added workspace cannot silently disappear from CI', () => {
@@ -236,13 +233,20 @@ test('the CI matrix is emitted from the validated partition, so a hand-written m
   assert.deepEqual(JSON.parse(result.stdout.slice('groups='.length)), Object.keys(UNIT_GROUPS))
 })
 
-
 test('current bridge workspace keeps its full serial glob and release evidence remains in CI', () => {
-  const bridge = JSON.parse(readFileSync(new URL('../packages/engine-bridge/package.json', import.meta.url), 'utf8'))
+  const bridge = JSON.parse(
+    readFileSync(new URL('../packages/engine-bridge/package.json', import.meta.url), 'utf8'),
+  )
   assert.equal(bridge.scripts.test, 'node --test --test-concurrency=1 tests/*.test.mjs')
   assert.equal(UNIT_GROUPS['editors-bridge'].at(-2), 'npm run test -w @vantage/engine-bridge')
   assert.equal(UNIT_GROUPS['editors-bridge'].at(-1), 'npm run test:release-evidence')
-  assert.equal(manifest.scripts['test:release-evidence'], 'node --test --test-concurrency=1 tools/tests/release-evidence.test.mjs')
+  assert.equal(
+    manifest.scripts['test:release-evidence'],
+    'node --test --test-concurrency=1 tools/tests/release-evidence.test.mjs',
+  )
   assert.ok(manifest.scripts.typecheck.endsWith('npm run typecheck -w @vantage/engine-bridge'))
-  assert.throws(() => parseCommand('node --test packages/engine-bridge/tests/bridge.test.mjs'), /Unrecognized/)
+  assert.throws(
+    () => parseCommand('node --test packages/engine-bridge/tests/bridge.test.mjs'),
+    /Unrecognized/,
+  )
 })

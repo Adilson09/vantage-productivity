@@ -47,7 +47,11 @@ const repositoryRoot = fileURLToPath(new URL('../', import.meta.url))
 
 /** Deliberately accepts only this repository's reviewed argv forms, never shell text. */
 export function parseCommand(command) {
-  if (command === 'npm run test:format' || command === 'npm run test:release-evidence' || command === PRETEST)
+  if (
+    command === 'npm run test:format' ||
+    command === 'npm run test:release-evidence' ||
+    command === PRETEST
+  )
     return { runtime: 'npm', args: ['run', command.slice('npm run '.length)] }
   const workspace = /^npm run (test|fixtures|compat) -w (@vantage\/[a-z0-9-]+)$/.exec(command)
   if (workspace) return { runtime: 'npm', args: ['run', workspace[1], '-w', workspace[2]] }

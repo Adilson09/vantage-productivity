@@ -1,7 +1,10 @@
 import type { AiPanelPrefs } from '@vantage/ui'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { parseRecalcResult } from './recalc-contract'
-import { isCloseLeaseStamp, isCloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
+import {
+  isCloseLeaseStamp,
+  isCloseLeaseTicket,
+} from '../../../../packages/electron-utils/src/close-lease'
 import type { SheetsCloseSource, SheetsPrepareCloseRequest } from '../shared/sheets-close'
 
 import type {
@@ -67,8 +70,11 @@ import { installDropOpenBridge } from '@vantage/electron-utils/drop-open'
 
 function parseWorkbookWriteContext(input: unknown): WorkbookWriteContext | undefined {
   if (input === undefined) return undefined
-  if (!isRecord(input) || Object.keys(input).length !== 1 ||
-    (input.origin !== 'automatic' && input.origin !== 'manual' && input.origin !== 'close'))
+  if (
+    !isRecord(input) ||
+    Object.keys(input).length !== 1 ||
+    (input.origin !== 'automatic' && input.origin !== 'manual' && input.origin !== 'close')
+  )
     throw new Error('Invalid workbook write context.')
   return { origin: input.origin }
 }
@@ -161,8 +167,8 @@ const desktopApi: DesktopApi = {
       !Number.isSafeInteger(result.fileBytes) ||
       result.fileBytes < 0 ||
       result.passwordProtected !== true ||
-      result.closeSource !== undefined && !isWorkbookCloseSource(result.closeSource) ||
-      result.recoveryWarning !== undefined && typeof result.recoveryWarning !== 'string'
+      (result.closeSource !== undefined && !isWorkbookCloseSource(result.closeSource)) ||
+      (result.recoveryWarning !== undefined && typeof result.recoveryWarning !== 'string')
     ) {
       throw new Error('Invalid workbook password update response.')
     }
@@ -170,8 +176,12 @@ const desktopApi: DesktopApi = {
       sha256: result.sha256,
       fileBytes: result.fileBytes,
       passwordProtected: true as const,
-      ...(result.closeSource === undefined ? {} : { closeSource: result.closeSource as SheetsCloseSource }),
-      ...(result.recoveryWarning === undefined ? {} : { recoveryWarning: result.recoveryWarning as string }),
+      ...(result.closeSource === undefined
+        ? {}
+        : { closeSource: result.closeSource as SheetsCloseSource }),
+      ...(result.recoveryWarning === undefined
+        ? {}
+        : { recoveryWarning: result.recoveryWarning as string }),
     }
   },
   async selectWorkbooksForMerge() {
@@ -323,9 +333,15 @@ const desktopApi: DesktopApi = {
   },
   async saveWorkbookEdits(request, closeTicket, writeContext) {
     const validatedRequest = parseSaveRequest(request)
-    if (closeTicket !== undefined && !isCloseLeaseTicket(closeTicket)) throw new Error('Invalid workbook close ticket.')
+    if (closeTicket !== undefined && !isCloseLeaseTicket(closeTicket))
+      throw new Error('Invalid workbook close ticket.')
     const context = parseWorkbookWriteContext(writeContext)
-    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.saveWorkbook, validatedRequest, closeTicket, context)
+    const result: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.saveWorkbook,
+      validatedRequest,
+      closeTicket,
+      context,
+    )
     return parseSaveResult(result)
   },
   async beginSaveEditsTransfer(request) {
@@ -391,10 +407,17 @@ const desktopApi: DesktopApi = {
   async checkpointWorkbookDocument(request, dirty = true, closeBinding, writeContext) {
     if (typeof dirty !== 'boolean') throw new Error('Invalid document checkpoint state.')
     const validatedRequest = parseSaveRequest(request)
-    if (closeBinding !== undefined && (!isRecord(closeBinding) || closeBinding.requestId !== closeBinding.ticket?.id ||
-      !isCloseLeaseTicket(closeBinding.ticket) || !isCloseLeaseStamp(closeBinding.stamp) ||
-      !isWorkbookCloseSource(closeBinding.source) || closeBinding.source.sessionId !== request.sessionId ||
-      closeBinding.source.lineage !== closeBinding.ticket.source || !/^[a-f0-9]{64}$/.test(closeBinding.payloadSha256)))
+    if (
+      closeBinding !== undefined &&
+      (!isRecord(closeBinding) ||
+        closeBinding.requestId !== closeBinding.ticket?.id ||
+        !isCloseLeaseTicket(closeBinding.ticket) ||
+        !isCloseLeaseStamp(closeBinding.stamp) ||
+        !isWorkbookCloseSource(closeBinding.source) ||
+        closeBinding.source.sessionId !== request.sessionId ||
+        closeBinding.source.lineage !== closeBinding.ticket.source ||
+        !/^[a-f0-9]{64}$/.test(closeBinding.payloadSha256))
+    )
       throw new Error('Invalid workbook close checkpoint binding.')
     const result: unknown = await ipcRenderer.invoke(
       IPC_CHANNELS.checkpointWorkbookDocument,
@@ -475,7 +498,8 @@ const desktopApi: DesktopApi = {
     )
   },
   async exportCsv(request, writeContext, closeTicket) {
-    if (closeTicket !== undefined && !isCloseLeaseTicket(closeTicket)) throw new Error('Invalid CSV close ticket.')
+    if (closeTicket !== undefined && !isCloseLeaseTicket(closeTicket))
+      throw new Error('Invalid CSV close ticket.')
     if (
       !isRecord(request) ||
       typeof request.fileName !== 'string' ||
@@ -491,7 +515,12 @@ const desktopApi: DesktopApi = {
     ) {
       throw new Error('Invalid CSV export request.')
     }
-    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.exportCsv, request, parseWorkbookWriteContext(writeContext), closeTicket)
+    const result: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.exportCsv,
+      request,
+      parseWorkbookWriteContext(writeContext),
+      closeTicket,
+    )
     if (
       !isRecord(result) ||
       typeof result.canceled !== 'boolean' ||
@@ -506,8 +535,13 @@ const desktopApi: DesktopApi = {
       { canceled: true; saveAsXlsxInstead?: boolean } | { canceled: false; path: string }
   },
   async confirmCsvSave(writeContext, closeTicket) {
-    if (closeTicket !== undefined && !isCloseLeaseTicket(closeTicket)) throw new Error('Invalid CSV close ticket.')
-    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.csvSaveConfirm, parseWorkbookWriteContext(writeContext), closeTicket)
+    if (closeTicket !== undefined && !isCloseLeaseTicket(closeTicket))
+      throw new Error('Invalid CSV close ticket.')
+    const result: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.csvSaveConfirm,
+      parseWorkbookWriteContext(writeContext),
+      closeTicket,
+    )
     if (result !== 'csv' && result !== 'xlsx' && result !== 'cancel') {
       throw new Error('Invalid CSV save confirmation response.')
     }
@@ -554,38 +588,61 @@ const desktopApi: DesktopApi = {
   },
   async recoverWorkbookReader(sessionId, writeContext) {
     if (!isUuid(sessionId)) throw new Error('Invalid workbook reader recovery session.')
-    const value: unknown = await ipcRenderer.invoke(IPC_CHANNELS.recoverWorkbookReader, sessionId, parseWorkbookWriteContext(writeContext))
+    const value: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.recoverWorkbookReader,
+      sessionId,
+      parseWorkbookWriteContext(writeContext),
+    )
     return value === null ? null : parseWorkbookFile(value)
   },
   async getWorkbookCloseSource(sessionId) {
     if (!isUuid(sessionId)) throw new Error('Invalid workbook session.')
     const value: unknown = await ipcRenderer.invoke(IPC_CHANNELS.workbookCloseSource, sessionId)
-    if (value !== null && !isWorkbookCloseSource(value)) throw new Error('Invalid workbook source identity.')
+    if (value !== null && !isWorkbookCloseSource(value))
+      throw new Error('Invalid workbook source identity.')
     return value
   },
   notifyWorkbookCloseState(state, coverageComplete) {
-    if (!isWorkbookCloseSource(state?.source) || !isCloseLeaseStamp(state.stamp) || typeof state.dirty !== 'boolean' ||
-      typeof state.busy !== 'boolean' || typeof state.protectedMemoryOnly !== 'boolean' || typeof coverageComplete !== 'boolean') return
+    if (
+      !isWorkbookCloseSource(state?.source) ||
+      !isCloseLeaseStamp(state.stamp) ||
+      typeof state.dirty !== 'boolean' ||
+      typeof state.busy !== 'boolean' ||
+      typeof state.protectedMemoryOnly !== 'boolean' ||
+      typeof coverageComplete !== 'boolean'
+    )
+      return
     ipcRenderer.send(IPC_CHANNELS.workbookCloseState, state, coverageComplete)
   },
   onPrepareWorkbookClose(callback) {
     const listener = (_event: unknown, value: unknown): void => {
-      if (!isRecord(value) || !isCloseLeaseTicket(value.ticket) || value.requestId !== value.ticket.id ||
-        !isWorkbookCloseSource(value.expectedSource) || (value.intent !== 'save' && value.intent !== 'discard') ||
-        value.approvedStamp !== undefined && !isCloseLeaseStamp(value.approvedStamp) ||
-        value.path !== undefined && typeof value.path !== 'string' || value.overwrite !== undefined && typeof value.overwrite !== 'boolean') return
+      if (
+        !isRecord(value) ||
+        !isCloseLeaseTicket(value.ticket) ||
+        value.requestId !== value.ticket.id ||
+        !isWorkbookCloseSource(value.expectedSource) ||
+        (value.intent !== 'save' && value.intent !== 'discard') ||
+        (value.approvedStamp !== undefined && !isCloseLeaseStamp(value.approvedStamp)) ||
+        (value.path !== undefined && typeof value.path !== 'string') ||
+        (value.overwrite !== undefined && typeof value.overwrite !== 'boolean')
+      )
+        return
       callback(value as unknown as SheetsPrepareCloseRequest & { requestId: string })
     }
     ipcRenderer.on(IPC_CHANNELS.workbookPrepareClose, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.workbookPrepareClose, listener)
   },
-  claimWorkbookClose: async ticket => {
+  claimWorkbookClose: async (ticket) => {
     if (!isCloseLeaseTicket(ticket)) return false
-    return await ipcRenderer.invoke(IPC_CHANNELS.workbookCloseClaim, ticket) === true
+    return (await ipcRenderer.invoke(IPC_CHANNELS.workbookCloseClaim, ticket)) === true
   },
   async cancelWorkbookClose(ticket, reason) {
     if (!isCloseLeaseTicket(ticket)) throw new Error('Invalid workbook close ticket.')
-    await ipcRenderer.invoke(IPC_CHANNELS.workbookCloseCancel, ticket, typeof reason === 'string' ? reason.slice(0, 1024) : undefined)
+    await ipcRenderer.invoke(
+      IPC_CHANNELS.workbookCloseCancel,
+      ticket,
+      typeof reason === 'string' ? reason.slice(0, 1024) : undefined,
+    )
   },
   reportPrepareWorkbookCloseResult(requestId, result) {
     if (!isUuid(requestId)) throw new Error('Invalid workbook close request.')
@@ -602,11 +659,17 @@ const desktopApi: DesktopApi = {
     ipcRenderer.on(IPC_CHANNELS.workbookCloseRelease, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.workbookCloseRelease, listener)
   },
-  canAdoptWorkbookPublication: async id => isUuid(id) && await ipcRenderer.invoke(IPC_CHANNELS.workbookPublicationCanAdopt, id) === true,
+  canAdoptWorkbookPublication: async (id) =>
+    isUuid(id) && (await ipcRenderer.invoke(IPC_CHANNELS.workbookPublicationCanAdopt, id)) === true,
   async adoptWorkbookPublication(id, adoption) {
-    if (!isUuid(id) || !isWorkbookCloseSource(adoption?.source) || !isCloseLeaseStamp(adoption.stamp) || !/^[a-f0-9]{64}$/.test(adoption.payloadSha256))
+    if (
+      !isUuid(id) ||
+      !isWorkbookCloseSource(adoption?.source) ||
+      !isCloseLeaseStamp(adoption.stamp) ||
+      !/^[a-f0-9]{64}$/.test(adoption.payloadSha256)
+    )
       throw new Error('Invalid workbook source adoption.')
-    return await ipcRenderer.invoke(IPC_CHANNELS.workbookPublicationAdopt, id, adoption) === true
+    return (await ipcRenderer.invoke(IPC_CHANNELS.workbookPublicationAdopt, id, adoption)) === true
   },
   async rejectWorkbookPublication(id) {
     if (!isUuid(id)) throw new Error('Invalid workbook source offer.')
@@ -638,18 +701,36 @@ const desktopApi: DesktopApi = {
   onWorkbookRenamed(callback) {
     const listener = (_event: unknown, newName: unknown, metadata: unknown): void => {
       if (typeof newName !== 'string' || !newName) return
-      if (metadata === undefined) { callback(newName); return }
-      if (!isRecord(metadata) || !isUuid(metadata.sessionId) || !isWorkbookCloseSource(metadata.closeSource) || metadata.requiresCheckpoint !== true ||
-        metadata.path !== undefined && typeof metadata.path !== 'string' || metadata.csvPath !== undefined && typeof metadata.csvPath !== 'string' ||
-        metadata.refreshId !== undefined && !isUuid(metadata.refreshId)) return
-      try { parseWorkbookWriteContext(metadata.writeContext) } catch { return }
-      callback(newName, metadata as unknown as import('../shared/desktop-api').WorkbookRenamedMetadata)
+      if (metadata === undefined) {
+        callback(newName)
+        return
+      }
+      if (
+        !isRecord(metadata) ||
+        !isUuid(metadata.sessionId) ||
+        !isWorkbookCloseSource(metadata.closeSource) ||
+        metadata.requiresCheckpoint !== true ||
+        (metadata.path !== undefined && typeof metadata.path !== 'string') ||
+        (metadata.csvPath !== undefined && typeof metadata.csvPath !== 'string') ||
+        (metadata.refreshId !== undefined && !isUuid(metadata.refreshId))
+      )
+        return
+      try {
+        parseWorkbookWriteContext(metadata.writeContext)
+      } catch {
+        return
+      }
+      callback(
+        newName,
+        metadata as unknown as import('../shared/desktop-api').WorkbookRenamedMetadata,
+      )
     }
     ipcRenderer.on(IPC_CHANNELS.workbookRenamed, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.workbookRenamed, listener)
   },
   completeWorkbookRenameRefresh(requestId, result) {
-    if (!isUuid(requestId) || !isRecord(result) || typeof result.ok !== 'boolean') throw new Error('Invalid rename refresh result.')
+    if (!isUuid(requestId) || !isRecord(result) || typeof result.ok !== 'boolean')
+      throw new Error('Invalid rename refresh result.')
     ipcRenderer.send(IPC_CHANNELS.workbookRenameRefreshResult, requestId, result)
   },
   settleWorkbookRenameRefresh(requestId) {
@@ -991,8 +1072,11 @@ installDropOpenBridge()
 
 function parseWorkbookFile(input: unknown): WorkbookFile {
   if (!isRecord(input)) throw new Error('Invalid workbook response.')
-  if (input.closeSource !== undefined && !isWorkbookCloseSource(input.closeSource) ||
-      input.ownedOpen !== undefined && !isWorkbookPublicationOffer(input.ownedOpen)) throw new Error('Invalid workbook source offer.')
+  if (
+    (input.closeSource !== undefined && !isWorkbookCloseSource(input.closeSource)) ||
+    (input.ownedOpen !== undefined && !isWorkbookPublicationOffer(input.ownedOpen))
+  )
+    throw new Error('Invalid workbook source offer.')
   const {
     sessionId,
     name,
@@ -1319,8 +1403,12 @@ function parseWorkbookFile(input: unknown): WorkbookFile {
     typeof input.shortDateFormat === 'string' ? input.shortDateFormat : undefined
   return {
     sessionId,
-    ...(input.closeSource === undefined ? {} : { closeSource: input.closeSource as SheetsCloseSource }),
-    ...(input.ownedOpen === undefined ? {} : { ownedOpen: input.ownedOpen as { id: string; source: SheetsCloseSource } }),
+    ...(input.closeSource === undefined
+      ? {}
+      : { closeSource: input.closeSource as SheetsCloseSource }),
+    ...(input.ownedOpen === undefined
+      ? {}
+      : { ownedOpen: input.ownedOpen as { id: string; source: SheetsCloseSource } }),
     name,
     ...(path === undefined ? {} : { path }),
     sha256,
@@ -3154,13 +3242,21 @@ function parseSaveResult(input: unknown): WorkbookSaveResult {
     canceled: false,
     file: parseWorkbookFile(input.file),
     touchedEntries: input.touchedEntries as string[],
-    ...(input.ownedPublication === undefined ? {} : { ownedPublication: parseWorkbookPublicationOffer(input.ownedPublication) }),
+    ...(input.ownedPublication === undefined
+      ? {}
+      : { ownedPublication: parseWorkbookPublicationOffer(input.ownedPublication) }),
   }
 }
 
 function isWorkbookCloseSource(v: unknown): v is SheetsCloseSource {
-  return isRecord(v) && isUuid(v.lineage) && isUuid(v.sessionId) && typeof v.openedSha256 === 'string' &&
-    /^[a-f0-9]{64}$/i.test(v.openedSha256) && (v.documentPath === null || typeof v.documentPath === 'string')
+  return (
+    isRecord(v) &&
+    isUuid(v.lineage) &&
+    isUuid(v.sessionId) &&
+    typeof v.openedSha256 === 'string' &&
+    /^[a-f0-9]{64}$/i.test(v.openedSha256) &&
+    (v.documentPath === null || typeof v.documentPath === 'string')
+  )
 }
 function isWorkbookPublicationOffer(v: unknown): v is { id: string; source: SheetsCloseSource } {
   return isRecord(v) && isUuid(v.id) && isWorkbookCloseSource(v.source)

@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { Editor } from '@tiptap/core'
-import { openSource, rebaseSource, source } from './helpers'
+import { openSource, rebaseSource, requestSave, source } from './helpers'
 
 for (const enabled of [false, true]) {
-  test(`save and MCP read use the ${enabled ? 'opt-in' : 'default'} serializer`, async ({
+  test(`explicit Save As and MCP read use the ${enabled ? 'opt-in' : 'default'} serializer`, async ({
     page,
   }) => {
     await openSource(page, enabled)
@@ -28,7 +28,7 @@ for (const enabled of [false, true]) {
     // opt-in shortcut must agree with it
     const initial = await read()
     expect(initial).toBe(source)
-    await page.evaluate(() => window.dispatchEvent(new Event('test:save')))
+    await requestSave(page, 'saveAs')
     await expect(page.locator('body')).toHaveAttribute('data-saved', initial)
     await page.locator('.doc-editor').evaluate((node) => {
       const editor = (node as HTMLElement & { editor: Editor }).editor
@@ -36,7 +36,7 @@ for (const enabled of [false, true]) {
     })
     const edited = await read()
     expect(edited).toContain('edited')
-    await page.evaluate(() => window.dispatchEvent(new Event('test:save')))
+    await requestSave(page)
     await expect(page.locator('body')).toHaveAttribute('data-saved', edited)
     await page.locator('.doc-editor').evaluate((node) => {
       const editor = (node as HTMLElement & { editor: Editor }).editor
@@ -55,14 +55,15 @@ for (const enabled of [false, true]) {
 }
 
 for (const enabled of [false, true]) {
-  test(`Save As preserves raw HTML and rebases the ${enabled ? 'snapshot' : 'source map'} for subsequent saves`, async ({
+  test(`two explicit Save As copies preserve raw HTML and rebase the ${enabled ? 'snapshot' : 'source map'} for the next copy`, async ({
     page,
   }) => {
     await openSource(page, enabled, true)
+    // Both actions select separate copy paths; neither relies on a clean ordinary Save writing.
     await expect(page.locator('.doc-editor img:not(.ProseMirror-separator)')).toHaveCount(1)
-    await page.evaluate(() => window.dispatchEvent(new Event('test:save')))
+    await requestSave(page, 'saveAs')
     await expect(page.locator('body')).toHaveAttribute('data-saved', rebaseSource)
-    await page.evaluate(() => window.dispatchEvent(new Event('test:save')))
+    await requestSave(page, 'saveAs')
     await expect(page.locator('body')).toHaveAttribute(
       'data-saved',
       rebaseSource.replace('assets/old.png', 'assets/new.png'),
@@ -183,3 +184,10 @@ for (const enabled of [false, true]) {
     })
   }
 }
+
+test('ordinary clean Save acknowledges without writing a copy', async ({ page }) => {
+  await openSource(page, false)
+  const completion = await requestSave(page)
+  expect(completion).toMatchObject({ published: false, current: true, clean: true })
+  await expect(page.locator('body')).not.toHaveAttribute('data-saved')
+})

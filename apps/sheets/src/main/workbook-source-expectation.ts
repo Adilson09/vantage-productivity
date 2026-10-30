@@ -15,8 +15,9 @@ export async function assertWorkbookTargetUnchanged(
   readDigest: (path: string) => Promise<string> = fileDigest,
 ): Promise<void> {
   let current: string
-  try { current = await readDigest(path) }
-  catch (error) {
+  try {
+    current = await readDigest(path)
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
     throw error
   }

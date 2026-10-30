@@ -64,7 +64,10 @@ export class WorkbookAuthoredAdmission {
     this.pending.add(work)
     this.changed()
     void work.then(
-      () => { this.pending.delete(work); this.changed() },
+      () => {
+        this.pending.delete(work)
+        this.changed()
+      },
       (error) => {
         this.pending.delete(work)
         this.options.report(error)
@@ -75,8 +78,15 @@ export class WorkbookAuthoredAdmission {
   }
 
   private changed(): void {
-    try { this.options.changed?.() }
-    catch (error) { try { this.options.report(error) } catch { /* Notification is never authority. */ } }
+    try {
+      this.options.changed?.()
+    } catch (error) {
+      try {
+        this.options.report(error)
+      } catch {
+        /* Notification is never authority. */
+      }
+    }
   }
 
   private invoke<T>(action: () => T, source: string): T | Promise<T> {

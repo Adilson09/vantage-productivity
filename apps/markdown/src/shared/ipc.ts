@@ -1,5 +1,12 @@
-import type { CloseLeaseStamp, CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
-import type { MarkdownAssetCleanupReport, MarkdownCloseLease, MarkdownSourceState } from './markdown-close-lease'
+import type {
+  CloseLeaseStamp,
+  CloseLeaseTicket,
+} from '../../../../packages/electron-utils/src/close-lease'
+import type {
+  MarkdownAssetCleanupReport,
+  MarkdownCloseLease,
+  MarkdownSourceState,
+} from './markdown-close-lease'
 import type { AiPanelPrefs } from '@vantage/ui'
 import type { Lang } from '@vantage/i18n'
 import type {
@@ -249,7 +256,7 @@ export interface MarkdownSaveCompletion {
 }
 
 export interface SaveMarkdownRequest {
-  publicationId?:string|null
+  publicationId?: string | null
   /** Background publication may defer during a main-owned native close decision. */
   automatic?: boolean
   requestId?: string
@@ -276,19 +283,20 @@ export interface SaveMarkdownRequest {
   overwrite?: boolean
 }
 
-export type SaveMarkdownResult = MarkdownAssetCleanupReport & (
-  | {
-      ok: true
-      path: string
-      publicationId?:string
-      /** Save As may relocate local images into the new document's assets directory. */
-      imageRewrites?: Array<{ from: string; to: string }>
-      /** Actual persisted source after Save As image rewrites. */
-      writtenText?: string
-    }
-  | { ok: true; canceled: true }
-  | { ok: false; error: string; conflict?: true }
-)
+export type SaveMarkdownResult = MarkdownAssetCleanupReport &
+  (
+    | {
+        ok: true
+        path: string
+        publicationId?: string
+        /** Save As may relocate local images into the new document's assets directory. */
+        imageRewrites?: Array<{ from: string; to: string }>
+        /** Actual persisted source after Save As image rewrites. */
+        writtenText?: string
+      }
+    | { ok: true; canceled: true }
+    | { ok: false; error: string; conflict?: true }
+  )
 
 /** AI channels are app-wide shared ipcMain handlers (shell registers via docs-main registerAiIpc); pass-through only */
 export const AI_CHANNELS = {
@@ -401,8 +409,8 @@ export interface MarkdownApi {
   headlessExportDone(result: { ok: boolean; error?: string }): void
   /** Read the file as UTF-8 text. Only paths granted to this view are allowed */
   readFile(path: string): Promise<string>
-  readPublication(path:string):Promise<{text:string;publicationId:string}>
-  publicationLoaded(request:{publicationId:string;path:string;stamp:CloseLeaseStamp}):void
+  readPublication(path: string): Promise<{ text: string; publicationId: string }>
+  publicationLoaded(request: { publicationId: string; path: string; stamp: CloseLeaseStamp }): void
   /**
    * Write the document text. With a granted file path the write is atomic
    * (tmp + rename); untitled documents and mode 'saveAs' go through a main-process
@@ -410,9 +418,12 @@ export interface MarkdownApi {
    */
   save(request: SaveMarkdownRequest): Promise<SaveMarkdownResult>
   /** Mirror unsaved-changes state to the main process; drives the save prompt before closing a tab/window */
-  setDirty(dirty: boolean, stamp:CloseLeaseStamp): void
+  setDirty(dirty: boolean, stamp: CloseLeaseStamp): void
   /** Periodic crash journal, including unnamed documents; independent of saved versions. */
-  writeDraft(request: {text:string;stamp:CloseLeaseStamp}): Promise<{ ok: true } | { ok: false; error: string }>
+  writeDraft(request: {
+    text: string
+    stamp: CloseLeaseStamp
+  }): Promise<{ ok: true } | { ok: false; error: string }>
   /** Shell menu Save / Save As → renderer serializes and calls save() with the given mode */
   onSaveRequest(handler: (mode: SaveMode, request: MarkdownSaveTicket) => void): () => void
   /** Final renderer completion; the physical save invoke must never await this message. */
@@ -446,7 +457,11 @@ export interface MarkdownApi {
    * Persist pasted/dropped image bytes into `assets/` next to the open
    * document; returns the relative path to author, or null when untitled.
    */
-  saveImage(data: { base64: string; ext: string; closeSource?: CloseLeaseStamp }): Promise<string | null>
+  saveImage(data: {
+    base64: string
+    ext: string
+    closeSource?: CloseLeaseStamp
+  }): Promise<string | null>
   /**
    * The configured image host (vantage#388), or null when none was ever
    * saved. Pasted/dropped images upload here first and fall back to the
@@ -463,7 +478,12 @@ export interface MarkdownApi {
    * success; ok=false with a message when the host rejected the upload or is
    * not configured (the renderer then keeps the local-copy fallback).
    */
-  uploadImage(data: { base64: string; ext: string; name?: string; closeSource?: CloseLeaseStamp }): Promise<{
+  uploadImage(data: {
+    base64: string
+    ext: string
+    name?: string
+    closeSource?: CloseLeaseStamp
+  }): Promise<{
     ok: boolean
     url?: string
     error?: string
@@ -529,7 +549,11 @@ export interface MarkdownApi {
   /** Download an image URL in the main process (CORS-free, scheme/target validated) */
   fetchImage(url: string): Promise<{ base64: string; mime: string } | null>
   /** Genspark cloud image generation (markdown-owned channel, gsk login required) */
-  aiGenerateImage(op: { prompt: string; aspectRatio?: string; closeSource?: CloseLeaseStamp }): Promise<{
+  aiGenerateImage(op: {
+    prompt: string
+    aspectRatio?: string
+    closeSource?: CloseLeaseStamp
+  }): Promise<{
     url?: string
     error?: string
   }>

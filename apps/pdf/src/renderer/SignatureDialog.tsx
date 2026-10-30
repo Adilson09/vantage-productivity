@@ -1,5 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { usePdfEditorState, consumePdfPendingEditor, registerPdfPendingEditor, pdfPendingContentChanged } from './pdf-draft'
+import {
+  usePdfEditorState,
+  consumePdfPendingEditor,
+  registerPdfPendingEditor,
+  pdfPendingContentChanged,
+} from './pdf-draft'
 import { runPdfAuthoredWork, pdfAuthoredSource, submitPdfAuthored } from './pdf-authored'
 import type { ChangeEvent, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import { cssRgb } from './DrawLayer'
@@ -151,10 +156,18 @@ export function SignatureDialog({
   onCancel: () => void
   onConfirm: (sig: SignatureData) => void
 }): ReactElement {
-  const [mode, setMode] = usePdfEditorState<'draw' | 'type' | 'image'>('signature-mode', 'signature', 'draw')
+  const [mode, setMode] = usePdfEditorState<'draw' | 'type' | 'image'>(
+    'signature-mode',
+    'signature',
+    'draw',
+  )
   const [typed, setTyped] = usePdfEditorState('signature-typed', 'signature', '')
   const [fontIdx, setFontIdx] = usePdfEditorState('signature-font', 'signature', 0)
-  const [imageData, setImageData] = usePdfEditorState<{ image: string; width: number; height: number } | null>('signature-image', 'signature', null)
+  const [imageData, setImageData] = usePdfEditorState<{
+    image: string
+    width: number
+    height: number
+  } | null>('signature-image', 'signature', null)
   const [imgCanvas, setImgCanvas] = useState<HTMLCanvasElement | null>(null)
   const [bw, setBw] = usePdfEditorState('signature-bw', 'signature', false)
   /** Signatures persisted in userData; picking one skips creation and goes straight to placement */
@@ -163,22 +176,37 @@ export function SignatureDialog({
   const fileRef = useRef<HTMLInputElement>(null)
   const dialogRef = useModalDialog(onCancel)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const pathsRef = useRef<number[][]>(consumePdfPendingEditor<number[][]>('signature-strokes', 'signature') ?? [])
+  const pathsRef = useRef<number[][]>(
+    consumePdfPendingEditor<number[][]>('signature-strokes', 'signature') ?? [],
+  )
   const curRef = useRef<number[] | null>(null)
-  useLayoutEffect(() => registerPdfPendingEditor('signature-strokes', 'signature', () => pathsRef.current.length ? pathsRef.current : undefined), [])
+  useLayoutEffect(
+    () =>
+      registerPdfPendingEditor('signature-strokes', 'signature', () =>
+        pathsRef.current.length ? pathsRef.current : undefined,
+      ),
+    [],
+  )
   useEffect(() => {
-    if (!imageData) { setImgCanvas(null); return }
+    if (!imageData) {
+      setImgCanvas(null)
+      return
+    }
     let current = true
     const image = new Image()
     image.onload = () => {
       if (!current) return
       const canvas = document.createElement('canvas')
-      canvas.width = imageData.width; canvas.height = imageData.height
+      canvas.width = imageData.width
+      canvas.height = imageData.height
       canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
       setImgCanvas(canvas)
     }
     image.src = `data:image/png;base64,${imageData.image}`
-    return () => { current = false; image.onload = null }
+    return () => {
+      current = false
+      image.onload = null
+    }
   }, [imageData])
 
   useEffect(() => {
@@ -214,7 +242,12 @@ export function SignatureDialog({
     await runPdfAuthoredWork(async () => {
       const canvas = await fileToCanvas(file)
       if (source !== pdfAuthoredSource()) return
-      if (canvas) setImageData({ image: canvas.toDataURL('image/png').split(',')[1] ?? '', width: canvas.width, height: canvas.height })
+      if (canvas)
+        setImageData({
+          image: canvas.toDataURL('image/png').split(',')[1] ?? '',
+          width: canvas.width,
+          height: canvas.height,
+        })
     }, source)
   }
 

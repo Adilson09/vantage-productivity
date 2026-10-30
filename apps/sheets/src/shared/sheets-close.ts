@@ -1,4 +1,7 @@
-import type { CloseLeaseStamp, CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
+import type {
+  CloseLeaseStamp,
+  CloseLeaseTicket,
+} from '../../../../packages/electron-utils/src/close-lease'
 
 /** Main owns lineage; an owned publication may replace its reader session. */
 export interface SheetsCloseSource {
@@ -67,6 +70,10 @@ export interface SheetsCloseReceipt {
 }
 
 export function sameSheetsCloseSource(left: SheetsCloseSource, right: SheetsCloseSource): boolean {
-  return left.lineage === right.lineage && left.sessionId === right.sessionId &&
-    left.openedSha256 === right.openedSha256 && left.documentPath === right.documentPath
+  return (
+    left.lineage === right.lineage &&
+    left.sessionId === right.sessionId &&
+    left.openedSha256 === right.openedSha256 &&
+    left.documentPath === right.documentPath
+  )
 }

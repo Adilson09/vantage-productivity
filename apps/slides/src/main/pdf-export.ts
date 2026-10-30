@@ -18,8 +18,8 @@ export interface PdfExportWindow {
 
 export interface ExportSlidesPdfOptions {
   /** Main-only selected receipt fields, never adopted from the renderer payload. */
-  selectedVersion?:Readonly<AtomicFileVersion>|null
-  sourceProof?:UserOutputSourceProof
+  selectedVersion?: Readonly<AtomicFileVersion> | null
+  sourceProof?: UserOutputSourceProof
   pages: ExportPdfPage[]
   widthPx: number
   heightPx: number
@@ -161,35 +161,53 @@ export async function exportSlidesPdf({
   let tempDir: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    await publishSelectedUserOutput(filePath,async()=>{
-      // Selected identity is pinned before renderer creation or materialization.
-      const renderingWindow=createWindow()
-      win=renderingWindow
-      tempDir=await mkdtemp(join(tmpdir(),'vantage-slides-pdf-'))
-      const htmlPath=join(tempDir,'slides.html')
-      await writeFile(htmlPath,buildPdfExportHtml(pages,widthIn,heightIn,links,fontCss),'utf8')
-      // The loser can only produce bytes, never publish a file after timeout.
-      // Once real publication starts it remains awaited through actual settlement.
-      return Promise.race([
-        (async():Promise<Buffer>=>{
-          await renderingWindow.loadFile(htmlPath)
-          await renderingWindow.webContents.executeJavaScript(PRINT_READY_SCRIPT,true)
-          return renderingWindow.webContents.printToPDF({
-            landscape:false,printBackground:true,pageSize:{width:widthIn,height:heightIn},
-            margins:{top:0,bottom:0,left:0,right:0},preferCSSPageSize:false,
-          })
-        })(),
-        new Promise<never>((_,reject)=>{
-          timer=setTimeout(()=>reject(new Error(`slides PDF export timed out after ${timeoutMs}ms`)),timeoutMs)
-        }),
-      ])
-    },{...sourceProof,afterPublished:()=>openExportedPdf(filePath)},selectedVersion)
-    return {ok:true,path:filePath}
-  }catch(err){
-    return {ok:false,error:String(err)}
-  }finally{
-    if(timer)clearTimeout(timer)
-    try{win?.destroy()}
-    finally{if(tempDir)await rm(tempDir,{recursive:true,force:true})}
+    await publishSelectedUserOutput(
+      filePath,
+      async () => {
+        // Selected identity is pinned before renderer creation or materialization.
+        const renderingWindow = createWindow()
+        win = renderingWindow
+        tempDir = await mkdtemp(join(tmpdir(), 'vantage-slides-pdf-'))
+        const htmlPath = join(tempDir, 'slides.html')
+        await writeFile(
+          htmlPath,
+          buildPdfExportHtml(pages, widthIn, heightIn, links, fontCss),
+          'utf8',
+        )
+        // The loser can only produce bytes, never publish a file after timeout.
+        // Once real publication starts it remains awaited through actual settlement.
+        return Promise.race([
+          (async (): Promise<Buffer> => {
+            await renderingWindow.loadFile(htmlPath)
+            await renderingWindow.webContents.executeJavaScript(PRINT_READY_SCRIPT, true)
+            return renderingWindow.webContents.printToPDF({
+              landscape: false,
+              printBackground: true,
+              pageSize: { width: widthIn, height: heightIn },
+              margins: { top: 0, bottom: 0, left: 0, right: 0 },
+              preferCSSPageSize: false,
+            })
+          })(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`slides PDF export timed out after ${timeoutMs}ms`)),
+              timeoutMs,
+            )
+          }),
+        ])
+      },
+      { ...sourceProof, afterPublished: () => openExportedPdf(filePath) },
+      selectedVersion,
+    )
+    return { ok: true, path: filePath }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  } finally {
+    if (timer) clearTimeout(timer)
+    try {
+      win?.destroy()
+    } finally {
+      if (tempDir) await rm(tempDir, { recursive: true, force: true })
+    }
   }
 }

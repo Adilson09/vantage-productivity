@@ -27,7 +27,7 @@ export interface HtmlDraftSaveAcknowledgment {
 }
 export interface HtmlDraftMaterialization {
   /** Close-proof mode only: past external executable responses are not sealed by this HTML. */
-  unsealedExecutableReferences?:boolean
+  unsealedExecutableReferences?: boolean
   bytes: Buffer
   remoteReferences: number
 }

@@ -1,4 +1,4 @@
-import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
+import { slidesActionApi, slidesActionWait, slidesActionWork } from './slides-action-ownership'
 import { mergeSlideUpdate } from '../shared/slide-update'
 /**
  * Slide-show tab actions extracted from App.tsx: starting shows,
@@ -80,19 +80,17 @@ export function onRehearseDone(ctx: ActionCtx, perPageSec: number[]): void {
 
 /** Save rehearsal timings: write each slide's dwell seconds as auto-advance times (<p:transition advTm>, milliseconds) */
 export async function saveRehearseTimings(ctx: ActionCtx): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (!ctx.pendingRehearse) return
-  const times = ctx.pendingRehearse
-    .map((sec, i) => ({ slideIndex: i, ms: sec * 1000 }))
-    .filter((t) => t.ms > 0)
-  ctx.setPendingRehearse(null)
-  const ok = await slidesActionWait(ctx, slidesActionApi(ctx).setAdvanceTimes({ times }))
-  if (ok) {
-    ctx.setDirty(true)
-    ctx.setStatus(t('appStatusRehearseSaved', { count: times.length }))
-  }
-
+  return slidesActionWork(ctx, async () => {
+    if (!ctx.pendingRehearse) return
+    const times = ctx.pendingRehearse
+      .map((sec, i) => ({ slideIndex: i, ms: sec * 1000 }))
+      .filter((t) => t.ms > 0)
+    ctx.setPendingRehearse(null)
+    const ok = await slidesActionWait(ctx, slidesActionApi(ctx).setAdvanceTimes({ times }))
+    if (ok) {
+      ctx.setDirty(true)
+      ctx.setStatus(t('appStatusRehearseSaved', { count: times.length }))
+    }
   })
 }
 
@@ -114,35 +112,34 @@ export function onRecordDone(ctx: ActionCtx, take: Promise<NarrationTake | null>
 
 /** Keep the recording: each recorded slide gets its narration and its time as advance time */
 export async function saveRecording(ctx: ActionCtx): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const take = ctx.pendingRecording
-  if (!take) return
-  ctx.setPendingRecording(null)
-  try {
-    const slides = await slidesActionWait(ctx, recordedSlides(take.audio, take.marks, take.endMs))
-    const all = slides.length > 0 ? await slidesActionWait(ctx, slidesActionApi(ctx).saveRecording({ slides })) : null
-    if (!all) throw new Error('the recording was not saved')
-    ctx.setSlides(all)
-    ctx.setDirty(true)
-    ctx.setStatus(t('appStatusRecordSaved', { count: slides.length }))
-  } catch {
-    ctx.setStatus(t('appStatusRecordFailed'))
-  }
-
+  return slidesActionWork(ctx, async () => {
+    const take = ctx.pendingRecording
+    if (!take) return
+    ctx.setPendingRecording(null)
+    try {
+      const slides = await slidesActionWait(ctx, recordedSlides(take.audio, take.marks, take.endMs))
+      const all =
+        slides.length > 0
+          ? await slidesActionWait(ctx, slidesActionApi(ctx).saveRecording({ slides }))
+          : null
+      if (!all) throw new Error('the recording was not saved')
+      ctx.setSlides(all)
+      ctx.setDirty(true)
+      ctx.setStatus(t('appStatusRecordSaved', { count: slides.length }))
+    } catch {
+      ctx.setStatus(t('appStatusRecordFailed'))
+    }
   })
 }
 
 export async function clearNarration(ctx: ActionCtx, all: boolean): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const indexes = all ? ctx.slides.map((_, i) => i) : [ctx.current]
-  const updated = await slidesActionWait(ctx, slidesActionApi(ctx).clearNarration(indexes))
-  if (!updated) return
-  ctx.setSlides(updated)
-  ctx.setDirty(true)
-  ctx.setStatus(t('appStatusNarrationCleared'))
-
+  return slidesActionWork(ctx, async () => {
+    const indexes = all ? ctx.slides.map((_, i) => i) : [ctx.current]
+    const updated = await slidesActionWait(ctx, slidesActionApi(ctx).clearNarration(indexes))
+    if (!updated) return
+    ctx.setSlides(updated)
+    ctx.setDirty(true)
+    ctx.setStatus(t('appStatusNarrationCleared'))
   })
 }
 
@@ -174,25 +171,26 @@ export async function setSlidesHidden(
   indexes: number[],
   hidden: boolean,
 ): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const sel = [...new Set(indexes)].filter((i) => ctx.slides[i])
-  if (!sel.length) return
-  const r = await slidesActionWait(ctx, slidesActionApi(ctx).setSlidesHidden({ slideIndexes: sel, hidden }))
-  if (!r) return
-  ctx.setSlides((current) => mergeSlideUpdate(current, r))
-  ctx.setDirty(true)
-  if (sel.length === 1) {
-    const page = sel[0]! + 1
-    ctx.setStatus(
-      hidden ? t('appStatusSlideHidden', { page }) : t('appStatusSlideUnhidden', { page }),
+  return slidesActionWork(ctx, async () => {
+    const sel = [...new Set(indexes)].filter((i) => ctx.slides[i])
+    if (!sel.length) return
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).setSlidesHidden({ slideIndexes: sel, hidden }),
     )
-  } else {
-    const count = sel.length
-    ctx.setStatus(
-      hidden ? t('appStatusSlidesHidden', { count }) : t('appStatusSlidesUnhidden', { count }),
-    )
-  }
-
+    if (!r) return
+    ctx.setSlides((current) => mergeSlideUpdate(current, r))
+    ctx.setDirty(true)
+    if (sel.length === 1) {
+      const page = sel[0]! + 1
+      ctx.setStatus(
+        hidden ? t('appStatusSlideHidden', { page }) : t('appStatusSlideUnhidden', { page }),
+      )
+    } else {
+      const count = sel.length
+      ctx.setStatus(
+        hidden ? t('appStatusSlidesHidden', { count }) : t('appStatusSlidesUnhidden', { count }),
+      )
+    }
   })
 }

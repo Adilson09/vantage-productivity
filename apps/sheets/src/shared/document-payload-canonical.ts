@@ -15,27 +15,38 @@ export function canonicalWorkbookDocumentPayload(input: unknown): Record<string,
     if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null)
       throw new Error('A full workbook payload must contain plain JSON objects.')
     visiting.add(value)
-    const result = Array.isArray(value) ? value.map(normalize) : Object.fromEntries(
-      Object.keys(value).sort()
-        .filter(key => (value as Record<string, unknown>)[key] !== undefined)
-        .map(key => [key, normalize((value as Record<string, unknown>)[key])]),
-    )
+    const result = Array.isArray(value)
+      ? value.map(normalize)
+      : Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+            .map((key) => [key, normalize((value as Record<string, unknown>)[key])]),
+        )
     visiting.delete(value)
     return result
   }
-  return normalize(Object.fromEntries(Object.entries(input).filter(([key]) => !operational.has(key)))) as Record<string, unknown>
+  return normalize(
+    Object.fromEntries(Object.entries(input).filter(([key]) => !operational.has(key))),
+  ) as Record<string, unknown>
 }
 
 export function serializeWorkbookDocumentPayload(input: unknown): string {
   return JSON.stringify(canonicalWorkbookDocumentPayload(input))
 }
 
-export async function hashWorkbookDocumentPayload(input: unknown): Promise<{ json: string; sha256: string }> {
+export async function hashWorkbookDocumentPayload(
+  input: unknown,
+): Promise<{ json: string; sha256: string }> {
   const json = serializeWorkbookDocumentPayload(input)
   const maximum = 256 * 1024 * 1024
   if (json.length > maximum) throw new Error('The full workbook checkpoint exceeds its byte limit.')
   const encoded = new TextEncoder().encode(json)
-  if (encoded.byteLength > maximum) throw new Error('The full workbook checkpoint exceeds its byte limit.')
+  if (encoded.byteLength > maximum)
+    throw new Error('The full workbook checkpoint exceeds its byte limit.')
   const result = await globalThis.crypto.subtle.digest('SHA-256', encoded)
-  return { json, sha256: [...new Uint8Array(result)].map(byte => byte.toString(16).padStart(2, '0')).join('') }
+  return {
+    json,
+    sha256: [...new Uint8Array(result)].map((byte) => byte.toString(16).padStart(2, '0')).join(''),
+  }
 }

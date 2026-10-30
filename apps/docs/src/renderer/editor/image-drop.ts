@@ -45,22 +45,24 @@ export async function insertImageFilesAt(
 ): Promise<number> {
   const source = docMutationSource()
   return docCloseBarrier.runAsyncMutation(async () => {
-  docCloseBarrier.mutate(()=>{},source)
-  const sel = nearestTextSelection(editor.state.doc, pos)
-  if (!sel) return 0
-  editor.view.dispatch(editor.state.tr.setSelection(sel))
-  let inserted = 0
-  for (const file of files) {
-    const mime = droppedImageMime(file)
-    if (!mime) continue
-    const dataUrl = await readImageDataUrl(file, mime)
-    assertDocMutationSource(source)
-    if (editor.isDestroyed) return inserted
-    if (!dataUrl) continue
-    if (await insertImageFromDataUrl(editor, dataUrl, t('ribbonPictureLabel', { name: file.name })))
-      inserted++
-  }
-  return inserted
+    docCloseBarrier.mutate(() => {}, source)
+    const sel = nearestTextSelection(editor.state.doc, pos)
+    if (!sel) return 0
+    editor.view.dispatch(editor.state.tr.setSelection(sel))
+    let inserted = 0
+    for (const file of files) {
+      const mime = droppedImageMime(file)
+      if (!mime) continue
+      const dataUrl = await readImageDataUrl(file, mime)
+      assertDocMutationSource(source)
+      if (editor.isDestroyed) return inserted
+      if (!dataUrl) continue
+      if (
+        await insertImageFromDataUrl(editor, dataUrl, t('ribbonPictureLabel', { name: file.name }))
+      )
+        inserted++
+    }
+    return inserted
   }, source)
 }
 

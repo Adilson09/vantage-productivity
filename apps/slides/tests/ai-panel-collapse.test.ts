@@ -86,8 +86,12 @@ beforeAll(() => {
 })
 
 const ownedHistoryApi: Pick<SlidesApi, 'beginOwnedHistoryBatch' | 'finishOwnedHistoryBatch'> = {
-  beginOwnedHistoryBatch: vi.fn(async () => { throw new Error('Collapse fixture must not begin a native history batch') }),
-  finishOwnedHistoryBatch: vi.fn(async () => { throw new Error('Collapse fixture must not finish a native history batch') }),
+  beginOwnedHistoryBatch: vi.fn(async () => {
+    throw new Error('Collapse fixture must not begin a native history batch')
+  }),
+  finishOwnedHistoryBatch: vi.fn(async () => {
+    throw new Error('Collapse fixture must not finish a native history batch')
+  }),
 }
 let priorSlidesApi: PropertyDescriptor | undefined
 beforeEach(() => {

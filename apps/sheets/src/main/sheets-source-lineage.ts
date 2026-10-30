@@ -6,8 +6,13 @@ export interface SheetsReaderIdentity {
   openedSha256: string
   documentPath: string | null
 }
-export interface SheetsSourceOpen { readonly sequence: number; readonly lineage: string }
-export interface SheetsSourceAdoption { readonly next: SheetsCloseSource }
+export interface SheetsSourceOpen {
+  readonly sequence: number
+  readonly lineage: string
+}
+export interface SheetsSourceAdoption {
+  readonly next: SheetsCloseSource
+}
 interface OwnerState {
   sequence: number
   current: SheetsCloseSource | null
@@ -17,10 +22,18 @@ interface OwnerState {
 /** Main owns active-reader identity. Merge inputs must never call beginOpen/commitOpen. */
 export class SheetsSourceLineages<Owner> {
   private readonly owners = new Map<Owner, OwnerState>()
-  private readonly opens = new WeakMap<SheetsSourceOpen, { owner: Owner; ticket: SheetsSourceOpen }>()
-  private readonly adoptions = new WeakMap<SheetsSourceAdoption, {
-    owner: Owner; previous: SheetsCloseSource; sequence: number
-  }>()
+  private readonly opens = new WeakMap<
+    SheetsSourceOpen,
+    { owner: Owner; ticket: SheetsSourceOpen }
+  >()
+  private readonly adoptions = new WeakMap<
+    SheetsSourceAdoption,
+    {
+      owner: Owner
+      previous: SheetsCloseSource
+      sequence: number
+    }
+  >()
 
   constructor(private readonly invalidate: (owner: Owner, reason: string) => void) {}
 
@@ -29,7 +42,9 @@ export class SheetsSourceLineages<Owner> {
     return source ? { ...source } : null
   }
 
-  busy(owner: Owner): boolean { return !!this.owners.get(owner)?.pending }
+  busy(owner: Owner): boolean {
+    return !!this.owners.get(owner)?.pending
+  }
 
   /** Invoke synchronously at accepted source-open admission, before opening bytes. */
   beginOpen(owner: Owner): SheetsSourceOpen {
@@ -63,7 +78,11 @@ export class SheetsSourceLineages<Owner> {
   }
 
   /** Publication is not renderer adoption and grants no permission to retire its old reader. */
-  offerOwnedPublication(owner: Owner, previous: SheetsCloseSource, next: SheetsReaderIdentity): SheetsSourceAdoption {
+  offerOwnedPublication(
+    owner: Owner,
+    previous: SheetsCloseSource,
+    next: SheetsReaderIdentity,
+  ): SheetsSourceAdoption {
     const state = this.owners.get(owner)
     if (!state?.current || state.pending || !sameSheetsCloseSource(state.current, previous))
       throw new Error('The active workbook changed before its publication could be offered.')
@@ -80,22 +99,41 @@ export class SheetsSourceLineages<Owner> {
     const issued = this.adoptions.get(adoption)
     this.adoptions.delete(adoption)
     const state = this.owners.get(owner)
-    if (!issued || issued.owner !== owner || !state?.current || state.pending ||
-      state.sequence !== issued.sequence || !sameSheetsCloseSource(state.current, issued.previous)) return null
+    if (
+      !issued ||
+      issued.owner !== owner ||
+      !state?.current ||
+      state.pending ||
+      state.sequence !== issued.sequence ||
+      !sameSheetsCloseSource(state.current, issued.previous)
+    )
+      return null
     state.current = { ...adoption.next }
     // The caller may release only this returned old reader, preserving its recovery authority.
     return { ...issued.previous }
   }
 
-  rejectOwnedPublication(adoption: SheetsSourceAdoption): void { this.adoptions.delete(adoption) }
+  rejectOwnedPublication(adoption: SheetsSourceAdoption): void {
+    this.adoptions.delete(adoption)
+  }
 
   /** Main calls only after byte verification of an acknowledged owned path move. */
-  relocateOwnedPath(owner: Owner, previous: SheetsCloseSource, documentPath: string | null): SheetsCloseSource | null {
+  relocateOwnedPath(
+    owner: Owner,
+    previous: SheetsCloseSource,
+    documentPath: string | null,
+  ): SheetsCloseSource | null {
     const state = this.owners.get(owner)
-    if (!state?.current || state.pending || !sameSheetsCloseSource(state.current, previous) ||
-      !(documentPath === null || typeof documentPath === 'string' && documentPath.length > 0)) return null
+    if (
+      !state?.current ||
+      state.pending ||
+      !sameSheetsCloseSource(state.current, previous) ||
+      !(documentPath === null || (typeof documentPath === 'string' && documentPath.length > 0))
+    )
+      return null
     this.invalidate(owner, 'owned source path relocated')
-    if (!state.current || state.pending || !sameSheetsCloseSource(state.current, previous)) return null
+    if (!state.current || state.pending || !sameSheetsCloseSource(state.current, previous))
+      return null
     state.sequence++ // every outstanding adoption was issued against an older path epoch
     state.current = { ...previous, documentPath }
     return { ...state.current }
@@ -108,7 +146,10 @@ export class SheetsSourceLineages<Owner> {
 }
 
 function assertReader(reader: SheetsReaderIdentity): void {
-  if (!reader.sessionId || !/^[a-f0-9]{64}$/i.test(reader.openedSha256) ||
-    !(reader.documentPath === null || typeof reader.documentPath === 'string'))
+  if (
+    !reader.sessionId ||
+    !/^[a-f0-9]{64}$/i.test(reader.openedSha256) ||
+    !(reader.documentPath === null || typeof reader.documentPath === 'string')
+  )
     throw new Error('A source requires its owned reader and opening digest.')
 }

@@ -7,15 +7,34 @@ import { editorExtensions } from '../src/renderer/editor/extensions'
 import { LocaleProvider, setModuleLang } from '../src/renderer/i18n/locale'
 import { CommentsPanel } from '../src/renderer/components/CommentsPanel'
 import { editComment, type ReviewContext } from '../src/renderer/review-actions'
-import { adoptCommentDraftRecovery, captureDraftAnchor, commentDraftAnchorText, commentDraftSnapshot, matchesDraftTarget, type CommentDraftTarget } from '../src/renderer/comment-draft-recovery'
+import {
+  adoptCommentDraftRecovery,
+  captureDraftAnchor,
+  commentDraftAnchorText,
+  commentDraftSnapshot,
+  matchesDraftTarget,
+  type CommentDraftTarget,
+} from '../src/renderer/comment-draft-recovery'
 
 const editors: Editor[] = []
-beforeEach(() => { adoptCommentDraftRecovery() })
-afterEach(() => { for (const editor of editors.splice(0)) if (!editor.isDestroyed) editor.destroy() })
+beforeEach(() => {
+  adoptCommentDraftRecovery()
+})
+afterEach(() => {
+  for (const editor of editors.splice(0)) if (!editor.isDestroyed) editor.destroy()
+})
 
 // ---- editComment (review action) ----
 
-function makeCtx(comments: CommentInfo[], editor = makeEditor(comments.filter(comment => !comment.parentId).map(comment => comment.id).join(' '))): {
+function makeCtx(
+  comments: CommentInfo[],
+  editor = makeEditor(
+    comments
+      .filter((comment) => !comment.parentId)
+      .map((comment) => comment.id)
+      .join(' '),
+  ),
+): {
   ctx: ReviewContext
   state: { comments: CommentInfo[]; commentsDirty: boolean; dirty: boolean; status: string }
 } {
@@ -25,8 +44,11 @@ function makeCtx(comments: CommentInfo[], editor = makeEditor(comments.filter(co
     doc: null,
     notePrompt: null,
     setNotePrompt: () => {},
-    footnotes: [], endnotes: [],
-    setFootnotes: () => {}, setEndnotes: () => {}, setNotesDirty: () => {},
+    footnotes: [],
+    endnotes: [],
+    setFootnotes: () => {},
+    setEndnotes: () => {},
+    setNotesDirty: () => {},
     dirtyRef: {
       get current() {
         return state.dirty
@@ -38,15 +60,21 @@ function makeCtx(comments: CommentInfo[], editor = makeEditor(comments.filter(co
     setStatus: (s: string) => {
       state.status = s
     },
-    get comments() { return state.comments },
+    get comments() {
+      return state.comments
+    },
     setComments: (updater) => {
       state.comments = typeof updater === 'function' ? updater(state.comments) : updater
     },
     setCommentsDirty: (v: boolean) => {
       state.commentsDirty = v
     },
-    setCommentComposing: () => {}, setShowComments: () => {}, setCommentFocus: () => {},
-    setInkAnnotations: () => {}, setInksDirty: () => {}, setCompareResult: () => {},
+    setCommentComposing: () => {},
+    setShowComments: () => {},
+    setCommentFocus: () => {},
+    setInkAnnotations: () => {},
+    setInksDirty: () => {},
+    setCompareResult: () => {},
   }
   return { ctx, state }
 }
@@ -93,7 +121,12 @@ function makeEditor(ids = 'c1'): Editor {
     extensions: editorExtensions,
     content: {
       type: 'doc',
-      content: [{ type: 'docParagraph', content: [{ type: 'text', text: 'hello', marks: [{ type: 'comment', attrs: { ids } }] }] }],
+      content: [
+        {
+          type: 'docParagraph',
+          content: [{ type: 'text', text: 'hello', marks: [{ type: 'comment', attrs: { ids } }] }],
+        },
+      ],
     },
   })
   editors.push(editor)
@@ -110,16 +143,30 @@ function mount(element: React.ReactElement): { root: Root; container: HTMLElemen
 
 const noop = () => {}
 const refuse = () => false
-const originalTarget: CommentDraftTarget = {id:'c1',parentId:null,author:'A',date:'',text:'old text',anchor:'hello'}
+const originalTarget: CommentDraftTarget = {
+  id: 'c1',
+  parentId: null,
+  author: 'A',
+  date: '',
+  text: 'old text',
+  anchor: 'hello',
+}
 
 describe('CommentsPanel editing', () => {
   it('opens a prefilled composer from the pencil and submits the new text', () => {
     const editor = makeEditor()
     const comments: CommentInfo[] = [{ id: 'c1', author: 'A', text: 'old text', done: false }]
-    const {ctx,state} = makeCtx(comments,editor)
-    const onEdit = vi.fn((id:string,text:string,expected:CommentDraftTarget) => {
-      if(!matchesDraftTarget(state.comments,expected,commentDraftAnchorText(editor.state.doc,state.comments,id)))return false
-      return editComment(ctx,id,text)
+    const { ctx, state } = makeCtx(comments, editor)
+    const onEdit = vi.fn((id: string, text: string, expected: CommentDraftTarget) => {
+      if (
+        !matchesDraftTarget(
+          state.comments,
+          expected,
+          commentDraftAnchorText(editor.state.doc, state.comments, id),
+        )
+      )
+        return false
+      return editComment(ctx, id, text)
     })
     const { root, container } = mount(
       createElement(CommentsPanel, {
@@ -129,7 +176,7 @@ describe('CommentsPanel editing', () => {
         onSubmitNew: refuse,
         onReply: refuse,
         onEdit,
-        selectionAnchor: () => captureDraftAnchor(editor.state.doc,editor.state.selection),
+        selectionAnchor: () => captureDraftAnchor(editor.state.doc, editor.state.selection),
         onResolve: noop,
         onCancelNew: noop,
         onDelete: noop,
@@ -166,7 +213,7 @@ describe('CommentsPanel editing', () => {
   })
 
   const mountOne = (handlers: {
-    onEdit?: (id: string, text: string, expected:CommentDraftTarget) => boolean
+    onEdit?: (id: string, text: string, expected: CommentDraftTarget) => boolean
     onResolve?: (id: string, done: boolean) => void
   }) => {
     const editor = makeEditor()
@@ -178,7 +225,7 @@ describe('CommentsPanel editing', () => {
         onSubmitNew: refuse,
         onReply: refuse,
         onEdit: handlers.onEdit ?? refuse,
-        selectionAnchor: () => captureDraftAnchor(editor.state.doc,editor.state.selection),
+        selectionAnchor: () => captureDraftAnchor(editor.state.doc, editor.state.selection),
         onResolve: handlers.onResolve ?? noop,
         onCancelNew: noop,
         onDelete: noop,
@@ -232,8 +279,12 @@ describe('CommentsPanel editing', () => {
 
     expect(onEdit).not.toHaveBeenCalled()
     expect(onResolve).toHaveBeenCalledWith('c1', true)
-    expect(commentDraftSnapshot().drafts).toEqual([{id:'edit:c1',kind:'edit',text:'typed but not saved',target:originalTarget}])
-    expect(container.querySelector<HTMLTextAreaElement>('.comment-compose textarea')?.value).toBe('typed but not saved')
+    expect(commentDraftSnapshot().drafts).toEqual([
+      { id: 'edit:c1', kind: 'edit', text: 'typed but not saved', target: originalTarget },
+    ])
+    expect(container.querySelector<HTMLTextAreaElement>('.comment-compose textarea')?.value).toBe(
+      'typed but not saved',
+    )
 
     act(() => root.unmount())
     container.remove()
@@ -241,15 +292,23 @@ describe('CommentsPanel editing', () => {
   })
 
   it('retains a normal edit when its actual action callback refuses publication', () => {
-    const onEdit=vi.fn(() => false)
-    const {editor,root,container}=mountOne({onEdit})
-    act(()=>container.querySelector<HTMLElement>('.comment-card-edit')!.click())
-    const input=container.querySelector<HTMLTextAreaElement>('.comment-reply-compose textarea')!
-    act(()=>typeInto(input,'not committed'))
-    act(()=>container.querySelector<HTMLButtonElement>('.comment-reply-compose button.primary')!.click())
-    expect(onEdit).toHaveBeenCalledWith('c1','not committed',originalTarget)
-    expect(commentDraftSnapshot().drafts).toEqual([{id:'edit:c1',kind:'edit',text:'not committed',target:originalTarget}])
-    expect(container.querySelector<HTMLTextAreaElement>('.comment-compose textarea')?.value).toBe('not committed')
-    act(()=>root.unmount());container.remove();editor.destroy()
+    const onEdit = vi.fn(() => false)
+    const { editor, root, container } = mountOne({ onEdit })
+    act(() => container.querySelector<HTMLElement>('.comment-card-edit')!.click())
+    const input = container.querySelector<HTMLTextAreaElement>('.comment-reply-compose textarea')!
+    act(() => typeInto(input, 'not committed'))
+    act(() =>
+      container.querySelector<HTMLButtonElement>('.comment-reply-compose button.primary')!.click(),
+    )
+    expect(onEdit).toHaveBeenCalledWith('c1', 'not committed', originalTarget)
+    expect(commentDraftSnapshot().drafts).toEqual([
+      { id: 'edit:c1', kind: 'edit', text: 'not committed', target: originalTarget },
+    ])
+    expect(container.querySelector<HTMLTextAreaElement>('.comment-compose textarea')?.value).toBe(
+      'not committed',
+    )
+    act(() => root.unmount())
+    container.remove()
+    editor.destroy()
   })
 })

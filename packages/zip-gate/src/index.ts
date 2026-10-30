@@ -140,16 +140,29 @@ export async function assertZipInflatesWithinLimits(
  * offset is bounds-checked against the file before it is touched.
  */
 /** Apply a smaller actual-inflation budget to an inert private part before a ZIP loader can read/normalize it. */
-export async function assertZipPartInflatesWithinLimit(bytes:Uint8Array,name:string,maxBytes:number):Promise<void>{
-  if(!Number.isSafeInteger(maxBytes)||maxBytes<0)throw new Error('Invalid private ZIP part limit')
-  const normalize=(path:string)=>{const parts:string[]=[];for(const part of path.split('/')){if(part==='..')parts.pop();else if(part&&part!=='.')parts.push(part)}return parts.join('/')}
-  const parts=scanParts(bytes)
-  if(parts.length>DEFAULT_ZIP_LIMITS.maxParts)throw new Error('zip rejected: too many parts')
-  for(const part of parts){
+export async function assertZipPartInflatesWithinLimit(
+  bytes: Uint8Array,
+  name: string,
+  maxBytes: number,
+): Promise<void> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+    throw new Error('Invalid private ZIP part limit')
+  const normalize = (path: string) => {
+    const parts: string[] = []
+    for (const part of path.split('/')) {
+      if (part === '..') parts.pop()
+      else if (part && part !== '.') parts.push(part)
+    }
+    return parts.join('/')
+  }
+  const parts = scanParts(bytes)
+  if (parts.length > DEFAULT_ZIP_LIMITS.maxParts) throw new Error('zip rejected: too many parts')
+  for (const part of parts) {
     // Match sanitized aliases too: JSZip resolves dot segments before exposing a filename.
-    if(normalize(part.name)!==name)continue
-    if(part.usize>maxBytes)throw new Error(`zip rejected: private part ${name} exceeds its ${maxBytes}-byte limit`)
-    await verifiedSize(bytes,part)
+    if (normalize(part.name) !== name) continue
+    if (part.usize > maxBytes)
+      throw new Error(`zip rejected: private part ${name} exceeds its ${maxBytes}-byte limit`)
+    await verifiedSize(bytes, part)
   }
 }
 

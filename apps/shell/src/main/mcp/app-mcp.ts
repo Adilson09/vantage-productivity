@@ -1,4 +1,9 @@
-import {installMcpReplyQuitGuard,type McpQuitApp,type McpQuitReport,type McpReplyQuitGuard} from './mcp-reply-drain'
+import {
+  installMcpReplyQuitGuard,
+  type McpQuitApp,
+  type McpQuitReport,
+  type McpReplyQuitGuard,
+} from './mcp-reply-drain'
 import { McpServerService, DEFAULT_MCP_PORT, type McpToolDefinition } from './mcp-server'
 import { McpLogger } from './mcp-logger'
 import type { CliRunner } from './cli-runner'
@@ -76,17 +81,49 @@ export interface McpStatus {
 
 let deps: McpRuntimeDeps | null = null
 let service: McpServerService | null = null
-const ownedServices=new Set<McpServerService>()
-let configurationEpoch=0
-let reconciliation:Promise<unknown>=Promise.resolve()
-let quitGuard:McpReplyQuitGuard|undefined
-let terminalEpoch=0,terminalStopping=false
-function pruneOwned(instance:McpServerService):void{if(instance!==service&&!instance.isRunning()&&!instance.replyDrainStatus().owned)ownedServices.delete(instance)}
-function serializeMcp<Result>(action:()=>Promise<Result>):Promise<Result>{const next=reconciliation.catch(()=>{}).then(action);reconciliation=next.then(()=>{},()=>{});return next}
-export function installMcpQuitGuard(app:McpQuitApp,options:{onQuitDeferred?:(report:McpQuitReport)=>void;onQuitBlocked:(report:McpQuitReport)=>void;onQuitInterrupted?:(report:McpQuitReport,reason:string)=>void}):void{quitGuard??=installMcpReplyQuitGuard(app,{services:()=>[...ownedServices],epoch:()=>configurationEpoch,onQuitDeferred:options.onQuitDeferred,onQuitBlocked:options.onQuitBlocked,onQuitInterrupted:options.onQuitInterrupted})}
+const ownedServices = new Set<McpServerService>()
+let configurationEpoch = 0
+let reconciliation: Promise<unknown> = Promise.resolve()
+let quitGuard: McpReplyQuitGuard | undefined
+let terminalEpoch = 0,
+  terminalStopping = false
+function pruneOwned(instance: McpServerService): void {
+  if (instance !== service && !instance.isRunning() && !instance.replyDrainStatus().owned)
+    ownedServices.delete(instance)
+}
+function serializeMcp<Result>(action: () => Promise<Result>): Promise<Result> {
+  const next = reconciliation.catch(() => {}).then(action)
+  reconciliation = next.then(
+    () => {},
+    () => {},
+  )
+  return next
+}
+export function installMcpQuitGuard(
+  app: McpQuitApp,
+  options: {
+    onQuitDeferred?: (report: McpQuitReport) => void
+    onQuitBlocked: (report: McpQuitReport) => void
+    onQuitInterrupted?: (report: McpQuitReport, reason: string) => void
+  },
+): void {
+  quitGuard ??= installMcpReplyQuitGuard(app, {
+    services: () => [...ownedServices],
+    epoch: () => configurationEpoch,
+    onQuitDeferred: options.onQuitDeferred,
+    onQuitBlocked: options.onQuitBlocked,
+    onQuitInterrupted: options.onQuitInterrupted,
+  })
+}
 /** User return or any canceled outer close cancels the old quit intent without releasing actual handlers. */
-export function cancelMcpQuitDrain():void{configurationEpoch++;quitGuard?.cancel();if(!quitGuard)for(const instance of ownedServices)instance.cancelQuitDrain()}
-export function mcpReplyDrainStatus(){return [...ownedServices].map(instance=>instance.replyDrainStatus())}
+export function cancelMcpQuitDrain(): void {
+  configurationEpoch++
+  quitGuard?.cancel()
+  if (!quitGuard) for (const instance of ownedServices) instance.cancelQuitDrain()
+}
+export function mcpReplyDrainStatus() {
+  return [...ownedServices].map((instance) => instance.replyDrainStatus())
+}
 let logger: McpLogger | null = null
 let currentSettings: McpSettings = {
   enabled: false,
@@ -197,18 +234,28 @@ function buildTools(): McpToolDefinition[] {
   ]
 }
 
-function assertStarting(epoch:number):void{if(terminalStopping||epoch!==terminalEpoch)throw new Error('MCP terminal shutdown canceled pending settings/start work.')}
-async function startOwned(instance:McpServerService,port:number,epoch:number):Promise<void>{
- assertStarting(epoch);quitGuard?.ownershipChanged()
- await instance.start(port)
- if(terminalStopping||epoch!==terminalEpoch){instance.stopSync();throw new Error('MCP terminal shutdown canceled this started service.')}
- quitGuard?.ownershipChanged()
+function assertStarting(epoch: number): void {
+  if (terminalStopping || epoch !== terminalEpoch)
+    throw new Error('MCP terminal shutdown canceled pending settings/start work.')
+}
+async function startOwned(instance: McpServerService, port: number, epoch: number): Promise<void> {
+  assertStarting(epoch)
+  quitGuard?.ownershipChanged()
+  await instance.start(port)
+  if (terminalStopping || epoch !== terminalEpoch) {
+    instance.stopSync()
+    throw new Error('MCP terminal shutdown canceled this started service.')
+  }
+  quitGuard?.ownershipChanged()
 }
 function ensureService(): McpServerService {
   assertStarting(terminalEpoch)
   if (!deps) throw new Error('MCP runtime not configured')
   if (!service) {
-    if(ownedServices.size>=8)throw new Error('Earlier MCP services still own pending tool work; no replacement service was started.')
+    if (ownedServices.size >= 8)
+      throw new Error(
+        'Earlier MCP services still own pending tool work; no replacement service was started.',
+      )
     const created = new McpServerService({
       port: currentSettings.port,
       // built per client session so concurrent clients do not share one
@@ -216,16 +263,23 @@ function ensureService(): McpServerService {
       toolsFactory: buildTools,
       logger: mcpLogger,
       version: deps.version,
-      onReplyStateChanged:()=>pruneOwned(created),
+      onReplyStateChanged: () => pruneOwned(created),
     })
-    service=created;ownedServices.add(created);quitGuard?.ownershipChanged()
+    service = created
+    ownedServices.add(created)
+    quitGuard?.ownershipChanged()
   }
   return service
 }
 
 /** Start the server if settings say it should be on. Safe to call at boot. */
-export async function startMcpFromSettings(settings:McpSettings):Promise<void>{
-  const epoch=terminalEpoch;await serializeMcp(async()=>{assertStarting(epoch);currentSettings=normalize(settings);if(currentSettings.enabled)await startOwned(ensureService(),currentSettings.port,epoch)})
+export async function startMcpFromSettings(settings: McpSettings): Promise<void> {
+  const epoch = terminalEpoch
+  await serializeMcp(async () => {
+    assertStarting(epoch)
+    currentSettings = normalize(settings)
+    if (currentSettings.enabled) await startOwned(ensureService(), currentSettings.port, epoch)
+  })
 }
 
 /**
@@ -233,8 +287,15 @@ export async function startMcpFromSettings(settings:McpSettings):Promise<void>{
  * writes app-settings.json); here we reconcile the running server with the new
  * values — start, stop, or restart when the port or the exposed tool set changes.
  */
-export function applyMcpSettings(settings:McpSettings):Promise<McpStatus>{const epoch=terminalEpoch;cancelMcpQuitDrain();return serializeMcp(()=>{assertStarting(epoch);return reconcileMcpSettings(settings,epoch)})}
-async function reconcileMcpSettings(settings: McpSettings,epoch:number): Promise<McpStatus> {
+export function applyMcpSettings(settings: McpSettings): Promise<McpStatus> {
+  const epoch = terminalEpoch
+  cancelMcpQuitDrain()
+  return serializeMcp(() => {
+    assertStarting(epoch)
+    return reconcileMcpSettings(settings, epoch)
+  })
+}
+async function reconcileMcpSettings(settings: McpSettings, epoch: number): Promise<McpStatus> {
   assertStarting(epoch)
   const next = normalize(settings)
   const wasRunning = service?.isRunning() ?? false
@@ -250,27 +311,31 @@ async function reconcileMcpSettings(settings: McpSettings,epoch:number): Promise
   // a background flip changes the exposed tool list, so live sessions must be
   // dropped and rebuilt — same treatment as a port change
   if (!wasRunning) {
-    await startOwned(ensureService(),next.port,epoch)
+    await startOwned(ensureService(), next.port, epoch)
   } else if (portChanged || backgroundChanged) {
-    const retiring=service
+    const retiring = service
     await retiring?.stop()
     assertStarting(epoch)
-    if(service===retiring)service=null
-    if(retiring)pruneOwned(retiring)
-    await startOwned(ensureService(),next.port,epoch)
+    if (service === retiring) service = null
+    if (retiring) pruneOwned(retiring)
+    await startOwned(ensureService(), next.port, epoch)
   }
   return mcpStatus()
 }
 
 export async function stopMcp(): Promise<void> {
   cancelMcpQuitDrain()
-  await serializeMcp(async()=>{await Promise.allSettled([...ownedServices].map(instance=>instance.stop()));for(const instance of ownedServices)pruneOwned(instance)})
+  await serializeMcp(async () => {
+    await Promise.allSettled([...ownedServices].map((instance) => instance.stop()))
+    for (const instance of ownedServices) pruneOwned(instance)
+  })
 }
 
 /** Terminal teardown belongs in will-quit, after every before-quit ownership guard. */
 export function stopMcpSync(): void {
-  terminalStopping=true;terminalEpoch++
-  for(const instance of ownedServices)instance.stopSync()
+  terminalStopping = true
+  terminalEpoch++
+  for (const instance of ownedServices) instance.stopSync()
 }
 
 export function mcpStatus(): McpStatus {

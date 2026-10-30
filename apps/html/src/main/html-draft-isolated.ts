@@ -3,8 +3,8 @@ import { HTML_DRAFT_MAX_BYTES, type HtmlDraftMaterialization } from '../shared/h
 import type { HtmlDraftAssetGrant } from './html-draft-assets'
 
 interface Job {
-  purpose?:'close-proof'
-  expiresAt:number
+  purpose?: 'close-proof'
+  expiresAt: number
   bytes: Buffer
   grant: HtmlDraftAssetGrant
   resolve: (result: HtmlDraftMaterialization) => void
@@ -22,16 +22,23 @@ export class HtmlDraftMaterializer {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 5000)
       throw new Error('Invalid HTML recovery processing budget.')
   }
-  prepare(bytes: Buffer, grant: HtmlDraftAssetGrant,options:{purpose?:'close-proof'}={}): Promise<HtmlDraftMaterialization> {
-    if(options.purpose!==undefined&&options.purpose!=='close-proof')return Promise.reject(new Error('Invalid HTML worker purpose.'))
+  prepare(
+    bytes: Buffer,
+    grant: HtmlDraftAssetGrant,
+    options: { purpose?: 'close-proof' } = {},
+  ): Promise<HtmlDraftMaterialization> {
+    if (options.purpose !== undefined && options.purpose !== 'close-proof')
+      return Promise.reject(new Error('Invalid HTML worker purpose.'))
     if (!Buffer.isBuffer(bytes) || bytes.length > HTML_DRAFT_MAX_BYTES)
       return Promise.reject(new Error('The HTML draft exceeds 16 MiB.'))
     if (this.running >= 2 && this.queued.length >= 4)
       return Promise.reject(new Error('HTML recovery is busy; the previous copy is retained.'))
     return new Promise((resolve, reject) => {
       const job: Job = {
-        bytes,expiresAt:Date.now()+this.timeoutMs,
-        grant,purpose:options.purpose,
+        bytes,
+        expiresAt: Date.now() + this.timeoutMs,
+        grant,
+        purpose: options.purpose,
         resolve,
         reject,
         expiry: setTimeout(() => {
@@ -53,12 +60,24 @@ export class HtmlDraftMaterializer {
   }
   private start(job: Job): void {
     clearTimeout(job.expiry)
-    if(job.expiresAt<=Date.now()){job.reject(new Error('HTML recovery expired before processing; its original budget was not replenished.'));this.pump();return}
+    if (job.expiresAt <= Date.now()) {
+      job.reject(
+        new Error(
+          'HTML recovery expired before processing; its original budget was not replenished.',
+        ),
+      )
+      this.pump()
+      return
+    }
     this.running++
     let worker: Worker
     try {
       worker = new Worker(this.workerUrl, {
-        workerData: { bytes: job.bytes, grant: job.grant,...(job.purpose?{purpose:job.purpose}:{}) },
+        workerData: {
+          bytes: job.bytes,
+          grant: job.grant,
+          ...(job.purpose ? { purpose: job.purpose } : {}),
+        },
         resourceLimits: {
           maxOldGenerationSizeMb: 256,
           maxYoungGenerationSizeMb: 32,
@@ -90,7 +109,7 @@ export class HtmlDraftMaterializer {
             'HTML resource capture exceeded its processing deadline; the previous copy is retained.',
           ),
         ),
-      Math.max(0,job.expiresAt-Date.now()),
+      Math.max(0, job.expiresAt - Date.now()),
     )
     for (const stream of [worker.stdout, worker.stderr])
       stream?.on('data', (chunk: Buffer) => {
@@ -103,15 +122,24 @@ export class HtmlDraftMaterializer {
         finish(new Error('Invalid HTML recovery response.'))
         return
       }
-      const response = value as { bytes?: unknown; remoteReferences?: unknown; error?: unknown;unsealedExecutableReferences?:unknown }
+      const response = value as {
+        bytes?: unknown
+        remoteReferences?: unknown
+        error?: unknown
+        unsealedExecutableReferences?: unknown
+      }
       const keys = Object.keys(response).sort().join(',')
       if (keys === 'error' && typeof response.error === 'string' && response.error.length <= 1024) {
         finish(new Error(response.error))
         return
       }
       if (
-        keys !== (job.purpose==='close-proof'?'bytes,remoteReferences,unsealedExecutableReferences':'bytes,remoteReferences') ||
-        job.purpose==='close-proof'&&typeof response.unsealedExecutableReferences!=='boolean'||
+        keys !==
+          (job.purpose === 'close-proof'
+            ? 'bytes,remoteReferences,unsealedExecutableReferences'
+            : 'bytes,remoteReferences') ||
+        (job.purpose === 'close-proof' &&
+          typeof response.unsealedExecutableReferences !== 'boolean') ||
         !(response.bytes instanceof ArrayBuffer) ||
         response.bytes.byteLength > HTML_DRAFT_MAX_BYTES ||
         !Number.isSafeInteger(response.remoteReferences) ||
@@ -124,7 +152,9 @@ export class HtmlDraftMaterializer {
       finish(undefined, {
         bytes: Buffer.from(response.bytes),
         remoteReferences: response.remoteReferences as number,
-        ...(job.purpose==='close-proof'?{unsealedExecutableReferences:response.unsealedExecutableReferences as boolean}:{}),
+        ...(job.purpose === 'close-proof'
+          ? { unsealedExecutableReferences: response.unsealedExecutableReferences as boolean }
+          : {}),
       })
     })
     worker.once('error', (error) => finish(error))

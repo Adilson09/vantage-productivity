@@ -1,6 +1,10 @@
 import type { BrowserWindow, WebContents } from 'electron'
 import {
-  requestSheetsClose, sheetsCloseState, prepareSheetsClose, completeSheetsClose, cancelSheetsClose,
+  requestSheetsClose,
+  sheetsCloseState,
+  prepareSheetsClose,
+  completeSheetsClose,
+  cancelSheetsClose,
 } from '../../../sheets/src/main/sheets-main'
 
 export interface SheetsCloseAdapterOptions {
@@ -26,7 +30,10 @@ export function createSheetsCloseAdapter(options: SheetsCloseAdapterOptions) {
       const owner = requireOwner(id)
       return requestSheetsClose(owner, parent, () => exactRemove(id, owner))
     },
-    close: async (id: string, request: { unsaved?: 'save' | 'discard' | 'error'; path?: string; overwrite?: boolean }) => {
+    close: async (
+      id: string,
+      request: { unsaved?: 'save' | 'discard' | 'error'; path?: string; overwrite?: boolean },
+    ) => {
       const owner = requireOwner(id)
       const state = sheetsCloseState(owner)
       if (!state) throw new Error('The spreadsheet cannot attest its current source/revision.')
@@ -34,21 +41,42 @@ export function createSheetsCloseAdapter(options: SheetsCloseAdapterOptions) {
         throw new Error('The spreadsheet has unsaved changes. Choose save or discard explicitly.')
       // A nominally clean default close approves discarding this exact clean
       // stamp, never an implicit save of a later programmatic/editor mutation.
-      const intent = request.unsaved === 'save' ? 'save' as const : 'discard' as const
+      const intent = request.unsaved === 'save' ? ('save' as const) : ('discard' as const)
       if (request.path !== undefined && intent !== 'save')
         throw new Error('A save destination is only valid when saving the spreadsheet.')
-      const path = request.path === undefined ? undefined : /\.(xlsx|xlsm)$/i.test(request.path) ? request.path : `${request.path}.xlsx`
+      const path =
+        request.path === undefined
+          ? undefined
+          : /\.(xlsx|xlsm)$/i.test(request.path)
+            ? request.path
+            : `${request.path}.xlsx`
       if (path) options.authorizeSave(owner, path)
-      const receipt = await prepareSheetsClose(owner, intent, intent === 'discard' ? { ...state.stamp } : undefined,
-        path ? { path, overwrite: request.overwrite === true } : undefined)
+      const receipt = await prepareSheetsClose(
+        owner,
+        intent,
+        intent === 'discard' ? { ...state.stamp } : undefined,
+        path ? { path, overwrite: request.overwrite === true } : undefined,
+      )
       try {
         if (!completeSheetsClose(owner, receipt, () => exactRemove(id, owner)))
-          throw new Error('The spreadsheet changed or its exact removal was refused; recovery was retained.')
+          throw new Error(
+            'The spreadsheet changed or its exact removal was refused; recovery was retained.',
+          )
         const status = options.cleanupStatus?.(receipt.cleanup.id)
-        return { removed: true, published: receipt.published, clean: receipt.clean,
+        return {
+          removed: true,
+          published: receipt.published,
+          clean: receipt.clean,
           ...(receipt.savedPath ? { savedPath: receipt.savedPath } : {}),
-          cleanup: { id: receipt.cleanup.id, phase: status?.phase ?? 'pending', custody: status?.custody ?? receipt.cleanup.custody } }
-      } finally { cancelSheetsClose(owner, receipt, 'Sheets adapter close attempt finished') }
+          cleanup: {
+            id: receipt.cleanup.id,
+            phase: status?.phase ?? 'pending',
+            custody: status?.custody ?? receipt.cleanup.custody,
+          },
+        }
+      } finally {
+        cancelSheetsClose(owner, receipt, 'Sheets adapter close attempt finished')
+      }
       // Root must hold the final MCP response through transport flush before
       // last-detached-window quit. A returned object alone is not delivery proof.
     },

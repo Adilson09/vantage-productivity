@@ -9,19 +9,61 @@
   const MARK = 'data-gx-inspector'
   // replaced by instrumentForPreview with the parse-map version this copy was built from
   const VERSION = Number('__GX_VERSION__')
-  let closeHeld=null
-  const closeReleasedThrough=new Map()
-  const sameCloseTicket=(a,b)=>!!a&&!!b&&a.id===b.id&&a.sequence===b.sequence&&a.source===b.source
-  const validCloseTicket=t=>!!t&&typeof t.id==='string'&&t.id.length<=512&&Number.isSafeInteger(t.sequence)&&t.sequence>0&&typeof t.source==='string'&&t.source.length<=1024
+  let closeHeld = null
+  const closeReleasedThrough = new Map()
+  const sameCloseTicket = (a, b) =>
+    !!a && !!b && a.id === b.id && a.sequence === b.sequence && a.source === b.source
+  const validCloseTicket = (t) =>
+    !!t &&
+    typeof t.id === 'string' &&
+    t.id.length <= 512 &&
+    Number.isSafeInteger(t.sequence) &&
+    t.sequence > 0 &&
+    typeof t.source === 'string' &&
+    t.source.length <= 1024
   const post = (msg) => window.parent.postMessage({ ...msg, version: VERSION }, '*')
   // This participant has no local expiry. Only main-correlated release unlocks it.
-  const closeInputEvents=['beforeinput','input','change','keydown','paste','cut','drop','compositionstart','pointerdown','focusout']
-  const closeInputFence=event=>{if(!closeHeld)return;event.preventDefault();event.stopImmediatePropagation()}
-  for(const name of closeInputEvents)document.addEventListener(name,closeInputFence,true)
-  const closeLock=()=>{
-    const controls=[...document.querySelectorAll('[contenteditable],input,textarea,select,button')].map(el=>({el,editable:el.getAttribute('contenteditable'),readOnly:'readOnly'in el?el.readOnly:null,disabled:'disabled'in el?el.disabled:null}))
-    for(const {el} of controls){if(el.hasAttribute('contenteditable'))el.setAttribute('contenteditable','false');if('readOnly'in el)el.readOnly=true;if('disabled'in el)el.disabled=true}
-    return()=>{for(const item of controls){if(!item.el.isConnected)continue;if(item.editable===null)item.el.removeAttribute('contenteditable');else item.el.setAttribute('contenteditable',item.editable);if(item.readOnly!==null)item.el.readOnly=item.readOnly;if(item.disabled!==null)item.el.disabled=item.disabled}}
+  const closeInputEvents = [
+    'beforeinput',
+    'input',
+    'change',
+    'keydown',
+    'paste',
+    'cut',
+    'drop',
+    'compositionstart',
+    'pointerdown',
+    'focusout',
+  ]
+  const closeInputFence = (event) => {
+    if (!closeHeld) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  }
+  for (const name of closeInputEvents) document.addEventListener(name, closeInputFence, true)
+  const closeLock = () => {
+    const controls = [
+      ...document.querySelectorAll('[contenteditable],input,textarea,select,button'),
+    ].map((el) => ({
+      el,
+      editable: el.getAttribute('contenteditable'),
+      readOnly: 'readOnly' in el ? el.readOnly : null,
+      disabled: 'disabled' in el ? el.disabled : null,
+    }))
+    for (const { el } of controls) {
+      if (el.hasAttribute('contenteditable')) el.setAttribute('contenteditable', 'false')
+      if ('readOnly' in el) el.readOnly = true
+      if ('disabled' in el) el.disabled = true
+    }
+    return () => {
+      for (const item of controls) {
+        if (!item.el.isConnected) continue
+        if (item.editable === null) item.el.removeAttribute('contenteditable')
+        else item.el.setAttribute('contenteditable', item.editable)
+        if (item.readOnly !== null) item.el.readOnly = item.readOnly
+        if (item.disabled !== null) item.el.disabled = item.disabled
+      }
+    }
   }
   const TEXT_TAGS = new Set([
     'p',
@@ -1146,30 +1188,71 @@
     true,
   )
   window.addEventListener('message', (e) => {
-    if(e.source!==window.parent)return
+    if (e.source !== window.parent) return
     const msg = e.data
     if (!msg || typeof msg.type !== 'string') return
-    if(msg.type==='gx:closeRelease'){
-      if(!validCloseTicket(msg.ticket))return
-      closeReleasedThrough.set(msg.ticket.source,Math.max(closeReleasedThrough.get(msg.ticket.source)||0,msg.ticket.sequence))
-      if(closeHeld&&sameCloseTicket(closeHeld.ticket,msg.ticket)){const held=closeHeld;closeHeld=null;held.unlock()}
+    if (msg.type === 'gx:closeRelease') {
+      if (!validCloseTicket(msg.ticket)) return
+      closeReleasedThrough.set(
+        msg.ticket.source,
+        Math.max(closeReleasedThrough.get(msg.ticket.source) || 0, msg.ticket.sequence),
+      )
+      if (closeHeld && sameCloseTicket(closeHeld.ticket, msg.ticket)) {
+        const held = closeHeld
+        closeHeld = null
+        held.unlock()
+      }
       return
     }
-    if(msg.type==='gx:closePrepare'||msg.type==='gx:closeCommit'){
-      if(!validCloseTicket(msg.ticket)||!Number.isSafeInteger(msg.nonce)||msg.nonce<=0)return
+    if (msg.type === 'gx:closePrepare' || msg.type === 'gx:closeCommit') {
+      if (!validCloseTicket(msg.ticket) || !Number.isSafeInteger(msg.nonce) || msg.nonce <= 0)
+        return
       let error
-      if((closeReleasedThrough.get(msg.ticket.source)||0)>=msg.ticket.sequence)error='The frame close request was already released.'
-      else if(closeHeld&&!sameCloseTicket(closeHeld.ticket,msg.ticket))error='Another frame close is held.'
-      else if(recoveryComposing||drag||resizing||slide)error='Finish inline composition or dragging before closing.'
-      else if(msg.type==='gx:closeCommit'){
-        if(!closeHeld||!sameCloseTicket(closeHeld.ticket,msg.ticket))error='The pending frame capture is obsolete.'
-        else if(editing){const pending=recoveryOps()[0];if(pending){editing.before=pending.op==='set_text_node'?pending.text:pending.html;editing.rawBefore=editing.el.innerHTML}}
-      }else if(!closeHeld)closeHeld={ticket:{...msg.ticket},unlock:closeLock()}
-      post({type:'gx:closeState',nonce:msg.nonce,ticket:msg.ticket,ops:recoveryOps(),composing:recoveryComposing,busy:!!(drag||resizing||slide),...(error?{error}:{})})
+      if ((closeReleasedThrough.get(msg.ticket.source) || 0) >= msg.ticket.sequence)
+        error = 'The frame close request was already released.'
+      else if (closeHeld && !sameCloseTicket(closeHeld.ticket, msg.ticket))
+        error = 'Another frame close is held.'
+      else if (recoveryComposing || drag || resizing || slide)
+        error = 'Finish inline composition or dragging before closing.'
+      else if (msg.type === 'gx:closeCommit') {
+        if (!closeHeld || !sameCloseTicket(closeHeld.ticket, msg.ticket))
+          error = 'The pending frame capture is obsolete.'
+        else if (editing) {
+          const pending = recoveryOps()[0]
+          if (pending) {
+            editing.before = pending.op === 'set_text_node' ? pending.text : pending.html
+            editing.rawBefore = editing.el.innerHTML
+          }
+        }
+      } else if (!closeHeld) closeHeld = { ticket: { ...msg.ticket }, unlock: closeLock() }
+      post({
+        type: 'gx:closeState',
+        nonce: msg.nonce,
+        ticket: msg.ticket,
+        ops: recoveryOps(),
+        composing: recoveryComposing,
+        busy: !!(drag || resizing || slide),
+        ...(error ? { error } : {}),
+      })
       return
     }
-    if(closeHeld&&!['gx:recoveryRead','gx:highlight','gx:clearHighlight','gx:mark','gx:theme','gx:scrollTo'].includes(msg.type)){
-      post({type:'gx:closeInvalidated',ticket:closeHeld.ticket,reason:'A frame mutation was requested while close was held.'});return
+    if (
+      closeHeld &&
+      ![
+        'gx:recoveryRead',
+        'gx:highlight',
+        'gx:clearHighlight',
+        'gx:mark',
+        'gx:theme',
+        'gx:scrollTo',
+      ].includes(msg.type)
+    ) {
+      post({
+        type: 'gx:closeInvalidated',
+        ticket: closeHeld.ticket,
+        reason: 'A frame mutation was requested while close was held.',
+      })
+      return
     }
     switch (msg.type) {
       case 'gx:recoveryRead':

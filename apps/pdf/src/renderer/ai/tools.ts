@@ -3545,17 +3545,32 @@ export async function executePdfTool(
 ): Promise<ToolExecution> {
   const identity = deps.workspaceIdentity?.()
   const document = deps.doc()
-  const bound = new Proxy(deps, { get(target, key, receiver) {
-    const value = Reflect.get(target, key, receiver)
-    if (typeof value !== 'function') return value
-    return (...args: unknown[]) => {
-      if (identity !== undefined ? target.workspaceIdentity?.() !== identity : target.doc() !== document) throw new Error('The PDF source changed during this tool. Earlier completed actions may remain; its later actions were refused.')
-      return Reflect.apply(value, target, args)
-    }
-  } })
-  return deps.withWorkspaceWork ? deps.withWorkspaceWork(() => executePdfToolCore(bound, call, signal)) : executePdfToolCore(bound, call, signal)
+  const bound = new Proxy(deps, {
+    get(target, key, receiver) {
+      const value = Reflect.get(target, key, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        if (
+          identity !== undefined
+            ? target.workspaceIdentity?.() !== identity
+            : target.doc() !== document
+        )
+          throw new Error(
+            'The PDF source changed during this tool. Earlier completed actions may remain; its later actions were refused.',
+          )
+        return Reflect.apply(value, target, args)
+      }
+    },
+  })
+  return deps.withWorkspaceWork
+    ? deps.withWorkspaceWork(() => executePdfToolCore(bound, call, signal))
+    : executePdfToolCore(bound, call, signal)
 }
-async function executePdfToolCore(deps: PdfAiDeps, call: AgentToolCall, signal?: AbortSignal): Promise<ToolExecution> {
+async function executePdfToolCore(
+  deps: PdfAiDeps,
+  call: AgentToolCall,
+  signal?: AbortSignal,
+): Promise<ToolExecution> {
   const input = call.input
   switch (call.name) {
     case 'read_pages':

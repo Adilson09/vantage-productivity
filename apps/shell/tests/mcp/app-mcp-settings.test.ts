@@ -61,7 +61,8 @@ async function listTools(): Promise<string[]> {
     },
   })
   const sid = handshake.headers['mcp-session-id']
-  if (typeof sid !== 'string' || !sid) throw new Error('Expected a single initialized MCP session identifier')
+  if (typeof sid !== 'string' || !sid)
+    throw new Error('Expected a single initialized MCP session identifier')
   await post('/mcp', { jsonrpc: '2.0', method: 'notifications/initialized' }, sid)
   const list = await post('/mcp', { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, sid)
   const body = parseBody(list.text) as { result?: { tools?: Array<{ name: string }> } }

@@ -11,18 +11,15 @@ import {
   setActiveSheetsWebContents,
   sheetsPendingEditCount,
 } from '../../../sheets/src/main/sheets-main'
-import {
-  setActiveSlidesWebContents,
-  slidesIsDirty,
-} from '../../../slides/src/main/slides-main'
+import { setActiveSlidesWebContents, slidesIsDirty } from '../../../slides/src/main/slides-main'
 import { pdfIsDirty } from '../../../pdf/src/main/pdf-main'
 import { markdownIsDirty } from '../../../markdown/src/main/markdown-main'
 import { htmlIsDirty } from '../../../html/src/main/html-main'
 import { canonicalPath } from './tab-manager'
 import type { DetachedTab } from './tab-manager'
-import {shellQuitTracker} from './window-close-guard'
-import {rootQuitIntent} from './root-quit-intent'
-import {prepareRootIndividualClose} from './root-close-adapters'
+import { shellQuitTracker } from './window-close-guard'
+import { rootQuitIntent } from './root-quit-intent'
+import { prepareRootIndividualClose } from './root-close-adapters'
 import type { DocumentTabKind, OpenDocumentTab, TabKind } from '../shared/tabs-api'
 import {
   DOCK_BAND_SLACK,
@@ -210,11 +207,11 @@ export function detachedWebContentsFor(id: string): WebContents | undefined {
 }
 
 export function closeDetachedWithoutPrompt(id: string): boolean {
-  if(!rootQuitIntent.mutationAllowed())return false
+  if (!rootQuitIntent.mutationAllowed()) return false
   const rec = recordById(id)
   if (!rec) return false
   rec.closeWithoutPrompt()
-  return rec.window.isDestroyed()&&!rec.released
+  return rec.window.isDestroyed() && !rec.released
 }
 
 /** unsaved-changes state of one detached document, whichever family owns it */
@@ -515,33 +512,57 @@ export function createDetachedEditorWindow(options: {
   // prompt (the same double-trigger the main window guards against)
   let promptInFlight = false
   win.on('close', (event) => {
-    if(closeConfirmed||rec.released)return
+    if (closeConfirmed || rec.released) return
     event.preventDefault()
-    if(promptInFlight)return
-    promptInFlight=true
-    const epoch=rootQuitIntent.capture(),controller=new AbortController(),tracker=shellQuitTracker()
-    const holdingQuit=tracker.quitting()
-    if(holdingQuit)tracker.hold()
-    const current=()=>rootQuitIntent.current(epoch)&&!controller.signal.aborted&&detached.get(wcId)===rec&&!win.isDestroyed()&&!rec.released&&rec.view===view&&!view.webContents.isDestroyed()
-    const unsubscribe=rootQuitIntent.subscribe(reason=>controller.abort(reason))
+    if (promptInFlight) return
+    promptInFlight = true
+    const epoch = rootQuitIntent.capture(),
+      controller = new AbortController(),
+      tracker = shellQuitTracker()
+    const holdingQuit = tracker.quitting()
+    if (holdingQuit) tracker.hold()
+    const current = () =>
+      rootQuitIntent.current(epoch) &&
+      !controller.signal.aborted &&
+      detached.get(wcId) === rec &&
+      !win.isDestroyed() &&
+      !rec.released &&
+      rec.view === view &&
+      !view.webContents.isDestroyed()
+    const unsubscribe = rootQuitIntent.subscribe((reason) => controller.abort(reason))
     rootQuitIntent.beginApproval()
-    void (async()=>{
-      let receipt:Awaited<ReturnType<typeof prepareRootIndividualClose>>=null
-      try{
-        if(rec.kind==='home'||rec.kind==='help'){if(current())tearDown();return}
-        receipt=await prepareRootIndividualClose(rec.kind as DocumentTabKind,view.webContents,win,{signal:controller.signal,isCurrent:current,allowForce:rec.kind==='docs'})
-        const removed=!!receipt&&current()&&receipt.complete(()=>{
-          if(!current())return false
-          tearDown()
-          return win.isDestroyed()&&detached.get(wcId)!==rec
-        })
-        if(!removed)rootQuitIntent.cancel('Detached document close was declined or became obsolete.')
-        else if(rootQuitIntent.current(epoch)&&tracker.quitting())tracker.quit()
-      }catch(error){console.error('[shell] detached close preparation failed:',error);rootQuitIntent.cancel('Detached document close failed; the document remains open.')}
-      finally{
-        unsubscribe();promptInFlight=false
-        if(holdingQuit)tracker.release()
-        if(receipt)await receipt.cancel('detached close finished')
+    void (async () => {
+      let receipt: Awaited<ReturnType<typeof prepareRootIndividualClose>> = null
+      try {
+        if (rec.kind === 'home' || rec.kind === 'help') {
+          if (current()) tearDown()
+          return
+        }
+        receipt = await prepareRootIndividualClose(
+          rec.kind as DocumentTabKind,
+          view.webContents,
+          win,
+          { signal: controller.signal, isCurrent: current, allowForce: rec.kind === 'docs' },
+        )
+        const removed =
+          !!receipt &&
+          current() &&
+          receipt.complete(() => {
+            if (!current()) return false
+            tearDown()
+            return win.isDestroyed() && detached.get(wcId) !== rec
+          })
+        if (!removed)
+          rootQuitIntent.cancel('Detached document close was declined or became obsolete.')
+        else if (rootQuitIntent.current(epoch) && tracker.quitting()) tracker.quit()
+      } catch (error) {
+        console.error('[shell] detached close preparation failed:', error)
+        rootQuitIntent.cancel('Detached document close failed; the document remains open.')
+      } finally {
+        unsubscribe()
+        promptInFlight = false
+        if (holdingQuit) tracker.release()
+        if (receipt) await receipt.cancel('detached close finished')
       }
     })()
   })

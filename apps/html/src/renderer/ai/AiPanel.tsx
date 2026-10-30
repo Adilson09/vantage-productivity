@@ -237,7 +237,7 @@ interface ChatEntry {
 
 /** the whole source text: one string is the exact rollback unit */
 export interface DocSnapshot {
-  source?:string
+  source?: string
   text: string
 }
 
@@ -729,8 +729,12 @@ export function AiPanel({
   const runBriefWriterRef = useRef(runBriefWriter)
   runBriefWriterRef.current = runBriefWriter
 
-  const runSourceRef=useRef<string|null>(null)
-  const sourceAccess=()=>{if(runSourceRef.current&&runSourceRef.current!==htmlCloseStamp().source)throw new Error('The AI operation belongs to a replaced HTML source.');return depsRef.current.access}
+  const runSourceRef = useRef<string | null>(null)
+  const sourceAccess = () => {
+    if (runSourceRef.current && runSourceRef.current !== htmlCloseStamp().source)
+      throw new Error('The AI operation belongs to a replaced HTML source.')
+    return depsRef.current.access
+  }
   const loopRef = useRef<AgentLoop<DocSnapshot> | null>(null)
   if (!loopRef.current) {
     loopRef.current = new AgentLoop<DocSnapshot>({
@@ -743,8 +747,7 @@ export function AiPanel({
             getMap: () => sourceAccess().getMap(),
             getLastManualVersion: () => sourceAccess().getLastManualVersion(),
             getFilePath: () => sourceAccess().getFilePath(),
-            getSelectedSid: () =>
-              queueRunRef.current ? null : sourceAccess().getSelectedSid(),
+            getSelectedSid: () => (queueRunRef.current ? null : sourceAccess().getSelectedSid()),
             applyOps: (ops, label) => sourceAccess().applyOps(ops, label),
             replaceAll: (html, label) => sourceAccess().replaceAll(html, label),
             askClarification: (questions) =>
@@ -838,7 +841,8 @@ export function AiPanel({
           }))
           persistMessage('assistant', final, runToolsRef.current)
           depsRef.current.clearHighlights()
-          if(!runSourceRef.current||runSourceRef.current===htmlCloseStamp().source)depsRef.current.onRunDone(runMutatedRef.current)
+          if (!runSourceRef.current || runSourceRef.current === htmlCloseStamp().source)
+            depsRef.current.onRunDone(runMutatedRef.current)
           queueRunRef.current = false
           setBusy(false)
         },
@@ -1029,8 +1033,8 @@ export function AiPanel({
     persistMessage('user', displayText ?? instruction, undefined, sentAtts, scope)
     // Stop / New chat during the pre-run reads (settings, image bytes) bump the sequence; a stale send never starts the loop
     const seq = ++sendSeqRef.current
-    void runHtmlAsyncMutation(async source=>{
-      runSourceRef.current=source
+    void runHtmlAsyncMutation(async (source) => {
+      runSourceRef.current = source
       try {
         settingsRef.current = await window.htmlApi.getAiSettings()
         const images = sentAtts.length > 0 ? await collectImages(sentAtts) : []
@@ -1048,8 +1052,13 @@ export function AiPanel({
         })
         queueRunRef.current = false
         setBusy(false)
-      }finally{runSourceRef.current=null}
-    }).catch(error=>{setBusy(false);patchLast({streaming:false,text:String(error),isError:true})})
+      } finally {
+        runSourceRef.current = null
+      }
+    }).catch((error) => {
+      setBusy(false)
+      patchLast({ streaming: false, text: String(error), isError: true })
+    })
     return true
   }
 

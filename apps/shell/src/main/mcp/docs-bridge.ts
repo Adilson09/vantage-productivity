@@ -1,12 +1,22 @@
-import {rootQuitIntent} from '../root-quit-intent'
+import { rootQuitIntent } from '../root-quit-intent'
 import { existsSync } from 'node:fs'
 import { ipcMain, webContents } from 'electron'
 import type { WebContents } from 'electron'
 import {
-  isCloseLeaseTicket, isCloseLeaseStamp,
-  type CloseLeaseTicket, type CloseLeaseStamp,
+  isCloseLeaseTicket,
+  isCloseLeaseStamp,
+  type CloseLeaseTicket,
+  type CloseLeaseStamp,
 } from '../../../../../packages/electron-utils/src/close-lease'
-import { docsCloseLeases as closeLeases, reserveDocsClose, installDocsCloseService,stageDocsSavedClose,completePreparedDocsClose,cancelPreparedDocsClose,preparedDocsCleanup } from '../../../../docs/src/main/doc-close-service'
+import {
+  docsCloseLeases as closeLeases,
+  reserveDocsClose,
+  installDocsCloseService,
+  stageDocsSavedClose,
+  completePreparedDocsClose,
+  cancelPreparedDocsClose,
+  preparedDocsCleanup,
+} from '../../../../docs/src/main/doc-close-service'
 import type { DocsControl, McpEditorCommandName } from './tools/document-tools'
 
 /**
@@ -39,7 +49,7 @@ interface PendingCommand {
   owner?: WebContents
   closeTicket?: CloseLeaseTicket
   timedOut?: boolean
-  processing?:boolean
+  processing?: boolean
 }
 
 const readyIds = new Set<number>()
@@ -54,10 +64,13 @@ const pending = new Map<string, PendingCommand>()
 let requestSeq = 0
 let installed = false
 
-function closeEnvelope(value: unknown): { ticket: CloseLeaseTicket; stamp: CloseLeaseStamp } | null {
+function closeEnvelope(
+  value: unknown,
+): { ticket: CloseLeaseTicket; stamp: CloseLeaseStamp } | null {
   const lease = value as { ticket?: unknown; stamp?: unknown } | null
   return lease && isCloseLeaseTicket(lease.ticket) && isCloseLeaseStamp(lease.stamp)
-    ? { ticket: lease.ticket, stamp: lease.stamp } : null
+    ? { ticket: lease.ticket, stamp: lease.stamp }
+    : null
 }
 
 /** Main source/password/discard owners call before changing this document session. */
@@ -142,33 +155,81 @@ export function installDocsBridge(): void {
     watchDestroyed(wcId)
   })
   ipcMain.on('docs:mcp-result', (event, value: unknown) => {
-    const payload=value as {requestId?:unknown;ok?:unknown;result?:unknown;error?:unknown}|null
-    if(!payload||typeof payload.requestId!=='string')return
-    const id=payload.requestId,entry=pending.get(id)
-    if(!entry||entry.wcId!==event.sender.id||entry.processing)return
-    entry.processing=true
-    void (async()=>{
-      let result=payload.result
-      if(entry.closeTicket&&entry.owner){
-        closeLeases.settle(entry.owner,entry.closeTicket)
-        const receipt=result as {published?:unknown;current?:unknown;clean?:unknown;throughSequence?:unknown;closeLease?:unknown}|null
-        const lease=closeEnvelope(receipt?.closeLease)
-        const matches=lease&&lease.ticket.id===entry.closeTicket.id&&lease.ticket.sequence===entry.closeTicket.sequence&&lease.ticket.source===entry.closeTicket.source
-        let ready=!entry.timedOut&&payload.ok===true&&receipt?.current===true&&receipt.clean===true&&typeof receipt.published==='boolean'&&Number.isSafeInteger(receipt.throughSequence)&&Number(receipt.throughSequence)>=0&&!!lease&&matches&&closeLeases.claim(entry.owner,entry.closeTicket)
-        if(ready&&lease){
-          try{
-            const staged=await stageDocsSavedClose(entry.owner,lease,receipt!.published===true,Number(receipt!.throughSequence))
-            ready=!!staged&&!entry.timedOut
-            if(ready&&result&&typeof result==='object')result={...result,...staged}
-          }catch{ready=false}
+    const payload = value as {
+      requestId?: unknown
+      ok?: unknown
+      result?: unknown
+      error?: unknown
+    } | null
+    if (!payload || typeof payload.requestId !== 'string') return
+    const id = payload.requestId,
+      entry = pending.get(id)
+    if (!entry || entry.wcId !== event.sender.id || entry.processing) return
+    entry.processing = true
+    void (async () => {
+      let result = payload.result
+      if (entry.closeTicket && entry.owner) {
+        closeLeases.settle(entry.owner, entry.closeTicket)
+        const receipt = result as {
+          published?: unknown
+          current?: unknown
+          clean?: unknown
+          throughSequence?: unknown
+          closeLease?: unknown
+        } | null
+        const lease = closeEnvelope(receipt?.closeLease)
+        const matches =
+          lease &&
+          lease.ticket.id === entry.closeTicket.id &&
+          lease.ticket.sequence === entry.closeTicket.sequence &&
+          lease.ticket.source === entry.closeTicket.source
+        let ready =
+          !entry.timedOut &&
+          payload.ok === true &&
+          receipt?.current === true &&
+          receipt.clean === true &&
+          typeof receipt.published === 'boolean' &&
+          Number.isSafeInteger(receipt.throughSequence) &&
+          Number(receipt.throughSequence) >= 0 &&
+          !!lease &&
+          matches &&
+          closeLeases.claim(entry.owner, entry.closeTicket)
+        if (ready && lease) {
+          try {
+            const staged = await stageDocsSavedClose(
+              entry.owner,
+              lease,
+              receipt!.published === true,
+              Number(receipt!.throughSequence),
+            )
+            ready = !!staged && !entry.timedOut
+            if (ready && result && typeof result === 'object') result = { ...result, ...staged }
+          } catch {
+            ready = false
+          }
         }
-        if(!ready){closeLeases.cancel(entry.owner,entry.closeTicket,'final custody receipt refused');if(result&&typeof result==='object')result={...result,current:false,clean:false,closeLease:undefined}}
-        if(entry.timedOut)return
+        if (!ready) {
+          closeLeases.cancel(entry.owner, entry.closeTicket, 'final custody receipt refused')
+          if (result && typeof result === 'object')
+            result = { ...result, current: false, clean: false, closeLease: undefined }
+        }
+        if (entry.timedOut) return
       }
-      if(payload.ok===true)entry.resolve(result)
-      else entry.reject(new Error(typeof payload.error==='string'?payload.error:'command failed'))
-    })().catch(error=>{if(entry.closeTicket&&entry.owner)closeLeases.cancel(entry.owner,entry.closeTicket,'final bridge failure');if(!entry.timedOut)entry.reject(error instanceof Error?error:new Error(String(error)))})
-      .finally(()=>{pending.delete(id);clearTimeout(entry.timer)})
+      if (payload.ok === true) entry.resolve(result)
+      else
+        entry.reject(
+          new Error(typeof payload.error === 'string' ? payload.error : 'command failed'),
+        )
+    })()
+      .catch((error) => {
+        if (entry.closeTicket && entry.owner)
+          closeLeases.cancel(entry.owner, entry.closeTicket, 'final bridge failure')
+        if (!entry.timedOut) entry.reject(error instanceof Error ? error : new Error(String(error)))
+      })
+      .finally(() => {
+        pending.delete(id)
+        clearTimeout(entry.timer)
+      })
   })
 }
 
@@ -179,7 +240,7 @@ export interface DocsBridgeDeps {
   authorizeSave: (wcId: number, filePath: string) => void
   /** Main-owned token changes before another document activation is adopted. */
   sourceToken?: (wcId: number) => string
-  prepareDiscardClose?: (wcId: number,sourcePath:string|null) => Promise<unknown>
+  prepareDiscardClose?: (wcId: number, sourcePath: string | null) => Promise<unknown>
   /** close a blank tab whose session never became ready, so a failed create_session leaves no orphan */
   abandonBlankTab?: (wcId: number) => void
 }
@@ -192,17 +253,19 @@ export function createDocsControl(deps: DocsBridgeDeps): DocsControl {
   ): Promise<unknown> => {
     const wc = webContents.fromId(wcId)
     if (!wc || wc.isDestroyed()) throw new Error('the target document is no longer open')
-    const requireClean = command === 'save_document' &&
+    const requireClean =
+      command === 'save_document' &&
       (payload as { requireClean?: unknown } | null)?.requireClean === true
     const expectedSource = requireClean ? deps.sourceToken?.(wcId) : undefined
-    if(command!=='read_document')rootQuitIntent.assertMutationAvailable()
+    if (command !== 'read_document') rootQuitIntent.assertMutationAvailable()
     await waitForReady(wcId)
-    if(command!=='read_document')rootQuitIntent.assertMutationAvailable()
+    if (command !== 'read_document') rootQuitIntent.assertMutationAvailable()
     if (requireClean && (!expectedSource || deps.sourceToken?.(wcId) !== expectedSource))
       throw new Error('The document changed before close preparation; it remains open.')
     if (!requireClean && command !== 'read_document') {
       closeLeases.cancel(wc, undefined, 'new editor command')
-      if (closeLeases.hasWriter(wc)) throw new Error('A previous close/save writer is still finishing.')
+      if (closeLeases.hasWriter(wc))
+        throw new Error('A previous close/save writer is still finishing.')
     }
     if (command === 'save_document') {
       const { path: target, overwrite } = (payload ?? {}) as { path?: unknown; overwrite?: unknown }
@@ -228,14 +291,23 @@ export function createDocsControl(deps: DocsBridgeDeps): DocsControl {
         } else pending.delete(requestId)
         reject(new Error(`the document command timed out after ${COMMAND_TIMEOUT_MS}ms`))
       }, COMMAND_TIMEOUT_MS)
-      pending.set(requestId, { wcId, resolve, reject, timer, ...(closeTicket ? { owner: wc, closeTicket } : {}) })
+      pending.set(requestId, {
+        wcId,
+        resolve,
+        reject,
+        timer,
+        ...(closeTicket ? { owner: wc, closeTicket } : {}),
+      })
     })
     try {
       wc.send('docs:mcp-command', { requestId, command, payload })
     } catch (error) {
       const entry = pending.get(requestId)
       pending.delete(requestId)
-      if (entry) { clearTimeout(entry.timer); entry.reject(error instanceof Error ? error : new Error(String(error))) }
+      if (entry) {
+        clearTimeout(entry.timer)
+        entry.reject(error instanceof Error ? error : new Error(String(error)))
+      }
       if (closeTicket) {
         closeLeases.settle(wc, closeTicket)
         closeLeases.cancel(wc, closeTicket, 'dispatch failed')
@@ -258,29 +330,36 @@ export function createDocsControl(deps: DocsBridgeDeps): DocsControl {
       return wcId
     },
     runCommand,
-    prepareDiscardClose: async (wcId,sourcePath) => {
+    prepareDiscardClose: async (wcId, sourcePath) => {
       rootQuitIntent.assertMutationAvailable()
       const owner = webContents.fromId(wcId)
-      if (!owner || owner.isDestroyed() || !deps.prepareDiscardClose) throw new Error('The document discard lease is unavailable.')
-      const expectedSource=deps.sourceToken?.(wcId)
+      if (!owner || owner.isDestroyed() || !deps.prepareDiscardClose)
+        throw new Error('The document discard lease is unavailable.')
+      const expectedSource = deps.sourceToken?.(wcId)
       await waitForReady(wcId)
       rootQuitIntent.assertMutationAvailable()
-      if(!expectedSource || deps.sourceToken?.(wcId)!==expectedSource) throw new Error('The document changed before discard preparation; it remains open.')
-      return deps.prepareDiscardClose(wcId,sourcePath)
+      if (!expectedSource || deps.sourceToken?.(wcId) !== expectedSource)
+        throw new Error('The document changed before discard preparation; it remains open.')
+      return deps.prepareDiscardClose(wcId, sourcePath)
     },
     completeSaveClose: (wcId, value, close) => {
       const owner = webContents.fromId(wcId)
       const lease = closeEnvelope(value)
-      return rootQuitIntent.mutationAllowed() && !!owner && !!lease && completePreparedDocsClose(owner,lease,close)
+      return (
+        rootQuitIntent.mutationAllowed() &&
+        !!owner &&
+        !!lease &&
+        completePreparedDocsClose(owner, lease, close)
+      )
     },
-    closeCleanup: (wcId,value) => {
-      const lease=closeEnvelope(value)
-      return lease?preparedDocsCleanup(String(wcId),lease):Promise.resolve(undefined)
+    closeCleanup: (wcId, value) => {
+      const lease = closeEnvelope(value)
+      return lease ? preparedDocsCleanup(String(wcId), lease) : Promise.resolve(undefined)
     },
     cancelSaveClose: (wcId, value) => {
       const owner = webContents.fromId(wcId)
       const lease = closeEnvelope(value)
-      if (owner && lease) cancelPreparedDocsClose(owner,lease)
+      if (owner && lease) cancelPreparedDocsClose(owner, lease)
     },
   }
 }

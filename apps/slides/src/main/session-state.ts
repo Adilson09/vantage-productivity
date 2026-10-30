@@ -1,4 +1,4 @@
-import {beforeSlidesSessionMutation} from './slides-session-ownership'
+import { beforeSlidesSessionMutation } from './slides-session-ownership'
 /**
  * Shared main-process state for Vantage Slides, extracted from slides-main.ts so
  * the IPC modules (slides-main, ai-ipc, presenter-show) can share it:
@@ -19,11 +19,7 @@ import {
   type SlideElement,
   type TextElement,
 } from '@vantage/pptx-engine'
-import {
-  buildRenderSlide,
-  type FontMetricsProvider,
-  type RenderSlide,
-} from '@vantage/pptx-render'
+import { buildRenderSlide, type FontMetricsProvider, type RenderSlide } from '@vantage/pptx-render'
 import { createSystemFontMetrics, resetFontRegistry } from './fonts'
 import { tiffToPng } from './tiff-decode'
 import { neutralizeJpegOrientation } from './jpeg-orientation'
@@ -294,10 +290,24 @@ export function endHistoryBatch(session: Session): HistorySnapshot | null {
 }
 
 /** Finish only a capability's exact batch, including its carried references. */
-export function endCapturedHistoryBatch(session:Session,batch:NonNullable<Session['historyBatch']>,carriers:readonly Session[]):HistorySnapshot|null{
-  let before:HistorySnapshot|null=null
-  if(batch.depth>0){if(session.historyBatch!==batch)throw new Error('The captured history batch is no longer on this source.');before=endHistoryBatch(session)}
-  if(batch.depth<=0)for(const carrier of carriers)if(carrier.historyBatch===batch){beforeSlidesSessionMutation(carrier);carrier.historyBatch=undefined;scheduleHistoryNotify(carrier)}
+export function endCapturedHistoryBatch(
+  session: Session,
+  batch: NonNullable<Session['historyBatch']>,
+  carriers: readonly Session[],
+): HistorySnapshot | null {
+  let before: HistorySnapshot | null = null
+  if (batch.depth > 0) {
+    if (session.historyBatch !== batch)
+      throw new Error('The captured history batch is no longer on this source.')
+    before = endHistoryBatch(session)
+  }
+  if (batch.depth <= 0)
+    for (const carrier of carriers)
+      if (carrier.historyBatch === batch) {
+        beforeSlidesSessionMutation(carrier)
+        carrier.historyBatch = undefined
+        scheduleHistoryNotify(carrier)
+      }
   return before
 }
 

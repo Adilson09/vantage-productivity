@@ -161,10 +161,18 @@ export function startNewComment(ctx: ReviewContext): void {
   ctx.setCommentComposing(true)
 }
 
-export function submitNewComment(ctx: ReviewContext, text: string, range?:{from:number;to:number}): boolean {
+export function submitNewComment(
+  ctx: ReviewContext,
+  text: string,
+  range?: { from: number; to: number },
+): boolean {
   if (!ctx.editor) return false
   const id = nextCommentId(ctx.comments)
-  if (!(range?addCommentToRange(ctx.editor,range.from,range.to,id):addCommentToSelection(ctx.editor, id))) {
+  if (
+    !(range
+      ? addCommentToRange(ctx.editor, range.from, range.to, id)
+      : addCommentToSelection(ctx.editor, id))
+  ) {
     ctx.setStatus(t('appCommentSelectionLost'))
     return false
   }
@@ -223,8 +231,13 @@ export function replyToComment(
 
 /** Word: comment text edits in place; the author, date and anchor stay */
 export function editComment(ctx: ReviewContext, id: string, text: string): boolean {
-  const target=ctx.comments.find(comment=>comment.id===id)
-  if (!ctx.editor || !target || !commentAnchors(ctx.editor.state.doc).some(anchor=>anchor.id===(target.parentId??id))) return false
+  const target = ctx.comments.find((comment) => comment.id === id)
+  if (
+    !ctx.editor ||
+    !target ||
+    !commentAnchors(ctx.editor.state.doc).some((anchor) => anchor.id === (target.parentId ?? id))
+  )
+    return false
   ctx.setComments((prev) => prev.map((c) => (c.id === id ? { ...c, text } : c)))
   ctx.setCommentsDirty(true)
   ctx.dirtyRef.current = true

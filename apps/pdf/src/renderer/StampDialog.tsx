@@ -18,8 +18,16 @@ export function StampDialog({
   onApply: (wm: WatermarkConfig | null, hf: HeaderFooterConfig | null) => void
 }): ReactElement {
   const [tab, setTab] = usePdfEditorState<'watermark' | 'hf'>('stamp-tab', 'stamp', 'watermark')
-  const [wm, setWm] = usePdfEditorState<WatermarkConfig>('stamp-watermark', 'stamp', DEFAULT_WATERMARK)
-  const [hf, setHf] = usePdfEditorState<HeaderFooterConfig>('stamp-header-footer', 'stamp', DEFAULT_HEADER_FOOTER)
+  const [wm, setWm] = usePdfEditorState<WatermarkConfig>(
+    'stamp-watermark',
+    'stamp',
+    DEFAULT_WATERMARK,
+  )
+  const [hf, setHf] = usePdfEditorState<HeaderFooterConfig>(
+    'stamp-header-footer',
+    'stamp',
+    DEFAULT_HEADER_FOOTER,
+  )
   const [colorOpen, setColorOpen] = useState(false)
   const colorWrapRef = useRef<HTMLSpanElement>(null)
   // The color popover handles Escape itself while open

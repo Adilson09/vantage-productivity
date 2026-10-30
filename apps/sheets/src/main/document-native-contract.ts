@@ -59,8 +59,5 @@ export interface DocumentNativeClient {
     readonly documentId: string
     readonly commandId: string
   }): Promise<unknown>
-  closeDocument(input: {
-    readonly apiVersion: 1
-    readonly documentId: string
-  }): Promise<unknown>
+  closeDocument(input: { readonly apiVersion: 1; readonly documentId: string }): Promise<unknown>
 }

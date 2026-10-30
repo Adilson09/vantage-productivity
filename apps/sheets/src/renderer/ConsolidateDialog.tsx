@@ -136,7 +136,11 @@ export function ConsolidateDialog({
                   }
                 }}
               />
-              <button className="secondary" disabled={pending} onClick={() => setError(addReference())}>
+              <button
+                className="secondary"
+                disabled={pending}
+                onClick={() => setError(addReference())}
+              >
                 {t('dlgConsAdd')}
               </button>
             </span>
@@ -185,11 +189,7 @@ export function ConsolidateDialog({
           <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
-          <button
-            className="primary-action"
-            disabled={pending}
-            onClick={() => void create()}
-          >
+          <button className="primary-action" disabled={pending} onClick={() => void create()}>
             {t('dlgOk')}
           </button>
         </div>

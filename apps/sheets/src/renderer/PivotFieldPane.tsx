@@ -410,9 +410,15 @@ export function PivotFieldPane({
     <div className="pivot-fields-pane" ref={paneRef} role="complementary" aria-busy={busy}>
       <header>
         <span>{t('dlgPivotPaneTitle')}</span>
-        <button type="button" disabled={busy} data-tip={t('appClose')} aria-label={t('appClose')} onClick={() => {
-          if (!pending && !writingRef.current) onClose()
-        }}>
+        <button
+          type="button"
+          disabled={busy}
+          data-tip={t('appClose')}
+          aria-label={t('appClose')}
+          onClick={() => {
+            if (!pending && !writingRef.current) onClose()
+          }}
+        >
           ✕
         </button>
       </header>
@@ -459,7 +465,12 @@ export function PivotFieldPane({
           />
           {t('dlgPivotDeferUpdate')}
         </label>
-        <button type="button" className="primary-action" disabled={busy || !dirty} onClick={onUpdate}>
+        <button
+          type="button"
+          className="primary-action"
+          disabled={busy || !dirty}
+          onClick={onUpdate}
+        >
           {t('dlgPivotUpdate')}
         </button>
       </footer>
@@ -589,7 +600,11 @@ function ValueFieldSettingsDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <header>{t('dlgPivotValueFieldSettingsTitle', { name: sourceName })}</header>
-        <fieldset className="dialog-grid" disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset
+          className="dialog-grid"
+          disabled={pending}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
           {isCalc ? (
             <>
               <label>
@@ -703,16 +718,16 @@ function ValueFieldSettingsDialog({
             onChange={(filter) => setDraft({ ...draft, filter })}
           />
         </fieldset>
-        {error && <p className="dialog-note dialog-error" role="alert">{error}</p>}
+        {error && (
+          <p className="dialog-note dialog-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="dialog-actions">
           <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
-          <button
-            className="primary-action"
-            disabled={pending}
-            onClick={() => void apply()}
-          >
+          <button className="primary-action" disabled={pending} onClick={() => void apply()}>
             {t('dlgApply')}
           </button>
         </div>
@@ -850,9 +865,14 @@ function FieldSettingsDialog({
     setPending(true)
     setError(null)
     try {
-      const next = target.area === 'filters'
-        ? setPageItem(model, target.index, item)
-        : setFieldLabelFilter(setFieldGrouping(model, fieldIndex, grouping), fieldIndex, labelFilter)
+      const next =
+        target.area === 'filters'
+          ? setPageItem(model, target.index, item)
+          : setFieldLabelFilter(
+              setFieldGrouping(model, fieldIndex, grouping),
+              fieldIndex,
+              labelFilter,
+            )
       const result = await onModelChange(next)
       const failure = typeof result === 'string' ? result : null
       setError(failure)
@@ -875,7 +895,11 @@ function FieldSettingsDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <header>{t('dlgPivotFieldSettingsTitle', { name })}</header>
-        <fieldset className="dialog-grid" disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset
+          className="dialog-grid"
+          disabled={pending}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
           {target.area === 'filters' ? (
             <label className="dialog-span">
               {t('dlgPivotReportFilterItem')}
@@ -966,16 +990,16 @@ function FieldSettingsDialog({
             </>
           )}
         </fieldset>
-        {error && <p className="dialog-note dialog-error" role="alert">{error}</p>}
+        {error && (
+          <p className="dialog-note dialog-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="dialog-actions">
           <button className="secondary" disabled={pending} onClick={close}>
             {t('dlgCancel')}
           </button>
-          <button
-            className="primary-action"
-            disabled={pending}
-            onClick={() => void apply()}
-          >
+          <button className="primary-action" disabled={pending} onClick={() => void apply()}>
             {t('dlgApply')}
           </button>
         </div>

@@ -1,4 +1,4 @@
-import type {CloseCleanupStatus} from '../../../../../../packages/electron-utils/src/close-cleanup'
+import type { CloseCleanupStatus } from '../../../../../../packages/electron-utils/src/close-cleanup'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
@@ -37,7 +37,8 @@ const READABLE_KINDS: ReadonlySet<TabKind> = new Set<TabKind>([
   'html',
 ])
 
-export type OpenDocumentCleanup = CloseCleanupStatus
+export type OpenDocumentCleanup =
+  | CloseCleanupStatus
   | { journal: string; assets: string; retainedAssets?: number }
   | { id: string; phase: string; custody: boolean }
 
@@ -69,7 +70,9 @@ export interface OpenDocumentsControl {
    * save folder when it has never been saved. Unlike `close`, the tab stays open,
    * so the user can keep editing after the agent commits the file to disk.
    */
-  save: (tab: OpenDocumentTab) => Promise<{ savedPath: string;assetCleanup?:{assets:'retained'};warnings?:string[] }>
+  save: (
+    tab: OpenDocumentTab,
+  ) => Promise<{ savedPath: string; assetCleanup?: { assets: 'retained' }; warnings?: string[] }>
 }
 
 export interface OpenDocumentsDeps {
@@ -232,9 +235,7 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
 
         if (action === 'read') {
           if (!READABLE_KINDS.has(doc.kind)) {
-            throw new Error(
-              `"${doc.title}" is a PDF: use read_pdf to read its text`,
-            )
+            throw new Error(`"${doc.title}" is a PDF: use read_pdf to read its text`)
           }
           return {
             id: doc.id,
@@ -253,7 +254,7 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
               `"${doc.title}" is a PDF: use Vantage to save it while keeping its tab open`,
             )
           }
-          const { savedPath,assetCleanup,warnings } = await control.save(doc)
+          const { savedPath, assetCleanup, warnings } = await control.save(doc)
           return {
             saved: true,
             id: doc.id,
@@ -261,13 +262,15 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
             title: doc.title,
             path: doc.filePath ?? null,
             savedTo: savedPath,
-            ...(assetCleanup?{assetCleanup}:{}),...(warnings?.length?{warnings}:{}),
+            ...(assetCleanup ? { assetCleanup } : {}),
+            ...(warnings?.length ? { warnings } : {}),
           }
         }
 
         if (action === 'close') {
           const unsaved = args.unsaved === 'discard' ? 'discard' : 'save'
-          const { savedPath,cleanup,cleanupId,journalCleanup,assetCleanup,warnings } = await control.close(doc, { unsaved })
+          const { savedPath, cleanup, cleanupId, journalCleanup, assetCleanup, warnings } =
+            await control.close(doc, { unsaved })
           return {
             closed: true,
             id: doc.id,
@@ -276,8 +279,16 @@ export function createOpenDocumentTools(deps: OpenDocumentsDeps): McpToolDefinit
             path: doc.filePath ?? null,
             ...(savedPath ? { savedTo: savedPath } : {}),
             ...(unsaved === 'discard' && doc.dirty ? { discardedUnsavedChanges: true } : {}),
-            ...(cleanup?{cleanup}:{}),...(cleanupId?{cleanupId}:{}),...(journalCleanup?{journalCleanup}:{}),...(assetCleanup?{assetCleanup}:{}),...(warnings?.length?{warnings}:{}),
-            ...(journalCleanup?.phase === 'retained' || (cleanup && ('phase' in cleanup ? cleanup.phase === 'retained' : cleanup.journal === 'retained')) ? { cleanupIncomplete: true } : {}),
+            ...(cleanup ? { cleanup } : {}),
+            ...(cleanupId ? { cleanupId } : {}),
+            ...(journalCleanup ? { journalCleanup } : {}),
+            ...(assetCleanup ? { assetCleanup } : {}),
+            ...(warnings?.length ? { warnings } : {}),
+            ...(journalCleanup?.phase === 'retained' ||
+            (cleanup &&
+              ('phase' in cleanup ? cleanup.phase === 'retained' : cleanup.journal === 'retained'))
+              ? { cleanupIncomplete: true }
+              : {}),
           }
         }
 

@@ -11,20 +11,51 @@ import {
 import type { OpenDocumentsBridgeDeps } from '../../src/main/mcp/open-documents-bridge'
 import { createOpenDocumentTools } from '../../src/main/mcp/tools/open-documents-tools'
 
-type FixtureFamily={read:(contents:WebContents)=>Promise<string>;save:(contents:WebContents,path:string,options?:{requireClean?:boolean})=>Promise<void>;discard:(contents:WebContents)=>Promise<void>;prepareClose?:NonNullable<OpenDocumentsBridgeDeps['markdown']>['prepareClose'];completeClose?:NonNullable<OpenDocumentsBridgeDeps['markdown']>['completeClose'];cancelClose?:NonNullable<OpenDocumentsBridgeDeps['markdown']>['cancelClose']}
-type FixtureDeps=Omit<OpenDocumentsBridgeDeps,'markdown'|'html'>&{markdown?:FixtureFamily;html?:FixtureFamily}
+type FixtureFamily = {
+  read: (contents: WebContents) => Promise<string>
+  save: (contents: WebContents, path: string, options?: { requireClean?: boolean }) => Promise<void>
+  discard: (contents: WebContents) => Promise<void>
+  prepareClose?: NonNullable<OpenDocumentsBridgeDeps['markdown']>['prepareClose']
+  completeClose?: NonNullable<OpenDocumentsBridgeDeps['markdown']>['completeClose']
+  cancelClose?: NonNullable<OpenDocumentsBridgeDeps['markdown']>['cancelClose']
+}
+type FixtureDeps = Omit<OpenDocumentsBridgeDeps, 'markdown' | 'html'> & {
+  markdown?: FixtureFamily
+  html?: FixtureFamily
+}
 /** Legacy writer spies remain simple; held-permission behavior has dedicated real-coordinator cases. */
-function createOpenDocumentsControl(deps:FixtureDeps){
- const adapt=(base:FixtureFamily|undefined,kind:'markdown'|'html')=>base?{...base,
-  prepareClose:base.prepareClose??(async(contents:WebContents,path:string|undefined,intent:'save'|'discard'|'clean')=>{
-   if(intent==='discard')await base.discard(contents)
-   else if(kind==='markdown')await base.save(contents,path!,{requireClean:true})
-   else await base.save(contents,path!)
-   return {requestId:'fixture',published:intent==='save',current:true,clean:true}
-  }),completeClose:base.completeClose??((_contents,_receipt,remove)=>remove()),cancelClose:base.cancelClose??(async()=>{}),
- }:undefined
- const normalized={...deps,markdown:adapt(deps.markdown,'markdown'),html:adapt(deps.html,'html')} as OpenDocumentsBridgeDeps
- return createRealOpenDocumentsControl(normalized)
+function createOpenDocumentsControl(deps: FixtureDeps) {
+  const adapt = (base: FixtureFamily | undefined, kind: 'markdown' | 'html') =>
+    base
+      ? {
+          ...base,
+          prepareClose:
+            base.prepareClose ??
+            (async (
+              contents: WebContents,
+              path: string | undefined,
+              intent: 'save' | 'discard' | 'clean',
+            ) => {
+              if (intent === 'discard') await base.discard(contents)
+              else if (kind === 'markdown') await base.save(contents, path!, { requireClean: true })
+              else await base.save(contents, path!)
+              return {
+                requestId: 'fixture',
+                published: intent === 'save',
+                current: true,
+                clean: true,
+              }
+            }),
+          completeClose: base.completeClose ?? ((_contents, _receipt, remove) => remove()),
+          cancelClose: base.cancelClose ?? (async () => {}),
+        }
+      : undefined
+  const normalized = {
+    ...deps,
+    markdown: adapt(deps.markdown, 'markdown'),
+    html: adapt(deps.html, 'html'),
+  } as OpenDocumentsBridgeDeps
+  return createRealOpenDocumentsControl(normalized)
 }
 
 /**
@@ -53,7 +84,7 @@ async function controlWith(
   deps: OpenDocumentsBridgeDeps
 }> {
   const dir = await mkdtemp(join(tmpdir(), 'vantage-mcp-bridge-'))
-  const contents=contentsFor()
+  const contents = contentsFor()
   const deps: FixtureDeps = {
     list: async () => documents,
     webContentsFor: () => contents,
@@ -64,7 +95,7 @@ async function controlWith(
   const control = createOpenDocumentsControl(deps)
   const [tool] = createOpenDocumentTools({ control, defaultSaveDir: () => dir })
   return {
-    deps:deps as OpenDocumentsBridgeDeps,
+    deps: deps as OpenDocumentsBridgeDeps,
     call: async (args) => {
       const result = await tool!.handler(args)
       return result as Record<string, unknown>
@@ -72,11 +103,19 @@ async function controlWith(
   }
 }
 
-const docsLease={ticket:{id:'docs-close',sequence:1,source:'main-A'},stamp:{source:'renderer-A',revision:'1'}}
-function heldDocs(runCommand:NonNullable<OpenDocumentsBridgeDeps['docs']>['runCommand']):NonNullable<OpenDocumentsBridgeDeps['docs']>{
-  return {openBlankTab:async()=>7,runCommand,
-    prepareDiscardClose:async()=>docsLease,
-    completeSaveClose:(_id,_lease,remove)=>remove(),cancelSaveClose:()=>{},
+const docsLease = {
+  ticket: { id: 'docs-close', sequence: 1, source: 'main-A' },
+  stamp: { source: 'renderer-A', revision: '1' },
+}
+function heldDocs(
+  runCommand: NonNullable<OpenDocumentsBridgeDeps['docs']>['runCommand'],
+): NonNullable<OpenDocumentsBridgeDeps['docs']> {
+  return {
+    openBlankTab: async () => 7,
+    runCommand,
+    prepareDiscardClose: async () => docsLease,
+    completeSaveClose: (_id, _lease, remove) => remove(),
+    cancelSaveClose: () => {},
   }
 }
 describe('Docs final-save close contract', () => {
@@ -85,44 +124,94 @@ describe('Docs final-save close contract', () => {
     { ok: true, published: true, current: false, clean: false },
     { ok: true },
   ])('keeps a tab open without a current clean renderer receipt: %o', async (receipt) => {
-    const document = tab({ id: 'docs-close', kind: 'docs', title: 'source.docx',
-      filePath: 'C:/private/source.docx', dirty: false })
-    const runCommand = vi.fn(async () => receipt), closeTab = vi.fn(() => true)
-    const control = createOpenDocumentsControl({
-      list: async () => [document], webContentsFor: contentsFor, closeTab,
-      defaultSaveDir: () => 'C:/private', docs: { openBlankTab: async () => 7, runCommand },
+    const document = tab({
+      id: 'docs-close',
+      kind: 'docs',
+      title: 'source.docx',
+      filePath: 'C:/private/source.docx',
+      dirty: false,
     })
-    await expect(control.close(document, { unsaved: 'save' })).rejects.toThrow('document remains open')
+    const runCommand = vi.fn(async () => receipt),
+      closeTab = vi.fn(() => true)
+    const control = createOpenDocumentsControl({
+      list: async () => [document],
+      webContentsFor: contentsFor,
+      closeTab,
+      defaultSaveDir: () => 'C:/private',
+      docs: { openBlankTab: async () => 7, runCommand },
+    })
+    await expect(control.close(document, { unsaved: 'save' })).rejects.toThrow(
+      'document remains open',
+    )
     expect(runCommand).toHaveBeenCalledWith(7, 'save_document', {
-      path: document.filePath, overwrite: true, requireClean: true, sourcePath: document.filePath,
+      path: document.filePath,
+      overwrite: true,
+      requireClean: true,
+      sourcePath: document.filePath,
     })
     expect(closeTab).not.toHaveBeenCalled()
   })
 
   it('does not claim a saved file for a genuinely clean unnamed document', async () => {
-    const document = tab({ id: 'clean-untitled-docs', kind: 'docs', title: 'Untitled', dirty: false })
-    const runCommand = vi.fn(async () => ({ ok: true, published: false, current: true, clean: true,closeLease:docsLease }))
-    const closeTab = vi.fn(() => true),contents=contentsFor()
+    const document = tab({
+      id: 'clean-untitled-docs',
+      kind: 'docs',
+      title: 'Untitled',
+      dirty: false,
+    })
+    const runCommand = vi.fn(async () => ({
+      ok: true,
+      published: false,
+      current: true,
+      clean: true,
+      closeLease: docsLease,
+    }))
+    const closeTab = vi.fn(() => true),
+      contents = contentsFor()
     const control = createOpenDocumentsControl({
-      list: async () => [document], webContentsFor: ()=>contents, closeTab,
-      defaultSaveDir: () => 'C:/private', docs: heldDocs(runCommand),
+      list: async () => [document],
+      webContentsFor: () => contents,
+      closeTab,
+      defaultSaveDir: () => 'C:/private',
+      docs: heldDocs(runCommand),
     })
     await expect(control.close(document, { unsaved: 'save' })).resolves.toEqual({})
-    expect(runCommand).toHaveBeenCalledWith(7, 'save_document', expect.objectContaining({
-      requireClean: true, sourcePath: null,
-    }))
+    expect(runCommand).toHaveBeenCalledWith(
+      7,
+      'save_document',
+      expect.objectContaining({
+        requireClean: true,
+        sourcePath: null,
+      }),
+    )
     expect(closeTab).toHaveBeenCalledWith(document.id)
   })
 
   it('retains ordinary tool Save publication success without requiring close permission', async () => {
-    const document = tab({ id: 'docs-ordinary-save', kind: 'docs', title: 'source.docx', filePath: 'C:/private/source.docx' })
-    const runCommand = vi.fn(async () => ({ ok: true, published: true, current: false, clean: false }))
+    const document = tab({
+      id: 'docs-ordinary-save',
+      kind: 'docs',
+      title: 'source.docx',
+      filePath: 'C:/private/source.docx',
+    })
+    const runCommand = vi.fn(async () => ({
+      ok: true,
+      published: true,
+      current: false,
+      clean: false,
+    }))
     const control = createOpenDocumentsControl({
-      list: async () => [document], webContentsFor: contentsFor, closeTab: () => true,
-      defaultSaveDir: () => 'C:/private', docs: { openBlankTab: async () => 7, runCommand },
+      list: async () => [document],
+      webContentsFor: contentsFor,
+      closeTab: () => true,
+      defaultSaveDir: () => 'C:/private',
+      docs: { openBlankTab: async () => 7, runCommand },
     })
     await expect(control.save(document)).resolves.toEqual({ savedPath: document.filePath })
-    expect(runCommand).toHaveBeenCalledWith(7, 'save_document', { path: document.filePath, overwrite: true })
+    expect(runCommand).toHaveBeenCalledWith(7, 'save_document', {
+      path: document.filePath,
+      overwrite: true,
+    })
   })
 })
 
@@ -130,19 +219,28 @@ describe('Markdown final-save close contract', () => {
   it('requires a clean renderer completion before closing and preserves the tab when refused', async () => {
     const document = tab({ id: 'markdown-close-fence', filePath: 'C:/private/note.md' })
     const closeTab = vi.fn(() => true)
-    const save = vi.fn(async (_contents: WebContents, _path: string, options?: { requireClean?: boolean }) => {
-      if (options?.requireClean) throw new Error('An earlier revision was saved; newer edits remain.')
-    })
+    const save = vi.fn(
+      async (_contents: WebContents, _path: string, options?: { requireClean?: boolean }) => {
+        if (options?.requireClean)
+          throw new Error('An earlier revision was saved; newer edits remain.')
+      },
+    )
     const control = createOpenDocumentsControl({
-      list: async () => [document], webContentsFor: contentsFor, closeTab,
+      list: async () => [document],
+      webContentsFor: contentsFor,
+      closeTab,
       defaultSaveDir: () => 'C:/private',
       markdown: { read: async () => '', save, discard: async () => {} },
     })
     await expect(control.close(document, { unsaved: 'save' })).rejects.toThrow('newer edits remain')
-    expect(save).toHaveBeenCalledWith(expect.anything(), 'C:/private/note.md', { requireClean: true })
+    expect(save).toHaveBeenCalledWith(expect.anything(), 'C:/private/note.md', {
+      requireClean: true,
+    })
     expect(closeTab).not.toHaveBeenCalled()
     await expect(control.save(document)).resolves.toEqual({ savedPath: 'C:/private/note.md' })
-    expect(save).toHaveBeenLastCalledWith(expect.anything(), 'C:/private/note.md', { requireClean: false })
+    expect(save).toHaveBeenLastCalledWith(expect.anything(), 'C:/private/note.md', {
+      requireClean: false,
+    })
   })
 })
 
@@ -160,7 +258,11 @@ describe('open_documents close: untitled documents', () => {
     const doc = tab({ id: 't1', kind, title: `untitled ${kind}` })
     const { call } = await controlWith([doc], {
       docs: heldDocs(async () => ({
-        ok: true, published: true, current: true, clean: true,closeLease:docsLease,
+        ok: true,
+        published: true,
+        current: true,
+        clean: true,
+        closeLease: docsLease,
       })),
       sheets: { openBlankTab: async () => 1, runCommand: async () => ({ ok: true }) },
       slides: {
@@ -378,35 +480,88 @@ describe('open target resolver: focusing the document the agent edits', () => {
   })
 })
 
-describe('Docs held MCP removal',()=>{
-  it('keeps the editor if the final lease expired after a successful publication',async()=>{
-    const document=tab({id:'d',kind:'docs',filePath:'C:/private/a.docx'}),contents=contentsFor(),closeTab=vi.fn(()=>true),cancel=vi.fn()
-    const docs=heldDocs(async()=>({ok:true,published:true,current:true,clean:true,closeLease:docsLease}))
-    docs.completeSaveClose=()=>false;docs.cancelSaveClose=cancel
-    const control=createOpenDocumentsControl({list:async()=>[document],webContentsFor:()=>contents,closeTab,defaultSaveDir:()=> 'C:/private',docs})
-    await expect(control.close(document,{unsaved:'save'})).rejects.toThrow('lease expired')
-    expect(closeTab).not.toHaveBeenCalled();expect(cancel).toHaveBeenCalled()
+describe('Docs held MCP removal', () => {
+  it('keeps the editor if the final lease expired after a successful publication', async () => {
+    const document = tab({ id: 'd', kind: 'docs', filePath: 'C:/private/a.docx' }),
+      contents = contentsFor(),
+      closeTab = vi.fn(() => true),
+      cancel = vi.fn()
+    const docs = heldDocs(async () => ({
+      ok: true,
+      published: true,
+      current: true,
+      clean: true,
+      closeLease: docsLease,
+    }))
+    docs.completeSaveClose = () => false
+    docs.cancelSaveClose = cancel
+    const control = createOpenDocumentsControl({
+      list: async () => [document],
+      webContentsFor: () => contents,
+      closeTab,
+      defaultSaveDir: () => 'C:/private',
+      docs,
+    })
+    await expect(control.close(document, { unsaved: 'save' })).rejects.toThrow('lease expired')
+    expect(closeTab).not.toHaveBeenCalled()
+    expect(cancel).toHaveBeenCalled()
   })
-  it('will not remove a replacement view which reused the same tab id',async()=>{
-    const document=tab({id:'d',kind:'docs',filePath:'C:/private/a.docx'}),old=contentsFor(),replacement=contentsFor(),closeTab=vi.fn(()=>true)
-    let current=old
-    const docs=heldDocs(async()=>{current=replacement;return{ok:true,published:true,current:true,clean:true,closeLease:docsLease}})
-    const control=createOpenDocumentsControl({list:async()=>[document],webContentsFor:()=>current,closeTab,defaultSaveDir:()=> 'C:/private',docs})
-    await expect(control.close(document,{unsaved:'save'})).rejects.toThrow('removal was refused')
+  it('will not remove a replacement view which reused the same tab id', async () => {
+    const document = tab({ id: 'd', kind: 'docs', filePath: 'C:/private/a.docx' }),
+      old = contentsFor(),
+      replacement = contentsFor(),
+      closeTab = vi.fn(() => true)
+    let current = old
+    const docs = heldDocs(async () => {
+      current = replacement
+      return { ok: true, published: true, current: true, clean: true, closeLease: docsLease }
+    })
+    const control = createOpenDocumentsControl({
+      list: async () => [document],
+      webContentsFor: () => current,
+      closeTab,
+      defaultSaveDir: () => 'C:/private',
+      docs,
+    })
+    await expect(control.close(document, { unsaved: 'save' })).rejects.toThrow(
+      'removal was refused',
+    )
     expect(closeTab).not.toHaveBeenCalled()
   })
-  it('uses a held discard permission without inventing a clean/save publication',async()=>{
-    const document=tab({id:'d',kind:'docs'}),contents=contentsFor(),closeTab=vi.fn(()=>true),docs=heldDocs(async()=>({}))
-    const discard=vi.fn(async()=>docsLease);docs.prepareDiscardClose=discard
-    const control=createOpenDocumentsControl({list:async()=>[document],webContentsFor:()=>contents,closeTab,defaultSaveDir:()=> 'C:/private',docs})
-    await expect(control.close(document,{unsaved:'discard'})).resolves.toEqual({})
-    expect(discard).toHaveBeenCalledWith(contents.id,null);expect(closeTab).toHaveBeenCalledTimes(1)
+  it('uses a held discard permission without inventing a clean/save publication', async () => {
+    const document = tab({ id: 'd', kind: 'docs' }),
+      contents = contentsFor(),
+      closeTab = vi.fn(() => true),
+      docs = heldDocs(async () => ({}))
+    const discard = vi.fn(async () => docsLease)
+    docs.prepareDiscardClose = discard
+    const control = createOpenDocumentsControl({
+      list: async () => [document],
+      webContentsFor: () => contents,
+      closeTab,
+      defaultSaveDir: () => 'C:/private',
+      docs,
+    })
+    await expect(control.close(document, { unsaved: 'discard' })).resolves.toEqual({})
+    expect(discard).toHaveBeenCalledWith(contents.id, null)
+    expect(closeTab).toHaveBeenCalledTimes(1)
   })
-  it('keeps an unresponsive or incomplete discard open',async()=>{
-    const document=tab({id:'d',kind:'docs'}),contents=contentsFor(),closeTab=vi.fn(()=>true),docs=heldDocs(async()=>({}))
-    docs.prepareDiscardClose=async()=>null
-    const control=createOpenDocumentsControl({list:async()=>[document],webContentsFor:()=>contents,closeTab,defaultSaveDir:()=> 'C:/private',docs})
-    await expect(control.close(document,{unsaved:'discard'})).rejects.toThrow('approved discard revision')
+  it('keeps an unresponsive or incomplete discard open', async () => {
+    const document = tab({ id: 'd', kind: 'docs' }),
+      contents = contentsFor(),
+      closeTab = vi.fn(() => true),
+      docs = heldDocs(async () => ({}))
+    docs.prepareDiscardClose = async () => null
+    const control = createOpenDocumentsControl({
+      list: async () => [document],
+      webContentsFor: () => contents,
+      closeTab,
+      defaultSaveDir: () => 'C:/private',
+      docs,
+    })
+    await expect(control.close(document, { unsaved: 'discard' })).rejects.toThrow(
+      'approved discard revision',
+    )
     expect(closeTab).not.toHaveBeenCalled()
   })
 })

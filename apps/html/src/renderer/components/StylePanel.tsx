@@ -87,32 +87,32 @@ function useDraft(
 ) {
   const [value, updateValue] = useState(initial)
   const setValue = (next: string) => {
-    mutateHtml(()=>{
-    valueRef.current = next
-    updateValue(next)
-    onChange()
+    mutateHtml(() => {
+      valueRef.current = next
+      updateValue(next)
+      onChange()
     })
   }
   const committedRef = useRef(base)
   const valueRef = useRef(value)
   useEffect(() => {
     // The authored draft remains canonical; a late React projection cannot bypass close.
-    mutateHtml(()=>{
-    const untouched = valueRef.current === committedRef.current
-    committedRef.current = base
-    if (untouched) {
-      valueRef.current = base
-      updateValue(base)
-    }
+    mutateHtml(() => {
+      const untouched = valueRef.current === committedRef.current
+      committedRef.current = base
+      if (untouched) {
+        valueRef.current = base
+        updateValue(base)
+      }
     })
   }, [base])
   const commitRef = useRef<() => void>(() => {})
   commitRef.current = () => {
     if (valueRef.current !== committedRef.current) {
-      mutateHtml(()=>{
-      committedRef.current = valueRef.current
-      write(valueRef.current)
-      onChange()
+      mutateHtml(() => {
+        committedRef.current = valueRef.current
+        write(valueRef.current)
+        onChange()
       })
     }
   }
@@ -124,10 +124,10 @@ function useDraft(
     commitRef,
     peek: () => (valueRef.current !== committedRef.current ? valueRef.current : null),
     discard: () => {
-      mutateHtml(()=>{
-      committedRef.current = base
-      valueRef.current = base
-      updateValue(base)
+      mutateHtml(() => {
+        committedRef.current = base
+        valueRef.current = base
+        updateValue(base)
       })
     },
   }

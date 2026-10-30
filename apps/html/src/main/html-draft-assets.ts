@@ -130,7 +130,7 @@ function srcset(source: string): SrcsetCandidate[] {
 export async function materializeHtmlDraft(
   input: Buffer,
   grant: HtmlDraftAssetGrant,
-  options:{reportExecutableSeals?:boolean}={},
+  options: { reportExecutableSeals?: boolean } = {},
 ): Promise<HtmlDraftMaterialization> {
   if (!Buffer.isBuffer(input) || input.length > HTML_DRAFT_MAX_BYTES)
     throw new Error('The HTML document exceeds its recovery limit.')
@@ -171,11 +171,17 @@ export async function materializeHtmlDraft(
   if (bom) source = '\uFEFF' + source
   if (Buffer.byteLength(source) > HTML_DRAFT_MAX_BYTES)
     throw new Error('The self-contained HTML recovery copy exceeds 16 MiB.')
-  return { bytes: Buffer.from(source, 'utf8'), remoteReferences: collector.remotes.size,...(options.reportExecutableSeals?{unsealedExecutableReferences:collector.unsealedExecutableReferences}:{}) }
+  return {
+    bytes: Buffer.from(source, 'utf8'),
+    remoteReferences: collector.remotes.size,
+    ...(options.reportExecutableSeals
+      ? { unsealedExecutableReferences: collector.unsealedExecutableReferences }
+      : {}),
+  }
 }
 
 class HtmlRecoveryAssets {
-  unsealedExecutableReferences=false
+  unsealedExecutableReferences = false
   readonly remotes = new Set<string>()
   private readonly encoded = new Map<string, string>()
   private readonly active = new Set<string>()
@@ -367,7 +373,7 @@ class HtmlRecoveryAssets {
         'Executable javascript URLs cannot be captured independently; the previous recovery copy is retained.',
       )
     // Re-reading a mutable executable file cannot prove what an already loaded frame executed.
-    if(kind==='script'&&!/^data:/i.test(source))this.unsealedExecutableReferences=true
+    if (kind === 'script' && !/^data:/i.test(source)) this.unsealedExecutableReferences = true
     if (!source || source.startsWith('#') || /^about:/i.test(source)) {
       if (kind === 'script')
         throw new Error('An opaque executable script URL cannot be captured independently.')
@@ -691,7 +697,7 @@ class HtmlRecoveryAssets {
         if (tag === 'iframe' || tag === 'object' || tag === 'embed') {
           // The root-frame inspector cannot attest an active embedded document,
           // even when its URL happens to be an immutable data URL.
-          this.unsealedExecutableReferences=true
+          this.unsealedExecutableReferences = true
           const name = tag === 'object' ? 'data' : 'src'
           const value = attribute(node, name)
           if (value !== undefined) await replaceAttribute(node, name, 'other')

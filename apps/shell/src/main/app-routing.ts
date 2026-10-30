@@ -28,6 +28,7 @@ export function appForPath(path: string): DocumentTabKind | undefined {
 export function renameStaysInApp(from: string, newName: string): boolean {
   const current = appForPath(from)
   if (!current) return true
-  if (current === 'pdf' && PDF_WORKSPACE_RE.test(from) !== PDF_WORKSPACE_RE.test(newName)) return false
+  if (current === 'pdf' && PDF_WORKSPACE_RE.test(from) !== PDF_WORKSPACE_RE.test(newName))
+    return false
   return appForPath(newName) === current
 }

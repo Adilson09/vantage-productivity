@@ -56,15 +56,26 @@ export function PropertiesDialog({
   onApply: (meta: MetadataInput) => void
 }): ReactElement {
   const [info, setInfo] = useState<RawInfo | null>(null)
-  const [form, setForm] = usePdfAuthoredState<MetadataInput>('editor:properties-form', () => consumePdfPendingEditor<MetadataInput>('properties-form', 'properties') ?? {})
+  const [form, setForm] = usePdfAuthoredState<MetadataInput>(
+    'editor:properties-form',
+    () => consumePdfPendingEditor<MetadataInput>('properties-form', 'properties') ?? {},
+  )
   const formRef = useRef(form)
   formRef.current = form
   const baselineRef = useRef<MetadataInput | null>(null)
-  useLayoutEffect(() => registerPdfPendingEditor('properties-form', 'properties', () => {
-    const baseline = baselineRef.current
-    const current = readPdfAuthored<MetadataInput>('editor:properties-form', formRef.current)
-    return baseline && JSON.stringify(baseline) === JSON.stringify(current) ? undefined : Object.keys(current).length ? current : undefined
-  }), [])
+  useLayoutEffect(
+    () =>
+      registerPdfPendingEditor('properties-form', 'properties', () => {
+        const baseline = baselineRef.current
+        const current = readPdfAuthored<MetadataInput>('editor:properties-form', formRef.current)
+        return baseline && JSON.stringify(baseline) === JSON.stringify(current)
+          ? undefined
+          : Object.keys(current).length
+            ? current
+            : undefined
+      }),
+    [],
+  )
   const dialogRef = useModalDialog(onCancel)
 
   useEffect(() => {
@@ -82,7 +93,7 @@ export function PropertiesDialog({
       }
       baselineRef.current = baseline
       // Restored or newly typed values win over a late metadata baseline.
-      setForm(previous => ({ ...baseline, ...previous }))
+      setForm((previous) => ({ ...baseline, ...previous }))
     })
     return () => {
       cancelled = true
@@ -96,7 +107,10 @@ export function PropertiesDialog({
         className="pdf-modal-input"
         value={form[key] ?? ''}
         disabled={readOnly}
-        onChange={(e) => { const value = e.target.value; setForm(previous => ({ ...previous, [key]: value })) }}
+        onChange={(e) => {
+          const value = e.target.value
+          setForm((previous) => ({ ...previous, [key]: value }))
+        }}
       />
     </label>
   )

@@ -93,10 +93,24 @@ vi.mock('electron', () => ({
 const createDocsView = vi.fn(() => makeFakeView())
 const docsQueryDirty = vi.fn(() => Promise.resolve(false))
 const markDocsNewBlank = vi.fn()
-const docReceipt:DocsCloseReceipt={kind:'lease' as const,intent:'save' as const,published:false,clean:true,source:'A',closeLease:{ticket:{id:'test-close',sequence:1,source:'main-A'},stamp:{source:'renderer-A',revision:'1'}}}
-const prepareDocsNativeClose = vi.fn<(...args:unknown[])=>Promise<DocsCloseReceipt|null>>(async()=>docReceipt)
-const completeDocsClose=vi.fn((_contents:unknown,_receipt:unknown,remove:()=>boolean)=>remove())
-const cancelDocsClose=vi.fn(async()=>{})
+const docReceipt: DocsCloseReceipt = {
+  kind: 'lease' as const,
+  intent: 'save' as const,
+  published: false,
+  clean: true,
+  source: 'A',
+  closeLease: {
+    ticket: { id: 'test-close', sequence: 1, source: 'main-A' },
+    stamp: { source: 'renderer-A', revision: '1' },
+  },
+}
+const prepareDocsNativeClose = vi.fn<(...args: unknown[]) => Promise<DocsCloseReceipt | null>>(
+  async () => docReceipt,
+)
+const completeDocsClose = vi.fn((_contents: unknown, _receipt: unknown, remove: () => boolean) =>
+  remove(),
+)
+const cancelDocsClose = vi.fn(async () => {})
 const setActiveDocsResolver = vi.fn()
 const teardownDocsRenderer = vi.fn()
 
@@ -104,9 +118,9 @@ vi.mock('../../docs/src/main/docs-main', () => ({
   createDocsView: (...args: unknown[]) => createDocsView(...(args as [])),
   docsQueryDirty: (...args: unknown[]) => docsQueryDirty(...(args as [])),
   markDocsNewBlank: (...args: unknown[]) => markDocsNewBlank(...args),
-  prepareDocsNativeClose:(...args:unknown[])=>prepareDocsNativeClose(...args),
-  completeDocsClose:(...args:Parameters<typeof completeDocsClose>)=>completeDocsClose(...args),
-  cancelDocsClose:()=>cancelDocsClose(),
+  prepareDocsNativeClose: (...args: unknown[]) => prepareDocsNativeClose(...args),
+  completeDocsClose: (...args: Parameters<typeof completeDocsClose>) => completeDocsClose(...args),
+  cancelDocsClose: () => cancelDocsClose(),
   setActiveDocsResolver: (...args: unknown[]) => setActiveDocsResolver(...args),
   teardownDocsRenderer: (...args: unknown[]) => teardownDocsRenderer(...args),
 }))
@@ -218,8 +232,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   nextWebContentsId = 1
   docsQueryDirty.mockImplementation(() => Promise.resolve(false))
-  prepareDocsNativeClose.mockImplementation(async()=>docReceipt)
-  completeDocsClose.mockImplementation((_contents,_receipt,remove)=>remove())
+  prepareDocsNativeClose.mockImplementation(async () => docReceipt)
+  completeDocsClose.mockImplementation((_contents, _receipt, remove) => remove())
   pdfIsDirty.mockImplementation(() => false)
   sheetsPendingEditCount.mockImplementation(() => 0)
   slidesIsDirty.mockImplementation(() => false)
@@ -306,7 +320,11 @@ describe('opening tabs', () => {
   it('uses module default titles for pathless tabs', () => {
     manager.openSheetsTab()
     manager.openSlidesTab()
-    expect(manager.list().map((t) => t.title)).toEqual(['Vantage Productivity', 'AI Sheets', 'AI Slides'])
+    expect(manager.list().map((t) => t.title)).toEqual([
+      'Vantage Productivity',
+      'AI Sheets',
+      'AI Slides',
+    ])
   })
 
   it('assigns unique, monotonic tab ids', () => {
@@ -1221,11 +1239,12 @@ describe('tab sleep (background renderers released to free memory)', () => {
   })
 })
 
-describe('Docs tab actual-removal fencing',()=>{
-  it('does not remove an exact tab whose permission is refused at commit',async()=>{
+describe('Docs tab actual-removal fencing', () => {
+  it('does not remove an exact tab whose permission is refused at commit', async () => {
     completeDocsClose.mockReturnValueOnce(false)
-    const id=manager.openDocsTab();await manager.closeTab(id)
-    expect(manager.list().map(tab=>tab.id)).toContain(id)
+    const id = manager.openDocsTab()
+    await manager.closeTab(id)
+    expect(manager.list().map((tab) => tab.id)).toContain(id)
     expect(cancelDocsClose).toHaveBeenCalledTimes(1)
   })
 })

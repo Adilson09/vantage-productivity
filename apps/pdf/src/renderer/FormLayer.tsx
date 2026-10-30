@@ -256,7 +256,11 @@ function DateInput({
   onFocus?: (widget: FormWidget) => void
   onEdit: (value: FormValueInput) => void
 }): ReactElement {
-  const [draft, setDraft] = usePdfEditorState<string | null>(`form-date:${widget.id}`, 'date-field', null)
+  const [draft, setDraft] = usePdfEditorState<string | null>(
+    `form-date:${widget.id}`,
+    'date-field',
+    null,
+  )
   const [rejected, setRejected] = useState(false)
   const pickerRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -300,7 +304,10 @@ function DateInput({
           if (draft !== null) {
             const normalized = normalizeDateInput(draft, format)
             if (normalized === null) setRejected(true)
-            else { commit(normalized); setDraft(null) }
+            else {
+              commit(normalized)
+              setDraft(null)
+            }
           }
         }}
       />

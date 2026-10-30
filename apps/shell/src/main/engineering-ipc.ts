@@ -149,18 +149,29 @@ export function registerEngineeringIpc(
     const destination = await dialog.showSaveDialog(host, {
       title: 'Recover a draft to a new file',
       defaultPath: `Recovered draft${item.extension}`,
-      ...(item.extension === '.vpdfdraft' ? { filters: [{ name: 'Vantage PDF recovery workspace', extensions: ['vpdfdraft'] }] } : {}),
+      ...(item.extension === '.vpdfdraft'
+        ? { filters: [{ name: 'Vantage PDF recovery workspace', extensions: ['vpdfdraft'] }] }
+        : {}),
     })
     if (destination.canceled || !destination.filePath) return null
     let restoredPath = destination.filePath
-    if (item.extension === '.vpdfdraft' && !/\.vpdfdraft$/i.test(destination.filePath)) throw new Error('Recover this complete PDF workspace to a new .vpdfdraft file. Save a real PDF copy from its editor afterwards.')
+    if (item.extension === '.vpdfdraft' && !/\.vpdfdraft$/i.test(destination.filePath))
+      throw new Error(
+        'Recover this complete PDF workspace to a new .vpdfdraft file. Save a real PDF copy from its editor afterwards.',
+      )
     if (item.extension === '.vpdfdraft') {
       const held = await preparePdfJournalRecovery(identifier, destination.filePath)
       restoredPath = held.destination
       try {
         hostFor(event)
-        if (!openRestored?.(held.destination)) throw new Error('The recovered workspace was saved, but could not be opened automatically. Review the retained restoration output before opening the new .vpdfdraft file manually.')
-      } catch (error) { held.cancel(String(error)); throw error }
+        if (!openRestored?.(held.destination))
+          throw new Error(
+            'The recovered workspace was saved, but could not be opened automatically. Review the retained restoration output before opening the new .vpdfdraft file manually.',
+          )
+      } catch (error) {
+        held.cancel(String(error))
+        throw error
+      }
     } else await restoreDraftCopy(recoveryRoot, identifier, destination.filePath)
     return restoredPath
   })
@@ -168,7 +179,12 @@ export function registerEngineeringIpc(
     hostFor(event)
     await recoveryReady
     const draftId = validatedId(id)
-    if (!(await discardActiveDocsDraft(draftId)) && !(await discardActiveHtmlDraft(draftId)) && !(await discardActiveSlidesDraft(draftId)) && !(await discardActivePdfDraft(draftId)))
+    if (
+      !(await discardActiveDocsDraft(draftId)) &&
+      !(await discardActiveHtmlDraft(draftId)) &&
+      !(await discardActiveSlidesDraft(draftId)) &&
+      !(await discardActivePdfDraft(draftId))
+    )
       await discardDraftJournal(recoveryRoot, draftId)
   })
   ipcMain.handle(VANTAGE_CHANNELS.exportRecoveryBackup, async (event, value: unknown) => {

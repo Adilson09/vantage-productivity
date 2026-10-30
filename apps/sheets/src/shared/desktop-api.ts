@@ -798,11 +798,17 @@ const visualObjectSchema = z
   })
   .strict()
 
-export const workbookCloseSourceSchema = z.object({
-  lineage: z.string().uuid(), sessionId: z.string().uuid(), openedSha256: z.string().regex(/^[a-f0-9]{64}$/i),
-  documentPath: z.string().min(1).nullable(),
-}).strict()
-export const workbookOwnedPublicationSchema = z.object({ id: z.string().uuid(), source: workbookCloseSourceSchema }).strict()
+export const workbookCloseSourceSchema = z
+  .object({
+    lineage: z.string().uuid(),
+    sessionId: z.string().uuid(),
+    openedSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    documentPath: z.string().min(1).nullable(),
+  })
+  .strict()
+export const workbookOwnedPublicationSchema = z
+  .object({ id: z.string().uuid(), source: workbookCloseSourceSchema })
+  .strict()
 export type WorkbookCloseCheckpointBinding = {
   requestId: string
   ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket
@@ -810,7 +816,10 @@ export type WorkbookCloseCheckpointBinding = {
   source: import('./sheets-close').SheetsCloseSource
   payloadSha256: string
 }
-export type WorkbookPublicationAdoption = Pick<WorkbookCloseCheckpointBinding, 'source' | 'stamp' | 'payloadSha256'>
+export type WorkbookPublicationAdoption = Pick<
+  WorkbookCloseCheckpointBinding,
+  'source' | 'stamp' | 'payloadSha256'
+>
 /** Main distinguishes background work from an explicit save/close decision. */
 export interface WorkbookWriteContext {
   origin: 'automatic' | 'manual' | 'close'
@@ -3172,7 +3181,13 @@ export interface DesktopApi {
   updateWorkbookPassword(
     sessionId: string,
     newPassword: string,
-  ): Promise<{ sha256: string; fileBytes: number; passwordProtected: true; closeSource?: import('./sheets-close').SheetsCloseSource; recoveryWarning?: string }>
+  ): Promise<{
+    sha256: string
+    fileBytes: number
+    passwordProtected: true
+    closeSource?: import('./sheets-close').SheetsCloseSource
+    recoveryWarning?: string
+  }>
   /** multi-select xlsx picker; each file opens a secondary sidecar session for merge reads */
   selectWorkbooksForMerge(): Promise<WorkbookFile[] | null>
   /** open explicit spreadsheet paths (chat attachments) as merge-source sessions */
@@ -3181,7 +3196,10 @@ export interface DesktopApi {
   /// must use recoverWorkbookReader and must not refresh these live disk bytes.
   reopenWorkbook(path: string): Promise<WorkbookFile | null>
   /** Same-model reader replacement from the owned immutable base; never refreshes live disk bytes. */
-  recoverWorkbookReader(sessionId: string, writeContext?: WorkbookWriteContext): Promise<WorkbookFile | null>
+  recoverWorkbookReader(
+    sessionId: string,
+    writeContext?: WorkbookWriteContext,
+  ): Promise<WorkbookFile | null>
   /// The sidecar process died: every session id this renderer holds is gone.
   /// A positive crash signal — the main process raises it only for an actual
   /// process death, never for a session it closed or swapped on purpose.
@@ -3203,7 +3221,11 @@ export interface DesktopApi {
   captureScreenSources(): Promise<ScreenSourcesResult>
   /// null when the source vanished between listing and capture.
   captureScreenSource(request: ScreenCaptureRequest): Promise<ScreenCaptureResult | null>
-  saveWorkbookEdits(request: WorkbookSaveRequest, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket, writeContext?: WorkbookWriteContext): Promise<WorkbookSaveResult>
+  saveWorkbookEdits(
+    request: WorkbookSaveRequest,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+    writeContext?: WorkbookWriteContext,
+  ): Promise<WorkbookSaveResult>
   /// Chunked upload of a large save's cell edits (above MAX_SAVE_EDITS):
   /// begin a transfer, send ordered slices, then reference the transfer via
   /// editsTransferId in the following save/recovery request.
@@ -3214,7 +3236,10 @@ export interface DesktopApi {
   abortSaveEditsTransfer(request: WorkbookSaveEditsAbort): Promise<void>
   /// Crash-recovery copy of the pending edits, written under userData.
   /// Best-effort: never prompts, never touches the opened file.
-  writeWorkbookRecovery(request: WorkbookSaveRequest, writeContext?: WorkbookWriteContext): Promise<{ ok: boolean }>
+  writeWorkbookRecovery(
+    request: WorkbookSaveRequest,
+    writeContext?: WorkbookWriteContext,
+  ): Promise<{ ok: boolean }>
   checkpointWorkbookDocument(
     request: WorkbookSaveRequest,
     dirty?: boolean,
@@ -3227,25 +3252,60 @@ export interface DesktopApi {
     sessionId: string,
     baseName: string,
     writeContext?: WorkbookWriteContext,
-  ): Promise<{ renamed: boolean; name?: string; path?: string; refreshComplete?: boolean; error?: string }>
+  ): Promise<{
+    renamed: boolean
+    name?: string
+    path?: string
+    refreshComplete?: boolean
+    error?: string
+  }>
   exportPdf(request: WorkbookExportPdfRequest): Promise<WorkbookExportPdfResult>
   printWorkbook(request: WorkbookExportPdfRequest): Promise<WorkbookPrintResult>
   listPrinters(): Promise<PrinterInfo[]>
-  exportCsv(request: WorkbookExportCsvRequest, writeContext?: WorkbookWriteContext, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket): Promise<WorkbookExportCsvResult>
+  exportCsv(
+    request: WorkbookExportCsvRequest,
+    writeContext?: WorkbookWriteContext,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+  ): Promise<WorkbookExportCsvResult>
   /// First Save of a CSV session: native "keep this format?" dialog.
-  confirmCsvSave(writeContext?: WorkbookWriteContext, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket): Promise<'csv' | 'xlsx' | 'cancel'>
+  confirmCsvSave(
+    writeContext?: WorkbookWriteContext,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+  ): Promise<'csv' | 'xlsx' | 'cancel'>
   /// AI create_document: write a new standalone file into the default save
   /// folder (no dialog) and open it in a new tab.
   createDocument(request: WorkbookCreateDocumentRequest): Promise<WorkbookCreateDocumentResult>
   closeWorkbook(sessionId: string): Promise<void>
-  getWorkbookCloseSource(sessionId: string): Promise<import('./sheets-close').SheetsCloseSource | null>
-  notifyWorkbookCloseState(state: import('./sheets-close').SheetsCloseState, coverageComplete: boolean): void
-  onPrepareWorkbookClose(callback: (request: import('./sheets-close').SheetsPrepareCloseRequest & { requestId: string }) => void): () => void
-  claimWorkbookClose(ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket): Promise<boolean>
-  cancelWorkbookClose(ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket, reason?: string): Promise<void>
-  reportPrepareWorkbookCloseResult(requestId: string, result: import('./sheets-close').SheetsPrepareCloseResult): void
+  getWorkbookCloseSource(
+    sessionId: string,
+  ): Promise<import('./sheets-close').SheetsCloseSource | null>
+  notifyWorkbookCloseState(
+    state: import('./sheets-close').SheetsCloseState,
+    coverageComplete: boolean,
+  ): void
+  onPrepareWorkbookClose(
+    callback: (
+      request: import('./sheets-close').SheetsPrepareCloseRequest & { requestId: string },
+    ) => void,
+  ): () => void
+  claimWorkbookClose(
+    ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+  ): Promise<boolean>
+  cancelWorkbookClose(
+    ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+    reason?: string,
+  ): Promise<void>
+  reportPrepareWorkbookCloseResult(
+    requestId: string,
+    result: import('./sheets-close').SheetsPrepareCloseResult,
+  ): void
   reportWorkbookCloseActualSettled(requestId: string): void
-  onWorkbookCloseRelease(callback: (ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket, reason: string) => void): () => void
+  onWorkbookCloseRelease(
+    callback: (
+      ticket: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+      reason: string,
+    ) => void,
+  ): () => void
   canAdoptWorkbookPublication(id: string): Promise<boolean>
   adoptWorkbookPublication(id: string, adoption: WorkbookPublicationAdoption): Promise<boolean>
   rejectWorkbookPublication(id: string): Promise<void>
@@ -3254,7 +3314,9 @@ export interface DesktopApi {
   onMenuAction(callback: (action: MenuAction) => void): () => void
   /// The open workbook was renamed on disk (renamed in the shell Home list);
   /// emits the new file name.
-  onWorkbookRenamed(callback: (newName: string, metadata?: WorkbookRenamedMetadata) => void): () => void
+  onWorkbookRenamed(
+    callback: (newName: string, metadata?: WorkbookRenamedMetadata) => void,
+  ): () => void
   completeWorkbookRenameRefresh(requestId: string, result: WorkbookRenameRefreshResult): void
   settleWorkbookRenameRefresh(requestId: string): void
   /// Mirrors the pending-edit badge to the main process for the close guard.

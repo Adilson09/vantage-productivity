@@ -150,14 +150,23 @@ export class DraftLanding {
    */
   finish(): string | null {
     if (this.closed) return this.rendered
-    if (markdownCloseStamp().source !== this.source) { this.closed = true; if (this.timer !== null) clearTimeout(this.timer); this.timer = null; this.editor.off('transaction', this.onTransaction); return null }
+    if (markdownCloseStamp().source !== this.source) {
+      this.closed = true
+      if (this.timer !== null) clearTimeout(this.timer)
+      this.timer = null
+      this.editor.off('transaction', this.onTransaction)
+      return null
+    }
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
     this.flush()
     this.closed = true
     this.editor.off('transaction', this.onTransaction)
     if (this.to > this.from && !this.editor.isDestroyed) {
-      mutateMarkdown(() => this.editor.view.dispatch(this.draftTr().delete(this.from, this.to)), this.source)
+      mutateMarkdown(
+        () => this.editor.view.dispatch(this.draftTr().delete(this.from, this.to)),
+        this.source,
+      )
     }
     this.to = this.from
     return this.rendered
@@ -179,7 +188,13 @@ export class DraftLanding {
 
   private flush(): void {
     this.timer = null
-    if (this.closed || this.pending === null || this.editor.isDestroyed || markdownCloseStamp().source !== this.source) return
+    if (
+      this.closed ||
+      this.pending === null ||
+      this.editor.isDestroyed ||
+      markdownCloseStamp().source !== this.source
+    )
+      return
     const markdown = this.pending
     this.pending = null
     let next: PmNode[]
@@ -196,7 +211,13 @@ export class DraftLanding {
     if (keep === live.length && keep === next.length) return
     const at = keep > 0 ? live[keep - 1]!.end : this.from
     const wasVisible = this.follow && this.endVisible()
-    if (!mutateMarkdown(() => this.editor.view.dispatch(this.draftTr().replaceWith(at, this.to, next.slice(keep))), this.source)) return
+    if (
+      !mutateMarkdown(
+        () => this.editor.view.dispatch(this.draftTr().replaceWith(at, this.to, next.slice(keep))),
+        this.source,
+      )
+    )
+      return
     this.to = at + next.slice(keep).reduce((size, n) => size + n.nodeSize, 0)
     if (wasVisible) this.scrollToEnd()
     else this.follow = false

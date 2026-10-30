@@ -101,7 +101,9 @@ export const DRAFT_META = 'aiDraft'
  */
 export class DraftLanding {
   private readonly source = docMutationSource()
-  private isCurrent(): boolean { return this.source === docMutationSource() }
+  private isCurrent(): boolean {
+    return this.source === docMutationSource()
+  }
   private from: number
   private to: number
   /** the text of the last tick that parsed and rendered */

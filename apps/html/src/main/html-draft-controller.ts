@@ -1,4 +1,4 @@
-import { createHash,randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import { types } from 'node:util'
 import {
@@ -20,7 +20,11 @@ const canonical = (path: string | null) =>
 const sequence = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0
 
-interface HtmlJournalBinding {receiptSequence:number;expectedDocumentPath:string|null;expectedSha256:string}
+interface HtmlJournalBinding {
+  receiptSequence: number
+  expectedDocumentPath: string | null
+  expectedSha256: string
+}
 interface DraftSession {
   token: string
   documentPath: string | null
@@ -32,9 +36,9 @@ interface DraftSession {
   sourceOperation: number
   active: boolean
   queue: Promise<unknown>
-  receiptSequence:number
-  lastWriteBinding:HtmlJournalBinding|null
-  pendingWrites:Set<Promise<HtmlJournalBinding|null>>
+  receiptSequence: number
+  lastWriteBinding: HtmlJournalBinding | null
+  pendingWrites: Set<Promise<HtmlJournalBinding | null>>
 }
 
 export interface HtmlDraftDependencies {
@@ -86,7 +90,9 @@ export class HtmlDraftController {
       sourceOperation: 0,
       active: true,
       queue: Promise.resolve(),
-      receiptSequence:0,lastWriteBinding:null,pendingWrites:new Set(),
+      receiptSequence: 0,
+      lastWriteBinding: null,
+      pendingWrites: new Set(),
     })
     return token
   }
@@ -155,7 +161,7 @@ export class HtmlDraftController {
     await this.serialized(state, async () => {
       if (state.lastWritten > request.throughSequence) return
       await this.discard(this.dependencies.recoveryRoot(), state.token)
-      state.lastWriteBinding=null
+      state.lastWriteBinding = null
     })
   }
 
@@ -229,21 +235,49 @@ export class HtmlDraftController {
         request.revision !== state.revision
       )
         return { written: false, remoteReferences: 0 }
-      const pathAtWrite=state.documentPath,expectedSha256=createHash('sha256').update(bytes).digest('hex')
-      const writing=this.write(this.dependencies.recoveryRoot(),{id:state.token,module:'html',documentPath:pathAtWrite,extension:'.html',bytes}).then(entry=>{
-        if(!entry)return null
-        if(entry.id!==state.token||entry.module!=='html'||canonical(entry.documentPath)!==canonical(pathAtWrite)||entry.extension!=='.html'||entry.bytes!==bytes.length||entry.sha256!==expectedSha256)throw new Error('The HTML journal writer returned an unverified receipt; the previous custody binding is retained.')
-        const receiptSequence=state.receiptSequence+1
-        if(!Number.isSafeInteger(receiptSequence))throw new Error('The HTML journal receipt sequence is exhausted; its previous copy is retained.')
-        state.receiptSequence=receiptSequence
-        const binding=Object.freeze({receiptSequence,expectedDocumentPath:entry.documentPath,expectedSha256:entry.sha256})
-        state.lastWriteBinding=binding
+      const pathAtWrite = state.documentPath,
+        expectedSha256 = createHash('sha256').update(bytes).digest('hex')
+      const writing = this.write(this.dependencies.recoveryRoot(), {
+        id: state.token,
+        module: 'html',
+        documentPath: pathAtWrite,
+        extension: '.html',
+        bytes,
+      }).then((entry) => {
+        if (!entry) return null
+        if (
+          entry.id !== state.token ||
+          entry.module !== 'html' ||
+          canonical(entry.documentPath) !== canonical(pathAtWrite) ||
+          entry.extension !== '.html' ||
+          entry.bytes !== bytes.length ||
+          entry.sha256 !== expectedSha256
+        )
+          throw new Error(
+            'The HTML journal writer returned an unverified receipt; the previous custody binding is retained.',
+          )
+        const receiptSequence = state.receiptSequence + 1
+        if (!Number.isSafeInteger(receiptSequence))
+          throw new Error(
+            'The HTML journal receipt sequence is exhausted; its previous copy is retained.',
+          )
+        state.receiptSequence = receiptSequence
+        const binding = Object.freeze({
+          receiptSequence,
+          expectedDocumentPath: entry.documentPath,
+          expectedSha256: entry.sha256,
+        })
+        state.lastWriteBinding = binding
         return binding
       })
       state.pendingWrites.add(writing)
-      let entry:HtmlJournalBinding|null
-      try{entry=await writing}finally{state.pendingWrites.delete(writing)}
-      if(entry)state.lastWritten=request.sequence
+      let entry: HtmlJournalBinding | null
+      try {
+        entry = await writing
+      } finally {
+        state.pendingWrites.delete(writing)
+      }
+      if (entry) state.lastWritten = request.sequence
       if (
         !this.isCurrent(owner, state) ||
         request.sequence <= state.clearedThrough ||
@@ -279,31 +313,85 @@ export class HtmlDraftController {
       // A newer dirty snapshot may already have committed while save was awaiting.
       if (state.lastWritten > request.throughSequence) return
       await this.discard(this.dependencies.recoveryRoot(), state.token)
-      state.lastWriteBinding=null
+      state.lastWriteBinding = null
     })
     return true
   }
 
   /** Retire an approved close producer, drain its accepted commits, and KEEP its durable bytes. */
-  stageClose(owner:number,value:unknown):{token:string;documentPath:string|null;drain:Promise<void>;attest:()=>{expectedDocumentPath:string|null;expectedSha256:string}|null;cancel:()=>void}{
-    const request=value as HtmlDraftSaveAcknowledgment|null
-    if(!request||!UUID.test(request.token)||!sequence(request.throughSequence)||!sequence(request.revision)||(request.documentPath!==null&&typeof request.documentPath!=='string'))throw new Error('Invalid captured HTML close journal.')
-    const state=this.current(owner,request.token)
-    if(request.revision!==state.revision||canonical(request.documentPath)!==canonical(state.documentPath))throw new Error('The approved HTML journal source changed.')
+  stageClose(
+    owner: number,
+    value: unknown,
+  ): {
+    token: string
+    documentPath: string | null
+    drain: Promise<void>
+    attest: () => { expectedDocumentPath: string | null; expectedSha256: string } | null
+    cancel: () => void
+  } {
+    const request = value as HtmlDraftSaveAcknowledgment | null
+    if (
+      !request ||
+      !UUID.test(request.token) ||
+      !sequence(request.throughSequence) ||
+      !sequence(request.revision) ||
+      (request.documentPath !== null && typeof request.documentPath !== 'string')
+    )
+      throw new Error('Invalid captured HTML close journal.')
+    const state = this.current(owner, request.token)
+    if (
+      request.revision !== state.revision ||
+      canonical(request.documentPath) !== canonical(state.documentPath)
+    )
+      throw new Error('The approved HTML journal source changed.')
     // No old snapshot may enter the writer after this synchronous retirement.
-    state.active=false
+    state.active = false
     state.sourceOperation++
-    state.clearedThrough=Math.max(state.clearedThrough,state.highestReceived,request.throughSequence)
+    state.clearedThrough = Math.max(
+      state.clearedThrough,
+      state.highestReceived,
+      request.throughSequence,
+    )
     // Seal only the baseline and the accepted writes captured at retirement.
     // Never look up this owner's resumed/replacement producer after an await.
-    let sealed=state.lastWriteBinding,drained=false
-    const accepted=Promise.allSettled([...state.pendingWrites])
-    const drain=state.queue.catch(()=>{}).then(async()=>{for(const result of await accepted)if(result.status==='fulfilled'&&result.value&&(!sealed||result.value.receiptSequence>sealed.receiptSequence))sealed=result.value;drained=true})
-    const attest=()=>{if(!drained)throw new Error('The captured HTML journal writer drain is unfinished; its prior copy is retained.');return sealed?{expectedDocumentPath:sealed.expectedDocumentPath,expectedSha256:sealed.expectedSha256}:null}
-    return {token:state.token,documentPath:state.documentPath,drain,attest,cancel:()=>{
-      // A canceled outer close must never rearm a replacement activation or dead owner.
-      if(this.sessions.get(owner)===state&&this.dependencies.isLive(owner))state.active=true
-    }}
+    let sealed = state.lastWriteBinding,
+      drained = false
+    const accepted = Promise.allSettled([...state.pendingWrites])
+    const drain = state.queue
+      .catch(() => {})
+      .then(async () => {
+        for (const result of await accepted)
+          if (
+            result.status === 'fulfilled' &&
+            result.value &&
+            (!sealed || result.value.receiptSequence > sealed.receiptSequence)
+          )
+            sealed = result.value
+        drained = true
+      })
+    const attest = () => {
+      if (!drained)
+        throw new Error(
+          'The captured HTML journal writer drain is unfinished; its prior copy is retained.',
+        )
+      return sealed
+        ? {
+            expectedDocumentPath: sealed.expectedDocumentPath,
+            expectedSha256: sealed.expectedSha256,
+          }
+        : null
+    }
+    return {
+      token: state.token,
+      documentPath: state.documentPath,
+      drain,
+      attest,
+      cancel: () => {
+        // A canceled outer close must never rearm a replacement activation or dead owner.
+        if (this.sessions.get(owner) === state && this.dependencies.isLive(owner))
+          state.active = true
+      },
+    }
   }
 
   /** Explicit discard waits for an in-flight commit and cannot resurrect it later. */
@@ -317,7 +405,7 @@ export class HtmlDraftController {
       await this.serialized(state, () =>
         this.discard(this.dependencies.recoveryRoot(), state.token),
       )
-      state.lastWriteBinding=null
+      state.lastWriteBinding = null
     } catch (error) {
       // A storage failure refuses the close/replacement. The still-open
       // document must remain able to journal new edits and retry discard;

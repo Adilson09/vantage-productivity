@@ -17,16 +17,26 @@ export class WorkbookPublicationLifecycle {
   private settled = false
   private readonly work = new Set<Promise<unknown>>()
 
-  constructor() { this.actualSettled = new Promise<void>(resolve => { this.resolveActual = resolve }) }
+  constructor() {
+    this.actualSettled = new Promise<void>((resolve) => {
+      this.resolveActual = resolve
+    })
+  }
 
-  isSettled(): boolean { return this.settled }
+  isSettled(): boolean {
+    return this.settled
+  }
 
   run<T>(actual: () => Promise<T>): Promise<T> {
-    if (this.started || !this.bodyPending) throw new Error('The main publication body has already been admitted.')
+    if (this.started || !this.bodyPending)
+      throw new Error('The main publication body has already been admitted.')
     this.started = true
     // Dispatch after the outer W2 and quit holds have been indexed.
     const body = Promise.resolve().then(actual)
-    const finish = () => { this.bodyPending = false; this.finishIfSettled() }
+    const finish = () => {
+      this.bodyPending = false
+      this.finishIfSettled()
+    }
     void body.then(finish, finish)
     return body
   }
@@ -42,21 +52,27 @@ export class WorkbookPublicationLifecycle {
     if (this.settled) throw new Error('A settled main publication cannot acquire later work.')
     if (this.work.has(actual)) return
     this.work.add(actual)
-    const finish = () => { this.work.delete(actual); this.finishIfSettled() }
+    const finish = () => {
+      this.work.delete(actual)
+      this.finishIfSettled()
+    }
     void actual.then(finish, finish)
   }
 
   retainOffer(): WorkbookPublicationDecision {
-    if (this.settled || !this.bodyPending) throw new Error('A source offer must be retained before its main body returns.')
+    if (this.settled || !this.bodyPending)
+      throw new Error('A source offer must be retained before its main body returns.')
     this.decisions++
     let decided = false
-    return Object.freeze({ finishAfter: (actual: Promise<unknown>) => {
-      if (decided) return
-      this.hold(actual)
-      decided = true
-      this.decisions--
-      this.finishIfSettled()
-    } })
+    return Object.freeze({
+      finishAfter: (actual: Promise<unknown>) => {
+        if (decided) return
+        this.hold(actual)
+        decided = true
+        this.decisions--
+        this.finishIfSettled()
+      },
+    })
   }
 
   private finishIfSettled(): void {

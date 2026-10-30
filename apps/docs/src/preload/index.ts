@@ -83,11 +83,12 @@ const api: DesktopApi = {
   openDocx: () => ipcRenderer.invoke('docs:open'),
   openDocxPath: (path: string) => ipcRenderer.invoke('docs:open-path', path),
   confirmDocumentReplace: () => ipcRenderer.invoke('docs:confirm-document-replace'),
-  confirmDocumentReplaceSnapshot: () => ipcRenderer.invoke('docs:confirm-document-replace-snapshot'),
+  confirmDocumentReplaceSnapshot: () =>
+    ipcRenderer.invoke('docs:confirm-document-replace-snapshot'),
   convertAltChunkHtml: (html: string) => ipcRenderer.invoke('docs:altchunk-html-to-docx', html),
   openDocxDecrypt: (path: string, password: string) =>
     ipcRenderer.invoke('docs:open-decrypt', path, password),
-  setDocPassword: (filePath: string | null, password: string | null, sourceIdentity?:string) =>
+  setDocPassword: (filePath: string | null, password: string | null, sourceIdentity?: string) =>
     ipcRenderer.invoke('docs:set-password', filePath, password, sourceIdentity),
   docPasswordIntentRevision: async () => {
     const revision: unknown = await ipcRenderer.invoke('docs:password-intent-revision')
@@ -101,7 +102,8 @@ const api: DesktopApi = {
   consumeNewBlankDoc: () => ipcRenderer.invoke('docs:consume-new-blank'),
   consumeAiDocContent: () => ipcRenderer.invoke('docs:consume-ai-doc-content'),
   consumeHeadlessExport: () => ipcRenderer.invoke('docs:consume-headless-export'),
-  pinConfiguredExportTarget:(path:string,format:'pdf'|'html'|'md')=>ipcRenderer.invoke('docs:pin-configured-export-target',path,format),
+  pinConfiguredExportTarget: (path: string, format: 'pdf' | 'html' | 'md') =>
+    ipcRenderer.invoke('docs:pin-configured-export-target', path, format),
   headlessExportDone: (result: { ok: boolean; error?: string }) =>
     ipcRenderer.send('docs:headless-export-done', result),
   createDocument: (request) => ipcRenderer.invoke('docs:create-document', request),
@@ -117,9 +119,21 @@ const api: DesktopApi = {
     ipcRenderer.on('docs:renamed', listener)
     return () => ipcRenderer.removeListener('docs:renamed', listener)
   },
-  saveDocx: (path: string, data: ArrayBuffer, auto?: boolean, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket) =>
-    ipcRenderer.invoke('docs:save', path, data, auto === true, ...(closeTicket?[closeTicket] as const:[] as const)),
-  activateDocDraft: (path, sourceIdentity) => ipcRenderer.invoke('docs:activate-draft', path, sourceIdentity),
+  saveDocx: (
+    path: string,
+    data: ArrayBuffer,
+    auto?: boolean,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+  ) =>
+    ipcRenderer.invoke(
+      'docs:save',
+      path,
+      data,
+      auto === true,
+      ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
+    ),
+  activateDocDraft: (path, sourceIdentity) =>
+    ipcRenderer.invoke('docs:activate-draft', path, sourceIdentity),
   writeRecoveryCopy: (request) => ipcRenderer.invoke('docs:write-recovery', request),
   acknowledgeDocDraftSave: (request) => ipcRenderer.invoke('docs:acknowledge-draft-save', request),
   onDocDraftDiscarded: (handler) => {
@@ -153,12 +167,43 @@ const api: DesktopApi = {
   spellReplace: (word: string) => ipcRenderer.invoke('docs:spell-replace', word),
   spellLanguages: () => ipcRenderer.invoke('docs:spell-languages'),
   spellSetLanguages: (langs: string[]) => ipcRenderer.invoke('docs:spell-set-languages', langs),
-  saveDocxAs: (defaultName: string, data: ArrayBuffer, sourcePath?: string | null, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket) =>
-    ipcRenderer.invoke('docs:save-as', defaultName, data, sourcePath ?? null, ...(closeTicket?[closeTicket] as const:[] as const)),
-  saveDocxNew: (defaultName: string, data: ArrayBuffer, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket) =>
-    ipcRenderer.invoke('docs:save-new', defaultName, data, ...(closeTicket?[closeTicket] as const:[] as const)),
-  saveDocxTo: (path: string, data: ArrayBuffer, overwrite: boolean, closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket) =>
-    ipcRenderer.invoke('docs:save-to', path, data, overwrite === true, ...(closeTicket?[closeTicket] as const:[] as const)),
+  saveDocxAs: (
+    defaultName: string,
+    data: ArrayBuffer,
+    sourcePath?: string | null,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+  ) =>
+    ipcRenderer.invoke(
+      'docs:save-as',
+      defaultName,
+      data,
+      sourcePath ?? null,
+      ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
+    ),
+  saveDocxNew: (
+    defaultName: string,
+    data: ArrayBuffer,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+  ) =>
+    ipcRenderer.invoke(
+      'docs:save-new',
+      defaultName,
+      data,
+      ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
+    ),
+  saveDocxTo: (
+    path: string,
+    data: ArrayBuffer,
+    overwrite: boolean,
+    closeTicket?: import('../../../../packages/electron-utils/src/close-lease').CloseLeaseTicket,
+  ) =>
+    ipcRenderer.invoke(
+      'docs:save-to',
+      path,
+      data,
+      overwrite === true,
+      ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
+    ),
   onMcpCommand: (handler) => {
     const listener = (_event: IpcRendererEvent, message: Parameters<typeof handler>[0]) =>
       handler(message)
@@ -168,9 +213,11 @@ const api: DesktopApi = {
   reportMcpResult: (result) => ipcRenderer.send('docs:mcp-result', result),
   signalMcpReady: () => ipcRenderer.send('docs:mcp-ready'),
   claimDocCloseLease: (ticket) => ipcRenderer.invoke('docs:close-lease-claim', ticket),
-  cancelDocCloseLease: (ticket, reason) => ipcRenderer.invoke('docs:close-lease-cancel', ticket, reason),
+  cancelDocCloseLease: (ticket, reason) =>
+    ipcRenderer.invoke('docs:close-lease-cancel', ticket, reason),
   onDocCloseRelease: (handler) => {
-    const listener = (_event: Electron.IpcRendererEvent, ticket: Parameters<typeof handler>[0]) => handler(ticket)
+    const listener = (_event: Electron.IpcRendererEvent, ticket: Parameters<typeof handler>[0]) =>
+      handler(ticket)
     ipcRenderer.on('docs:close-lease-release', listener)
     return () => ipcRenderer.removeListener('docs:close-lease-release', listener)
   },
@@ -189,7 +236,7 @@ const api: DesktopApi = {
     outPath?: string,
     scale?: number,
     links?: PdfInternalLink[],
-    selectionId?:string,
+    selectionId?: string,
   ) =>
     ipcRenderer.invoke(
       'docs:export-pdf',
@@ -201,15 +248,16 @@ const api: DesktopApi = {
       links,
       selectionId,
     ),
-  exportHtml: (defaultName: string, html: string, outPath?: string,selectionId?:string) =>
-    ipcRenderer.invoke('docs:export-html', defaultName, html, outPath,selectionId),
+  exportHtml: (defaultName: string, html: string, outPath?: string, selectionId?: string) =>
+    ipcRenderer.invoke('docs:export-html', defaultName, html, outPath, selectionId),
   exportMarkdown: (
     defaultName: string,
     markdown: string,
     images: MarkdownImage[],
     outPath?: string,
-    selectionId?:string,
-  ) => ipcRenderer.invoke('docs:export-markdown', defaultName, markdown, images, outPath,selectionId),
+    selectionId?: string,
+  ) =>
+    ipcRenderer.invoke('docs:export-markdown', defaultName, markdown, images, outPath, selectionId),
   printPdfBuffer: (pageWidthTwips: number, pageHeightTwips: number, scale?: number) =>
     ipcRenderer.invoke('docs:print-pdf-buffer', pageWidthTwips, pageHeightTwips, scale),
   saveMergedPdf: (
@@ -217,12 +265,20 @@ const api: DesktopApi = {
     base64Parts: string[],
     outPath?: string,
     links?: PdfInternalLink[],
-    selectionId?:string,
-  ) => ipcRenderer.invoke('docs:save-merged-pdf', defaultName, base64Parts, outPath, links,selectionId),
+    selectionId?: string,
+  ) =>
+    ipcRenderer.invoke(
+      'docs:save-merged-pdf',
+      defaultName,
+      base64Parts,
+      outPath,
+      links,
+      selectionId,
+    ),
   pickExportImagesTarget: () => ipcRenderer.invoke('docs:pick-export-images-target'),
   takeExportPdf: (pdfPath: string) => ipcRenderer.invoke('docs:take-export-pdf', pdfPath),
-  writeExportImage: (dir: string, fileName: string, pngBase64: string,selectionId:string) =>
-    ipcRenderer.invoke('docs:write-export-image', dir, fileName, pngBase64,selectionId),
+  writeExportImage: (dir: string, fileName: string, pngBase64: string, selectionId: string) =>
+    ipcRenderer.invoke('docs:write-export-image', dir, fileName, pngBase64, selectionId),
   saveImageAs: (src: string) => ipcRenderer.invoke('docs:save-image-as', src),
   onViewImage: (handler) => {
     const listener = (_event: IpcRendererEvent, src: string) => handler(src)

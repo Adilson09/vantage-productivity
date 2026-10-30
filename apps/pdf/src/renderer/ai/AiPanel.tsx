@@ -364,7 +364,8 @@ export function AiPanel({
   const loopRef = useRef<AgentLoop | null>(null)
   if (!loopRef.current) {
     const deps: PdfAiDeps = {
-      withWorkspaceWork: action => apiRef.current.withWorkspaceWork ? apiRef.current.withWorkspaceWork(action) : action(),
+      withWorkspaceWork: (action) =>
+        apiRef.current.withWorkspaceWork ? apiRef.current.withWorkspaceWork(action) : action(),
       workspaceIdentity: () => apiRef.current.workspaceIdentity?.() ?? '',
       doc: () => apiRef.current.doc(),
       fileName: () => apiRef.current.fileName(),

@@ -140,7 +140,12 @@ export function NameManagerDialog({
           <div className="dialog-grid">
             <label>
               {t('dlgNmName')}
-              <input disabled={pending} value={name} onChange={(e) => setName(e.target.value)} placeholder="MyRange" />
+              <input
+                disabled={pending}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="MyRange"
+              />
             </label>
             <label>
               {t('dlgNmRefersTo')}
@@ -167,7 +172,11 @@ export function NameManagerDialog({
               </label>
             )}
           </div>
-          {error && <p className="dialog-note dialog-error" role="alert">{error}</p>}
+          {error && (
+            <p className="dialog-note dialog-error" role="alert">
+              {error}
+            </p>
+          )}
         </section>
         <footer className="dialog-actions">
           <button className="secondary" disabled={pending} onClick={close}>

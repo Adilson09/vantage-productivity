@@ -13,20 +13,13 @@ import {
   teardownDocsRenderer,
 } from '../../../docs/src/main/docs-main'
 import type { AiDocContent } from '../../../docs/src/shared/ipc'
-import {
-  createMarkdownView,
-  markdownIsDirty,
-} from '../../../markdown/src/main/markdown-main'
+import { createMarkdownView, markdownIsDirty } from '../../../markdown/src/main/markdown-main'
 import {
   createHtmlPresentView,
   createHtmlView,
   htmlIsDirty,
 } from '../../../html/src/main/html-main'
-import {
-  createPdfView,
-  clearPdfDirty,
-  pdfIsDirty,
-} from '../../../pdf/src/main/pdf-main'
+import { createPdfView, clearPdfDirty, pdfIsDirty } from '../../../pdf/src/main/pdf-main'
 import {
   createSheetsView,
   nudgeQueuedWorkbook,
@@ -40,8 +33,8 @@ import {
   setActiveSlidesWebContents,
   slidesIsDirty,
 } from '../../../slides/src/main/slides-main'
-import {rootQuitIntent} from './root-quit-intent'
-import {prepareRootIndividualClose} from './root-close-adapters'
+import { rootQuitIntent } from './root-quit-intent'
+import { prepareRootIndividualClose } from './root-close-adapters'
 import { rendererUrl, safeExternalUrl } from '@vantage/electron-utils'
 import type { DocumentTabKind, OpenDocumentTab, TabKind, TabSummary } from '../shared/tabs-api'
 import { isSettledRect, tabStripHeight } from '../shared/tab-drag-geometry'
@@ -90,7 +83,13 @@ const HOME_ID = 'home'
  */
 export class TabManager {
   private readonly tabs: TabRecord[] = [
-    { id: HOME_ID, kind: 'home', view: null, title: 'Vantage Productivity', lastActiveAt: Date.now() },
+    {
+      id: HOME_ID,
+      kind: 'home',
+      view: null,
+      title: 'Vantage Productivity',
+      lastActiveAt: Date.now(),
+    },
   ]
   private activeId: string = HOME_ID
   private nextId = 1
@@ -679,9 +678,17 @@ export class TabManager {
   }
 
   /** Exact synchronous participant inventory; dirty mirrors cannot certify a clean renderer. */
-  closeGuardTabs():Array<{id:string;kind:DocumentTabKind;webContents:WebContents}>{
-    return this.tabs.filter(t=>t.kind!=='home'&&t.kind!=='help'&&!t.present&&t.view&&!t.view.webContents.isDestroyed())
-      .map(t=>({id:t.id,kind:t.kind as DocumentTabKind,webContents:t.view!.webContents}))
+  closeGuardTabs(): Array<{ id: string; kind: DocumentTabKind; webContents: WebContents }> {
+    return this.tabs
+      .filter(
+        (t) =>
+          t.kind !== 'home' &&
+          t.kind !== 'help' &&
+          !t.present &&
+          t.view &&
+          !t.view.webContents.isDestroyed(),
+      )
+      .map((t) => ({ id: t.id, kind: t.kind as DocumentTabKind, webContents: t.view!.webContents }))
   }
 
   /** closes whichever tab is currently active; no-op for Home (Cmd+W target) */
@@ -690,28 +697,52 @@ export class TabManager {
   }
 
   async closeTab(id: string): Promise<void> {
-    if(id===HOME_ID)return
-    const tab=this.tabs.find(value=>value.id===id)
-    if(!tab||this.closingIds.has(id))return
-    if(!tab.view||tab.present||tab.kind==='help'){this.removeTab(id);return}
-    const view=tab.view,kind=tab.kind as DocumentTabKind,epoch=rootQuitIntent.capture(),controller=new AbortController()
-    const current=()=>rootQuitIntent.current(epoch)&&!controller.signal.aborted&&this.tabs.find(value=>value.id===id)===tab&&tab.view===view&&!view.webContents.isDestroyed()&&!this.shellWindow.isDestroyed()
-    const unsubscribe=rootQuitIntent.subscribe(reason=>controller.abort(reason))
-    let receipt:Awaited<ReturnType<typeof prepareRootIndividualClose>>=null
+    if (id === HOME_ID) return
+    const tab = this.tabs.find((value) => value.id === id)
+    if (!tab || this.closingIds.has(id)) return
+    if (!tab.view || tab.present || tab.kind === 'help') {
+      this.removeTab(id)
+      return
+    }
+    const view = tab.view,
+      kind = tab.kind as DocumentTabKind,
+      epoch = rootQuitIntent.capture(),
+      controller = new AbortController()
+    const current = () =>
+      rootQuitIntent.current(epoch) &&
+      !controller.signal.aborted &&
+      this.tabs.find((value) => value.id === id) === tab &&
+      tab.view === view &&
+      !view.webContents.isDestroyed() &&
+      !this.shellWindow.isDestroyed()
+    const unsubscribe = rootQuitIntent.subscribe((reason) => controller.abort(reason))
+    let receipt: Awaited<ReturnType<typeof prepareRootIndividualClose>> = null
     this.closingIds.add(id)
     rootQuitIntent.beginApproval()
-    try{
-      if(this.activeId!==id)this.activateTab(id)
-      receipt=await prepareRootIndividualClose(kind,view.webContents,this.shellWindow,{signal:controller.signal,isCurrent:current,allowForce:kind==='docs'})
-      if(!receipt||!current()||!receipt.complete(()=>{
-        if(!current())return false
-        this.removeTab(id)
-        return this.tabs.find(value=>value.id===id)!==tab
-      }))rootQuitIntent.cancel('Document close was declined or became obsolete.')
-    }catch(error){console.error('[shell] tab close preparation failed:',error);rootQuitIntent.cancel('Document close failed; the document remains open.')}
-    finally{
-      unsubscribe();this.closingIds.delete(id)
-      if(receipt)await receipt.cancel('individual close finished')
+    try {
+      if (this.activeId !== id) this.activateTab(id)
+      receipt = await prepareRootIndividualClose(kind, view.webContents, this.shellWindow, {
+        signal: controller.signal,
+        isCurrent: current,
+        allowForce: kind === 'docs',
+      })
+      if (
+        !receipt ||
+        !current() ||
+        !receipt.complete(() => {
+          if (!current()) return false
+          this.removeTab(id)
+          return this.tabs.find((value) => value.id === id) !== tab
+        })
+      )
+        rootQuitIntent.cancel('Document close was declined or became obsolete.')
+    } catch (error) {
+      console.error('[shell] tab close preparation failed:', error)
+      rootQuitIntent.cancel('Document close failed; the document remains open.')
+    } finally {
+      unsubscribe()
+      this.closingIds.delete(id)
+      if (receipt) await receipt.cancel('individual close finished')
     }
   }
 
@@ -723,7 +754,7 @@ export class TabManager {
    * Returns false when there is no such tab (already closed) or one is mid-prompt.
    */
   closeTabWithoutPrompt(id: string): boolean {
-    if(!rootQuitIntent.mutationAllowed())return false
+    if (!rootQuitIntent.mutationAllowed()) return false
     if (id === HOME_ID) return false
     const tab = this.tabs.find((t) => t.id === id)
     if (!tab || this.closingIds.has(id)) return false

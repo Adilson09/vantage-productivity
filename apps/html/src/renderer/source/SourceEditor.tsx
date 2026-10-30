@@ -1,4 +1,10 @@
-import { htmlCloseLocked, htmlCloseStamp, mutateHtml, noteHtmlAuthoredMutation, registerHtmlCloseLock } from '../close-lease'
+import {
+  htmlCloseLocked,
+  htmlCloseStamp,
+  mutateHtml,
+  noteHtmlAuthoredMutation,
+  registerHtmlCloseLock,
+} from '../close-lease'
 import {
   forwardRef,
   useEffect,
@@ -99,33 +105,60 @@ export const SourceEditor = forwardRef<SourceEditorHandle, Props>(function Sourc
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
-    const closeCompartment=new Compartment()
+    const closeCompartment = new Compartment()
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
         doc: initialText,
-        extensions: [closeCompartment.of([]),...buildExtensions((v) => {
-          const head = v.state.selection.main.head
-          const line = v.state.doc.lineAt(head)
-          onCursorRef.current({ line: line.number, col: head - line.from + 1, pos: head })
-        })],
+        extensions: [
+          closeCompartment.of([]),
+          ...buildExtensions((v) => {
+            const head = v.state.selection.main.head
+            const line = v.state.doc.lineAt(head)
+            onCursorRef.current({ line: line.number, col: head - line.from + 1, pos: head })
+          }),
+        ],
       }),
       dispatchTransactions: (trs, v) => {
-        const apply=()=>{
-        v.update(trs)
-        if (trs.some((tr) => tr.docChanged && !tr.annotation(External))) {
-          onChangeRef.current(v.state.doc.toString())
+        const apply = () => {
+          v.update(trs)
+          if (trs.some((tr) => tr.docChanged && !tr.annotation(External))) {
+            onChangeRef.current(v.state.doc.toString())
+          }
+          if (trs.some((tr) => tr.docChanged)) for (const l of docListeners.current) l()
         }
-        if (trs.some((tr) => tr.docChanged)) for (const l of docListeners.current) l()
+        if (!trs.some((tr) => tr.docChanged)) {
+          apply()
+          return
         }
-        if(!trs.some(tr=>tr.docChanged)){apply();return}
-        if(!htmlCloseLocked()){noteHtmlAuthoredMutation();apply();return}
-        const before=v.state,source=htmlCloseStamp().source
-        mutateHtml(()=>{if(viewRef.current!==v||v.state!==before)throw new Error('The pending source transaction cannot be rebased after close cancellation.');apply()},source)
+        if (!htmlCloseLocked()) {
+          noteHtmlAuthoredMutation()
+          apply()
+          return
+        }
+        const before = v.state,
+          source = htmlCloseStamp().source
+        mutateHtml(() => {
+          if (viewRef.current !== v || v.state !== before)
+            throw new Error(
+              'The pending source transaction cannot be rebased after close cancellation.',
+            )
+          apply()
+        }, source)
       },
     })
     viewRef.current = view
-    const releaseCloseLock=registerHtmlCloseLock(()=>{view.dispatch({effects:closeCompartment.reconfigure([EditorState.readOnly.of(true),EditorView.editable.of(false)])});return()=>{if(viewRef.current===view)view.dispatch({effects:closeCompartment.reconfigure([])})}})
+    const releaseCloseLock = registerHtmlCloseLock(() => {
+      view.dispatch({
+        effects: closeCompartment.reconfigure([
+          EditorState.readOnly.of(true),
+          EditorView.editable.of(false),
+        ]),
+      })
+      return () => {
+        if (viewRef.current === view) view.dispatch({ effects: closeCompartment.reconfigure([]) })
+      }
+    })
     findTargetRef.current = cmFindTarget(
       view,
       (listener) => {

@@ -1,6 +1,13 @@
-import type {CloseLeaseTicket} from '../../../../packages/electron-utils/src/close-lease'
+import type { CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
 import type { DocReplacementApproval } from '../shared/ipc'
-import { docCloseBarrier, docMutationSource, docSourceStamp, setDocCloseSourceReader, withDocSourceCommit, isDocAuthoringActive } from './doc-close-lease'
+import {
+  docCloseBarrier,
+  docMutationSource,
+  docSourceStamp,
+  setDocCloseSourceReader,
+  withDocSourceCommit,
+  isDocAuthoringActive,
+} from './doc-close-lease'
 /**
  * Document lifecycle: open/new (full state reset from a parsed docx), the
  * save pipeline (PM doc → save plan → docx bytes → reparse), and PDF export.
@@ -10,7 +17,15 @@ import { docCloseBarrier, docMutationSource, docSourceStamp, setDocCloseSourceRe
  */
 import type { Editor } from '@tiptap/core'
 import { readDocxRecoveryData, writeDocxRecoveryData } from '@vantage/docx-engine'
-import { adoptCommentDraftRecovery, assertCommentDraftRecovery, captureCommentDraftRecovery, commentDraftSnapshot, hasCommentDrafts, hasUnrecordedCommentDrafts, noteCommentDraftRecorded } from './comment-draft-recovery'
+import {
+  adoptCommentDraftRecovery,
+  assertCommentDraftRecovery,
+  captureCommentDraftRecovery,
+  commentDraftSnapshot,
+  hasCommentDrafts,
+  hasUnrecordedCommentDrafts,
+  noteCommentDraftRecorded,
+} from './comment-draft-recovery'
 import { history } from '@tiptap/pm/history'
 import { suggestFileName } from '@vantage/ui'
 import { modelTextOf, type RedactableNode } from './ai/redact-view'
@@ -117,7 +132,7 @@ import type { DocDraftActivation } from '../shared/doc-draft'
 
 /** An export waiting for the pagination preview to mount; resolve settles the caller's exportPdf promise. */
 export type PendingPdfExport = {
-  selectionId?:string
+  selectionId?: string
   outPath?: string
   resolve: (ok: boolean) => void
   /** the export opened the preview itself and closes it once the PDF is written */
@@ -470,9 +485,18 @@ function focusDocumentStart(editor: Editor): void {
 /** bumped when a document replacement starts; a slower one still parsing must not land */
 let openGeneration = 0
 
-export function docReplacementIsCurrent(ctx: FileActionContext, approval: DocReplacementApproval): boolean {
+export function docReplacementIsCurrent(
+  ctx: FileActionContext,
+  approval: DocReplacementApproval,
+): boolean {
   const stamp = docCloseBarrier.snapshot()
-  if (stamp.source !== approval.stamp.source || stamp.revision !== approval.stamp.revision || !ctx.editor || ctx.editor.view.composing) return false
+  if (
+    stamp.source !== approval.stamp.source ||
+    stamp.revision !== approval.stamp.revision ||
+    !ctx.editor ||
+    ctx.editor.view.composing
+  )
+    return false
   if (approval.intent === 'save' || approval.intent === 'clean') {
     if (!canCloseSavedDocument(ctx.currentContext?.() ?? ctx, docGeneration)) return false
     const after = docCloseBarrier.snapshot()
@@ -482,13 +506,23 @@ export function docReplacementIsCurrent(ctx: FileActionContext, approval: DocRep
 }
 function requireDocReplacement(ctx: FileActionContext, approval?: DocReplacementApproval): void {
   if (approval && !docReplacementIsCurrent(ctx, approval))
-    throw new Error('The current document changed after replacement approval. Its edits remain open; retry Open or New.')
+    throw new Error(
+      'The current document changed after replacement approval. Its edits remain open; retry Open or New.',
+    )
 }
 
-export async function loadFile(ctx: FileActionContext, result: OpenDocxResult, approval?: DocReplacementApproval): Promise<LoadFileOutcome> {
-  const originalGeneration=docGeneration
-  const outcome = await docCloseBarrier.runMutationWork(() => loadFileUnlocked(ctx, result, approval), docMutationSource())
-  if (approval?.intent === 'discard' && outcome !== 'ok') await resumeRecoveryAfterCanceledClose(ctx.currentContext?.() ?? ctx, originalGeneration)
+export async function loadFile(
+  ctx: FileActionContext,
+  result: OpenDocxResult,
+  approval?: DocReplacementApproval,
+): Promise<LoadFileOutcome> {
+  const originalGeneration = docGeneration
+  const outcome = await docCloseBarrier.runMutationWork(
+    () => loadFileUnlocked(ctx, result, approval),
+    docMutationSource(),
+  )
+  if (approval?.intent === 'discard' && outcome !== 'ok')
+    await resumeRecoveryAfterCanceledClose(ctx.currentContext?.() ?? ctx, originalGeneration)
   return outcome
 }
 
@@ -681,14 +715,24 @@ async function blankDocxBytes(): Promise<Uint8Array> {
 }
 
 /** new document from the built-in blank template (AI can then generate into it) */
-export async function newFile(ctx: FileActionContext, approval?: DocReplacementApproval): Promise<boolean | undefined> {
-  const originalGeneration=docGeneration
-  const result = await docCloseBarrier.runMutationWork(() => newFileUnlocked(ctx, approval), docMutationSource())
-  if (approval?.intent === 'discard' && result !== true) await resumeRecoveryAfterCanceledClose(ctx.currentContext?.() ?? ctx, originalGeneration)
+export async function newFile(
+  ctx: FileActionContext,
+  approval?: DocReplacementApproval,
+): Promise<boolean | undefined> {
+  const originalGeneration = docGeneration
+  const result = await docCloseBarrier.runMutationWork(
+    () => newFileUnlocked(ctx, approval),
+    docMutationSource(),
+  )
+  if (approval?.intent === 'discard' && result !== true)
+    await resumeRecoveryAfterCanceledClose(ctx.currentContext?.() ?? ctx, originalGeneration)
   return result
 }
 
-async function newFileUnlocked(ctx: FileActionContext, approval?: DocReplacementApproval): Promise<boolean | undefined> {
+async function newFileUnlocked(
+  ctx: FileActionContext,
+  approval?: DocReplacementApproval,
+): Promise<boolean | undefined> {
   if (!ctx.editor) return
   const generation = ++openGeneration
   try {
@@ -719,7 +763,13 @@ async function newFileUnlocked(ctx: FileActionContext, approval?: DocReplacement
       resetEditorHistory(sourceEditor)
       focusDocumentStart(sourceEditor)
       noteDocumentSwapped()
-      ctx.setDoc({ parsed, filePath: null, fileName: t('appUntitledDocx'), hash: '', isBlank: true })
+      ctx.setDoc({
+        parsed,
+        filePath: null,
+        fileName: t('appUntitledDocx'),
+        hash: '',
+        isBlank: true,
+      })
       // a very large document opened in Read Mode must not leave it on for the new one
       ctx.setReadMode(false)
       ctx.setLargeDocSpellOff(false)
@@ -888,7 +938,9 @@ export async function buildDocBytes(
   const { doc, editor } = ctx
   if (!doc || !editor) return null
   const suppliedPm = pmOverride ?? (editor.getJSON() as PmNode)
-  const pmJson = capturedPmDocuments.has(suppliedPm) ? suppliedPm : capturePmWriteDocument(suppliedPm)
+  const pmJson = capturedPmDocuments.has(suppliedPm)
+    ? suppliedPm
+    : capturePmWriteDocument(suppliedPm)
   const plan = pmDocToSavePlan(pmJson, doc.parsed.blocks)
   // chart data edits patch the chart's own zip part, not the body XML
   const partXml: Record<string, string> = {}
@@ -1001,7 +1053,14 @@ export async function buildDocBytes(
  */
 export async function writeRecoveryCopy(ctx: FileActionContext): Promise<void> {
   const { doc, editor } = ctx
-  if (!doc || !editor || docCloseBarrier.locked || ctx.saveInFlightRef.current || editor.isDestroyed) return
+  if (
+    !doc ||
+    !editor ||
+    docCloseBarrier.locked ||
+    ctx.saveInFlightRef.current ||
+    editor.isDestroyed
+  )
+    return
   if (isPhasedContentPending() || recoveryComposing || editor.view.composing) return
   const generation = docGeneration
   let epoch = recoveryEpoch
@@ -1012,7 +1071,13 @@ export async function writeRecoveryCopy(ctx: FileActionContext): Promise<void> {
     ctx = ctx.currentContext?.() ?? ctx
     const commentCapture = commentDraftSnapshot()
     const commentDrafts = captureCommentDraftRecovery()
-    if (!isDocDirty(ctx) && !pending.changed && !hasCommentDrafts() && !hasUnrecordedCommentDrafts()) return
+    if (
+      !isDocDirty(ctx) &&
+      !pending.changed &&
+      !hasCommentDrafts() &&
+      !hasUnrecordedCommentDrafts()
+    )
+      return
     const state = persistedState(ctx)
     const pmSnapshot = capturePmWriteDocument(pending.document ?? (editor.getJSON() as PmNode))
     if (discardedRecoveryState) {
@@ -1110,17 +1175,21 @@ const persistedKeys = [
   'removePersonalInfoDirty',
 ] as const satisfies readonly (keyof FileActionContext)[]
 
-const capturedDocContexts=new WeakSet<object>()
-const capturedPmDocuments=new WeakSet<object>()
-function capturePmWriteDocument(document:PmNode):PmNode {
-  const captured=structuredClone(document)
+const capturedDocContexts = new WeakSet<object>()
+const capturedPmDocuments = new WeakSet<object>()
+function capturePmWriteDocument(document: PmNode): PmNode {
+  const captured = structuredClone(document)
   capturedPmDocuments.add(captured)
   return captured
 }
 
 /** A synchronous, coherent projection: never retain a live context Proxy across awaits. */
 export function captureDocWriteContext(ctx: FileActionContext): FileActionContext {
-  const captured:FileActionContext = { ...ctx, settleFontSettings: undefined, currentContext:undefined }
+  const captured: FileActionContext = {
+    ...ctx,
+    settleFontSettings: undefined,
+    currentContext: undefined,
+  }
   for (const key of persistedKeys) {
     // These are document data, not editor instances, setters, refs or ZIP bytes.
     Object.assign(captured, { [key]: structuredClone(ctx[key]) })
@@ -1130,7 +1199,11 @@ export function captureDocWriteContext(ctx: FileActionContext): FileActionContex
 }
 
 function persistedState(ctx: FileActionContext): unknown[] {
-  return [ctx.editor?.state.doc, ...persistedKeys.map((key) => ctx[key]), commentDraftSnapshot().drafts]
+  return [
+    ctx.editor?.state.doc,
+    ...persistedKeys.map((key) => ctx[key]),
+    commentDraftSnapshot().drafts,
+  ]
 }
 
 function recoveryFingerprint(ctx: FileActionContext, document?: PmNode): string {
@@ -1149,7 +1222,9 @@ function samePersistedState(before: readonly unknown[], after: readonly unknown[
 
 let recoveryActivation: Promise<DocDraftActivation | null> = Promise.resolve(null)
 let recoverySequence = 0
-export function currentRecoverySequence():number{return recoverySequence}
+export function currentRecoverySequence(): number {
+  return recoverySequence
+}
 let recoveryEpoch = 0
 let recoveryComposing = false
 let discardedRecoveryState: { state: unknown[]; fingerprint: string | null } | null = null
@@ -1161,7 +1236,9 @@ function startRecoveryActivation(path: string | null): void {
   discardedRecoveryState = null
   lastRecoveryError = ''
   recoveryActivation = window.desktop?.activateDocDraft
-    ? window.desktop.activateDocDraft(path, docMutationSource()).catch((error) => ({ ok: false, error: String(error) }))
+    ? window.desktop
+        .activateDocDraft(path, docMutationSource())
+        .catch((error) => ({ ok: false, error: String(error) }))
     : Promise.resolve(null)
 }
 
@@ -1183,7 +1260,8 @@ export function noteRecoveryDiscarded(ctx: FileActionContext, token: string): vo
   const activationPromise = recoveryActivation
   let fingerprint: string | null = null
   try {
-    const pending = !docCloseBarrier.locked && ctx.editor ? captureRecoverySurfaces(ctx.editor) : undefined
+    const pending =
+      !docCloseBarrier.locked && ctx.editor ? captureRecoverySurfaces(ctx.editor) : undefined
     ctx = ctx.currentContext?.() ?? ctx
     fingerprint = docCloseBarrier.locked ? null : recoveryFingerprint(ctx, pending?.document)
   } catch (error) {
@@ -1203,8 +1281,18 @@ export function noteRecoveryDiscarded(ctx: FileActionContext, token: string): vo
 }
 
 /** A failed outer close keeps the authored draft; resume its retired producer. */
-export function resumeRecoveryAfterCanceledClose(ctx: FileActionContext, generation: number): Promise<void> {
-  if (!isDocAuthoringActive() || docGeneration !== generation || !ctx.doc || !ctx.editor || ctx.editor.isDestroyed) return Promise.resolve()
+export function resumeRecoveryAfterCanceledClose(
+  ctx: FileActionContext,
+  generation: number,
+): Promise<void> {
+  if (
+    !isDocAuthoringActive() ||
+    docGeneration !== generation ||
+    !ctx.doc ||
+    !ctx.editor ||
+    ctx.editor.isDestroyed
+  )
+    return Promise.resolve()
   startRecoveryActivation(ctx.doc.filePath ?? null)
   return writeRecoveryCopy(ctx)
 }
@@ -1267,7 +1355,8 @@ let docGeneration = 0
 setDocCloseSourceReader(() => docSourceStamp(docGeneration))
 
 export function noteDocumentSwapped(path: string | null = null): void {
-  if (docCloseBarrier.locked) throw new Error('Source replacement must wait for main close cancellation.')
+  if (docCloseBarrier.locked)
+    throw new Error('Source replacement must wait for main close cancellation.')
   adoptCommentDraftRecovery()
   pathlessDocSavedPath = null
   docGeneration++
@@ -1280,13 +1369,21 @@ export function currentDocGeneration(): number {
 }
 
 export function canDiscardCurrentDocument(ctx: FileActionContext, generation: number): boolean {
-  return isDocAuthoringActive() && docGeneration === generation && !!ctx.doc && !!ctx.editor && !ctx.editor.isDestroyed &&
-    !ctx.editor.view.composing && !isPhasedContentPending()
+  return (
+    isDocAuthoringActive() &&
+    docGeneration === generation &&
+    !!ctx.doc &&
+    !!ctx.editor &&
+    !ctx.editor.isDestroyed &&
+    !ctx.editor.view.composing &&
+    !isPhasedContentPending()
+  )
 }
 
 /** Publication success is separate from permission to close the current document. */
 export function canCloseSavedDocument(ctx: FileActionContext, generation: number): boolean {
-  if (!isDocAuthoringActive() || docGeneration !== generation || !ctx.doc || !ctx.editor) return false
+  if (!isDocAuthoringActive() || docGeneration !== generation || !ctx.doc || !ctx.editor)
+    return false
   if (ctx.editor.view.composing || isPhasedContentPending()) return false
   try {
     const pending = captureRecoverySurfaces(ctx.editor)
@@ -1324,17 +1421,26 @@ export function dialogNameFor(
 }
 
 export function save(
-  ctx: FileActionContext, saveAs: boolean, auto = false, newDocName?: string,
+  ctx: FileActionContext,
+  saveAs: boolean,
+  auto = false,
+  newDocName?: string,
   explicitTarget?: ExplicitSaveTarget,
   closeTicket?: CloseLeaseTicket,
 ): Promise<boolean> {
-  if(auto&&docCloseBarrier.locked)return Promise.resolve(false)
+  if (auto && docCloseBarrier.locked) return Promise.resolve(false)
   try {
-    return Promise.resolve(docCloseBarrier.runMutationWork(
-      () => saveUnlocked(ctx, saveAs, auto, newDocName, explicitTarget, closeTicket), docMutationSource(),
-    )).catch((error) => { reportRecoveryWarning(ctx, error); return false })
-  } catch(error) {
-    reportRecoveryWarning(ctx,error)
+    return Promise.resolve(
+      docCloseBarrier.runMutationWork(
+        () => saveUnlocked(ctx, saveAs, auto, newDocName, explicitTarget, closeTicket),
+        docMutationSource(),
+      ),
+    ).catch((error) => {
+      reportRecoveryWarning(ctx, error)
+      return false
+    })
+  } catch (error) {
+    reportRecoveryWarning(ctx, error)
     return Promise.resolve(false)
   }
 }
@@ -1356,9 +1462,9 @@ function saveUnlocked(
   const generation = docGeneration
   return runSerializedSave(
     async () => {
-      if(auto&&docCloseBarrier.locked)return false
+      if (auto && docCloseBarrier.locked) return false
       const settled = ctx.settleFontSettings ? await ctx.settleFontSettings() : ctx
-      if (docGeneration !== generation||(auto&&docCloseBarrier.locked)) return false
+      if (docGeneration !== generation || (auto && docCloseBarrier.locked)) return false
       return saveOnce(settled, saveAs, auto, newDocName, explicitTarget, closeTicket)
     },
     // an explicit MCP target must always write, never reuse an earlier pass
@@ -1449,7 +1555,7 @@ async function saveOnce(
     const generation = docGeneration
     await waitForFullContent()
     // the wait ended because another document replaced this one: nothing to write
-    if (docGeneration !== generation||(auto&&docCloseBarrier.locked)) return false
+    if (docGeneration !== generation || (auto && docCloseBarrier.locked)) return false
     // flush pending in-place table cell / textbox edits into the PM doc first
     window.dispatchEvent(new Event('ai-docs-commit-tables'))
     // identity snapshot: detects edits that arrive while the save is in flight
@@ -1461,12 +1567,15 @@ async function saveOnce(
     const authoredSnapshot = persistedState(ctx)
     const representedStamp = docCloseBarrier.snapshot()
     const representedContext = captureDocWriteContext(ctx)
-    const representedDocument = capturePmWriteDocument(pendingAtCapture.document ?? (editor.getJSON() as PmNode))
+    const representedDocument = capturePmWriteDocument(
+      pendingAtCapture.document ?? (editor.getJSON() as PmNode),
+    )
     // A dry-run surface which did not commit into the model is represented in
     // bytes, but is deliberately not acknowledged as a retired live journal.
-    const recoveryThroughSequence = pendingAtCapture.changed || unrepresentedInputAtCapture ? undefined : recoverySequence
+    const recoveryThroughSequence =
+      pendingAtCapture.changed || unrepresentedInputAtCapture ? undefined : recoverySequence
     const bytes = await buildDocBytes(representedContext, representedDocument)
-    if (!bytes || docGeneration !== generation||(auto&&docCloseBarrier.locked)) return false
+    if (!bytes || docGeneration !== generation || (auto && docCloseBarrier.locked)) return false
     const buffer = bytes.buffer.slice(
       bytes.byteOffset,
       bytes.byteOffset + bytes.byteLength,
@@ -1483,7 +1592,7 @@ async function saveOnce(
         explicitTarget.path,
         buffer,
         explicitTarget.overwrite,
-        ...(closeTicket?[closeTicket] as const:[] as const),
+        ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
       )
       if (!result.ok) {
         ctx.setStatus(t('appSaveFailed', { error: result.error ?? '' }))
@@ -1519,12 +1628,12 @@ async function saveOnce(
             dialogNameFor(newDocName, autoName, doc.fileName),
             buffer,
             doc.filePath,
-            ...(closeTicket?[closeTicket] as const:[] as const),
+            ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
           )
         : await window.desktop.saveDocxNew(
             dialogNameFor(newDocName, autoName, doc.fileName),
             buffer,
-            ...(closeTicket?[closeTicket] as const:[] as const),
+            ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
           )
       if (!result.ok) {
         if (result.error) {
@@ -1538,11 +1647,16 @@ async function saveOnce(
       if (result.dataUrl) fullBytes = await fetchDocBytes(result.dataUrl)
       if (!doc.filePath) pathlessDocSavedPath = savedPath
     } else {
-      const result = await window.desktop.saveDocx(savedPath, buffer, auto, ...(closeTicket?[closeTicket] as const:[] as const))
+      const result = await window.desktop.saveDocx(
+        savedPath,
+        buffer,
+        auto,
+        ...(closeTicket ? ([closeTicket] as const) : ([] as const)),
+      )
       if (!result.ok) {
         // external-modified: the main process already prompted (or the autosave
         // deferred to a manual save) — stay dirty, no second dialog/error banner
-        if (result.reason !== 'external-modified'&&result.reason !== 'close-pending') {
+        if (result.reason !== 'external-modified' && result.reason !== 'close-pending') {
           ctx.setStatus(t('appSaveFailed', { error: result.error ?? '' }))
           if (!auto) showToast(t('appSaveFailed', { error: result.error ?? '' }), 'error')
         }
@@ -1578,7 +1692,8 @@ async function saveOnce(
       // password after the main process captured this save. Keep the live state
       // dirty; replacing it with the saved snapshot or marking it clean would
       // consume the newer intent.
-      if (passwordIntentPending || unrepresentedSurface || ctx.hasPendingAuthorInput?.()) ctx.dirtyRef.current = true
+      if (passwordIntentPending || unrepresentedSurface || ctx.hasPendingAuthorInput?.())
+        ctx.dirtyRef.current = true
       ctx.saveIncompleteRef.current = true
       ctx.setDoc((prev) =>
         prev
@@ -1601,118 +1716,128 @@ async function saveOnce(
     }
     // Reload from saved bytes so docxIndex anchors point at the new file.
     withDocSourceCommit(() => {
-    setLazyMediaHashes(reparsed.extras.lazyMediaHashes)
-    setDocFontTable(reparsed.fontTable)
-    editor.storage.listNumbering.styles = reparsed.styles
-    editor.storage.listNumbering.docDefaults = reparsed.docDefaults
-    editor.storage.listNumbering.defs = reparsed.numbering
-    applyDocLayoutSettings(editor, reparsed)
-    const rebasedPm = blocksToPmDoc(reparsed.blocks, readSections(reparsed), pmDocOptions(reparsed))
-    let unchanged = false
-    try {
-      unchanged = editor.state.doc.eq(editor.schema.nodeFromJSON(rebasedPm))
-    } catch {
-      /* unrepresentable → rewrite */
-    }
-    // Equal doc: skip the rewrite so undo history, caret and scroll survive.
-    if (!unchanged) {
-      // The caret's marks — the ribbon's font/size live here as storedMarks and
-      // apply to whatever is typed next. setContent replaces the doc, so they
-      // have to travel with the selection or an autosave silently drops the
-      // font the user just picked (vantage#2004). Both are read live, not
-      // before the await: a font chosen or a caret moved during the save must
-      // win, and the marks must belong to the position they are restored at.
-      const selectionPos = editor.state.selection.from
-      const caretMarks = caretMarksSnapshot(editor)
-      // Rebase saved anchors without recording the reload as a user edit.
-      editor
-        .chain()
-        .setMeta(TRACK_IGNORE, true)
-        .setContent(rebasedPm as never)
-        .run()
-      resetEditorHistory(editor)
-      const chain = editor
-        .chain()
-        .setTextSelection(Math.min(selectionPos, editor.state.doc.content.size))
-      if (!auto) chain.scrollIntoView()
-      chain.run()
-      restoreMarksAfterDocRewrite(editor, caretMarks)
-    }
-    ctx.setDocCss(docStyleCss(reparsed))
-    ctx.setDoc((prev) =>
-      prev
-        ? {
-            ...prev,
-            parsed: reparsed,
-            filePath: savedPath,
-            fileName: savedPath?.split(/[\\/]/).pop() ?? prev.fileName,
-          }
-        : prev,
-    )
-    ctx.setSection(readSectionSettings(reparsed))
-    ctx.setSections(readSections(reparsed))
-    ctx.setSectionDirty(false)
-    ctx.setPageColor(readPageColor(reparsed))
-    ctx.setPageColorDirty(false)
-    ctx.setHeader(
-      reparsed.headerText || reparsed.headerHasPageNumber || reparsed.headerParas?.length
-        ? {
-            text: reparsed.headerText ?? '',
-            pageNumber: reparsed.headerHasPageNumber,
-            paras: reparsed.headerParas ?? undefined,
-          }
-        : null,
-    )
-    ctx.setHeaderDirty(false)
-    ctx.setFooter(
-      reparsed.footerText || reparsed.footerHasPageNumber || reparsed.footerParas?.length
-        ? {
-            text: reparsed.footerText ?? '',
-            pageNumber: reparsed.footerHasPageNumber,
-            paras: reparsed.footerParas ?? undefined,
-          }
-        : null,
-    )
-    ctx.setFooterDirty(false)
-    ctx.setHfVariants(hfVariantsFromParsed(reparsed))
-    resetCrossDocEditState(ctx)
-    ctx.setHfVariantsDirty([])
-    ctx.setTitlePg(reparsed.titlePg ?? false)
-    ctx.setTitlePgDirty(false)
-    ctx.setEvenOddHf(reparsed.evenAndOddHeaders ?? false)
-    ctx.setEvenOddHfDirty(false)
-    ctx.setMirrorMargins(reparsed.mirrorMargins ?? false)
-    ctx.setMirrorMarginsDirty(false)
-    ctx.setComments(reparsed.comments)
-    ctx.setCommentsDirty(false)
-    ctx.setWatermark(reparsed.watermarkText ?? null)
-    ctx.setWatermarkDirty(false)
-    ctx.setWatermarkStyle(null)
-    ctx.setWatermarkPicture(null)
-    ctx.setInkAnnotations(annotationsFromParsed(reparsed.inks))
-    ctx.setInksDirty(false)
-    ctx.setFootnotes(reparsed.footnotes)
-    ctx.setEndnotes(reparsed.endnotes)
-    ctx.setNotesDirty(false)
-    ctx.setSources(reparsed.sources)
-    ctx.setSourcesDirty(false)
-    ctx.setZoteroDocumentData(reparsed.zoteroDocumentData)
-    ctx.setZoteroDocumentDataDirty(false)
-    ctx.setThemeFonts(reparsed.themeFonts ?? null)
-    ctx.setThemeFontsDirty(false)
-    ctx.setThemeColors(reparsed.themeColors ?? null)
-    ctx.setThemeColorsDirty(false)
-    ctx.setProtection(reparsed.protection)
-    ctx.setProtectionDirty(false)
-    // no onWriteProtectionLoaded here: saving must not re-lock the session
-    ctx.setWriteProtection(reparsed.writeProtection)
-    ctx.setWriteProtectionDirty(false)
-    ctx.setRemovePersonalInfo(reparsed.removePersonalInfo)
-    ctx.setRemovePersonalInfoDirty(false)
-    ctx.dirtyRef.current = false
+      setLazyMediaHashes(reparsed.extras.lazyMediaHashes)
+      setDocFontTable(reparsed.fontTable)
+      editor.storage.listNumbering.styles = reparsed.styles
+      editor.storage.listNumbering.docDefaults = reparsed.docDefaults
+      editor.storage.listNumbering.defs = reparsed.numbering
+      applyDocLayoutSettings(editor, reparsed)
+      const rebasedPm = blocksToPmDoc(
+        reparsed.blocks,
+        readSections(reparsed),
+        pmDocOptions(reparsed),
+      )
+      let unchanged = false
+      try {
+        unchanged = editor.state.doc.eq(editor.schema.nodeFromJSON(rebasedPm))
+      } catch {
+        /* unrepresentable → rewrite */
+      }
+      // Equal doc: skip the rewrite so undo history, caret and scroll survive.
+      if (!unchanged) {
+        // The caret's marks — the ribbon's font/size live here as storedMarks and
+        // apply to whatever is typed next. setContent replaces the doc, so they
+        // have to travel with the selection or an autosave silently drops the
+        // font the user just picked (vantage#2004). Both are read live, not
+        // before the await: a font chosen or a caret moved during the save must
+        // win, and the marks must belong to the position they are restored at.
+        const selectionPos = editor.state.selection.from
+        const caretMarks = caretMarksSnapshot(editor)
+        // Rebase saved anchors without recording the reload as a user edit.
+        editor
+          .chain()
+          .setMeta(TRACK_IGNORE, true)
+          .setContent(rebasedPm as never)
+          .run()
+        resetEditorHistory(editor)
+        const chain = editor
+          .chain()
+          .setTextSelection(Math.min(selectionPos, editor.state.doc.content.size))
+        if (!auto) chain.scrollIntoView()
+        chain.run()
+        restoreMarksAfterDocRewrite(editor, caretMarks)
+      }
+      ctx.setDocCss(docStyleCss(reparsed))
+      ctx.setDoc((prev) =>
+        prev
+          ? {
+              ...prev,
+              parsed: reparsed,
+              filePath: savedPath,
+              fileName: savedPath?.split(/[\\/]/).pop() ?? prev.fileName,
+            }
+          : prev,
+      )
+      ctx.setSection(readSectionSettings(reparsed))
+      ctx.setSections(readSections(reparsed))
+      ctx.setSectionDirty(false)
+      ctx.setPageColor(readPageColor(reparsed))
+      ctx.setPageColorDirty(false)
+      ctx.setHeader(
+        reparsed.headerText || reparsed.headerHasPageNumber || reparsed.headerParas?.length
+          ? {
+              text: reparsed.headerText ?? '',
+              pageNumber: reparsed.headerHasPageNumber,
+              paras: reparsed.headerParas ?? undefined,
+            }
+          : null,
+      )
+      ctx.setHeaderDirty(false)
+      ctx.setFooter(
+        reparsed.footerText || reparsed.footerHasPageNumber || reparsed.footerParas?.length
+          ? {
+              text: reparsed.footerText ?? '',
+              pageNumber: reparsed.footerHasPageNumber,
+              paras: reparsed.footerParas ?? undefined,
+            }
+          : null,
+      )
+      ctx.setFooterDirty(false)
+      ctx.setHfVariants(hfVariantsFromParsed(reparsed))
+      resetCrossDocEditState(ctx)
+      ctx.setHfVariantsDirty([])
+      ctx.setTitlePg(reparsed.titlePg ?? false)
+      ctx.setTitlePgDirty(false)
+      ctx.setEvenOddHf(reparsed.evenAndOddHeaders ?? false)
+      ctx.setEvenOddHfDirty(false)
+      ctx.setMirrorMargins(reparsed.mirrorMargins ?? false)
+      ctx.setMirrorMarginsDirty(false)
+      ctx.setComments(reparsed.comments)
+      ctx.setCommentsDirty(false)
+      ctx.setWatermark(reparsed.watermarkText ?? null)
+      ctx.setWatermarkDirty(false)
+      ctx.setWatermarkStyle(null)
+      ctx.setWatermarkPicture(null)
+      ctx.setInkAnnotations(annotationsFromParsed(reparsed.inks))
+      ctx.setInksDirty(false)
+      ctx.setFootnotes(reparsed.footnotes)
+      ctx.setEndnotes(reparsed.endnotes)
+      ctx.setNotesDirty(false)
+      ctx.setSources(reparsed.sources)
+      ctx.setSourcesDirty(false)
+      ctx.setZoteroDocumentData(reparsed.zoteroDocumentData)
+      ctx.setZoteroDocumentDataDirty(false)
+      ctx.setThemeFonts(reparsed.themeFonts ?? null)
+      ctx.setThemeFontsDirty(false)
+      ctx.setThemeColors(reparsed.themeColors ?? null)
+      ctx.setThemeColorsDirty(false)
+      ctx.setProtection(reparsed.protection)
+      ctx.setProtectionDirty(false)
+      // no onWriteProtectionLoaded here: saving must not re-lock the session
+      ctx.setWriteProtection(reparsed.writeProtection)
+      ctx.setWriteProtectionDirty(false)
+      ctx.setRemovePersonalInfo(reparsed.removePersonalInfo)
+      ctx.setRemovePersonalInfoDirty(false)
+      ctx.dirtyRef.current = false
     })
     const publishedDocument = editor.state.doc
-    await acknowledgeRecoverySaved(ctx, savedPath!, !pendingAtCapture.changed, generation, recoveryThroughSequence)
+    await acknowledgeRecoverySaved(
+      ctx,
+      savedPath!,
+      !pendingAtCapture.changed,
+      generation,
+      recoveryThroughSequence,
+    )
     if (docGeneration !== generation) return true
     const live = ctx.currentContext?.() ?? ctx
     if (
@@ -1778,7 +1903,7 @@ async function printGroupsMerged(
   scale: number,
   outPath: string | undefined,
   links: PdfInternalLink[],
-  selectionId?:string,
+  selectionId?: string,
 ): Promise<boolean> {
   const parts: string[] = []
   // every printToPDF flips the whole document between print and screen media;
@@ -1814,7 +1939,7 @@ async function printGroupsMerged(
     appRoot?.classList.remove('pv-exporting')
     pvPages.forEach((page) => page.classList.remove('pv-print-skip', 'pv-print-tail'))
   }
-  const result = await window.desktop.saveMergedPdf(fileName, parts, outPath, links,selectionId)
+  const result = await window.desktop.saveMergedPdf(fileName, parts, outPath, links, selectionId)
   const mixed = groups.some((g) => g.w !== groups[0].w || g.h !== groups[0].h)
   ctx.setStatus(
     result.ok
@@ -1829,11 +1954,18 @@ async function printGroupsMerged(
 }
 
 /** Park the export until the preview mounts; the App effect re-runs it and settles the promise. */
-function deferExportToPreview(ctx: FileActionContext, outPath?: string,selectionId?:string): Promise<boolean> {
-  if(outPath&&!selectionId){ctx.setStatus(t('appExportPdfFailed',{error:'Select the export destination again.'}));return Promise.resolve(false)}
+function deferExportToPreview(
+  ctx: FileActionContext,
+  outPath?: string,
+  selectionId?: string,
+): Promise<boolean> {
+  if (outPath && !selectionId) {
+    ctx.setStatus(t('appExportPdfFailed', { error: 'Select the export destination again.' }))
+    return Promise.resolve(false)
+  }
   return new Promise<boolean>((resolve) => {
     const closePreview = !document.querySelector('.pagination-preview')
-    ctx.pendingMixedExportRef.current = { outPath,selectionId,resolve,closePreview }
+    ctx.pendingMixedExportRef.current = { outPath, selectionId, resolve, closePreview }
     ctx.setShowPagePreview(true)
     ctx.bumpPendingExportTick()
   })
@@ -1848,7 +1980,11 @@ function deferExportToPreview(ctx: FileActionContext, outPath?: string,selection
 let printJobActive = false
 
 /** Resolves true only when a PDF was written to disk. */
-export async function exportPdf(ctx: FileActionContext, outPath?: string,selectionId?:string): Promise<boolean> {
+export async function exportPdf(
+  ctx: FileActionContext,
+  outPath?: string,
+  selectionId?: string,
+): Promise<boolean> {
   const { doc } = ctx
   if (!doc) return false
   await waitForFullContent()
@@ -1883,12 +2019,29 @@ export async function exportPdf(ctx: FileActionContext, outPath?: string,selecti
       const PRINT_CHUNK = 10
       if (pvPages.length > PRINT_CHUNK) groups = chunkPrintGroups(groups, PRINT_CHUNK)
       if (groups.length > 1) {
-        return await printGroupsMerged(ctx, doc.fileName, pvPages, groups, scale, outPath, links,selectionId)
+        return await printGroupsMerged(
+          ctx,
+          doc.fileName,
+          pvPages,
+          groups,
+          scale,
+          outPath,
+          links,
+          selectionId,
+        )
       }
       // preview open but uniform paper: single export at the preview size
       const g = groups[0]
       if (g) {
-        const result = await window.desktop.exportPdf(doc.fileName, g.w, g.h, outPath, scale, links,selectionId)
+        const result = await window.desktop.exportPdf(
+          doc.fileName,
+          g.w,
+          g.h,
+          outPath,
+          scale,
+          links,
+          selectionId,
+        )
         if (result.ok) {
           ctx.setStatus(t('appExportedPdf', { path: result.path ?? '' }))
           return true
@@ -1910,7 +2063,7 @@ export async function exportPdf(ctx: FileActionContext, outPath?: string,selecti
             scale,
             retryPath,
             links,
-            selectionId??result.selectionId,
+            selectionId ?? result.selectionId,
           )
         }
         ctx.setStatus(t('appExportPdfFailed', { error: result.error }))
@@ -1930,7 +2083,7 @@ export async function exportPdf(ctx: FileActionContext, outPath?: string,selecti
       ).map((st) => `${st.pageWidth}x${st.pageHeight}`),
     )
     if (sizes.size > 1) ctx.setStatus(t('appMixedExportOpening'))
-    return deferExportToPreview(ctx, outPath,selectionId)
+    return deferExportToPreview(ctx, outPath, selectionId)
   } finally {
     clearPrintZoom()
     printJobActive = false
@@ -1969,7 +2122,7 @@ export async function exportImages(ctx: FileActionContext): Promise<boolean> {
       if (!pdfDone.some((re) => re.test(s))) ctx.setStatus(s)
     },
   }
-  if (!(await exportPdf(staged,target.pdfPath,target.pdfSelectionId))) {
+  if (!(await exportPdf(staged, target.pdfPath, target.pdfSelectionId))) {
     void window.desktop.takeExportPdf(target.pdfPath)
     return false
   }
@@ -2022,7 +2175,11 @@ export async function exportImages(ctx: FileActionContext): Promise<boolean> {
 }
 
 /** Resolves true only when an HTML file was written to disk. */
-export async function exportHtml(ctx: FileActionContext, outPath?: string,selectionId?:string): Promise<boolean> {
+export async function exportHtml(
+  ctx: FileActionContext,
+  outPath?: string,
+  selectionId?: string,
+): Promise<boolean> {
   const { doc, editor } = ctx
   if (!doc || !editor) return false
   await waitForFullContent()
@@ -2036,7 +2193,7 @@ export async function exportHtml(ctx: FileActionContext, outPath?: string,select
     lang: getLang(),
     textWidthPx: Number.isFinite(textWidthPx) ? textWidthPx : root.clientWidth,
   })
-  const result = await window.desktop.exportHtml(doc.fileName, html, outPath,selectionId)
+  const result = await window.desktop.exportHtml(doc.fileName, html, outPath, selectionId)
   ctx.setStatus(
     result.ok
       ? t('appExportedHtml', { path: result.path ?? '' })
@@ -2048,13 +2205,23 @@ export async function exportHtml(ctx: FileActionContext, outPath?: string,select
 }
 
 /** Resolves true only when a Markdown file was written to disk. */
-export async function exportMarkdown(ctx: FileActionContext, outPath?: string,selectionId?:string): Promise<boolean> {
+export async function exportMarkdown(
+  ctx: FileActionContext,
+  outPath?: string,
+  selectionId?: string,
+): Promise<boolean> {
   const { doc, editor } = ctx
   if (!doc || !editor) return false
   await waitForFullContent()
   ctx.setStatus(t('appExportingMarkdown'))
   const { markdown, images } = documentToMarkdown(editor)
-  const result = await window.desktop.exportMarkdown(doc.fileName, markdown, images, outPath,selectionId)
+  const result = await window.desktop.exportMarkdown(
+    doc.fileName,
+    markdown,
+    images,
+    outPath,
+    selectionId,
+  )
   const dropped = result.imagesDropped ?? 0
   ctx.setStatus(
     result.ok

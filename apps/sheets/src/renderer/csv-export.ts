@@ -254,13 +254,17 @@ export async function handleExportCsv(ctx: CsvExportContext, targetPath?: string
       return
     }
     const baseName = (state?.file.name ?? 'Book1').replace(/\.[^.]+$/, '')
-    const result = await window.desktopApi.exportCsv({
-      fileName: `${baseName}.csv`,
-      content,
-      hasFormulas: sheetHasFormulas(sheet),
-      ...(sheetCount > 1 ? { activeSheetName: sheet.getSheetName() } : {}),
-      ...(targetPath === undefined ? {} : { targetPath }),
-    }, ctx.writeContext, ctx.closeTicket)
+    const result = await window.desktopApi.exportCsv(
+      {
+        fileName: `${baseName}.csv`,
+        content,
+        hasFormulas: sheetHasFormulas(sheet),
+        ...(sheetCount > 1 ? { activeSheetName: sheet.getSheetName() } : {}),
+        ...(targetPath === undefined ? {} : { targetPath }),
+      },
+      ctx.writeContext,
+      ctx.closeTicket,
+    )
     if (result.canceled) {
       if (result.saveAsXlsxInstead) ctx.requestSaveAs()
       else ctx.setMessage(t('appCsvExportCanceled'))

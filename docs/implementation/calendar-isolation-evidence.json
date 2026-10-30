@@ -125,10 +125,7 @@
       },
       {
         "kind": "dispose-active-and-queued",
-        "startedChildPids": [
-          28288,
-          30476
-        ],
+        "startedChildPids": [28288, 30476],
         "allStartedChildrenExited": true,
         "requestsCancelled": 10
       }
@@ -158,10 +155,7 @@
       },
       {
         "kind": "dispose-active-and-queued",
-        "startedChildPids": [
-          25524,
-          18388
-        ],
+        "startedChildPids": [25524, 18388],
         "allStartedChildrenExited": true,
         "requestsCancelled": 10
       }

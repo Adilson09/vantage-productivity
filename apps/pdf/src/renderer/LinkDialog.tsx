@@ -27,8 +27,8 @@ export function LinkDialog({
 }): ReactElement {
   const [pending, setPending] = usePdfEditorState('link-target', 'link', { url: '', page: '' })
   const { url, page } = pending
-  const setUrl = (value: string) => setPending(previous => ({ ...previous, url: value }))
-  const setPage = (value: string) => setPending(previous => ({ ...previous, page: value }))
+  const setUrl = (value: string) => setPending((previous) => ({ ...previous, url: value }))
+  const setPage = (value: string) => setPending((previous) => ({ ...previous, page: value }))
   const dialogRef = useModalDialog(onCancel)
 
   const pageNum = Number(page)

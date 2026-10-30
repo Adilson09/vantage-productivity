@@ -1,18 +1,47 @@
-import { withPinnedAssetOutput, publishSelectedUserOutput } from '@vantage/electron-utils/user-output-publication'
-import { configureRecoveryProfile, initializeStandaloneRecovery, requireRecoveryRuntime } from '../../../../packages/electron-utils/src/recovery-bootstrap'
-import {PublicationReadRegistry,observePublicationTarget,absentPublicationTarget} from '../../../../packages/electron-utils/src/document-publication'
-import {NativeCloseAdmission} from '../../../../packages/electron-utils/src/native-close-admission'
-import {beginCloseCleanup} from '../../../../packages/electron-utils/src/close-cleanup-runtime'
-import type {CloseCleanupHandle,CloseCleanupAdmission} from '../../../../packages/electron-utils/src/close-cleanup'
-import { MarkdownCloseCoordinator,runMarkdownNativeClose,markdownClosePermit,type MarkdownClosePrepareOptions } from './markdown-close-lease'
-import type { MarkdownAssetCleanupReport,MarkdownCloseReceipt,MarkdownNativeCloseReceipt } from '../shared/markdown-close-lease'
-import type { CloseLeaseTicket, CloseLeaseStamp } from '../../../../packages/electron-utils/src/close-lease'
+import {
+  withPinnedAssetOutput,
+  publishSelectedUserOutput,
+} from '@vantage/electron-utils/user-output-publication'
+import {
+  configureRecoveryProfile,
+  initializeStandaloneRecovery,
+  requireRecoveryRuntime,
+} from '../../../../packages/electron-utils/src/recovery-bootstrap'
+import {
+  PublicationReadRegistry,
+  observePublicationTarget,
+  absentPublicationTarget,
+} from '../../../../packages/electron-utils/src/document-publication'
+import { NativeCloseAdmission } from '../../../../packages/electron-utils/src/native-close-admission'
+import { beginCloseCleanup } from '../../../../packages/electron-utils/src/close-cleanup-runtime'
+import type {
+  CloseCleanupHandle,
+  CloseCleanupAdmission,
+} from '../../../../packages/electron-utils/src/close-cleanup'
+import {
+  MarkdownCloseCoordinator,
+  runMarkdownNativeClose,
+  markdownClosePermit,
+  type MarkdownClosePrepareOptions,
+} from './markdown-close-lease'
+import type {
+  MarkdownAssetCleanupReport,
+  MarkdownCloseReceipt,
+  MarkdownNativeCloseReceipt,
+} from '../shared/markdown-close-lease'
+import type {
+  CloseLeaseTicket,
+  CloseLeaseStamp,
+} from '../../../../packages/electron-utils/src/close-lease'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createHash,randomUUID } from 'node:crypto'
-import { discardDraftJournal, writeDraftJournal } from '../../../../packages/electron-utils/src/draft-journal'
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  discardDraftJournal,
+  writeDraftJournal,
+} from '../../../../packages/electron-utils/src/draft-journal'
 import {
   BrowserWindow,
   WebContentsView,
@@ -439,50 +468,157 @@ const allowedByWc = new Map<number, Set<string>>()
 /** Current save target per view; absent = untitled document */
 const savePathByWc = new Map<number, string>()
 const diskWatcherByWc = new Map<number, DocumentDiskWatcher>()
-const publicationReads=new PublicationReadRegistry<number>()
+const publicationReads = new PublicationReadRegistry<number>()
 /** Unsaved-changes flags mirrored from the renderer; drives the save prompt before closing a tab/window */
 const dirtyByWc = new Set<number>()
 const draftByWc = new Map<number, string>()
-const discardedDraftFloor = new Map<number,CloseLeaseStamp>()
-interface MarkdownJournalBinding {receiptSequence:number;expectedDocumentPath:string|null;expectedSha256:string}
-interface MarkdownDraftEpoch{id:string;retired:'discard'|'preserve'|null;writes:Set<Promise<MarkdownJournalBinding|null>>;receiptSequence:number;lastWriteBinding:MarkdownJournalBinding|null}
-const draftEpochByWc=new Map<number,MarkdownDraftEpoch>()
-function rotateMarkdownDraft(owner:number,disposition:'discard'|'preserve'='preserve'):void{const previous=draftEpochByWc.get(owner);if(previous&&previous.retired===null)previous.retired=disposition;const id=randomUUID();draftEpochByWc.set(owner,{id,retired:null,writes:new Set(),receiptSequence:0,lastWriteBinding:null});draftByWc.set(owner,id)}
-/** Baseline plus accepted writer results are sealed independently of any later cancel/resume. */
-function capturedMarkdownJournal(epoch:MarkdownDraftEpoch|undefined){
- let sealed=epoch?.lastWriteBinding??null,drained=false
- const accepted=[...(epoch?.writes??[])]
- const ready=Promise.allSettled(accepted).then(results=>{for(const result of results)if(result.status==='fulfilled'&&result.value&&(!sealed||result.value.receiptSequence>sealed.receiptSequence))sealed=result.value;drained=true})
- const attest=()=>{if(!drained)throw new Error('The captured Markdown journal writer drain is unfinished; its prior copy is retained.');return sealed?{expectedDocumentPath:sealed.expectedDocumentPath,expectedSha256:sealed.expectedSha256}:null}
- return{ready,attest}
+const discardedDraftFloor = new Map<number, CloseLeaseStamp>()
+interface MarkdownJournalBinding {
+  receiptSequence: number
+  expectedDocumentPath: string | null
+  expectedSha256: string
 }
-const draftRoot = () => process.env.VANTAGE_RECOVERY_ROOT || join(app.getPath('userData'), 'recovery')
+interface MarkdownDraftEpoch {
+  id: string
+  retired: 'discard' | 'preserve' | null
+  writes: Set<Promise<MarkdownJournalBinding | null>>
+  receiptSequence: number
+  lastWriteBinding: MarkdownJournalBinding | null
+}
+const draftEpochByWc = new Map<number, MarkdownDraftEpoch>()
+function rotateMarkdownDraft(
+  owner: number,
+  disposition: 'discard' | 'preserve' = 'preserve',
+): void {
+  const previous = draftEpochByWc.get(owner)
+  if (previous && previous.retired === null) previous.retired = disposition
+  const id = randomUUID()
+  draftEpochByWc.set(owner, {
+    id,
+    retired: null,
+    writes: new Set(),
+    receiptSequence: 0,
+    lastWriteBinding: null,
+  })
+  draftByWc.set(owner, id)
+}
+/** Baseline plus accepted writer results are sealed independently of any later cancel/resume. */
+function capturedMarkdownJournal(epoch: MarkdownDraftEpoch | undefined) {
+  let sealed = epoch?.lastWriteBinding ?? null,
+    drained = false
+  const accepted = [...(epoch?.writes ?? [])]
+  const ready = Promise.allSettled(accepted).then((results) => {
+    for (const result of results)
+      if (
+        result.status === 'fulfilled' &&
+        result.value &&
+        (!sealed || result.value.receiptSequence > sealed.receiptSequence)
+      )
+        sealed = result.value
+    drained = true
+  })
+  const attest = () => {
+    if (!drained)
+      throw new Error(
+        'The captured Markdown journal writer drain is unfinished; its prior copy is retained.',
+      )
+    return sealed
+      ? { expectedDocumentPath: sealed.expectedDocumentPath, expectedSha256: sealed.expectedSha256 }
+      : null
+  }
+  return { ready, attest }
+}
+const draftRoot = () =>
+  process.env.VANTAGE_RECOVERY_ROOT || join(app.getPath('userData'), 'recovery')
 const closeSaveWaiters = new Map<number, (ok: boolean) => void>()
 /** Actual writers and close permission outlive caller promise timeouts. */
-function currentTopSender(event:Electron.IpcMainInvokeEvent|Electron.IpcMainEvent):boolean{return !event.sender.isDestroyed()&&event.senderFrame===event.sender.mainFrame}
-function beginMarkdownMutation(event:Electron.IpcMainInvokeEvent,requestId?:unknown,stamp?:CloseLeaseStamp){if(!currentTopSender(event))throw new Error('The source sender frame is obsolete.');return closeCoordinator.beginMutation(event.sender.id,requestId,stamp)}
+function currentTopSender(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): boolean {
+  return !event.sender.isDestroyed() && event.senderFrame === event.sender.mainFrame
+}
+function beginMarkdownMutation(
+  event: Electron.IpcMainInvokeEvent,
+  requestId?: unknown,
+  stamp?: CloseLeaseStamp,
+) {
+  if (!currentTopSender(event)) throw new Error('The source sender frame is obsolete.')
+  return closeCoordinator.beginMutation(event.sender.id, requestId, stamp)
+}
 const markdownContents = new Map<number, WebContents>()
 const markdownCleanup = new Map<number, Promise<void>>()
-interface MarkdownCloseCustody {owner:number;ticket:CloseLeaseTicket;receipt:MarkdownCloseReceipt;handle?:CloseCleanupHandle;admission?:CloseCleanupAdmission;cancelProducer:()=>void;canceled:boolean;removed:boolean}
-const markdownCustodyByTicket=new Map<string,MarkdownCloseCustody>()
-const markdownCustodyByReceipt=new WeakMap<MarkdownCloseReceipt,MarkdownCloseCustody>()
-function updateMarkdownCustody(record:MarkdownCloseCustody):void{if(!record.handle)return;const status=record.handle.status();record.receipt.journalCleanup=status;if(record.receipt.cleanup)record.receipt.cleanup.journal=status.phase==='complete'?'complete':status.phase==='retained'?'retained':status.phase==='canceled'?'canceled':status.phase==='running'||status.phase==='committing'?'running':'staged'}
-function cancelMarkdownCustody(record:MarkdownCloseCustody,reason:string):void{if(record.removed)return;record.canceled=true;record.admission?.cancel(reason);record.handle?.cancel(reason);record.cancelProducer();updateMarkdownCustody(record);markdownCustodyByTicket.delete(record.ticket.id)}
-function releaseMarkdownCustody(owner:number,ticket:CloseLeaseTicket,reason:string):void{const record=markdownCustodyByTicket.get(ticket.id);if(!record||record.owner!==owner||record.ticket.sequence!==ticket.sequence||record.ticket.source!==ticket.source)return;if(!record.removed)cancelMarkdownCustody(record,reason);else markdownCustodyByTicket.delete(ticket.id)}
-const deferredReleases = new Map<number, Array<{ticket: CloseLeaseTicket; reason: string}>>()
-const nativeCloseAdmission=new NativeCloseAdmission<number>()
-const closeCoordinator= new MarkdownCloseCoordinator({
-  alive: owner => !!markdownContents.get(owner) && !markdownContents.get(owner)!.isDestroyed(),
-  pathAllowed: (owner,path) => allowedByWc.get(owner)?.has(path) === true,
-  send: (owner,mode,request) => markdownContents.get(owner)!.send(MARKDOWN_CHANNELS.saveRequest,mode,request),
-  release: (owner,ticket,reason) => {
-    releaseMarkdownCustody(owner,ticket,reason)
-    if(markdownCleanup.has(owner)){deferredReleases.set(owner,[...(deferredReleases.get(owner)??[]),{ticket,reason}]);return}
-    const contents=markdownContents.get(owner);if(contents&&!contents.isDestroyed())contents.send(MARKDOWN_CHANNELS.closeLeaseRelease,ticket,reason)
+interface MarkdownCloseCustody {
+  owner: number
+  ticket: CloseLeaseTicket
+  receipt: MarkdownCloseReceipt
+  handle?: CloseCleanupHandle
+  admission?: CloseCleanupAdmission
+  cancelProducer: () => void
+  canceled: boolean
+  removed: boolean
+}
+const markdownCustodyByTicket = new Map<string, MarkdownCloseCustody>()
+const markdownCustodyByReceipt = new WeakMap<MarkdownCloseReceipt, MarkdownCloseCustody>()
+function updateMarkdownCustody(record: MarkdownCloseCustody): void {
+  if (!record.handle) return
+  const status = record.handle.status()
+  record.receipt.journalCleanup = status
+  if (record.receipt.cleanup)
+    record.receipt.cleanup.journal =
+      status.phase === 'complete'
+        ? 'complete'
+        : status.phase === 'retained'
+          ? 'retained'
+          : status.phase === 'canceled'
+            ? 'canceled'
+            : status.phase === 'running' || status.phase === 'committing'
+              ? 'running'
+              : 'staged'
+}
+function cancelMarkdownCustody(record: MarkdownCloseCustody, reason: string): void {
+  if (record.removed) return
+  record.canceled = true
+  record.admission?.cancel(reason)
+  record.handle?.cancel(reason)
+  record.cancelProducer()
+  updateMarkdownCustody(record)
+  markdownCustodyByTicket.delete(record.ticket.id)
+}
+function releaseMarkdownCustody(owner: number, ticket: CloseLeaseTicket, reason: string): void {
+  const record = markdownCustodyByTicket.get(ticket.id)
+  if (
+    !record ||
+    record.owner !== owner ||
+    record.ticket.sequence !== ticket.sequence ||
+    record.ticket.source !== ticket.source
+  )
+    return
+  if (!record.removed) cancelMarkdownCustody(record, reason)
+  else markdownCustodyByTicket.delete(ticket.id)
+}
+const deferredReleases = new Map<number, Array<{ ticket: CloseLeaseTicket; reason: string }>>()
+const nativeCloseAdmission = new NativeCloseAdmission<number>()
+const closeCoordinator = new MarkdownCloseCoordinator({
+  alive: (owner) => !!markdownContents.get(owner) && !markdownContents.get(owner)!.isDestroyed(),
+  pathAllowed: (owner, path) => allowedByWc.get(owner)?.has(path) === true,
+  send: (owner, mode, request) =>
+    markdownContents.get(owner)!.send(MARKDOWN_CHANNELS.saveRequest, mode, request),
+  release: (owner, ticket, reason) => {
+    releaseMarkdownCustody(owner, ticket, reason)
+    if (markdownCleanup.has(owner)) {
+      deferredReleases.set(owner, [...(deferredReleases.get(owner) ?? []), { ticket, reason }])
+      return
+    }
+    const contents = markdownContents.get(owner)
+    if (contents && !contents.isDestroyed())
+      contents.send(MARKDOWN_CHANNELS.closeLeaseRelease, ticket, reason)
   },
 })
-async function waitForMarkdownCleanup(owner:number):Promise<void>{ await markdownCleanup.get(owner) }
-function assertNoMarkdownCleanup(owner:number):void{ if(markdownCleanup.has(owner))throw new Error('Approved discard cleanup is still finishing; no new writer was delivered.') }
+async function waitForMarkdownCleanup(owner: number): Promise<void> {
+  await markdownCleanup.get(owner)
+}
+function assertNoMarkdownCleanup(owner: number): void {
+  if (markdownCleanup.has(owner))
+    throw new Error('Approved discard cleanup is still finishing; no new writer was delivered.')
+}
 /** Resolvers for MCP reads of the live document text, resolved by the renderer's reply */
 const readTextWaiters = new Map<number, (result: { text: string } | { error: string }) => void>()
 /** one read per tab at a time: concurrent callers share this promise */
@@ -531,13 +667,26 @@ export function markdownFilePath(webContentsId: number): string | undefined {
 }
 
 /** The file was renamed on disk — re-grant the new path and tell the renderer */
-export async function markdownFileRenamed(contents: WebContents, oldPath: string, newPath: string): Promise<void> {
+export async function markdownFileRenamed(
+  contents: WebContents,
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
   const wcId = contents.id
-  if(savePathByWc.get(wcId)!==oldPath)return
-  closeCoordinator.cancel(wcId,undefined,'source renamed')
+  if (savePathByWc.get(wcId) !== oldPath) return
+  closeCoordinator.cancel(wcId, undefined, 'source renamed')
   allowedByWc.get(wcId)?.delete(oldPath)
-  const publicationSession=closeCoordinator.session(wcId)
-  await publicationReads.rebind(wcId,publicationSession,oldPath,newPath,()=>!contents.isDestroyed()&&closeCoordinator.session(wcId)===publicationSession&&savePathByWc.get(wcId)===oldPath)
+  const publicationSession = closeCoordinator.session(wcId)
+  await publicationReads.rebind(
+    wcId,
+    publicationSession,
+    oldPath,
+    newPath,
+    () =>
+      !contents.isDestroyed() &&
+      closeCoordinator.session(wcId) === publicationSession &&
+      savePathByWc.get(wcId) === oldPath,
+  )
 
   if (savePathByWc.get(wcId) === oldPath) savePathByWc.set(wcId, newPath)
   if (openPathByWc.get(wcId) === oldPath) openPathByWc.set(wcId, newPath)
@@ -551,7 +700,12 @@ export async function markdownFileRenamed(contents: WebContents, oldPath: string
 }
 
 /** Legacy Boolean approval is intentionally unavailable: removal must consume a live lease. */
-export async function requestMarkdownClose(_contents:WebContents,_parent?:BrowserWindow|null):Promise<boolean>{return false}
+export async function requestMarkdownClose(
+  _contents: WebContents,
+  _parent?: BrowserWindow | null,
+): Promise<boolean> {
+  return false
+}
 
 /**
  * Drop assets staged next to the document but never written into it — the MCP
@@ -564,9 +718,12 @@ export async function markdownDiscardPendingAssets(contents: WebContents): Promi
 }
 
 /** Ordinary Save reports real publication independently of final close permission. */
-export function requestMarkdownSave(contents:WebContents,mode:SaveMode):Promise<boolean>{
-  if(contents.isDestroyed()||closeCoordinator.pending(contents.id))return Promise.resolve(false)
-  return closeCoordinator.request(contents.id,mode).then(result=>result.published||result.current&&result.clean,()=>false)
+export function requestMarkdownSave(contents: WebContents, mode: SaveMode): Promise<boolean> {
+  if (contents.isDestroyed() || closeCoordinator.pending(contents.id)) return Promise.resolve(false)
+  return closeCoordinator.request(contents.id, mode).then(
+    (result) => result.published || (result.current && result.clean),
+    () => false,
+  )
 }
 /**
  * Read the live document text for an MCP `open_documents` read. Unlike reading
@@ -622,101 +779,345 @@ export function markdownReadText(contents: WebContents): Promise<string> {
 }
 
 /** The target belongs to this request until an actual publication adopts it. */
-export async function markdownSaveToPath(contents:WebContents,filePath:string):Promise<MarkdownAssetCleanupReport|void>{
-  if(!isAbsolute(filePath)||filePath.includes('\0'))throw new Error('Markdown Save requires an absolute destination.')
-  const sourceAtRequest=closeCoordinator.source(contents.id),targetVersion=savePathByWc.get(contents.id)===filePath?undefined:await observePublicationTarget(filePath)
-  if(contents.isDestroyed()||closeCoordinator.source(contents.id)!==sourceAtRequest)throw new Error('The source changed while the explicit destination was being checked.')
-  const result=await closeCoordinator.request(contents.id,'save',filePath,false,'save',undefined,{},targetVersion)
-  if(!result.published&&!(result.current&&result.clean))throw new Error(result.error??'The file was not published.')
-  if(result.assetCleanup||result.warnings?.length)return {assetCleanup:result.assetCleanup,warnings:result.warnings}
+export async function markdownSaveToPath(
+  contents: WebContents,
+  filePath: string,
+): Promise<MarkdownAssetCleanupReport | void> {
+  if (!isAbsolute(filePath) || filePath.includes('\0'))
+    throw new Error('Markdown Save requires an absolute destination.')
+  const sourceAtRequest = closeCoordinator.source(contents.id),
+    targetVersion =
+      savePathByWc.get(contents.id) === filePath
+        ? undefined
+        : await observePublicationTarget(filePath)
+  if (contents.isDestroyed() || closeCoordinator.source(contents.id) !== sourceAtRequest)
+    throw new Error('The source changed while the explicit destination was being checked.')
+  const result = await closeCoordinator.request(
+    contents.id,
+    'save',
+    filePath,
+    false,
+    'save',
+    undefined,
+    {},
+    targetVersion,
+  )
+  if (!result.published && !(result.current && result.clean))
+    throw new Error(result.error ?? 'The file was not published.')
+  if (result.assetCleanup || result.warnings?.length)
+    return { assetCleanup: result.assetCleanup, warnings: result.warnings }
 }
-export async function prepareMarkdownClose(contents:WebContents,filePath?:string,intent:'save'|'discard'|'clean'='save',approved?:CloseLeaseStamp,options:MarkdownClosePrepareOptions={}):Promise<MarkdownNativeCloseReceipt>{
-  const permit=Object.freeze({deferSeal:options.deferSeal===true,signal:options.signal,isCurrent:options.isCurrent})
-  if(!markdownClosePermit(permit))throw new Error('The close operation ended before Save or custody was requested.')
-  if(filePath!==undefined&&(!isAbsolute(filePath)||filePath.includes('\0')))throw new Error('Markdown close Save requires an absolute destination.')
+export async function prepareMarkdownClose(
+  contents: WebContents,
+  filePath?: string,
+  intent: 'save' | 'discard' | 'clean' = 'save',
+  approved?: CloseLeaseStamp,
+  options: MarkdownClosePrepareOptions = {},
+): Promise<MarkdownNativeCloseReceipt> {
+  const permit = Object.freeze({
+    deferSeal: options.deferSeal === true,
+    signal: options.signal,
+    isCurrent: options.isCurrent,
+  })
+  if (!markdownClosePermit(permit))
+    throw new Error('The close operation ended before Save or custody was requested.')
+  if (filePath !== undefined && (!isAbsolute(filePath) || filePath.includes('\0')))
+    throw new Error('Markdown close Save requires an absolute destination.')
   assertNoMarkdownCleanup(contents.id)
-  if(intent==='discard'&&!approved)approved=closeCoordinator.state(contents.id)?.stamp
-  const sourceAtTarget=closeCoordinator.source(contents.id),targetVersion=intent==='save'&&filePath!==undefined&&savePathByWc.get(contents.id)!==filePath?await observePublicationTarget(filePath):undefined
-  if(contents.isDestroyed()||closeCoordinator.source(contents.id)!==sourceAtTarget||!markdownClosePermit(permit))throw new Error('The source or close operation changed while its destination was being checked.')
-  const result=await closeCoordinator.request(contents.id,'save',filePath,true,intent,approved,{...permit,deferSeal:true},targetVersion)
-  if(!markdownClosePermit(permit)){if(result.closeLease)closeCoordinator.cancel(contents.id,result.closeLease.ticket,'The group ended after renderer preparation.');throw new Error('This close attempt was canceled before recovery was prepared.')}
-  if(result.phase!=='prepared'||!result.closeLease||!result.current)throw new Error(result.error??'The current editor could not be held for close.')
-  if(intent==='discard'){
-    const owner=contents.id,oldEpoch=draftEpochByWc.get(owner),oldDraft=oldEpoch?.id??randomUUID(),documentPath=savePathByWc.get(owner)??null,recoveryRoot=draftRoot()
+  if (intent === 'discard' && !approved) approved = closeCoordinator.state(contents.id)?.stamp
+  const sourceAtTarget = closeCoordinator.source(contents.id),
+    targetVersion =
+      intent === 'save' && filePath !== undefined && savePathByWc.get(contents.id) !== filePath
+        ? await observePublicationTarget(filePath)
+        : undefined
+  if (
+    contents.isDestroyed() ||
+    closeCoordinator.source(contents.id) !== sourceAtTarget ||
+    !markdownClosePermit(permit)
+  )
+    throw new Error(
+      'The source or close operation changed while its destination was being checked.',
+    )
+  const result = await closeCoordinator.request(
+    contents.id,
+    'save',
+    filePath,
+    true,
+    intent,
+    approved,
+    { ...permit, deferSeal: true },
+    targetVersion,
+  )
+  if (!markdownClosePermit(permit)) {
+    if (result.closeLease)
+      closeCoordinator.cancel(
+        contents.id,
+        result.closeLease.ticket,
+        'The group ended after renderer preparation.',
+      )
+    throw new Error('This close attempt was canceled before recovery was prepared.')
+  }
+  if (result.phase !== 'prepared' || !result.closeLease || !result.current)
+    throw new Error(result.error ?? 'The current editor could not be held for close.')
+  if (intent === 'discard') {
+    const owner = contents.id,
+      oldEpoch = draftEpochByWc.get(owner),
+      oldDraft = oldEpoch?.id ?? randomUUID(),
+      documentPath = savePathByWc.get(owner) ?? null,
+      recoveryRoot = draftRoot()
     // Retire and drain the captured producer; KEEP its journal until actual removal.
-    discardedDraftFloor.set(owner,{...result.closeLease.stamp})
-    rotateMarkdownDraft(owner,'preserve')
-    const replacementEpoch=draftEpochByWc.get(owner),approvedSource=result.closeLease.stamp.source
-    const cancelProducer=()=>{if(oldEpoch&&replacementEpoch&&draftEpochByWc.get(owner)===replacementEpoch&&!contents.isDestroyed()&&closeCoordinator.state(owner)?.stamp.source===approvedSource){replacementEpoch.retired='preserve';oldEpoch.retired=null;draftEpochByWc.set(owner,oldEpoch);draftByWc.set(owner,oldEpoch.id)}}
-    const journal=capturedMarkdownJournal(oldEpoch)
-    const record:MarkdownCloseCustody={owner,ticket:result.closeLease.ticket,receipt:result,cancelProducer,canceled:false,removed:false}
-    markdownCustodyByTicket.set(record.ticket.id,record);markdownCustodyByReceipt.set(result,record)
-    let actualSettlement:Promise<void>=Promise.resolve()
-    const cleanup=(async()=>{
-      if(!markdownClosePermit(permit))throw new Error('The close group ended before custody admission.')
+    discardedDraftFloor.set(owner, { ...result.closeLease.stamp })
+    rotateMarkdownDraft(owner, 'preserve')
+    const replacementEpoch = draftEpochByWc.get(owner),
+      approvedSource = result.closeLease.stamp.source
+    const cancelProducer = () => {
+      if (
+        oldEpoch &&
+        replacementEpoch &&
+        draftEpochByWc.get(owner) === replacementEpoch &&
+        !contents.isDestroyed() &&
+        closeCoordinator.state(owner)?.stamp.source === approvedSource
+      ) {
+        replacementEpoch.retired = 'preserve'
+        oldEpoch.retired = null
+        draftEpochByWc.set(owner, oldEpoch)
+        draftByWc.set(owner, oldEpoch.id)
+      }
+    }
+    const journal = capturedMarkdownJournal(oldEpoch)
+    const record: MarkdownCloseCustody = {
+      owner,
+      ticket: result.closeLease.ticket,
+      receipt: result,
+      cancelProducer,
+      canceled: false,
+      removed: false,
+    }
+    markdownCustodyByTicket.set(record.ticket.id, record)
+    markdownCustodyByReceipt.set(result, record)
+    let actualSettlement: Promise<void> = Promise.resolve()
+    const cleanup = (async () => {
+      if (!markdownClosePermit(permit))
+        throw new Error('The close group ended before custody admission.')
       // Register lineage now; the shared service tracks the prior writer drain.
-      const admission=beginCloseCleanup({ready:journal.ready,id:'markdown:'+result.requestId,module:'markdown',ownerKey:record.ticket.source,source:result.closeLease!.stamp.source,generation:record.ticket.sequence,token:oldDraft,documentPath,custody:{recoveryRoot,draftId:oldDraft,attest:journal.attest},run:async signal=>{if(signal.aborted)throw new Error('Captured journal cleanup was canceled.');if(!record.handle?.status().custody)return;const binding=journal.attest();if(!binding)throw new Error('Captured Markdown journal binding is unknown; its recovery bytes were retained.');await discardDraftJournal(recoveryRoot,oldDraft,{expectedSha256:binding.expectedSha256})}});record.admission=admission;actualSettlement=admission.actualSettled;record.handle=await admission.ready;await admission.actualSettled
-      if(!markdownClosePermit(permit))throw new Error('This close attempt was canceled.')
-      if(record.canceled)record.handle.cancel('Close permission ended while recovery custody was being prepared.')
-      const retained=documentPath?await pendingOwnedAssetsForDocument(documentPath):[]
-      if(!markdownClosePermit(permit))throw new Error('This close attempt was canceled.')
-      result.cleanup={journal:'staged',assets:retained.length?'retained':'none',...(retained.length?{retainedAssets:retained.length}:{})};updateMarkdownCustody(record)
-      if(retained.length){const warning='Staged image files were retained because this view cannot prove exclusive ownership; another copy may use them.';result.warnings=[warning];console.warn('[markdown] discard asset retention:',warning)}
-      if(record.canceled)throw new Error('Close permission expired while the protected recovery copy was being prepared; the document remains open.')
+      const admission = beginCloseCleanup({
+        ready: journal.ready,
+        id: 'markdown:' + result.requestId,
+        module: 'markdown',
+        ownerKey: record.ticket.source,
+        source: result.closeLease!.stamp.source,
+        generation: record.ticket.sequence,
+        token: oldDraft,
+        documentPath,
+        custody: { recoveryRoot, draftId: oldDraft, attest: journal.attest },
+        run: async (signal) => {
+          if (signal.aborted) throw new Error('Captured journal cleanup was canceled.')
+          if (!record.handle?.status().custody) return
+          const binding = journal.attest()
+          if (!binding)
+            throw new Error(
+              'Captured Markdown journal binding is unknown; its recovery bytes were retained.',
+            )
+          await discardDraftJournal(recoveryRoot, oldDraft, {
+            expectedSha256: binding.expectedSha256,
+          })
+        },
+      })
+      record.admission = admission
+      actualSettlement = admission.actualSettled
+      record.handle = await admission.ready
+      await admission.actualSettled
+      if (!markdownClosePermit(permit)) throw new Error('This close attempt was canceled.')
+      if (record.canceled)
+        record.handle.cancel('Close permission ended while recovery custody was being prepared.')
+      const retained = documentPath ? await pendingOwnedAssetsForDocument(documentPath) : []
+      if (!markdownClosePermit(permit)) throw new Error('This close attempt was canceled.')
+      result.cleanup = {
+        journal: 'staged',
+        assets: retained.length ? 'retained' : 'none',
+        ...(retained.length ? { retainedAssets: retained.length } : {}),
+      }
+      updateMarkdownCustody(record)
+      if (retained.length) {
+        const warning =
+          'Staged image files were retained because this view cannot prove exclusive ownership; another copy may use them.'
+        result.warnings = [warning]
+        console.warn('[markdown] discard asset retention:', warning)
+      }
+      if (record.canceled)
+        throw new Error(
+          'Close permission expired while the protected recovery copy was being prepared; the document remains open.',
+        )
     })()
     // A ready timeout may reject promptly; the actual provider/finalizers keep their slot and renderer lock.
-    const actual=cleanup.finally(()=>actualSettlement).finally(()=>{if(markdownCleanup.get(owner)!==actual)return;markdownCleanup.delete(owner);for(const release of deferredReleases.get(owner)??[]){if(!contents.isDestroyed())contents.send(MARKDOWN_CHANNELS.closeLeaseRelease,release.ticket,release.reason)}deferredReleases.delete(owner)})
-    void actual.catch(()=>{})
-    markdownCleanup.set(owner,actual)
-    try{await cleanup;await actual}catch(error){cancelMarkdownCustody(record,'recovery staging did not finish');closeCoordinator.cancel(owner,result.closeLease.ticket,'recovery staging failed');throw error}
+    const actual = cleanup
+      .finally(() => actualSettlement)
+      .finally(() => {
+        if (markdownCleanup.get(owner) !== actual) return
+        markdownCleanup.delete(owner)
+        for (const release of deferredReleases.get(owner) ?? []) {
+          if (!contents.isDestroyed())
+            contents.send(MARKDOWN_CHANNELS.closeLeaseRelease, release.ticket, release.reason)
+        }
+        deferredReleases.delete(owner)
+      })
+    void actual.catch(() => {})
+    markdownCleanup.set(owner, actual)
+    try {
+      await cleanup
+      await actual
+    } catch (error) {
+      cancelMarkdownCustody(record, 'recovery staging did not finish')
+      closeCoordinator.cancel(owner, result.closeLease.ticket, 'recovery staging failed')
+      throw error
+    }
   }
-  if(!markdownClosePermit(permit)||!isMarkdownClosePrepared(contents,result)){if(result.closeLease)closeCoordinator.cancel(contents.id,result.closeLease.ticket,'The close operation expired before its final seal.');throw new Error('The document changed before it could close.')}
-  if(permit.deferSeal)return result as MarkdownNativeCloseReceipt
-  const ready=sealMarkdownClose(contents,result)
-  if(!ready)throw new Error('The document changed before it could close.')
+  if (!markdownClosePermit(permit) || !isMarkdownClosePrepared(contents, result)) {
+    if (result.closeLease)
+      closeCoordinator.cancel(
+        contents.id,
+        result.closeLease.ticket,
+        'The close operation expired before its final seal.',
+      )
+    throw new Error('The document changed before it could close.')
+  }
+  if (permit.deferSeal) return result as MarkdownNativeCloseReceipt
+  const ready = sealMarkdownClose(contents, result)
+  if (!ready) throw new Error('The document changed before it could close.')
   return ready
 }
-export function isMarkdownClosePrepared(contents:WebContents,receipt:MarkdownCloseReceipt):boolean{
-  if(contents.isDestroyed()||markdownCleanup.has(contents.id))return false
-  const staged=markdownCustodyByReceipt.get(receipt)
-  return(!staged||!staged.canceled&&!!staged.handle)&&closeCoordinator.isPrepared(contents.id,receipt)
+export function isMarkdownClosePrepared(
+  contents: WebContents,
+  receipt: MarkdownCloseReceipt,
+): boolean {
+  if (contents.isDestroyed() || markdownCleanup.has(contents.id)) return false
+  const staged = markdownCustodyByReceipt.get(receipt)
+  return (
+    (!staged || (!staged.canceled && !!staged.handle)) &&
+    closeCoordinator.isPrepared(contents.id, receipt)
+  )
 }
-export function sealMarkdownClose(contents:WebContents,receipt:MarkdownCloseReceipt):MarkdownNativeCloseReceipt|null{
-  if(!isMarkdownClosePrepared(contents,receipt))return null
-  const ready=closeCoordinator.seal(contents.id,receipt);if(!ready)return null
-  const staged=markdownCustodyByReceipt.get(receipt);if(staged){staged.receipt=ready;markdownCustodyByReceipt.set(ready,staged);markdownCustodyByReceipt.delete(receipt)}
+export function sealMarkdownClose(
+  contents: WebContents,
+  receipt: MarkdownCloseReceipt,
+): MarkdownNativeCloseReceipt | null {
+  if (!isMarkdownClosePrepared(contents, receipt)) return null
+  const ready = closeCoordinator.seal(contents.id, receipt)
+  if (!ready) return null
+  const staged = markdownCustodyByReceipt.get(receipt)
+  if (staged) {
+    staged.receipt = ready
+    markdownCustodyByReceipt.set(ready, staged)
+    markdownCustodyByReceipt.delete(receipt)
+  }
   return ready
 }
-export function completeMarkdownClose(contents:WebContents,receipt:MarkdownCloseReceipt,remove:()=>boolean):boolean{
-  if(markdownCleanup.has(contents.id))return false
-  const staged=markdownCustodyByReceipt.get(receipt)
-  if(staged&&(staged.canceled||!staged.handle))return false
-  try{return closeCoordinator.complete(contents.id,receipt,()=>staged?staged.handle!.commitRemoval(()=>{const removed=remove();if(removed)staged.removed=true;return removed}):remove())}
-  finally{if(staged)updateMarkdownCustody(staged)}
+export function completeMarkdownClose(
+  contents: WebContents,
+  receipt: MarkdownCloseReceipt,
+  remove: () => boolean,
+): boolean {
+  if (markdownCleanup.has(contents.id)) return false
+  const staged = markdownCustodyByReceipt.get(receipt)
+  if (staged && (staged.canceled || !staged.handle)) return false
+  try {
+    return closeCoordinator.complete(contents.id, receipt, () =>
+      staged
+        ? staged.handle!.commitRemoval(() => {
+            const removed = remove()
+            if (removed) staged.removed = true
+            return removed
+          })
+        : remove(),
+    )
+  } finally {
+    if (staged) updateMarkdownCustody(staged)
+  }
 }
-export async function cancelMarkdownClose(contents:WebContents,receipt:MarkdownCloseReceipt,reason='close cancelled'):Promise<void>{
-  if(!receipt.closeLease)return
-  closeCoordinator.cancel(contents.id,receipt.closeLease.ticket,reason);await waitForMarkdownCleanup(contents.id)
-  const staged=markdownCustodyByReceipt.get(receipt);if(staged&&!staged.removed)cancelMarkdownCustody(staged,reason)
+export async function cancelMarkdownClose(
+  contents: WebContents,
+  receipt: MarkdownCloseReceipt,
+  reason = 'close cancelled',
+): Promise<void> {
+  if (!receipt.closeLease) return
+  closeCoordinator.cancel(contents.id, receipt.closeLease.ticket, reason)
+  await waitForMarkdownCleanup(contents.id)
+  const staged = markdownCustodyByReceipt.get(receipt)
+  if (staged && !staged.removed) cancelMarkdownCustody(staged, reason)
 }
 /** Prompt approval is bound to the exact authored revision the user was shown. */
-export async function prepareMarkdownNativeClose(contents:WebContents,parent?:BrowserWindow|null,options:MarkdownClosePrepareOptions={}):Promise<MarkdownNativeCloseReceipt|null>{
- return runMarkdownNativeClose({holdAutomaticSaves:()=>nativeCloseAdmission.hold(contents.id,contents.id),alive:()=>!contents.isDestroyed(),state:()=>closeCoordinator.state(contents.id),retainedAssets:async()=>{const path=savePathByWc.get(contents.id);return path?pendingOwnedAssetsForDocument(path):[]},prompt:async retainedCount=>{
-  const detail=tm('closeUnsavedDetail')+(retainedCount?' Unpublished image files will stay on disk when you discard, because another copy may use them.':'')
-  const promptOptions={type:'warning' as const,message:tm('closeUnsavedMsg'),detail,buttons:[tm('btnSave'),tm('btnDontSave'),tm('btnCancel')],defaultId:0,cancelId:2,noLink:true}
-  const {response}=parent&&!parent.isDestroyed()?await dialog.showMessageBox(parent,promptOptions):await dialog.showMessageBox(promptOptions)
-  return response
- },prepare:(intent,approved,permit)=>prepareMarkdownClose(contents,undefined,intent,approved,permit),cancel:receipt=>cancelMarkdownClose(contents,receipt,'The native close group ended after preparation.')},options)
+export async function prepareMarkdownNativeClose(
+  contents: WebContents,
+  parent?: BrowserWindow | null,
+  options: MarkdownClosePrepareOptions = {},
+): Promise<MarkdownNativeCloseReceipt | null> {
+  return runMarkdownNativeClose(
+    {
+      holdAutomaticSaves: () => nativeCloseAdmission.hold(contents.id, contents.id),
+      alive: () => !contents.isDestroyed(),
+      state: () => closeCoordinator.state(contents.id),
+      retainedAssets: async () => {
+        const path = savePathByWc.get(contents.id)
+        return path ? pendingOwnedAssetsForDocument(path) : []
+      },
+      prompt: async (retainedCount) => {
+        const detail =
+          tm('closeUnsavedDetail') +
+          (retainedCount
+            ? ' Unpublished image files will stay on disk when you discard, because another copy may use them.'
+            : '')
+        const promptOptions = {
+          type: 'warning' as const,
+          message: tm('closeUnsavedMsg'),
+          detail,
+          buttons: [tm('btnSave'), tm('btnDontSave'), tm('btnCancel')],
+          defaultId: 0,
+          cancelId: 2,
+          noLink: true,
+        }
+        const { response } =
+          parent && !parent.isDestroyed()
+            ? await dialog.showMessageBox(parent, promptOptions)
+            : await dialog.showMessageBox(promptOptions)
+        return response
+      },
+      prepare: (intent, approved, permit) =>
+        prepareMarkdownClose(contents, undefined, intent, approved, permit),
+      cancel: (receipt) =>
+        cancelMarkdownClose(contents, receipt, 'The native close group ended after preparation.'),
+    },
+    options,
+  )
 }
-async function confirmPublicationChoice(e:Electron.IpcMainInvokeEvent,target:string,mustExist=false){
-  const selected=await observePublicationTarget(target)
-  if(mustExist&&!selected.version)throw new Error('The original document was moved or deleted. Save As a separate copy; current edits are retained.')
-  if(!selected.version)return selected
-  const parent=BrowserWindow.fromWebContents(e.sender)??undefined,choice={type:'warning' as const,message:'Replace the selected file?',detail:target+'\nThe exact version now on disk will be replaced. A later change will stop this save.',buttons:['Replace','Cancel'],defaultId:1,cancelId:1,noLink:true}
-  const answer=parent&&!parent.isDestroyed()?await dialog.showMessageBox(parent,choice):await dialog.showMessageBox(choice)
-  return answer.response===0?selected:null
+async function confirmPublicationChoice(
+  e: Electron.IpcMainInvokeEvent,
+  target: string,
+  mustExist = false,
+) {
+  const selected = await observePublicationTarget(target)
+  if (mustExist && !selected.version)
+    throw new Error(
+      'The original document was moved or deleted. Save As a separate copy; current edits are retained.',
+    )
+  if (!selected.version) return selected
+  const parent = BrowserWindow.fromWebContents(e.sender) ?? undefined,
+    choice = {
+      type: 'warning' as const,
+      message: 'Replace the selected file?',
+      detail:
+        target +
+        '\nThe exact version now on disk will be replaced. A later change will stop this save.',
+      buttons: ['Replace', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    }
+  const answer =
+    parent && !parent.isDestroyed()
+      ? await dialog.showMessageBox(parent, choice)
+      : await dialog.showMessageBox(choice)
+  return answer.response === 0 ? selected : null
 }
-
 
 /**
  * A file-name stem from an untrusted source (a model's answer, or a heading).
@@ -881,17 +1282,48 @@ function registerMarkdownIpc(): void {
     void diskWatcherByWc.get(e.sender.id)?.acknowledge()
   })
 
-  ipcMain.handle(MARKDOWN_CHANNELS.readPublication,async(e,path:unknown)=>{
-    const session=closeCoordinator.session(e.sender.id)
-    const valid=()=>currentTopSender(e)&&closeCoordinator.session(e.sender.id)===session&&typeof path==='string'&&allowedByWc.get(e.sender.id)?.has(path)===true
-    if(!valid())throw new Error('The publication read is not granted to the current document.')
-    const result=await publicationReads.read(e.sender.id,session,path as string,async()=>readFile(path as string),valid)
-    return{text:Buffer.from(result.bytes).toString('utf8'),publicationId:result.publicationId}
+  ipcMain.handle(MARKDOWN_CHANNELS.readPublication, async (e, path: unknown) => {
+    const session = closeCoordinator.session(e.sender.id)
+    const valid = () =>
+      currentTopSender(e) &&
+      closeCoordinator.session(e.sender.id) === session &&
+      typeof path === 'string' &&
+      allowedByWc.get(e.sender.id)?.has(path) === true
+    if (!valid()) throw new Error('The publication read is not granted to the current document.')
+    const result = await publicationReads.read(
+      e.sender.id,
+      session,
+      path as string,
+      async () => readFile(path as string),
+      valid,
+    )
+    return { text: Buffer.from(result.bytes).toString('utf8'), publicationId: result.publicationId }
   })
-  ipcMain.on(MARKDOWN_CHANNELS.publicationLoaded,(e,request:unknown)=>{
-    if(!currentTopSender(e))return
-    const candidate=request as {publicationId?:unknown;path?:unknown;stamp?:CloseLeaseStamp}|null,state=closeCoordinator.state(e.sender.id)
-    if(!candidate||typeof candidate.path!=='string'||!allowedByWc.get(e.sender.id)?.has(candidate.path)||savePathByWc.get(e.sender.id)!==candidate.path||!state||candidate.stamp?.source!==state.stamp.source||candidate.stamp?.revision!==state.stamp.revision||!publicationReads.adopt(e.sender.id,closeCoordinator.session(e.sender.id),state.stamp.source,candidate.path,candidate.publicationId))console.warn('[markdown] refused obsolete publication-load acknowledgment')
+  ipcMain.on(MARKDOWN_CHANNELS.publicationLoaded, (e, request: unknown) => {
+    if (!currentTopSender(e)) return
+    const candidate = request as {
+        publicationId?: unknown
+        path?: unknown
+        stamp?: CloseLeaseStamp
+      } | null,
+      state = closeCoordinator.state(e.sender.id)
+    if (
+      !candidate ||
+      typeof candidate.path !== 'string' ||
+      !allowedByWc.get(e.sender.id)?.has(candidate.path) ||
+      savePathByWc.get(e.sender.id) !== candidate.path ||
+      !state ||
+      candidate.stamp?.source !== state.stamp.source ||
+      candidate.stamp?.revision !== state.stamp.revision ||
+      !publicationReads.adopt(
+        e.sender.id,
+        closeCoordinator.session(e.sender.id),
+        state.stamp.source,
+        candidate.path,
+        candidate.publicationId,
+      )
+    )
+      console.warn('[markdown] refused obsolete publication-load acknowledgment')
   })
 
   ipcMain.handle(MARKDOWN_CHANNELS.readFile, async (e, path: unknown) => {
@@ -940,16 +1372,18 @@ function registerMarkdownIpc(): void {
       // where a bare name lands follows the document this view holds: the
       // saved path wins (Save As moved it), the opened path is the fallback
       const fromPath = savePathByWc.get(e.sender.id) ?? openPathByWc.get(e.sender.id) ?? ''
-      if(!currentTopSender(e))throw new Error('The source sender frame is obsolete.')
+      if (!currentTopSender(e)) throw new Error('The source sender frame is obsolete.')
       assertNoMarkdownCleanup(e.sender.id)
-      const work=beginMarkdownMutation(e,undefined,request.closeSource)
-      try{
-      const made = await createWikiNote(target, {
-        root: configuredDefaultSaveDir(app),
-        fromDir: fromPath ? dirname(fromPath) : '',
-      }).catch(() => null)
-      return made ? { ok: true, ...made } : { ok: false }
-      }finally{closeCoordinator.finishMutation(work)}
+      const work = beginMarkdownMutation(e, undefined, request.closeSource)
+      try {
+        const made = await createWikiNote(target, {
+          root: configuredDefaultSaveDir(app),
+          fromDir: fromPath ? dirname(fromPath) : '',
+        }).catch(() => null)
+        return made ? { ok: true, ...made } : { ok: false }
+      } finally {
+        closeCoordinator.finishMutation(work)
+      }
     },
   )
 
@@ -970,156 +1404,341 @@ function registerMarkdownIpc(): void {
   ipcMain.handle(
     MARKDOWN_CHANNELS.save,
     async (e, request: SaveMarkdownRequest): Promise<SaveMarkdownResult> => {
-      const releaseAutomatic=nativeCloseAdmission.write(e.sender.id,request?.automatic===true,closeCoordinator.ownsCloseWrite(e.sender.id,request?.requestId)?e.sender.id:undefined)
-      if(!releaseAutomatic)return{ok:true,canceled:true}
-      try{
-      const retained=new Set<string>(),retention={retainUnproven:true,onRetained:(names:readonly string[])=>{for(const name of names)retained.add(name)}}
-      const perform=async():Promise<SaveMarkdownResult>=>{
-      if (typeof request?.text !== 'string') {
-        return { ok: false, error: 'markdown: bad save request' }
-      }
-      if (
-        request.imageSources !== undefined &&
-        (!Array.isArray(request.imageSources) ||
-          request.imageSources.some((source) => typeof source !== 'string'))
-      ) {
-        return { ok: false, error: 'markdown: bad image references' }
-      }
-      assertNoMarkdownCleanup(e.sender.id)
-      const work=beginMarkdownMutation(e,request.requestId,request.closeSource)
-      let publishedPath:string|undefined
-      const mode: SaveMode = request.mode === 'saveAs' ? 'saveAs' : 'save'
-      const pathAtRequest = savePathByWc.get(e.sender.id)
+      const releaseAutomatic = nativeCloseAdmission.write(
+        e.sender.id,
+        request?.automatic === true,
+        closeCoordinator.ownsCloseWrite(e.sender.id, request?.requestId) ? e.sender.id : undefined,
+      )
+      if (!releaseAutomatic) return { ok: true, canceled: true }
       try {
-      const publicationEntry=publicationReads.select(e.sender.id,closeCoordinator.session(e.sender.id),request.closeSource?.source??'',request.publicationId,pathAtRequest??null,mode==='saveAs'),loadedPublication=publicationEntry.publication.snapshot()
-      const overwriteVersion=request.overwrite===true&&mode==='save'&&pathAtRequest?await confirmPublicationChoice(e,pathAtRequest,true):undefined
-      if(request.overwrite===true&&mode==='save'&&pathAtRequest&&!overwriteVersion)return {ok:true,canceled:true}
+        const retained = new Set<string>(),
+          retention = {
+            retainUnproven: true,
+            onRetained: (names: readonly string[]) => {
+              for (const name of names) retained.add(name)
+            },
+          }
+        const perform = async (): Promise<SaveMarkdownResult> => {
+          if (typeof request?.text !== 'string') {
+            return { ok: false, error: 'markdown: bad save request' }
+          }
+          if (
+            request.imageSources !== undefined &&
+            (!Array.isArray(request.imageSources) ||
+              request.imageSources.some((source) => typeof source !== 'string'))
+          ) {
+            return { ok: false, error: 'markdown: bad image references' }
+          }
+          assertNoMarkdownCleanup(e.sender.id)
+          const work = beginMarkdownMutation(e, request.requestId, request.closeSource)
+          let publishedPath: string | undefined
+          const mode: SaveMode = request.mode === 'saveAs' ? 'saveAs' : 'save'
+          const pathAtRequest = savePathByWc.get(e.sender.id)
+          try {
+            const publicationEntry = publicationReads.select(
+                e.sender.id,
+                closeCoordinator.session(e.sender.id),
+                request.closeSource?.source ?? '',
+                request.publicationId,
+                pathAtRequest ?? null,
+                mode === 'saveAs',
+              ),
+              loadedPublication = publicationEntry.publication.snapshot()
+            const overwriteVersion =
+              request.overwrite === true && mode === 'save' && pathAtRequest
+                ? await confirmPublicationChoice(e, pathAtRequest, true)
+                : undefined
+            if (request.overwrite === true && mode === 'save' && pathAtRequest && !overwriteVersion)
+              return { ok: true, canceled: true }
 
-        const pendingAtRequest = pathAtRequest ? await pendingOwnedAssetsForDocument(pathAtRequest) : []
-        if(!closeCoordinator.current(work))return{ok:false,error:'The close group ended before choosing a Save target.'}
-        const suggestedName =
-          typeof request.suggestedName === 'string' ? request.suggestedName : undefined
-        const defaultName =
-          typeof request.defaultName === 'string' ? request.defaultName : undefined
-        const forcedTarget=closeCoordinator.target(e.sender.id,request.requestId)
-        const target = forcedTarget ?? await resolveSaveTarget(e, mode, suggestedName, defaultName)
-        if(!closeCoordinator.current(work))return {ok:false,error:'The document changed before the write was delivered.'}
-        if (target === 'canceled') return { ok: true, canceled: true }
-        if (!target) return { ok: false, error: 'markdown: no save target' }
-        const capturedTarget=closeCoordinator.publicationTarget(e.sender.id,request.requestId)
-        const selectedTarget=capturedTarget??overwriteVersion??(mode==='saveAs'?await confirmPublicationChoice(e,target):pathAtRequest===target?undefined:absentPublicationTarget(target))
-        if(mode==='saveAs'&&!selectedTarget)return {ok:true,canceled:true}
-        const publicationTicket=publicationEntry.publication.pin(target,selectedTarget??undefined,loadedPublication)
-        const assetSession=closeCoordinator.session(e.sender.id)
-        const assetRetention={...retention,assertCurrent:()=>{if(!currentTopSender(e)||e.sender.isDestroyed()||closeCoordinator.session(e.sender.id)!==assetSession||!closeCoordinator.current(work)||savePathByWc.get(e.sender.id)!==pathAtRequest)throw new Error('The loaded source changed before asset publication.')}}
-        let adoptedNewPath=false
-        const assetResult=await withPinnedAssetOutput<SaveMarkdownResult>({targetPath:target,expectedVersion:publicationTicket.expectedVersion,sourceDocumentPath:pathAtRequest,assertCurrent:assetRetention.assertCurrent},async()=>{
-        const currentPath = pathAtRequest
-        const isNewPath = currentPath !== target
-        const imageSources = [...(request.imageSources ?? [])]
-        const knownImageSources = new Set(imageSources)
-        for (const source of extractMarkdownImageSources(request.text)) {
-          if (knownImageSources.has(source)) continue
-          knownImageSources.add(source)
-          imageSources.push(source)
-        }
-        const prepared =
-          currentPath && resolve(dirname(currentPath)) !== resolve(dirname(target))
-            ? await prepareAssetsForSaveAs(currentPath, target, request.text, imageSources,assetRetention)
-            : null
-        const textToWrite = prepared?.text ?? request.text
-        const savedImageSources = prepared?.imageSources ?? imageSources
-        const watcher = diskWatcherByWc.get(e.sender.id)
-        if (watcher && !isNewPath && request.overwrite !== true && !(await watcher.isCurrent())) {
-          if (prepared) await rollbackPreparedSaveAsAssets(prepared,retention).catch(() => {})
-          return { ok: false, error: 'markdown: file changed on disk', conflict: true }
-        }
-        watcher?.beginOwnWrite()
-        try {
-          if(!closeCoordinator.current(work))throw new Error('The document changed before publication.')
-          await publicationEntry.publication.publishBytes(publicationTicket,()=>Buffer.from(textToWrite,'utf8'),()=>closeCoordinator.current(work))
-          publishedPath=target
-        } catch (error) {
-          if (prepared) await rollbackPreparedSaveAsAssets(prepared,retention).catch(() => {})
-          throw error
-        } finally {
-          await watcher?.endOwnWrite(target)
-        }
-        if(!closeCoordinator.current(work))return {ok:true,path:target,...(prepared?.rewrites.length?{imageRewrites:prepared.rewrites,writtenText:textToWrite}:{})}
-        savePathByWc.set(e.sender.id, target)
-        // keep the reload path in sync — a stale openPathByWc would make a
-        // reloaded renderer load the OLD file and then save it over the new one
-        openPathByWc.set(e.sender.id, target)
-        const allowed = allowedByWc.get(e.sender.id) ?? new Set<string>()
-        allowed.add(target)
-        allowedByWc.set(e.sender.id, allowed)
-        if(isNewPath)adoptedNewPath=true
-        const pendingNames = prepared
-          ? prepared.created.map((record) => record.name)
-          : currentPath && resolve(currentPath) === resolve(target)
-            ? pendingAtRequest
-            : []
-        const reconciled = await reconcileOwnedAssets(target, savedImageSources, { pendingNames,...retention })
-        if (reconciled.errors.length > 0) {
-          console.warn('[markdown] asset reconciliation incomplete:', reconciled.errors)
-        }
-        if (mode === 'saveAs' && currentPath && resolve(currentPath) !== resolve(target)) {
-          const sourceResolved = await resolveSourcePendingAfterSaveAs(
-            currentPath,
-            pendingAtRequest,retention,
-          )
-          if (sourceResolved.errors.length > 0) {
-            console.warn(
-              '[markdown] source asset reconciliation incomplete:',
-              sourceResolved.errors,
+            const pendingAtRequest = pathAtRequest
+              ? await pendingOwnedAssetsForDocument(pathAtRequest)
+              : []
+            if (!closeCoordinator.current(work))
+              return { ok: false, error: 'The close group ended before choosing a Save target.' }
+            const suggestedName =
+              typeof request.suggestedName === 'string' ? request.suggestedName : undefined
+            const defaultName =
+              typeof request.defaultName === 'string' ? request.defaultName : undefined
+            const forcedTarget = closeCoordinator.target(e.sender.id, request.requestId)
+            const target =
+              forcedTarget ?? (await resolveSaveTarget(e, mode, suggestedName, defaultName))
+            if (!closeCoordinator.current(work))
+              return { ok: false, error: 'The document changed before the write was delivered.' }
+            if (target === 'canceled') return { ok: true, canceled: true }
+            if (!target) return { ok: false, error: 'markdown: no save target' }
+            const capturedTarget = closeCoordinator.publicationTarget(
+              e.sender.id,
+              request.requestId,
             )
+            const selectedTarget =
+              capturedTarget ??
+              overwriteVersion ??
+              (mode === 'saveAs'
+                ? await confirmPublicationChoice(e, target)
+                : pathAtRequest === target
+                  ? undefined
+                  : absentPublicationTarget(target))
+            if (mode === 'saveAs' && !selectedTarget) return { ok: true, canceled: true }
+            const publicationTicket = publicationEntry.publication.pin(
+              target,
+              selectedTarget ?? undefined,
+              loadedPublication,
+            )
+            const assetSession = closeCoordinator.session(e.sender.id)
+            const assetRetention = {
+              ...retention,
+              assertCurrent: () => {
+                if (
+                  !currentTopSender(e) ||
+                  e.sender.isDestroyed() ||
+                  closeCoordinator.session(e.sender.id) !== assetSession ||
+                  !closeCoordinator.current(work) ||
+                  savePathByWc.get(e.sender.id) !== pathAtRequest
+                )
+                  throw new Error('The loaded source changed before asset publication.')
+              },
+            }
+            let adoptedNewPath = false
+            const assetResult = await withPinnedAssetOutput<SaveMarkdownResult>(
+              {
+                targetPath: target,
+                expectedVersion: publicationTicket.expectedVersion,
+                sourceDocumentPath: pathAtRequest,
+                assertCurrent: assetRetention.assertCurrent,
+              },
+              async () => {
+                const currentPath = pathAtRequest
+                const isNewPath = currentPath !== target
+                const imageSources = [...(request.imageSources ?? [])]
+                const knownImageSources = new Set(imageSources)
+                for (const source of extractMarkdownImageSources(request.text)) {
+                  if (knownImageSources.has(source)) continue
+                  knownImageSources.add(source)
+                  imageSources.push(source)
+                }
+                const prepared =
+                  currentPath && resolve(dirname(currentPath)) !== resolve(dirname(target))
+                    ? await prepareAssetsForSaveAs(
+                        currentPath,
+                        target,
+                        request.text,
+                        imageSources,
+                        assetRetention,
+                      )
+                    : null
+                const textToWrite = prepared?.text ?? request.text
+                const savedImageSources = prepared?.imageSources ?? imageSources
+                const watcher = diskWatcherByWc.get(e.sender.id)
+                if (
+                  watcher &&
+                  !isNewPath &&
+                  request.overwrite !== true &&
+                  !(await watcher.isCurrent())
+                ) {
+                  if (prepared)
+                    await rollbackPreparedSaveAsAssets(prepared, retention).catch(() => {})
+                  return { ok: false, error: 'markdown: file changed on disk', conflict: true }
+                }
+                watcher?.beginOwnWrite()
+                try {
+                  if (!closeCoordinator.current(work))
+                    throw new Error('The document changed before publication.')
+                  await publicationEntry.publication.publishBytes(
+                    publicationTicket,
+                    () => Buffer.from(textToWrite, 'utf8'),
+                    () => closeCoordinator.current(work),
+                  )
+                  publishedPath = target
+                } catch (error) {
+                  if (prepared)
+                    await rollbackPreparedSaveAsAssets(prepared, retention).catch(() => {})
+                  throw error
+                } finally {
+                  await watcher?.endOwnWrite(target)
+                }
+                if (!closeCoordinator.current(work))
+                  return {
+                    ok: true,
+                    path: target,
+                    ...(prepared?.rewrites.length
+                      ? { imageRewrites: prepared.rewrites, writtenText: textToWrite }
+                      : {}),
+                  }
+                savePathByWc.set(e.sender.id, target)
+                // keep the reload path in sync — a stale openPathByWc would make a
+                // reloaded renderer load the OLD file and then save it over the new one
+                openPathByWc.set(e.sender.id, target)
+                const allowed = allowedByWc.get(e.sender.id) ?? new Set<string>()
+                allowed.add(target)
+                allowedByWc.set(e.sender.id, allowed)
+                if (isNewPath) adoptedNewPath = true
+                const pendingNames = prepared
+                  ? prepared.created.map((record) => record.name)
+                  : currentPath && resolve(currentPath) === resolve(target)
+                    ? pendingAtRequest
+                    : []
+                const reconciled = await reconcileOwnedAssets(target, savedImageSources, {
+                  pendingNames,
+                  ...retention,
+                })
+                if (reconciled.errors.length > 0) {
+                  console.warn('[markdown] asset reconciliation incomplete:', reconciled.errors)
+                }
+                if (mode === 'saveAs' && currentPath && resolve(currentPath) !== resolve(target)) {
+                  const sourceResolved = await resolveSourcePendingAfterSaveAs(
+                    currentPath,
+                    pendingAtRequest,
+                    retention,
+                  )
+                  if (sourceResolved.errors.length > 0) {
+                    console.warn(
+                      '[markdown] source asset reconciliation incomplete:',
+                      sourceResolved.errors,
+                    )
+                  }
+                }
+                return {
+                  ok: true,
+                  path: target,
+                  publicationId: publicationEntry.id,
+                  ...(prepared?.rewrites.length
+                    ? { imageRewrites: prepared.rewrites, writtenText: textToWrite }
+                    : {}),
+                }
+              },
+            )
+            // Relocation hooks run after actual publication/adoption/asset settlement,
+            // never from inside the publisher that a physical move must drain.
+            if (
+              adoptedNewPath &&
+              closeCoordinator.session(e.sender.id) === assetSession &&
+              savePathByWc.get(e.sender.id) === target
+            )
+              fileSavedHook?.(e.sender, target)
+            return assetResult
+          } catch (err) {
+            return { ok: false, error: err instanceof Error ? err.message : String(err) }
+          } finally {
+            closeCoordinator.finishMutation(work, publishedPath, retained.size > 0)
           }
         }
-        return {
-          ok: true,
-          path: target,
-          publicationId:publicationEntry.id,
-          ...(prepared?.rewrites.length
-            ? { imageRewrites: prepared.rewrites, writtenText: textToWrite }
-            : {}),
+        const result = await perform()
+        if (retained.size) {
+          console.warn('[markdown] asset retention:', retained.size)
+          return {
+            ...result,
+            assetCleanup: { assets: 'retained' },
+            warnings: [
+              'Some image files were kept because another open copy or a saved version may still need them.',
+            ],
+          }
         }
-        })
-        // Relocation hooks run after actual publication/adoption/asset settlement,
-        // never from inside the publisher that a physical move must drain.
-        if(adoptedNewPath&&closeCoordinator.session(e.sender.id)===assetSession&&savePathByWc.get(e.sender.id)===target)fileSavedHook?.(e.sender,target)
-        return assetResult
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) }
-      } finally { closeCoordinator.finishMutation(work,publishedPath,retained.size>0) }
+        return result
+      } finally {
+        releaseAutomatic()
       }
-      const result=await perform()
-      if(retained.size){console.warn('[markdown] asset retention:',retained.size);return {...result,assetCleanup:{assets:'retained'},warnings:['Some image files were kept because another open copy or a saved version may still need them.']}}
-      return result
-      }finally{releaseAutomatic()}
     },
   )
 
-  ipcMain.handle(MARKDOWN_CHANNELS.pickImage,async(e,source?:CloseLeaseStamp):Promise<string|null>=>{
-    if(!currentTopSender(e))throw new Error('The source sender frame is obsolete.');assertNoMarkdownCleanup(e.sender.id);const work=beginMarkdownMutation(e,undefined,source)
-    try{const docPath=savePathByWc.get(e.sender.id),assetSession=closeCoordinator.session(e.sender.id);if(!docPath)return null
-      const win=BrowserWindow.fromWebContents(e.sender)??BrowserWindow.getFocusedWindow()??undefined
-      const picked=await showOpenDialogWithMemory(dialog,win,{title:tm('dlgPickImage'),filters:[{name:tm('filterImages'),extensions:EXPORT_IMAGE_EXTS}],properties:['openFile']})
-      if(picked.canceled||!picked.filePaths[0]||!closeCoordinator.current(work))return null
-      return await copyImageIntoOwnedAssets(docPath,picked.filePaths[0],{retainUnproven:true,assertCurrent:()=>{if(!currentTopSender(e)||e.sender.isDestroyed()||!closeCoordinator.current(work)||closeCoordinator.session(e.sender.id)!==assetSession||savePathByWc.get(e.sender.id)!==docPath)throw new Error('The loaded source changed before image publication.')}})
-    }finally{closeCoordinator.finishMutation(work)}
-  })
-  ipcMain.handle(MARKDOWN_CHANNELS.saveImage,async(e,data:{base64?:unknown;ext?:unknown;closeSource?:CloseLeaseStamp}):Promise<string|null>=>{
-    assertNoMarkdownCleanup(e.sender.id);const work=beginMarkdownMutation(e,undefined,data?.closeSource)
-    try{const docPath=savePathByWc.get(e.sender.id),assetSession=closeCoordinator.session(e.sender.id),ext=String(data?.ext??'').toLowerCase()
-      if(!docPath||typeof data?.base64!=='string'||!data.base64||!EXPORT_IMAGE_EXTS.includes(ext)||data.base64.length>Math.ceil(MAX_PASTED_IMAGE_BYTES/3)*4)return null
-      return await writeImageIntoOwnedAssets(docPath,'image.'+ext,Buffer.from(data.base64,'base64'),{retainUnproven:true,assertCurrent:()=>{if(!currentTopSender(e)||e.sender.isDestroyed()||!closeCoordinator.current(work)||closeCoordinator.session(e.sender.id)!==assetSession||savePathByWc.get(e.sender.id)!==docPath)throw new Error('The loaded source changed before image publication.')}})
-    }finally{closeCoordinator.finishMutation(work)}
-  })
-  ipcMain.handle(MARKDOWN_CHANNELS.aiGenerateImage,async(e,op:{prompt?:unknown;aspectRatio?:unknown;closeSource?:CloseLeaseStamp})=>{
-    assertNoMarkdownCleanup(e.sender.id);const work=beginMarkdownMutation(e,undefined,op?.closeSource)
-    try{return await generateImageTool(join(app.getPath('userData'),'ai-settings.json'),{prompt:String(op?.prompt??''),aspectRatio:op?.aspectRatio?String(op.aspectRatio):undefined},{mediaRoots:documentMediaRoots(markdownFilePath(e.sender.id),undefined)})}
-    finally{closeCoordinator.finishMutation(work)}
-  })
+  ipcMain.handle(
+    MARKDOWN_CHANNELS.pickImage,
+    async (e, source?: CloseLeaseStamp): Promise<string | null> => {
+      if (!currentTopSender(e)) throw new Error('The source sender frame is obsolete.')
+      assertNoMarkdownCleanup(e.sender.id)
+      const work = beginMarkdownMutation(e, undefined, source)
+      try {
+        const docPath = savePathByWc.get(e.sender.id),
+          assetSession = closeCoordinator.session(e.sender.id)
+        if (!docPath) return null
+        const win =
+          BrowserWindow.fromWebContents(e.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined
+        const picked = await showOpenDialogWithMemory(dialog, win, {
+          title: tm('dlgPickImage'),
+          filters: [{ name: tm('filterImages'), extensions: EXPORT_IMAGE_EXTS }],
+          properties: ['openFile'],
+        })
+        if (picked.canceled || !picked.filePaths[0] || !closeCoordinator.current(work)) return null
+        return await copyImageIntoOwnedAssets(docPath, picked.filePaths[0], {
+          retainUnproven: true,
+          assertCurrent: () => {
+            if (
+              !currentTopSender(e) ||
+              e.sender.isDestroyed() ||
+              !closeCoordinator.current(work) ||
+              closeCoordinator.session(e.sender.id) !== assetSession ||
+              savePathByWc.get(e.sender.id) !== docPath
+            )
+              throw new Error('The loaded source changed before image publication.')
+          },
+        })
+      } finally {
+        closeCoordinator.finishMutation(work)
+      }
+    },
+  )
+  ipcMain.handle(
+    MARKDOWN_CHANNELS.saveImage,
+    async (
+      e,
+      data: { base64?: unknown; ext?: unknown; closeSource?: CloseLeaseStamp },
+    ): Promise<string | null> => {
+      assertNoMarkdownCleanup(e.sender.id)
+      const work = beginMarkdownMutation(e, undefined, data?.closeSource)
+      try {
+        const docPath = savePathByWc.get(e.sender.id),
+          assetSession = closeCoordinator.session(e.sender.id),
+          ext = String(data?.ext ?? '').toLowerCase()
+        if (
+          !docPath ||
+          typeof data?.base64 !== 'string' ||
+          !data.base64 ||
+          !EXPORT_IMAGE_EXTS.includes(ext) ||
+          data.base64.length > Math.ceil(MAX_PASTED_IMAGE_BYTES / 3) * 4
+        )
+          return null
+        return await writeImageIntoOwnedAssets(
+          docPath,
+          'image.' + ext,
+          Buffer.from(data.base64, 'base64'),
+          {
+            retainUnproven: true,
+            assertCurrent: () => {
+              if (
+                !currentTopSender(e) ||
+                e.sender.isDestroyed() ||
+                !closeCoordinator.current(work) ||
+                closeCoordinator.session(e.sender.id) !== assetSession ||
+                savePathByWc.get(e.sender.id) !== docPath
+              )
+                throw new Error('The loaded source changed before image publication.')
+            },
+          },
+        )
+      } finally {
+        closeCoordinator.finishMutation(work)
+      }
+    },
+  )
+  ipcMain.handle(
+    MARKDOWN_CHANNELS.aiGenerateImage,
+    async (e, op: { prompt?: unknown; aspectRatio?: unknown; closeSource?: CloseLeaseStamp }) => {
+      assertNoMarkdownCleanup(e.sender.id)
+      const work = beginMarkdownMutation(e, undefined, op?.closeSource)
+      try {
+        return await generateImageTool(
+          join(app.getPath('userData'), 'ai-settings.json'),
+          {
+            prompt: String(op?.prompt ?? ''),
+            aspectRatio: op?.aspectRatio ? String(op.aspectRatio) : undefined,
+          },
+          { mediaRoots: documentMediaRoots(markdownFilePath(e.sender.id), undefined) },
+        )
+      } finally {
+        closeCoordinator.finishMutation(work)
+      }
+    },
+  )
 
   // ---- image host (vantage#388): bring-your-own storage for pasted images,
   // with the local assets/ copy kept as the renderer's fallback ----
@@ -1183,14 +1802,32 @@ function registerMarkdownIpc(): void {
     },
   )
 
-  ipcMain.handle(MARKDOWN_CHANNELS.uploadImage,async(e,data:{base64?:unknown;ext?:unknown;name?:unknown;closeSource?:CloseLeaseStamp}):Promise<{ok:boolean;url?:string;error?:string}>=>{
-    assertNoMarkdownCleanup(e.sender.id);const work=beginMarkdownMutation(e,undefined,data?.closeSource)
-    try{const ext=String(data?.ext??'').toLowerCase()
-      if(!EXPORT_IMAGE_EXTS.includes(ext)||typeof data?.base64!=='string'||!data.base64||data.base64.length>Math.ceil(MAX_PASTED_IMAGE_BYTES/3)*4)return {ok:false,error:'Unsupported or oversized image data'}
-      const config=await readImageHostConfig();if(!isImageHostUsable(config)||!closeCoordinator.current(work))return {ok:false,error:'Image host or source is unavailable'}
-      return await uploadImageToHost(config,{bytes:Buffer.from(data.base64,'base64'),ext})
-    }finally{closeCoordinator.finishMutation(work)}
-  })
+  ipcMain.handle(
+    MARKDOWN_CHANNELS.uploadImage,
+    async (
+      e,
+      data: { base64?: unknown; ext?: unknown; name?: unknown; closeSource?: CloseLeaseStamp },
+    ): Promise<{ ok: boolean; url?: string; error?: string }> => {
+      assertNoMarkdownCleanup(e.sender.id)
+      const work = beginMarkdownMutation(e, undefined, data?.closeSource)
+      try {
+        const ext = String(data?.ext ?? '').toLowerCase()
+        if (
+          !EXPORT_IMAGE_EXTS.includes(ext) ||
+          typeof data?.base64 !== 'string' ||
+          !data.base64 ||
+          data.base64.length > Math.ceil(MAX_PASTED_IMAGE_BYTES / 3) * 4
+        )
+          return { ok: false, error: 'Unsupported or oversized image data' }
+        const config = await readImageHostConfig()
+        if (!isImageHostUsable(config) || !closeCoordinator.current(work))
+          return { ok: false, error: 'Image host or source is unavailable' }
+        return await uploadImageToHost(config, { bytes: Buffer.from(data.base64, 'base64'), ext })
+      } finally {
+        closeCoordinator.finishMutation(work)
+      }
+    },
+  )
 
   ipcMain.handle(MARKDOWN_CHANNELS.saveImageAs, async (e, src: unknown) => {
     if (typeof src !== 'string') return { ok: false }
@@ -1258,7 +1895,7 @@ function registerMarkdownIpc(): void {
         )
         if (picked.canceled || !picked.filePath) return { ok: true, canceled: true }
         // Vantage Productivity: protected publication also covers document exports.
-        await publishSelectedUserOutput(picked.filePath, async()=>bytes)
+        await publishSelectedUserOutput(picked.filePath, async () => bytes)
         return { ok: true, path: picked.filePath }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -1294,7 +1931,9 @@ function registerMarkdownIpc(): void {
             )
       if (picked.canceled || !picked.filePath) return { ok: true, canceled: true }
       try {
-        await publishSelectedUserOutput(picked.filePath,()=>printMarkdownPdf(request.html),{afterPublished:()=>openExportedPdf(picked.filePath!)})
+        await publishSelectedUserOutput(picked.filePath, () => printMarkdownPdf(request.html), {
+          afterPublished: () => openExportedPdf(picked.filePath!),
+        })
         return { ok: true, path: picked.filePath }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -1308,11 +1947,20 @@ function registerMarkdownIpc(): void {
       if (typeof request?.html !== 'string' || !request.html)
         return { ok: false, error: 'Empty document' }
       let id: string | undefined
-      const exportSession=closeCoordinator.session(e.sender.id)
-      const exportSource=savePathByWc.get(e.sender.id)
-      const sourceProof={sourcePaths:exportSource?[exportSource]:[],assertCurrent:()=>{
-        if(e.sender.isDestroyed()||!currentTopSender(e)||closeCoordinator.session(e.sender.id)!==exportSession||savePathByWc.get(e.sender.id)!==exportSource)throw new Error('The source changed before image export admission')
-      }}
+      const exportSession = closeCoordinator.session(e.sender.id)
+      const exportSource = savePathByWc.get(e.sender.id)
+      const sourceProof = {
+        sourcePaths: exportSource ? [exportSource] : [],
+        assertCurrent: () => {
+          if (
+            e.sender.isDestroyed() ||
+            !currentTopSender(e) ||
+            closeCoordinator.session(e.sender.id) !== exportSession ||
+            savePathByWc.get(e.sender.id) !== exportSource
+          )
+            throw new Error('The source changed before image export admission')
+        },
+      }
       try {
         const win = BrowserWindow.fromWebContents(e.sender) ?? undefined
         const picked = await showOpenDialogWithMemory(
@@ -1364,49 +2012,107 @@ function registerMarkdownIpc(): void {
     },
   )
 
-  ipcMain.handle(MARKDOWN_CHANNELS.writeDraft, async (event, request: {text?:unknown;stamp?:CloseLeaseStamp}) => {
-    requireRecoveryRuntime('Markdown automatic recovery capture')
-    const text=request?.text
-    try {
-      if(!currentTopSender(event))throw new Error('The draft sender frame is obsolete.')
-      const epoch=draftEpochByWc.get(event.sender.id),id=epoch?.id
-      if (!epoch || !id || event.sender.isDestroyed()) throw new Error('Draft recording is unavailable for this view')
-      const state=closeCoordinator.state(event.sender.id),stamp=request?.stamp,floor=discardedDraftFloor.get(event.sender.id)
-      if(!stamp||stamp.source!==state?.stamp.source||!Number.isSafeInteger(Number(stamp.revision))||floor?.source===stamp.source&&Number(stamp.revision)<=Number(floor.revision))throw new Error('The draft snapshot was captured before discard or source replacement.')
-      if (typeof text !== 'string' || text.length > 16 * 1024 * 1024) throw new Error('Draft exceeds its 16 MiB limit')
-      if (!dirtyByWc.has(event.sender.id)) return { ok: true }
-      const documentPath = savePathByWc.get(event.sender.id) ?? null
-      const extension = documentPath && ['.txt', '.json'].includes(extname(documentPath).toLowerCase())
-        ? extname(documentPath).toLowerCase() : '.md'
-      if(epoch.retired!==null)throw new Error('The captured draft producer was retired before delivery.')
-      const bytes=Buffer.from(text,'utf8'),expectedSha256=createHash('sha256').update(bytes).digest('hex')
-      const writing=writeDraftJournal(draftRoot(),{id,module:'markdown',documentPath,extension,bytes}).then(entry=>{
-        if(!entry)return null
-        const samePath=entry.documentPath===null||documentPath===null?entry.documentPath===documentPath:(process.platform==='win32'?resolve(entry.documentPath).toLowerCase()===resolve(documentPath).toLowerCase():resolve(entry.documentPath)===resolve(documentPath))
-        if(entry.id!==id||entry.module!=='markdown'||!samePath||entry.extension!==extension||entry.bytes!==bytes.length||entry.sha256!==expectedSha256)throw new Error('The Markdown journal writer returned an unverified receipt; the previous custody binding is retained.')
-        const receiptSequence=epoch.receiptSequence+1
-        if(!Number.isSafeInteger(receiptSequence))throw new Error('The Markdown journal receipt sequence is exhausted; its previous copy is retained.')
-        epoch.receiptSequence=receiptSequence
-        const binding=Object.freeze({receiptSequence,expectedDocumentPath:entry.documentPath,expectedSha256:entry.sha256})
-        epoch.lastWriteBinding=binding
-        return binding
-      })
-      epoch.writes.add(writing)
-      try{await writing}finally{epoch.writes.delete(writing)}
-      if(epoch.retired==='discard')await discardDraftJournal(draftRoot(),id)
-      return { ok: true }
-    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
-  })
+  ipcMain.handle(
+    MARKDOWN_CHANNELS.writeDraft,
+    async (event, request: { text?: unknown; stamp?: CloseLeaseStamp }) => {
+      requireRecoveryRuntime('Markdown automatic recovery capture')
+      const text = request?.text
+      try {
+        if (!currentTopSender(event)) throw new Error('The draft sender frame is obsolete.')
+        const epoch = draftEpochByWc.get(event.sender.id),
+          id = epoch?.id
+        if (!epoch || !id || event.sender.isDestroyed())
+          throw new Error('Draft recording is unavailable for this view')
+        const state = closeCoordinator.state(event.sender.id),
+          stamp = request?.stamp,
+          floor = discardedDraftFloor.get(event.sender.id)
+        if (
+          !stamp ||
+          stamp.source !== state?.stamp.source ||
+          !Number.isSafeInteger(Number(stamp.revision)) ||
+          (floor?.source === stamp.source && Number(stamp.revision) <= Number(floor.revision))
+        )
+          throw new Error('The draft snapshot was captured before discard or source replacement.')
+        if (typeof text !== 'string' || text.length > 16 * 1024 * 1024)
+          throw new Error('Draft exceeds its 16 MiB limit')
+        if (!dirtyByWc.has(event.sender.id)) return { ok: true }
+        const documentPath = savePathByWc.get(event.sender.id) ?? null
+        const extension =
+          documentPath && ['.txt', '.json'].includes(extname(documentPath).toLowerCase())
+            ? extname(documentPath).toLowerCase()
+            : '.md'
+        if (epoch.retired !== null)
+          throw new Error('The captured draft producer was retired before delivery.')
+        const bytes = Buffer.from(text, 'utf8'),
+          expectedSha256 = createHash('sha256').update(bytes).digest('hex')
+        const writing = writeDraftJournal(draftRoot(), {
+          id,
+          module: 'markdown',
+          documentPath,
+          extension,
+          bytes,
+        }).then((entry) => {
+          if (!entry) return null
+          const samePath =
+            entry.documentPath === null || documentPath === null
+              ? entry.documentPath === documentPath
+              : process.platform === 'win32'
+                ? resolve(entry.documentPath).toLowerCase() === resolve(documentPath).toLowerCase()
+                : resolve(entry.documentPath) === resolve(documentPath)
+          if (
+            entry.id !== id ||
+            entry.module !== 'markdown' ||
+            !samePath ||
+            entry.extension !== extension ||
+            entry.bytes !== bytes.length ||
+            entry.sha256 !== expectedSha256
+          )
+            throw new Error(
+              'The Markdown journal writer returned an unverified receipt; the previous custody binding is retained.',
+            )
+          const receiptSequence = epoch.receiptSequence + 1
+          if (!Number.isSafeInteger(receiptSequence))
+            throw new Error(
+              'The Markdown journal receipt sequence is exhausted; its previous copy is retained.',
+            )
+          epoch.receiptSequence = receiptSequence
+          const binding = Object.freeze({
+            receiptSequence,
+            expectedDocumentPath: entry.documentPath,
+            expectedSha256: entry.sha256,
+          })
+          epoch.lastWriteBinding = binding
+          return binding
+        })
+        epoch.writes.add(writing)
+        try {
+          await writing
+        } finally {
+          epoch.writes.delete(writing)
+        }
+        if (epoch.retired === 'discard') await discardDraftJournal(draftRoot(), id)
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
 
-  ipcMain.on(MARKDOWN_CHANNELS.dirtyChanged,(event,dirty:unknown,stamp:CloseLeaseStamp)=>{
-    if(!currentTopSender(event))return
-    const state=closeCoordinator.state(event.sender.id)
-    if(!stamp||stamp.source!==state?.stamp.source||stamp.revision!==state.stamp.revision)return
-    if(dirty===true)dirtyByWc.add(event.sender.id)
-    else if(dirty===false){
+  ipcMain.on(MARKDOWN_CHANNELS.dirtyChanged, (event, dirty: unknown, stamp: CloseLeaseStamp) => {
+    if (!currentTopSender(event)) return
+    const state = closeCoordinator.state(event.sender.id)
+    if (!stamp || stamp.source !== state?.stamp.source || stamp.revision !== state.stamp.revision)
+      return
+    if (dirty === true) dirtyByWc.add(event.sender.id)
+    else if (dirty === false) {
       dirtyByWc.delete(event.sender.id)
-      const old=draftByWc.get(event.sender.id);discardedDraftFloor.set(event.sender.id,{...stamp});rotateMarkdownDraft(event.sender.id,'discard')
-      if(old)void discardDraftJournal(draftRoot(),old).catch(error=>console.warn('[markdown] saved draft cleanup:',error))
+      const old = draftByWc.get(event.sender.id)
+      discardedDraftFloor.set(event.sender.id, { ...stamp })
+      rotateMarkdownDraft(event.sender.id, 'discard')
+      if (old)
+        void discardDraftJournal(draftRoot(), old).catch((error) =>
+          console.warn('[markdown] saved draft cleanup:', error),
+        )
     }
   })
 
@@ -1430,17 +2136,35 @@ function registerMarkdownIpc(): void {
   // Only the matching final renderer receipt may settle an outer request.
   // The physical save handler returns independently, so no invoke/ack cycle forms.
   ipcMain.on(MARKDOWN_CHANNELS.saveRequestAck, (e, value: unknown) => {
-    if(!currentTopSender(e))return
+    if (!currentTopSender(e)) return
     const result = value as MarkdownSaveCompletion | null
-    if (!result || typeof result.requestId !== 'string' ||
-      typeof result.published !== 'boolean' || typeof result.current !== 'boolean' ||
-      typeof result.clean !== 'boolean') return
+    if (
+      !result ||
+      typeof result.requestId !== 'string' ||
+      typeof result.published !== 'boolean' ||
+      typeof result.current !== 'boolean' ||
+      typeof result.clean !== 'boolean'
+    )
+      return
     closeCoordinator.receive(e.sender.id, result)
   })
 
-  ipcMain.on(MARKDOWN_CHANNELS.closeSourceState,(event,value)=>{if(currentTopSender(event))closeCoordinator.observe(event.sender.id,value)})
-  ipcMain.handle(MARKDOWN_CHANNELS.closeLeaseClaim,(event,ticket)=>currentTopSender(event)&&closeCoordinator.claim(event.sender.id,ticket))
-  ipcMain.handle(MARKDOWN_CHANNELS.closeLeaseCancel,async(event,ticket,reason)=>{if(!currentTopSender(event))return;closeCoordinator.cancel(event.sender.id,ticket,typeof reason==='string'?reason:'cancelled');await waitForMarkdownCleanup(event.sender.id)})
+  ipcMain.on(MARKDOWN_CHANNELS.closeSourceState, (event, value) => {
+    if (currentTopSender(event)) closeCoordinator.observe(event.sender.id, value)
+  })
+  ipcMain.handle(
+    MARKDOWN_CHANNELS.closeLeaseClaim,
+    (event, ticket) => currentTopSender(event) && closeCoordinator.claim(event.sender.id, ticket),
+  )
+  ipcMain.handle(MARKDOWN_CHANNELS.closeLeaseCancel, async (event, ticket, reason) => {
+    if (!currentTopSender(event)) return
+    closeCoordinator.cancel(
+      event.sender.id,
+      ticket,
+      typeof reason === 'string' ? reason : 'cancelled',
+    )
+    await waitForMarkdownCleanup(event.sender.id)
+  })
 
   // Language channel shared with other modules; removeHandler tolerates duplicate registration
   ipcMain.removeHandler(MARKDOWN_CHANNELS.getLanguage)
@@ -1449,10 +2173,16 @@ function registerMarkdownIpc(): void {
 
 function grantAndTrack(wc: WebContents, openPath?: string | null): void {
   const wcId = wc.id
-  markdownContents.set(wcId,wc)
+  markdownContents.set(wcId, wc)
   closeCoordinator.open(wcId)
-  wc.on('render-process-gone',()=>closeCoordinator.rendererGone(wcId))
-  wc.on('did-start-navigation',(details)=>{if(details.isMainFrame){rotateMarkdownDraft(wcId,'preserve');dirtyByWc.delete(wcId);closeCoordinator.rendererGone(wcId)}})
+  wc.on('render-process-gone', () => closeCoordinator.rendererGone(wcId))
+  wc.on('did-start-navigation', (details) => {
+    if (details.isMainFrame) {
+      rotateMarkdownDraft(wcId, 'preserve')
+      dirtyByWc.delete(wcId)
+      closeCoordinator.rendererGone(wcId)
+    }
+  })
   rotateMarkdownDraft(wcId)
   const watcher = createDocumentDiskWatcher((path) => {
     if (!wc.isDestroyed()) wc.send(MARKDOWN_CHANNELS.fileChangedOnDisk, path)
@@ -1472,8 +2202,10 @@ function grantAndTrack(wc: WebContents, openPath?: string | null): void {
   wc.once('destroyed', () => {
     // Teardown alone is never authority to delete a durable journal. A clean
     // Save has its own exact acknowledgment; approved close owns separate custody.
-    const epoch=draftEpochByWc.get(wcId);if(epoch&&epoch.retired===null)epoch.retired='preserve'
-    draftEpochByWc.delete(wcId);discardedDraftFloor.delete(wcId)
+    const epoch = draftEpochByWc.get(wcId)
+    if (epoch && epoch.retired === null) epoch.retired = 'preserve'
+    draftEpochByWc.delete(wcId)
+    discardedDraftFloor.delete(wcId)
     draftByWc.delete(wcId)
     void imageExports
       .dispose(wcId)
@@ -1570,11 +2302,25 @@ export function startMarkdownStandalone(): void {
   registerRendererScheme()
   installNavigationGuard(app)
   installContextMenu(app, () => contextMenuLabels(getUiLang()))
-  const standaloneRecoveryProfile = configureRecoveryProfile({ app, mode: 'gui', guiProfile: process.env.VANTAGE_USER_DATA || app.getPath('userData') })
-  if (!app.requestSingleInstanceLock()) { app.quit(); return }
-  initializeStandaloneRecovery({ app, ...standaloneRecoveryProfile, lockAcquired: true,
-    warning: message => { void dialog.showMessageBox({ type: 'warning', message }).catch(() => {}) },
-    terminal: cleanup => { app.once('will-quit', cleanup) },
+  const standaloneRecoveryProfile = configureRecoveryProfile({
+    app,
+    mode: 'gui',
+    guiProfile: process.env.VANTAGE_USER_DATA || app.getPath('userData'),
+  })
+  if (!app.requestSingleInstanceLock()) {
+    app.quit()
+    return
+  }
+  initializeStandaloneRecovery({
+    app,
+    ...standaloneRecoveryProfile,
+    lockAcquired: true,
+    warning: (message) => {
+      void dialog.showMessageBox({ type: 'warning', message }).catch(() => {})
+    },
+    terminal: (cleanup) => {
+      app.once('will-quit', cleanup)
+    },
   })
   configureMarkdownRuntime({
     preloadPath: join(__dirname, '../preload/index.js'),
@@ -1582,7 +2328,7 @@ export function startMarkdownStandalone(): void {
     rendererFile: join(__dirname, '../renderer/index.html'),
   })
   void app.whenReady().then(() => {
-  // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
+    // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
     installRendererProtocol({ markdown: join(__dirname, '../renderer') })
     registerMarkdownIpc()
     const win = new BrowserWindow({
@@ -1597,8 +2343,30 @@ export function startMarkdownStandalone(): void {
     })
     const argPath = process.argv.slice(1).find((a) => /\.(md|markdown)$/i.test(a) && existsSync(a))
     grantAndTrack(win.webContents, argPath)
-    let closePreparing=false
-    win.on('close',event=>{event.preventDefault();if(closePreparing)return;closePreparing=true;void(async()=>{let receipt:MarkdownCloseReceipt|null=null;try{receipt=await prepareMarkdownNativeClose(win.webContents,win);if(receipt)completeMarkdownClose(win.webContents,receipt,()=>{if(win.isDestroyed())return false;win.destroy();return true})}catch(error){console.error('[markdown] close refused:',error)}finally{closePreparing=false;if(receipt)await cancelMarkdownClose(win.webContents,receipt,'standalone close finished')}})()})
+    let closePreparing = false
+    win.on('close', (event) => {
+      event.preventDefault()
+      if (closePreparing) return
+      closePreparing = true
+      void (async () => {
+        let receipt: MarkdownCloseReceipt | null = null
+        try {
+          receipt = await prepareMarkdownNativeClose(win.webContents, win)
+          if (receipt)
+            completeMarkdownClose(win.webContents, receipt, () => {
+              if (win.isDestroyed()) return false
+              win.destroy()
+              return true
+            })
+        } catch (error) {
+          console.error('[markdown] close refused:', error)
+        } finally {
+          closePreparing = false
+          if (receipt)
+            await cancelMarkdownClose(win.webContents, receipt, 'standalone close finished')
+        }
+      })()
+    })
     void win.loadURL(rendererUrl(runtime.rendererUrl, 'markdown'))
   })
   app.on('window-all-closed', () => app.quit())

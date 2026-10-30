@@ -116,7 +116,7 @@ export async function saveImageFromUrl(
       opts.fallbackDir,
     )
     if (picked.canceled || !picked.filePath) return { ok: false }
-    await publishSelectedUserOutput(picked.filePath, async()=>bytes)
+    await publishSelectedUserOutput(picked.filePath, async () => bytes)
     return { ok: true, path: picked.filePath }
   } catch (err) {
     return { ok: false, error: String(err) }

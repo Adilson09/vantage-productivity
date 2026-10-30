@@ -6,8 +6,8 @@ import type { HtmlOp } from '../document/ops'
 export type InspectorMode = 'inspect' | 'browse'
 
 export type ToInspector =
-  | {type:'gx:closePrepare'|'gx:closeCommit';nonce:number;ticket:CloseLeaseTicket}
-  | {type:'gx:closeRelease';ticket:CloseLeaseTicket}
+  | { type: 'gx:closePrepare' | 'gx:closeCommit'; nonce: number; ticket: CloseLeaseTicket }
+  | { type: 'gx:closeRelease'; ticket: CloseLeaseTicket }
   | { type: 'gx:recoveryRead'; nonce: number }
   | { type: 'gx:select'; sid: number | null }
   | { type: 'gx:highlight'; sids: number[] }
@@ -76,8 +76,16 @@ export interface ElementFingerprint {
 export type FromInspector = { version: number } & FromInspectorBody
 
 export type FromInspectorBody =
-  | {type:'gx:closeState';nonce:number;ticket:CloseLeaseTicket;ops:HtmlOp[];composing:boolean;busy:boolean;error?:string}
-  | {type:'gx:closeInvalidated';ticket:CloseLeaseTicket;reason:string}
+  | {
+      type: 'gx:closeState'
+      nonce: number
+      ticket: CloseLeaseTicket
+      ops: HtmlOp[]
+      composing: boolean
+      busy: boolean
+      error?: string
+    }
+  | { type: 'gx:closeInvalidated'; ticket: CloseLeaseTicket; reason: string }
   | { type: 'gx:recoveryState'; nonce: number; ops: HtmlOp[]; composing: boolean; busy: boolean }
   | { type: 'gx:recoveryChanged'; dirty: boolean }
   | { type: 'gx:ready'; title: string; docHeight: number }

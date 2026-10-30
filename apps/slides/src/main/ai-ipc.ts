@@ -1,5 +1,5 @@
 import { publishSelectedUserOutput } from '@vantage/electron-utils/user-output-publication'
-import {slidesOwnedHandle} from './slides-owned-ipc'
+import { slidesOwnedHandle } from './slides-owned-ipc'
 /**
  * AI IPC for the slides main process, extracted from slides-main.ts:
  * settings persistence, the streaming proxy (main process does the networking
@@ -567,11 +567,19 @@ export function registerSlidesOnlyAiIpc(): void {
         const draftPath = session?.path
         if (!draftPath || !draftPath.endsWith('.pptx')) return { ok: false }
         const sidecarPath = draftPath.replace(/\.pptx$/i, '.styleskill.json')
-        const assertCurrent=()=>{
-          if(event.sender.isDestroyed()||sessions.get(event.sender.id)!==session||session.path!==draftPath)
+        const assertCurrent = () => {
+          if (
+            event.sender.isDestroyed() ||
+            sessions.get(event.sender.id) !== session ||
+            session.path !== draftPath
+          )
             throw new Error('The presentation source changed before sidecar publication.')
         }
-        await publishSelectedUserOutput(sidecarPath,async()=>Buffer.from(JSON.stringify(data,null,2),'utf8'),{sourcePaths:[draftPath],assertCurrent})
+        await publishSelectedUserOutput(
+          sidecarPath,
+          async () => Buffer.from(JSON.stringify(data, null, 2), 'utf8'),
+          { sourcePaths: [draftPath], assertCurrent },
+        )
         return { ok: true }
       } catch {
         return { ok: false }

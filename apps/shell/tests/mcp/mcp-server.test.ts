@@ -196,13 +196,27 @@ describe('MCP server core', () => {
       return c
     }
     const text = (result: unknown): string => {
-      if (!result || typeof result !== 'object' || !('content' in result) || !Array.isArray(result.content))
+      if (
+        !result ||
+        typeof result !== 'object' ||
+        !('content' in result) ||
+        !Array.isArray(result.content)
+      )
         throw new Error('Expected an immediate MCP content result')
-      return result.content.map((block: unknown) => {
-        if (!block || typeof block !== 'object' || !('type' in block) || block.type !== 'text' || !('text' in block) || typeof block.text !== 'string')
-          throw new Error('Expected MCP text content')
-        return block.text
-      }).join('')
+      return result.content
+        .map((block: unknown) => {
+          if (
+            !block ||
+            typeof block !== 'object' ||
+            !('type' in block) ||
+            block.type !== 'text' ||
+            !('text' in block) ||
+            typeof block.text !== 'string'
+          )
+            throw new Error('Expected MCP text content')
+          return block.text
+        })
+        .join('')
     }
 
     const a = await connect()

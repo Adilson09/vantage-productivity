@@ -1,5 +1,8 @@
-import type { CloseLeaseStamp, CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
-import type { HtmlAssetCleanupReport,HtmlSourceState, HtmlCloseReceipt } from './html-close-lease'
+import type {
+  CloseLeaseStamp,
+  CloseLeaseTicket,
+} from '../../../../packages/electron-utils/src/close-lease'
+import type { HtmlAssetCleanupReport, HtmlSourceState, HtmlCloseReceipt } from './html-close-lease'
 import type {
   HtmlDraftChange,
   HtmlDraftSaveAcknowledgment,
@@ -37,10 +40,10 @@ export const HTML_CHANNELS = {
   saveRequestAck: 'html:save-request-ack',
   closeSourceState: 'html:close-source-state',
   closeSourceCheck: 'html:close-source-check',
-  closeFrameAttested:'html:close-frame-attested',
-  closeFrameRetired:'html:close-frame-retired',
-  previewPublish:'html:preview-publish',
-  previewRetire:'html:preview-retire',
+  closeFrameAttested: 'html:close-frame-attested',
+  closeFrameRetired: 'html:close-frame-retired',
+  previewPublish: 'html:preview-publish',
+  previewRetire: 'html:preview-retire',
   closeLeaseClaim: 'html:close-lease-claim',
   closeLeaseCancel: 'html:close-lease-cancel',
   closeLeaseRelease: 'html:close-lease-release',
@@ -126,10 +129,10 @@ export interface AttachmentImageResult {
 export type SaveMode = 'save' | 'saveAs'
 
 export interface SaveHtmlRequest {
-  publicationId?:string|null
+  publicationId?: string | null
   /** Background publication may defer during a main-owned native close decision. */
   automatic?: boolean
-  closeSource?:CloseLeaseStamp
+  closeSource?: CloseLeaseStamp
   /** Main-issued Save waiter identity; absent for direct user/AutoSave writes. */
   requestId?: string
   /** Captured before serialization; successful Save must not clear a newer activation. */
@@ -151,17 +154,18 @@ export interface SaveHtmlRequest {
   overwrite?: boolean
 }
 
-export type SaveHtmlResult = HtmlAssetCleanupReport & (
-  | {
-      ok: true
-      path: string
-      publicationId?:string
-      /** Save As may relocate local images into the new document's assets directory. */
-      imageRewrites?: Array<{ from: string; to: string }>
-    }
-  | { ok: true; canceled: true }
-  | { ok: false; error: string; conflict?: true }
-)
+export type SaveHtmlResult = HtmlAssetCleanupReport &
+  (
+    | {
+        ok: true
+        path: string
+        publicationId?: string
+        /** Save As may relocate local images into the new document's assets directory. */
+        imageRewrites?: Array<{ from: string; to: string }>
+      }
+    | { ok: true; canceled: true }
+    | { ok: false; error: string; conflict?: true }
+  )
 
 /** AI channels are app-wide shared ipcMain handlers (shell registers via docs-main registerAiIpc); pass-through only */
 export const AI_CHANNELS = {
@@ -270,8 +274,11 @@ export interface HtmlApi {
   headlessExportDone(result: { ok: boolean; error?: string }): void
   /** Read the file as UTF-8 text. Only paths granted to this view are allowed */
   readFile(path: string): Promise<string>
-  readPublication(path:string,reload?:{token:string;documentPath:string;revision:number}):Promise<{text:string;publicationId:string}>
-  publicationLoaded(request:{publicationId:string;path:string;stamp:CloseLeaseStamp}):void
+  readPublication(
+    path: string,
+    reload?: { token: string; documentPath: string; revision: number },
+  ): Promise<{ text: string; publicationId: string }>
+  publicationLoaded(request: { publicationId: string; path: string; stamp: CloseLeaseStamp }): void
   /** Push the current buffer so html-preview:// serves it to the preview iframe */
   updatePreview(text: string): void
   /** The html-preview:// URL bound to this view (a present tab gets its owner's URL) */
@@ -290,22 +297,36 @@ export interface HtmlApi {
   setDirty(dirty: boolean): void
   /** Shell menu Save / Save As → renderer serializes and calls save() with the given mode */
   onSaveRequest(
-    handler: (mode: SaveMode, requestId: string, targetPath?: string, ticket?: HtmlSaveTicket) => void,
+    handler: (
+      mode: SaveMode,
+      requestId: string,
+      targetPath?: string,
+      ticket?: HtmlSaveTicket,
+    ) => void,
   ): () => void
   /** Resolves a menu-save waiter when doSave exits without ever invoking save() (busy/loading) */
-  sendSaveRequestAck(
-    requestId: string,
-    result: HtmlCloseReceipt,
-  ): void
-  closeSourceState(state:HtmlSourceState):void
-  validateCloseSource(request:{requestId:string;token:string;revision:number;text:string;stamp:CloseLeaseStamp;sourceOnly:boolean;frameName:string}):Promise<{ok:boolean;error?:string;proof?:string}>
-  confirmCloseFrame(request:{requestId:string;proof:string}):Promise<boolean>
-  isCloseFrameRetired(request:{requestId:string;frameName:string}):Promise<boolean>
-  publishPreview(request:{source:string;instrumented:string;stamp:CloseLeaseStamp}):Promise<{id:string;url:string}>
-  retirePreview(id:string):Promise<void>
-  claimCloseLease(ticket:CloseLeaseTicket):Promise<boolean>
-  cancelCloseLease(ticket:CloseLeaseTicket,reason:string):Promise<void>
-  onCloseLeaseRelease(handler:(ticket:CloseLeaseTicket)=>void):()=>void
+  sendSaveRequestAck(requestId: string, result: HtmlCloseReceipt): void
+  closeSourceState(state: HtmlSourceState): void
+  validateCloseSource(request: {
+    requestId: string
+    token: string
+    revision: number
+    text: string
+    stamp: CloseLeaseStamp
+    sourceOnly: boolean
+    frameName: string
+  }): Promise<{ ok: boolean; error?: string; proof?: string }>
+  confirmCloseFrame(request: { requestId: string; proof: string }): Promise<boolean>
+  isCloseFrameRetired(request: { requestId: string; frameName: string }): Promise<boolean>
+  publishPreview(request: {
+    source: string
+    instrumented: string
+    stamp: CloseLeaseStamp
+  }): Promise<{ id: string; url: string }>
+  retirePreview(id: string): Promise<void>
+  claimCloseLease(ticket: CloseLeaseTicket): Promise<boolean>
+  cancelCloseLease(ticket: CloseLeaseTicket, reason: string): Promise<void>
+  onCloseLeaseRelease(handler: (ticket: CloseLeaseTicket) => void): () => void
   /**
    * Main process asks for the live document source — the MCP read of an open
    * document, unsaved edits included; reply through sendReadTextResult.
@@ -328,12 +349,16 @@ export interface HtmlApi {
    * returns the relative path to author into the html, or null when the
    * document is untitled or the picker was canceled.
    */
-  pickImage(closeSource?:CloseLeaseStamp): Promise<string | null>
+  pickImage(closeSource?: CloseLeaseStamp): Promise<string | null>
   /**
    * Persist pasted/dropped image bytes into `assets/` next to the open
    * document; returns the relative path to author, or null when untitled.
    */
-  saveImage(data: { base64: string; ext: string; closeSource?:CloseLeaseStamp }): Promise<string | null>
+  saveImage(data: {
+    base64: string
+    ext: string
+    closeSource?: CloseLeaseStamp
+  }): Promise<string | null>
   /**
    * Read an image referenced by the document for DOCX embedding. Only paths
    * inside the document's directory are allowed; anything else returns null.
@@ -397,7 +422,11 @@ export interface HtmlApi {
   /** Download an image URL in the main process (CORS-free, scheme/target validated) */
   fetchImage(url: string): Promise<ImageData | null>
   /** Genspark cloud image generation (html-owned channel, gsk login required) */
-  aiGenerateImage(op: { prompt: string; aspectRatio?: string; closeSource?:CloseLeaseStamp }): Promise<{
+  aiGenerateImage(op: {
+    prompt: string
+    aspectRatio?: string
+    closeSource?: CloseLeaseStamp
+  }): Promise<{
     url?: string
     error?: string
   }>
@@ -409,4 +438,12 @@ export interface UserSkillEntry {
   relevant: boolean
 }
 
-export interface HtmlSaveTicket {requestId:string;requireClean:boolean;sourcePath:string|null;targetPath?:string;closeLease?:CloseLeaseTicket;intent?:'save'|'discard'|'clean';approved?:CloseLeaseStamp}
+export interface HtmlSaveTicket {
+  requestId: string
+  requireClean: boolean
+  sourcePath: string | null
+  targetPath?: string
+  closeLease?: CloseLeaseTicket
+  intent?: 'save' | 'discard' | 'clean'
+  approved?: CloseLeaseStamp
+}

@@ -1,4 +1,8 @@
-import { beforeMarkdownMutation, runMarkdownAsyncMutation, markdownCloseStamp } from '../close-lease'
+import {
+  beforeMarkdownMutation,
+  runMarkdownAsyncMutation,
+  markdownCloseStamp,
+} from '../close-lease'
 import type { JSONContent } from '@tiptap/core'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
@@ -121,7 +125,8 @@ async function persistAndInsertUntracked(
     const up = await window.markdownApi.uploadImage({
       base64,
       ext: EXT_BY_MIME[file.type]!,
-      name: file.name, closeSource:markdownCloseStamp(),
+      name: file.name,
+      closeSource: markdownCloseStamp(),
     })
     if (up.ok && up.url) {
       await beforeMarkdownMutation(source)
@@ -136,7 +141,11 @@ async function persistAndInsertUntracked(
     showToast(t('imageHostFallback', { error: up.error ?? '' }), 'error')
   }
   await beforeMarkdownMutation(source)
-  const rel = await window.markdownApi.saveImage({ base64, ext: EXT_BY_MIME[file.type]!, closeSource:markdownCloseStamp() })
+  const rel = await window.markdownApi.saveImage({
+    base64,
+    ext: EXT_BY_MIME[file.type]!,
+    closeSource: markdownCloseStamp(),
+  })
   // untitled documents have no assets/ directory yet — tell the user to save first
   if (!rel) {
     showToast(t('imageNeedsSavedDocument'), 'error')
@@ -151,8 +160,16 @@ async function persistAndInsertUntracked(
     .run()
 }
 
-function persistAndInsert(editor: import('@tiptap/core').Editor, file: File, pos: number): Promise<void> {
-  return runMarkdownAsyncMutation(source => persistAndInsertUntracked(editor, file, pos, source)).catch(error => { showToast(error instanceof Error ? error.message : String(error), 'error') })
+function persistAndInsert(
+  editor: import('@tiptap/core').Editor,
+  file: File,
+  pos: number,
+): Promise<void> {
+  return runMarkdownAsyncMutation((source) =>
+    persistAndInsertUntracked(editor, file, pos, source),
+  ).catch((error) => {
+    showToast(error instanceof Error ? error.message : String(error), 'error')
+  })
 }
 
 const attr = (value: unknown) =>

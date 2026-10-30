@@ -32,7 +32,7 @@ export async function openSource(
         onAiPanelPrefsChanged: () => off,
         consumePending: async () => '/fixtures/polish.md',
         readFile: async () => text,
-        readPublication: async () => ({text,publicationId:'fixture-publication'}),
+        readPublication: async () => ({ text, publicationId: 'fixture-publication' }),
         publicationLoaded: () => {},
         rememberWikiFragment: async () => {},
         takeWikiFragment: async () => '',

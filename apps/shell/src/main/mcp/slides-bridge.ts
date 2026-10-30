@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import {rootQuitIntent} from '../root-quit-intent'
+import { rootQuitIntent } from '../root-quit-intent'
 import { extname, isAbsolute } from 'node:path'
 import { webContents } from 'electron'
 import { elementDurableId, slideDurableId, type SlideElement } from '@vantage/pptx-engine'
@@ -180,9 +180,20 @@ export function createSlidesControl(deps: SlidesBridgeDeps): SlidesControl {
       return summary
     },
     readDeck: async (wcId: number) => readDeckModel(requireSession(wcId)),
-    prepareClose:(wcId,path,intent)=>{rootQuitIntent.assertMutationAvailable();const contents=webContents.fromId(wcId);if(!contents||contents.isDestroyed())throw new Error('The presentation is no longer open.');return prepareSlidesClose(contents,path,intent)},
-    completeClose:(wcId,receipt,removeSync)=>{const contents=webContents.fromId(wcId);return!!contents&&!contents.isDestroyed()&&completeSlidesClose(contents,receipt,removeSync)},
-    cancelClose:(wcId,receipt)=>cancelSlidesToolSave(wcId,receipt.requestId),
+    prepareClose: (wcId, path, intent) => {
+      rootQuitIntent.assertMutationAvailable()
+      const contents = webContents.fromId(wcId)
+      if (!contents || contents.isDestroyed())
+        throw new Error('The presentation is no longer open.')
+      return prepareSlidesClose(contents, path, intent)
+    },
+    completeClose: (wcId, receipt, removeSync) => {
+      const contents = webContents.fromId(wcId)
+      return (
+        !!contents && !contents.isDestroyed() && completeSlidesClose(contents, receipt, removeSync)
+      )
+    },
+    cancelClose: (wcId, receipt) => cancelSlidesToolSave(wcId, receipt.requestId),
     completeSaveClose: completeSlidesToolClose,
     cancelSaveClose: cancelSlidesToolSave,
     saveDeck: async (wcId: number, filePath: string, overwrite: boolean, options) => {

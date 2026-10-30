@@ -27,9 +27,17 @@ function fixture(save: () => Promise<void>, discard: () => Promise<void> = async
     webContentsFor: () => contents,
     closeTab,
     defaultSaveDir: () => resolve('.'),
-    html: { read:async()=>'',save,discard,
-      prepareClose:async(_contents,_path,intent)=>{if(intent==='discard')await discard();else await save();return {requestId:'fixture',published:intent==='save',current:true,clean:true}},
-      completeClose:(_contents,_receipt,remove)=>remove(),cancelClose:async()=>{},
+    html: {
+      read: async () => '',
+      save,
+      discard,
+      prepareClose: async (_contents, _path, intent) => {
+        if (intent === 'discard') await discard()
+        else await save()
+        return { requestId: 'fixture', published: intent === 'save', current: true, clean: true }
+      },
+      completeClose: (_contents, _receipt, remove) => remove(),
+      cancelClose: async () => {},
     },
   })
   return { doc, control, closeTab }

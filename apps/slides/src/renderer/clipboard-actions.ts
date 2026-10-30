@@ -1,4 +1,4 @@
-import {slidesActionApi,slidesActionWait,slidesActionWork} from './slides-action-ownership'
+import { slidesActionApi, slidesActionWait, slidesActionWork } from './slides-action-ownership'
 /**
  * Clipboard and format-painter actions extracted from App.tsx:
  * element copy/cut/paste/duplicate, slide copy/paste, external clipboard
@@ -19,62 +19,68 @@ import {
 import { t } from './i18n/locale'
 
 export async function deleteSelected(ctx: ActionCtx): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (ctx.selectedIds.length) {
-    const updated = await slidesActionWait(ctx, slidesActionApi(ctx).deleteElements({
-      slideIndex: ctx.current,
-      sourceIds: ctx.selectedIds,
-    }))
-    if (updated) ctx.applySlide(ctx.current, updated)
-  }
-  ctx.setSelectedIds([])
-
+  return slidesActionWork(ctx, async () => {
+    if (ctx.selectedIds.length) {
+      const updated = await slidesActionWait(
+        ctx,
+        slidesActionApi(ctx).deleteElements({
+          slideIndex: ctx.current,
+          sourceIds: ctx.selectedIds,
+        }),
+      )
+      if (updated) ctx.applySlide(ctx.current, updated)
+    }
+    ctx.setSelectedIds([])
   })
 }
 
 export async function copySelected(ctx: ActionCtx): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (ctx.selectedIds.length === 0) return
-  const clipboardToken = crypto.randomUUID()
-  const sourceIds = [...ctx.selectedIds]
-  const n = await slidesActionWait(ctx, slidesActionApi(ctx).copyElements({
-    slideIndex: ctx.current,
-    sourceIds,
-    clipboardToken,
-  }))
-  if (n > 0) {
-    ctx.setHasClipboard(true)
-    ctx.setStatus(t('appStatusCopied', { count: n }))
-    if (ctx.slide) {
-      try {
-        const png = await slidesActionWait(ctx, renderSelectionToPngBase64(ctx.slide, sourceIds, ctx.images))
-        await slidesActionWait(ctx, slidesActionApi(ctx).copyElementsImage(clipboardToken, png))
-      } catch {
-        // The editable copy is already available if rendering or image decoding fails.
+  return slidesActionWork(ctx, async () => {
+    if (ctx.selectedIds.length === 0) return
+    const clipboardToken = crypto.randomUUID()
+    const sourceIds = [...ctx.selectedIds]
+    const n = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).copyElements({
+        slideIndex: ctx.current,
+        sourceIds,
+        clipboardToken,
+      }),
+    )
+    if (n > 0) {
+      ctx.setHasClipboard(true)
+      ctx.setStatus(t('appStatusCopied', { count: n }))
+      if (ctx.slide) {
+        try {
+          const png = await slidesActionWait(
+            ctx,
+            renderSelectionToPngBase64(ctx.slide, sourceIds, ctx.images),
+          )
+          await slidesActionWait(ctx, slidesActionApi(ctx).copyElementsImage(clipboardToken, png))
+        } catch {
+          // The editable copy is already available if rendering or image decoding fails.
+        }
       }
     }
-  }
-
   })
 }
 
 export async function cutSelected(ctx: ActionCtx): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (ctx.selectedIds.length === 0) return
-  const n = await slidesActionWait(ctx, slidesActionApi(ctx).copyElements({
-    slideIndex: ctx.current,
-    sourceIds: ctx.selectedIds,
-    cut: true,
-  }))
-  if (n > 0) {
-    ctx.setHasClipboard(true)
-    await slidesActionWait(ctx, deleteSelected(ctx))
-    ctx.setStatus(t('appStatusCut', { count: n }))
-  }
-
+  return slidesActionWork(ctx, async () => {
+    if (ctx.selectedIds.length === 0) return
+    const n = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).copyElements({
+        slideIndex: ctx.current,
+        sourceIds: ctx.selectedIds,
+        cut: true,
+      }),
+    )
+    if (n > 0) {
+      ctx.setHasClipboard(true)
+      await slidesActionWait(ctx, deleteSelected(ctx))
+      ctx.setStatus(t('appStatusCut', { count: n }))
+    }
   })
 }
 
@@ -85,54 +91,63 @@ export async function insertExternalImage(
   ext: string,
   atPx?: { x: number; y: number },
 ): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const naturalPx = await slidesActionWait(ctx, new Promise<{ width: number; height: number }>((resolve) => {
-    const img = new Image()
-    img.onload = () => resolve({ width: img.naturalWidth || 320, height: img.naturalHeight || 240 })
-    img.onerror = () => resolve({ width: 320, height: 240 })
-    img.src = `data:image/${ext};base64,${base64}`
-  }))
-  const r = await slidesActionWait(ctx, slidesActionApi(ctx).addImageBytes({
-    slideIndex: ctx.current,
-    base64,
-    ext,
-    naturalPx,
-    ...(atPx ? { centerPx: atPx } : {}),
-    fitWidthPx: FIT_WIDTH,
-  }))
-  if (!r) return
-  if ('error' in r) {
-    ctx.setSelectedIds([])
-    ctx.setStatus(t('appStatusImageUnsupported', { ext: r.ext.toUpperCase() }))
-    return
-  }
-  ctx.applySlide(ctx.current, r.slide)
-  ctx.setSelectedIds([r.sourceId])
-
+  return slidesActionWork(ctx, async () => {
+    const naturalPx = await slidesActionWait(
+      ctx,
+      new Promise<{ width: number; height: number }>((resolve) => {
+        const img = new Image()
+        img.onload = () =>
+          resolve({ width: img.naturalWidth || 320, height: img.naturalHeight || 240 })
+        img.onerror = () => resolve({ width: 320, height: 240 })
+        img.src = `data:image/${ext};base64,${base64}`
+      }),
+    )
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).addImageBytes({
+        slideIndex: ctx.current,
+        base64,
+        ext,
+        naturalPx,
+        ...(atPx ? { centerPx: atPx } : {}),
+        fitWidthPx: FIT_WIDTH,
+      }),
+    )
+    if (!r) return
+    if ('error' in r) {
+      ctx.setSelectedIds([])
+      ctx.setStatus(t('appStatusImageUnsupported', { ext: r.ext.toUpperCase() }))
+      return
+    }
+    ctx.applySlide(ctx.current, r.slide)
+    ctx.setSelectedIds([r.sourceId])
   })
 }
 
 export async function copySlides(ctx: ActionCtx, indexes: number[]): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const sel = [...new Set(indexes)].sort((a, b) => a - b).filter((i) => ctx.slides[i])
-  if (!sel.length) return
-  // Renderings ride along for 'picture'-mode pastes (the source deck may be
-  // gone by paste time). Copy still succeeds if the capture fails.
-  let pngs: string[] | undefined
-  try {
-    pngs = await slidesActionWait(ctx, renderSlidesToPngBase64(
-      sel.map((i) => ctx.slides[i]!),
-      ctx.images,
-    ))
-  } catch {
-    pngs = undefined
-  }
-  const ok = await slidesActionWait(ctx, slidesActionApi(ctx).copySlides({ slideIndexes: sel, ...(pngs ? { pngs } : {}) }))
-  ctx.setCanPasteSlide(ok)
-  ctx.setStatus(ok ? t('appStatusSlideCopied') : t('appStatusSlideCopyFailed'))
-
+  return slidesActionWork(ctx, async () => {
+    const sel = [...new Set(indexes)].sort((a, b) => a - b).filter((i) => ctx.slides[i])
+    if (!sel.length) return
+    // Renderings ride along for 'picture'-mode pastes (the source deck may be
+    // gone by paste time). Copy still succeeds if the capture fails.
+    let pngs: string[] | undefined
+    try {
+      pngs = await slidesActionWait(
+        ctx,
+        renderSlidesToPngBase64(
+          sel.map((i) => ctx.slides[i]!),
+          ctx.images,
+        ),
+      )
+    } catch {
+      pngs = undefined
+    }
+    const ok = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).copySlides({ slideIndexes: sel, ...(pngs ? { pngs } : {}) }),
+    )
+    ctx.setCanPasteSlide(ok)
+    ctx.setStatus(ok ? t('appStatusSlideCopied') : t('appStatusSlideCopyFailed'))
   })
 }
 
@@ -151,31 +166,33 @@ export async function pasteSlideAfter(
   index: number,
   mode: PasteSlideMode = 'theme',
 ): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const r = await slidesActionWait(ctx, slidesActionApi(ctx).pasteSlide({ afterIndex: index, fitWidthPx: FIT_WIDTH, mode }))
-  if (!r) {
-    ctx.setStatus(t('appStatusSlidePasteFailed'))
-    return
-  }
-  applySlidePaste(ctx, r, mode)
-
+  return slidesActionWork(ctx, async () => {
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).pasteSlide({ afterIndex: index, fitWidthPx: FIT_WIDTH, mode }),
+    )
+    if (!r) {
+      ctx.setStatus(t('appStatusSlidePasteFailed'))
+      return
+    }
+    applySlidePaste(ctx, r, mode)
   })
 }
 
 /** Paste-options floater: redo the just-completed paste with another mode. */
 export async function repasteSlideAs(ctx: ActionCtx, mode: PasteSlideMode): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (ctx.pasteFloater?.mode === mode) return
-  const r = await slidesActionWait(ctx, slidesActionApi(ctx).repasteSlide({ mode, fitWidthPx: FIT_WIDTH }))
-  if (!r) {
-    ctx.setPasteFloater(null)
-    ctx.setStatus(t('appStatusPasteOptionsExpired'))
-    return
-  }
-  applySlidePaste(ctx, r, mode)
-
+  return slidesActionWork(ctx, async () => {
+    if (ctx.pasteFloater?.mode === mode) return
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).repasteSlide({ mode, fitWidthPx: FIT_WIDTH }),
+    )
+    if (!r) {
+      ctx.setPasteFloater(null)
+      ctx.setStatus(t('appStatusPasteOptionsExpired'))
+      return
+    }
+    applySlidePaste(ctx, r, mode)
   })
 }
 
@@ -203,44 +220,51 @@ export function pasteParagraphs(text: string): {
 }
 
 export async function pasteClipboard(ctx: ActionCtx): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  const external = await slidesActionWait(ctx, slidesActionApi(ctx).clipboardExternal())
-  if (external.kind === 'slide') {
-    await slidesActionWait(ctx, pasteSlideAfter(ctx, Math.max(...ctx.selectedSlides, ctx.current)))
-    return
-  }
-  if (external.kind === 'image') {
-    await slidesActionWait(ctx, insertExternalImage(ctx, external.base64, external.ext))
-    return
-  }
-  if (external.kind === 'text') {
-    const w = 400
-    const { paragraphs, truncated } = pasteParagraphs(external.text)
-    const r = await slidesActionWait(ctx, slidesActionApi(ctx).addElement({
-      slideIndex: ctx.current,
-      kind: 'textbox',
-      xPx: ((ctx.slide?.widthPx ?? FIT_WIDTH) - w) / 2,
-      yPx: (ctx.slide?.heightPx ?? FIT_WIDTH * 0.5625) / 2 - 40,
-      wPx: w,
-      hPx: 80,
-      fitWidthPx: FIT_WIDTH,
-      paragraphs,
-    }))
+  return slidesActionWork(ctx, async () => {
+    const external = await slidesActionWait(ctx, slidesActionApi(ctx).clipboardExternal())
+    if (external.kind === 'slide') {
+      await slidesActionWait(
+        ctx,
+        pasteSlideAfter(ctx, Math.max(...ctx.selectedSlides, ctx.current)),
+      )
+      return
+    }
+    if (external.kind === 'image') {
+      await slidesActionWait(ctx, insertExternalImage(ctx, external.base64, external.ext))
+      return
+    }
+    if (external.kind === 'text') {
+      const w = 400
+      const { paragraphs, truncated } = pasteParagraphs(external.text)
+      const r = await slidesActionWait(
+        ctx,
+        slidesActionApi(ctx).addElement({
+          slideIndex: ctx.current,
+          kind: 'textbox',
+          xPx: ((ctx.slide?.widthPx ?? FIT_WIDTH) - w) / 2,
+          yPx: (ctx.slide?.heightPx ?? FIT_WIDTH * 0.5625) / 2 - 40,
+          wPx: w,
+          hPx: 80,
+          fitWidthPx: FIT_WIDTH,
+          paragraphs,
+        }),
+      )
+      if (r) {
+        ctx.applySlide(ctx.current, r.slide)
+        ctx.setSelectedIds([r.sourceId])
+        if (truncated) ctx.setStatus(t('appStatusPasteTruncated'))
+      }
+      return
+    }
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).pasteElements({ slideIndex: ctx.current, fitWidthPx: FIT_WIDTH }),
+    )
     if (r) {
       ctx.applySlide(ctx.current, r.slide)
-      ctx.setSelectedIds([r.sourceId])
-      if (truncated) ctx.setStatus(t('appStatusPasteTruncated'))
+      ctx.setSelectedIds(r.sourceIds)
+      ctx.setEditing(null)
     }
-    return
-  }
-  const r = await slidesActionWait(ctx, slidesActionApi(ctx).pasteElements({ slideIndex: ctx.current, fitWidthPx: FIT_WIDTH }))
-  if (r) {
-    ctx.applySlide(ctx.current, r.slide)
-    ctx.setSelectedIds(r.sourceIds)
-    ctx.setEditing(null)
-  }
-
   })
 }
 
@@ -251,21 +275,22 @@ export async function duplicateSelected(
   dxPx = 16,
   dyPx = 16,
 ): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (!ids.length) return
-  const r = await slidesActionWait(ctx, slidesActionApi(ctx).duplicateElements({
-    slideIndex: ctx.current,
-    sourceIds: ids,
-    dxPx,
-    dyPx,
-    fitWidthPx: FIT_WIDTH,
-  }))
-  if (r) {
-    ctx.applySlide(ctx.current, r.slide)
-    ctx.setSelectedIds(r.sourceIds)
-  }
-
+  return slidesActionWork(ctx, async () => {
+    if (!ids.length) return
+    const r = await slidesActionWait(
+      ctx,
+      slidesActionApi(ctx).duplicateElements({
+        slideIndex: ctx.current,
+        sourceIds: ids,
+        dxPx,
+        dyPx,
+        fitWidthPx: FIT_WIDTH,
+      }),
+    )
+    if (r) {
+      ctx.applySlide(ctx.current, r.slide)
+      ctx.setSelectedIds(r.sourceIds)
+    }
   })
 }
 
@@ -285,54 +310,64 @@ export function copyFormat(ctx: ActionCtx): void {
 
 /** ⌘⇧V: paste format onto selected elements (format must have been copied first) */
 export async function pasteFormat(ctx: ActionCtx): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
-
-  if (!ctx.brushFormat || ctx.selectedIds.length === 0 || !ctx.slide) return
-  for (const id of ctx.selectedIds) {
-    const node = ctx.slide.nodes.find((n) => n.sourceId === id)
-    if (!node) continue
-    const plan = computeBrushApply(ctx.brushFormat, node)
-    // Apply fill
-    if (plan.fillColor !== undefined) {
-      await slidesActionWait(ctx, slidesActionApi(ctx).editFill({
-        slideIndex: ctx.current,
-        sourceId: id,
-        fill: plan.fillColor,
-      }))
-    }
-    // Apply stroke
-    if (plan.stroke !== undefined) {
-      await slidesActionWait(ctx, slidesActionApi(ctx).editStroke({
-        slideIndex: ctx.current,
-        sourceId: id,
-        stroke: plan.stroke,
-      }))
-    }
-    // Apply text format (runs + alignment)
-    if ((plan.runFormat || plan.align) && (node.type === 'shape' || node.type === 'text')) {
-      const paras = buildEditParagraphsWithFormat(node, plan.runFormat, plan.align)
-      if (paras) {
-        const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editText({
-          slideIndex: ctx.current,
-          sourceId: id,
-          paragraphs: paras,
-        }))
+  return slidesActionWork(ctx, async () => {
+    if (!ctx.brushFormat || ctx.selectedIds.length === 0 || !ctx.slide) return
+    for (const id of ctx.selectedIds) {
+      const node = ctx.slide.nodes.find((n) => n.sourceId === id)
+      if (!node) continue
+      const plan = computeBrushApply(ctx.brushFormat, node)
+      // Apply fill
+      if (plan.fillColor !== undefined) {
+        await slidesActionWait(
+          ctx,
+          slidesActionApi(ctx).editFill({
+            slideIndex: ctx.current,
+            sourceId: id,
+            fill: plan.fillColor,
+          }),
+        )
+      }
+      // Apply stroke
+      if (plan.stroke !== undefined) {
+        await slidesActionWait(
+          ctx,
+          slidesActionApi(ctx).editStroke({
+            slideIndex: ctx.current,
+            sourceId: id,
+            stroke: plan.stroke,
+          }),
+        )
+      }
+      // Apply text format (runs + alignment)
+      if ((plan.runFormat || plan.align) && (node.type === 'shape' || node.type === 'text')) {
+        const paras = buildEditParagraphsWithFormat(node, plan.runFormat, plan.align)
+        if (paras) {
+          const updated = await slidesActionWait(
+            ctx,
+            slidesActionApi(ctx).editText({
+              slideIndex: ctx.current,
+              sourceId: id,
+              paragraphs: paras,
+            }),
+          )
+          if (updated) ctx.applySlide(ctx.current, updated)
+        }
+      } else if (plan.fillColor !== undefined || plan.stroke !== undefined) {
+        // fill/stroke were applied; re-render to get the latest page
+        const updated = await slidesActionWait(
+          ctx,
+          slidesActionApi(ctx).editFill({
+            slideIndex: ctx.current,
+            sourceId: id,
+            fill: plan.fillColor ?? 'none',
+          }),
+        )
         if (updated) ctx.applySlide(ctx.current, updated)
       }
-    } else if (plan.fillColor !== undefined || plan.stroke !== undefined) {
-      // fill/stroke were applied; re-render to get the latest page
-      const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editFill({
-        slideIndex: ctx.current,
-        sourceId: id,
-        fill: plan.fillColor ?? 'none',
-      }))
-      if (updated) ctx.applySlide(ctx.current, updated)
     }
-  }
-  // Fetch the latest page again
-  // (each operation above already called applySlide; pull once more at the end to be sure it's fresh)
-  ctx.setStatus(t('appStatusFormatPasted'))
-
+    // Fetch the latest page again
+    // (each operation above already called applySlide; pull once more at the end to be sure it's fresh)
+    ctx.setStatus(t('appStatusFormatPasted'))
   })
 }
 
@@ -362,45 +397,52 @@ export function onFormatBrushDoubleClick(ctx: ActionCtx): void {
 
 /** Apply format when an element is clicked in format painter mode */
 export async function applyBrushToElement(ctx: ActionCtx, targetId: string): Promise<void> {
-  return slidesActionWork(ctx, async()=>{
+  return slidesActionWork(ctx, async () => {
+    if (!ctx.brushFormat || !ctx.slide) return
+    const node = ctx.slide.nodes.find((n) => n.sourceId === targetId)
+    if (!node) return
+    const plan = computeBrushApply(ctx.brushFormat, node)
 
-  if (!ctx.brushFormat || !ctx.slide) return
-  const node = ctx.slide.nodes.find((n) => n.sourceId === targetId)
-  if (!node) return
-  const plan = computeBrushApply(ctx.brushFormat, node)
-
-  if (plan.fillColor !== undefined) {
-    const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editFill({
-      slideIndex: ctx.current,
-      sourceId: targetId,
-      fill: plan.fillColor,
-    }))
-    if (updated) ctx.applySlide(ctx.current, updated)
-  }
-  if (plan.stroke !== undefined) {
-    const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editStroke({
-      slideIndex: ctx.current,
-      sourceId: targetId,
-      stroke: plan.stroke,
-    }))
-    if (updated) ctx.applySlide(ctx.current, updated)
-  }
-  if ((plan.runFormat || plan.align) && (node.type === 'shape' || node.type === 'text')) {
-    const paras = buildEditParagraphsWithFormat(node, plan.runFormat, plan.align)
-    if (paras) {
-      const updated = await slidesActionWait(ctx, slidesActionApi(ctx).editText({
-        slideIndex: ctx.current,
-        sourceId: targetId,
-        paragraphs: paras,
-      }))
+    if (plan.fillColor !== undefined) {
+      const updated = await slidesActionWait(
+        ctx,
+        slidesActionApi(ctx).editFill({
+          slideIndex: ctx.current,
+          sourceId: targetId,
+          fill: plan.fillColor,
+        }),
+      )
       if (updated) ctx.applySlide(ctx.current, updated)
     }
-  }
+    if (plan.stroke !== undefined) {
+      const updated = await slidesActionWait(
+        ctx,
+        slidesActionApi(ctx).editStroke({
+          slideIndex: ctx.current,
+          sourceId: targetId,
+          stroke: plan.stroke,
+        }),
+      )
+      if (updated) ctx.applySlide(ctx.current, updated)
+    }
+    if ((plan.runFormat || plan.align) && (node.type === 'shape' || node.type === 'text')) {
+      const paras = buildEditParagraphsWithFormat(node, plan.runFormat, plan.align)
+      if (paras) {
+        const updated = await slidesActionWait(
+          ctx,
+          slidesActionApi(ctx).editText({
+            slideIndex: ctx.current,
+            sourceId: targetId,
+            paragraphs: paras,
+          }),
+        )
+        if (updated) ctx.applySlide(ctx.current, updated)
+      }
+    }
 
-  if (ctx.brushMode === 'once') {
-    ctx.setBrushMode(null)
-    ctx.setStatus(t('appStatusFormatApplied'))
-  }
-
+    if (ctx.brushMode === 'once') {
+      ctx.setBrushMode(null)
+      ctx.setStatus(t('appStatusFormatApplied'))
+    }
   })
 }

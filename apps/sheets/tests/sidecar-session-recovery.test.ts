@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { noteSidecarCrash, readSheetRangeMapped, configureWorkbookReaderRecovery } from '../src/renderer/univer-sync'
+import {
+  noteSidecarCrash,
+  readSheetRangeMapped,
+  configureWorkbookReaderRecovery,
+} from '../src/renderer/univer-sync'
 import type { LazyWorkbookState } from '../src/renderer/univer-state'
 
 /// Both the Rust sidecar and sheets-main's own session guard reject an unknown
@@ -110,7 +114,10 @@ beforeEach(() => {
     return true
   })
 })
-afterEach(() => { stopRecoveryAdapter?.(); stopRecoveryAdapter = undefined })
+afterEach(() => {
+  stopRecoveryAdapter?.()
+  stopRecoveryAdapter = undefined
+})
 
 describe('a sidecar crash no longer strands the grid on a dead session', () => {
   beforeEach(() => {

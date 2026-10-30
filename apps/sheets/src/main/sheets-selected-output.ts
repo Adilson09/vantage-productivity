@@ -45,7 +45,8 @@ export function publishCapturedSheetsOutput(
 ): Promise<void> {
   // Keep the main-captured choice, never a later implicit atomic queue version.
   const targetPath = output.targetPath
-  const expectedVersion = output.expectedVersion === null ? null : Object.freeze({ ...output.expectedVersion })
+  const expectedVersion =
+    output.expectedVersion === null ? null : Object.freeze({ ...output.expectedVersion })
   const sourcePaths = options.sourcePaths ? [...options.sourcePaths] : undefined
   options.assertCurrent()
   return admit({ targetPath, sourcePaths }, async () => {

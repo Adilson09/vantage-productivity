@@ -17,36 +17,61 @@ export async function settleHeadlessSheetsCleanup(options: {
     throw new Error('Invalid headless spreadsheet cleanup grace.')
   let failed = false
   let failure: unknown
-  const remember = (error: unknown) => { if (!failed) { failed = true; failure = error } }
+  const remember = (error: unknown) => {
+    if (!failed) {
+      failed = true
+      failure = error
+    }
+  }
   const stops: Promise<void>[] = []
   const stop = (): Promise<void> => {
     let actual: Promise<void>
-    try { actual = options.stopNative() }
-    catch (error) { actual = Promise.reject(error) }
+    try {
+      actual = options.stopNative()
+    } catch (error) {
+      actual = Promise.reject(error)
+    }
     stops.push(actual)
     // Retain every real stop promise until finalization. A timer only starts
     // this operation; it cannot turn a hung owner or child into a settled one.
     void actual.catch(remember)
     return actual
   }
-  const timer = setTimeout(() => { void stop() }, grace)
+  const timer = setTimeout(() => {
+    void stop()
+  }, grace)
   try {
     if (!options.ownerCleanup) {
       if (!options.setupOnly) {
-        try { options.onMissingOwner?.() } catch { /* Keep waiting without a fabricated acknowledgment. */ }
+        try {
+          options.onMissingOwner?.()
+        } catch {
+          /* Keep waiting without a fabricated acknowledgment. */
+        }
         // Native exit cannot prove an unregistered JS owner finalizer. Stop
         // native work, but never return permission for app.exit/profile removal.
         await Promise.allSettled([stop()])
-        try { await options.joinNative() } catch { /* No owner proof: keep teardown pending either way. */ }
+        try {
+          await options.joinNative()
+        } catch {
+          /* No owner proof: keep teardown pending either way. */
+        }
         clearTimeout(timer)
         await new Promise<never>(() => {})
       }
     } else {
-      try { await options.ownerCleanup }
-      catch (error) { remember(error); void stop() }
+      try {
+        await options.ownerCleanup
+      } catch (error) {
+        remember(error)
+        void stop()
+      }
     }
-    try { await options.joinNative() }
-    catch (error) { remember(error) }
+    try {
+      await options.joinNative()
+    } catch (error) {
+      remember(error)
+    }
   } finally {
     clearTimeout(timer)
     // Teardown can create the document client after a forced stop began.
@@ -54,8 +79,11 @@ export async function settleHeadlessSheetsCleanup(options: {
     void stop()
     const results = await Promise.allSettled(stops)
     for (const result of results) if (result.status === 'rejected') remember(result.reason)
-    try { await options.joinNative() }
-    catch (error) { remember(error) }
+    try {
+      await options.joinNative()
+    } catch (error) {
+      remember(error)
+    }
   }
   if (failed) throw failure
 }

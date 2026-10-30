@@ -1,17 +1,51 @@
-import { selectCurrentSlidesOutput, SlidesExportAdmission, SlidesHeadlessExportLifecycle } from './export-output-lifecycle'
-import { publishSelectedUserOutputs, publishSelectedUserOutput, UserOutputSelections, type UserOutputSourceProof } from '@vantage/electron-utils/user-output-publication'
-import {publishSlidesDocument} from './slides-publication'
-import {DocumentPublication,readPublicationFile,observePublicationTarget,absentPublicationTarget,type PublicationSelection} from '../../../../packages/electron-utils/src/document-publication'
-import {NativeCloseAdmission} from '../../../../packages/electron-utils/src/native-close-admission'
-import { configureRecoveryProfile, initializeStandaloneRecovery, requireRecoveryRuntime, queueRecoveryWarning } from '../../../../packages/electron-utils/src/recovery-bootstrap'
-import {captureSlidesSave,adoptSlidesSave} from './slides-save-snapshot'
-import {slidesOwnedHandle,configureSlidesOwnedInvokes} from './slides-owned-ipc'
-import {SlidesSessionOwnership,configureSlidesMutationGuard} from './slides-session-ownership'
-import {SlidesHistoryBatches} from './slides-history-batches'
-import {beginCloseCleanup} from '../../../../packages/electron-utils/src/close-cleanup-runtime'
-import type {SlidesCloseQuery,SlidesToolSaveCompletion,SlidesNativeCloseReceipt,SlidesCloseIntent} from '../shared/slides-tool-save'
-import {isCloseLeaseStamp,type CloseLeaseTicket,type CloseLeaseStamp} from '../../../../packages/electron-utils/src/close-lease'
-import { SlidesToolSaveBroker,runSlidesNativeClose,slidesClosePermit,type SlidesClosePrepareOptions } from './slides-tool-save'
+import {
+  selectCurrentSlidesOutput,
+  SlidesExportAdmission,
+  SlidesHeadlessExportLifecycle,
+} from './export-output-lifecycle'
+import {
+  publishSelectedUserOutputs,
+  publishSelectedUserOutput,
+  UserOutputSelections,
+  type UserOutputSourceProof,
+} from '@vantage/electron-utils/user-output-publication'
+import { publishSlidesDocument } from './slides-publication'
+import {
+  DocumentPublication,
+  readPublicationFile,
+  observePublicationTarget,
+  absentPublicationTarget,
+  type PublicationSelection,
+} from '../../../../packages/electron-utils/src/document-publication'
+import { NativeCloseAdmission } from '../../../../packages/electron-utils/src/native-close-admission'
+import {
+  configureRecoveryProfile,
+  initializeStandaloneRecovery,
+  requireRecoveryRuntime,
+  queueRecoveryWarning,
+} from '../../../../packages/electron-utils/src/recovery-bootstrap'
+import { captureSlidesSave, adoptSlidesSave } from './slides-save-snapshot'
+import { slidesOwnedHandle, configureSlidesOwnedInvokes } from './slides-owned-ipc'
+import { SlidesSessionOwnership, configureSlidesMutationGuard } from './slides-session-ownership'
+import { SlidesHistoryBatches } from './slides-history-batches'
+import { beginCloseCleanup } from '../../../../packages/electron-utils/src/close-cleanup-runtime'
+import type {
+  SlidesCloseQuery,
+  SlidesToolSaveCompletion,
+  SlidesNativeCloseReceipt,
+  SlidesCloseIntent,
+} from '../shared/slides-tool-save'
+import {
+  isCloseLeaseStamp,
+  type CloseLeaseTicket,
+  type CloseLeaseStamp,
+} from '../../../../packages/electron-utils/src/close-lease'
+import {
+  SlidesToolSaveBroker,
+  runSlidesNativeClose,
+  slidesClosePermit,
+  type SlidesClosePrepareOptions,
+} from './slides-tool-save'
 import type { SlidesToolSaveIdentity } from '../shared/slides-tool-save'
 /**
  * Vantage Slides main process — pptx parsing/render-tree building/edit application/saving all live
@@ -449,7 +483,14 @@ async function handleRendererFreeze(wc: WebContents): Promise<void> {
 function trackSlidesWebContents(wc: WebContents): void {
   windowRefs.activeWebContents = wc
   slidesDraftOwners.add(wc.id)
-  wc.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(!isMainFrame)return;void historyBatches.retireFrames(wc).catch(reportHistoryBatchFailure);toolSaves.cancel(wc.id,'Renderer navigation retired the prior source.');rendererSources.delete(wc.id);slidesDrafts.retire(wc.id);slidesPendingEdits.delete(wc.id)})
+  wc.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+    if (!isMainFrame) return
+    void historyBatches.retireFrames(wc).catch(reportHistoryBatchFailure)
+    toolSaves.cancel(wc.id, 'Renderer navigation retired the prior source.')
+    rendererSources.delete(wc.id)
+    slidesDrafts.retire(wc.id)
+    slidesPendingEdits.delete(wc.id)
+  })
   wc.on('render-process-gone', () => {
     void historyBatches.retireFrames(wc).catch(reportHistoryBatchFailure)
     toolSaves.destroy(wc.id)
@@ -475,8 +516,17 @@ function trackSlidesWebContents(wc: WebContents): void {
     slidesCrashedViews.delete(wc.id)
     slidesPendingEdits.delete(wc.id)
     rendererSources.delete(wc.id)
-    const candidate=sourceCandidates.get(wc.id);if(candidate){clearTimeout(candidate.timer);sourceCandidates.delete(wc.id)}
-    const query=nativeQueries.get(wc.id);if(query){clearTimeout(query.timer);nativeQueries.delete(wc.id);query.reject(new Error('The presentation renderer was destroyed.'))}
+    const candidate = sourceCandidates.get(wc.id)
+    if (candidate) {
+      clearTimeout(candidate.timer)
+      sourceCandidates.delete(wc.id)
+    }
+    const query = nativeQueries.get(wc.id)
+    if (query) {
+      clearTimeout(query.timer)
+      nativeQueries.delete(wc.id)
+      query.reject(new Error('The presentation renderer was destroyed.'))
+    }
     sessions.delete(wc.id)
     pendingByWc.delete(wc.id)
     lastSlidePaste.delete(wc.id)
@@ -540,119 +590,429 @@ function syncAttachedPaths(session: Session, path: string): void {
  * caller's (the MCP tool layer guards clobbering); this commits the save side
  * effects: session path, recents, attached-surface titles, dirty-flag reset.
  */
-const publicationBySession=new WeakMap<Session,DocumentPublication>()
-function publicationForSession(session:Session):DocumentPublication{let publication=publicationBySession.get(session);if(!publication){if(session.path)throw new Error('The presentation has no verified loaded file version. Reload or Save As a separate copy; unsaved work is retained.');publication=new DocumentPublication();publicationBySession.set(session,publication)}return publication}
-const sessionSaveTails=new WeakMap<Session,Promise<unknown>>()
-export async function saveSessionDeckTo(session:Session,filePath:string,selection?:PublicationSelection):Promise<void>{
- const publication=publicationForSession(session),callSource=selection?.source??publication.snapshot()
- const prior=sessionSaveTails.get(session)
- const write=(async()=>{
-  if(prior)await prior.catch(()=>{})
-  const loaded=callSource
-  const target=selection?.target??(loaded.path===filePath?undefined:absentPublicationTarget(filePath))
-  await mkdir(dirname(filePath),{recursive:true})
-  const revision=mainCloseRevision(session)
-  // Capture before the first serializer await; fonts/XML/saveSnapshot mutate only this inert package.
-  const frozen=await publishSlidesDocument(publication,filePath,{source:loaded,target},()=>captureSlidesSave(session.opened),(snapshot,temporary)=>savePptxToFile(snapshot,temporary))
-  // Publication remains valid even if the editor was replaced while writing.
-  if(!attachedIds(session).length)return
-  const previousPath=session.path||null
-  session.path=filePath;slidesDrafts.rename(session,previousPath,filePath)
-  if(adoptSlidesSave(session.opened,frozen,revision,mainCloseRevision(session)))session.metaDirty=false
-  await pushRecent(filePath)
-  if(session.path===filePath)syncAttachedPaths(session,filePath)
- })()
- sessionSaveTails.set(session,write)
- try{await write}finally{if(sessionSaveTails.get(session)===write)sessionSaveTails.delete(session)}
+const publicationBySession = new WeakMap<Session, DocumentPublication>()
+function publicationForSession(session: Session): DocumentPublication {
+  let publication = publicationBySession.get(session)
+  if (!publication) {
+    if (session.path)
+      throw new Error(
+        'The presentation has no verified loaded file version. Reload or Save As a separate copy; unsaved work is retained.',
+      )
+    publication = new DocumentPublication()
+    publicationBySession.set(session, publication)
+  }
+  return publication
+}
+const sessionSaveTails = new WeakMap<Session, Promise<unknown>>()
+export async function saveSessionDeckTo(
+  session: Session,
+  filePath: string,
+  selection?: PublicationSelection,
+): Promise<void> {
+  const publication = publicationForSession(session),
+    callSource = selection?.source ?? publication.snapshot()
+  const prior = sessionSaveTails.get(session)
+  const write = (async () => {
+    if (prior) await prior.catch(() => {})
+    const loaded = callSource
+    const target =
+      selection?.target ??
+      (loaded.path === filePath ? undefined : absentPublicationTarget(filePath))
+    await mkdir(dirname(filePath), { recursive: true })
+    const revision = mainCloseRevision(session)
+    // Capture before the first serializer await; fonts/XML/saveSnapshot mutate only this inert package.
+    const frozen = await publishSlidesDocument(
+      publication,
+      filePath,
+      { source: loaded, target },
+      () => captureSlidesSave(session.opened),
+      (snapshot, temporary) => savePptxToFile(snapshot, temporary),
+    )
+    // Publication remains valid even if the editor was replaced while writing.
+    if (!attachedIds(session).length) return
+    const previousPath = session.path || null
+    session.path = filePath
+    slidesDrafts.rename(session, previousPath, filePath)
+    if (adoptSlidesSave(session.opened, frozen, revision, mainCloseRevision(session)))
+      session.metaDirty = false
+    await pushRecent(filePath)
+    if (session.path === filePath) syncAttachedPaths(session, filePath)
+  })()
+  sessionSaveTails.set(session, write)
+  try {
+    await write
+  } finally {
+    if (sessionSaveTails.get(session) === write) sessionSaveTails.delete(session)
+  }
 }
 
-const rendererSources=new Map<number,string>()
-const nativeCloseAdmission=new NativeCloseAdmission<Session>()
-const ownership=new SlidesSessionOwnership<Session>({source:owner=>sessions.get(owner),identity:owner=>currentSourceIdentity(owner),batch:source=>source.historyBatch,changed:session=>invalidateToolCloseForSession(session)})
-function reportHistoryBatchFailure(_error:unknown):void{queueRecoveryWarning('slides-history-batch','Presentation history cleanup is still pending. Keep this presentation open and retry after its operation finishes.')}
-type OwnedHistoryBatch=NonNullable<Session['historyBatch']>
-const historyBatches=new SlidesHistoryBatches<WebContents,Session,OwnedHistoryBatch>({
- source:owner=>sessions.get(owner.id),
- begin:source=>{beginHistoryBatch(source);const batch=source.historyBatch;if(!batch)throw new Error('History batch creation did not complete.');return batch},
- carriers:(batch,origin,owner)=>[...new Set([sessions.get(owner.id),...sessions.values(),origin])].filter((source):source is Session=>!!source&&source.historyBatch===batch),
- sameBatch:(source,batch)=>source.historyBatch===batch,
- actualBatchSources:batch=>ownership.actualBatchSources(batch),closed:batch=>batch.depth<=0,
- hold:source=>ownership.holdBatch(source),pause:source=>ownership.pauseOrdinary(source),waitActual:source=>ownership.waitActual(source),actualIdle:source=>ownership.actualIdle(source),
- finish:(source,batch,carriers)=>ownership.finishBatch(source,()=>{const before=endCapturedHistoryBatch(source,batch,carriers);return before?registerAiSnapshot(source,before):null}),
- report:reportHistoryBatchFailure,
+const rendererSources = new Map<number, string>()
+const nativeCloseAdmission = new NativeCloseAdmission<Session>()
+const ownership = new SlidesSessionOwnership<Session>({
+  source: (owner) => sessions.get(owner),
+  identity: (owner) => currentSourceIdentity(owner),
+  batch: (source) => source.historyBatch,
+  changed: (session) => invalidateToolCloseForSession(session),
 })
-const historyBatchFrames=new WeakMap<object,string>()
-function historyBatchFrame(event:Electron.IpcMainInvokeEvent):string{
- const frame=event.senderFrame,current=event.sender.mainFrame
- if(event.sender.isDestroyed()||!frame||frame!==current)throw new Error('History batches require the exact main renderer frame.')
- let identity=historyBatchFrames.get(frame)
- if(!identity){identity=randomUUID();historyBatchFrames.set(frame,identity)}
- return identity
+function reportHistoryBatchFailure(_error: unknown): void {
+  queueRecoveryWarning(
+    'slides-history-batch',
+    'Presentation history cleanup is still pending. Keep this presentation open and retry after its operation finishes.',
+  )
 }
-configureSlidesMutationGuard(source=>ownership.assert(source as Session))
-configureSlidesOwnedInvokes((channel,event,args,handler)=>{
- const envelope=args.at(-1) as {__slidesAuthoredSource?:unknown}|undefined
- const expected=rendererSources.get(event.sender.id)
- if(envelope&&typeof envelope==='object'&&'__slidesAuthoredSource'in envelope){args=args.slice(0,-1);if(channel!=='slides:draft-activate'&&envelope.__slidesAuthoredSource!==expected&&!(expected===undefined&&envelope.__slidesAuthoredSource===''))throw new Error('This operation belongs to a retired presentation renderer source.')}
- else if(expected&&channel!=='slides:draft-activate')throw new Error('A presentation operation is missing its source identity.')
- const pure=channel==='slides:draft-activate'||channel==='slides:source-confirm'||channel.startsWith('slides:tool-save-')||channel.startsWith('slides:close-')||channel.startsWith('slides:draft-')||channel.startsWith('slides:get-')||channel.startsWith('slides:font-')||channel==='slides:is-dirty'||channel==='slides:recent'||channel==='slides:media-data'||channel==='slides:model3d-data'||['ai:get-settings','ai:gsk-status','ai:gsk-login','ai:stream','ai:stream-cancel','ai:web-search','ai:image-search','ai:generate-image','ai:analyze-media','ai:list-style-templates','ai:load-style-template'].includes(channel)
- if(channel==='slides:save'){
-  const source=sessions.get(event.sender.id),release=source?nativeCloseAdmission.write(source,args[0]===true):undefined
-  if(release===null)return {ok:true,deferred:true}
-  try{return Promise.resolve(ownership.run(event.sender.id,()=>handler(event,...args),pure)).finally(()=>release?.())}catch(error){release?.();throw error}
- }
- return ownership.run(event.sender.id,()=>handler(event,...args),pure)
+type OwnedHistoryBatch = NonNullable<Session['historyBatch']>
+const historyBatches = new SlidesHistoryBatches<WebContents, Session, OwnedHistoryBatch>({
+  source: (owner) => sessions.get(owner.id),
+  begin: (source) => {
+    beginHistoryBatch(source)
+    const batch = source.historyBatch
+    if (!batch) throw new Error('History batch creation did not complete.')
+    return batch
+  },
+  carriers: (batch, origin, owner) =>
+    [...new Set([sessions.get(owner.id), ...sessions.values(), origin])].filter(
+      (source): source is Session => !!source && source.historyBatch === batch,
+    ),
+  sameBatch: (source, batch) => source.historyBatch === batch,
+  actualBatchSources: (batch) => ownership.actualBatchSources(batch),
+  closed: (batch) => batch.depth <= 0,
+  hold: (source) => ownership.holdBatch(source),
+  pause: (source) => ownership.pauseOrdinary(source),
+  waitActual: (source) => ownership.waitActual(source),
+  actualIdle: (source) => ownership.actualIdle(source),
+  finish: (source, batch, carriers) =>
+    ownership.finishBatch(source, () => {
+      const before = endCapturedHistoryBatch(source, batch, carriers)
+      return before ? registerAiSnapshot(source, before) : null
+    }),
+  report: reportHistoryBatchFailure,
+})
+const historyBatchFrames = new WeakMap<object, string>()
+function historyBatchFrame(event: Electron.IpcMainInvokeEvent): string {
+  const frame = event.senderFrame,
+    current = event.sender.mainFrame
+  if (event.sender.isDestroyed() || !frame || frame !== current)
+    throw new Error('History batches require the exact main renderer frame.')
+  let identity = historyBatchFrames.get(frame)
+  if (!identity) {
+    identity = randomUUID()
+    historyBatchFrames.set(frame, identity)
+  }
+  return identity
+}
+configureSlidesMutationGuard((source) => ownership.assert(source as Session))
+configureSlidesOwnedInvokes((channel, event, args, handler) => {
+  const envelope = args.at(-1) as { __slidesAuthoredSource?: unknown } | undefined
+  const expected = rendererSources.get(event.sender.id)
+  if (envelope && typeof envelope === 'object' && '__slidesAuthoredSource' in envelope) {
+    args = args.slice(0, -1)
+    if (
+      channel !== 'slides:draft-activate' &&
+      envelope.__slidesAuthoredSource !== expected &&
+      !(expected === undefined && envelope.__slidesAuthoredSource === '')
+    )
+      throw new Error('This operation belongs to a retired presentation renderer source.')
+  } else if (expected && channel !== 'slides:draft-activate')
+    throw new Error('A presentation operation is missing its source identity.')
+  const pure =
+    channel === 'slides:draft-activate' ||
+    channel === 'slides:source-confirm' ||
+    channel.startsWith('slides:tool-save-') ||
+    channel.startsWith('slides:close-') ||
+    channel.startsWith('slides:draft-') ||
+    channel.startsWith('slides:get-') ||
+    channel.startsWith('slides:font-') ||
+    channel === 'slides:is-dirty' ||
+    channel === 'slides:recent' ||
+    channel === 'slides:media-data' ||
+    channel === 'slides:model3d-data' ||
+    [
+      'ai:get-settings',
+      'ai:gsk-status',
+      'ai:gsk-login',
+      'ai:stream',
+      'ai:stream-cancel',
+      'ai:web-search',
+      'ai:image-search',
+      'ai:generate-image',
+      'ai:analyze-media',
+      'ai:list-style-templates',
+      'ai:load-style-template',
+    ].includes(channel)
+  if (channel === 'slides:save') {
+    const source = sessions.get(event.sender.id),
+      release = source ? nativeCloseAdmission.write(source, args[0] === true) : undefined
+    if (release === null) return { ok: true, deferred: true }
+    try {
+      return Promise.resolve(
+        ownership.run(event.sender.id, () => handler(event, ...args), pure),
+      ).finally(() => release?.())
+    } catch (error) {
+      release?.()
+      throw error
+    }
+  }
+  return ownership.run(event.sender.id, () => handler(event, ...args), pure)
 })
 
-function currentSourceIdentity(owner:number):string{return rendererSources.get(owner)??''}
-function mainCloseRevision(session:Session):string{return draftRevision(session)+':'+ownership.revision(session)}
-const toolSaves:SlidesToolSaveBroker=new SlidesToolSaveBroker({
- state:owner=>{const source=sessions.get(owner),contents=webContents.fromId(owner);return source?{source,identity:currentSourceIdentity(owner),token:slidesDrafts.tokenFor(owner),revision:mainCloseRevision(source),dirty:slidesIsDirty(owner),busy:ownership.busy(source)||!!source.historyBatch||!!contents&&historyBatches.busy(contents)}:null},
- send:(owner,channel,value)=>{const contents=webContents.fromId(owner);if(contents&&!contents.isDestroyed())contents.send(channel,value)},
- write:async(owner,source,path,overwrite,publicationSelection)=>{
-  const session=source as Session
-  if(sessions.get(owner)!==session)throw new Error('The presentation source changed before saving.')
-  const target=path||session.path||pickDraftPath(getDraftsDir(),tm('untitledDeck'))
-  if(!overwrite&&existsSync(target))return{ok:false,path:target,error:'The destination already exists.'}
-  await saveSessionDeckTo(session,target,publicationSelection)
-  return{ok:true,path:target,dirty:sessionDirty(session),slides:buildAllRenderSlides(session.opened,session.fitWidthPx)}
- },
- stage:(owner,through)=>{
-  const producer:ReturnType<SlidesDraftController['stageClose']>=slidesDrafts.stageClose(owner,through)
-  const source=sessions.get(owner),id=randomUUID()
-  let admission:ReturnType<typeof beginCloseCleanup>
-  try{admission=beginCloseCleanup({id,module:'slides',ownerKey:String(owner),source:currentSourceIdentity(owner),generation:through,token:producer.token,documentPath:source?.path||null,ready:producer.ready,custody:{recoveryRoot:join(app.getPath('userData'),'recovery'),draftId:producer.token,attest:producer.attest},run:signal=>producer.cleanup(signal)})}catch(error){producer.cancel();throw error}
-  return{producer,admission}
- },
+function currentSourceIdentity(owner: number): string {
+  return rendererSources.get(owner) ?? ''
+}
+function mainCloseRevision(session: Session): string {
+  return draftRevision(session) + ':' + ownership.revision(session)
+}
+const toolSaves: SlidesToolSaveBroker = new SlidesToolSaveBroker({
+  state: (owner) => {
+    const source = sessions.get(owner),
+      contents = webContents.fromId(owner)
+    return source
+      ? {
+          source,
+          identity: currentSourceIdentity(owner),
+          token: slidesDrafts.tokenFor(owner),
+          revision: mainCloseRevision(source),
+          dirty: slidesIsDirty(owner),
+          busy:
+            ownership.busy(source) ||
+            !!source.historyBatch ||
+            (!!contents && historyBatches.busy(contents)),
+        }
+      : null
+  },
+  send: (owner, channel, value) => {
+    const contents = webContents.fromId(owner)
+    if (contents && !contents.isDestroyed()) contents.send(channel, value)
+  },
+  write: async (owner, source, path, overwrite, publicationSelection) => {
+    const session = source as Session
+    if (sessions.get(owner) !== session)
+      throw new Error('The presentation source changed before saving.')
+    const target = path || session.path || pickDraftPath(getDraftsDir(), tm('untitledDeck'))
+    if (!overwrite && existsSync(target))
+      return { ok: false, path: target, error: 'The destination already exists.' }
+    await saveSessionDeckTo(session, target, publicationSelection)
+    return {
+      ok: true,
+      path: target,
+      dirty: sessionDirty(session),
+      slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
+    }
+  },
+  stage: (owner, through) => {
+    const producer: ReturnType<SlidesDraftController['stageClose']> = slidesDrafts.stageClose(
+      owner,
+      through,
+    )
+    const source = sessions.get(owner),
+      id = randomUUID()
+    let admission: ReturnType<typeof beginCloseCleanup>
+    try {
+      admission = beginCloseCleanup({
+        id,
+        module: 'slides',
+        ownerKey: String(owner),
+        source: currentSourceIdentity(owner),
+        generation: through,
+        token: producer.token,
+        documentPath: source?.path || null,
+        ready: producer.ready,
+        custody: {
+          recoveryRoot: join(app.getPath('userData'), 'recovery'),
+          draftId: producer.token,
+          attest: producer.attest,
+        },
+        run: (signal) => producer.cleanup(signal),
+      })
+    } catch (error) {
+      producer.cancel()
+      throw error
+    }
+    return { producer, admission }
+  },
 })
-export async function requestSlidesToolSave(wcId:number,path:string,overwrite:boolean,options?:{requireClean?:boolean}){
- const session=sessions.get(wcId);if(!session)throw new Error('The presentation is not open.')
- const publication=publicationForSession(session),source=publication.snapshot(),target=path&&(overwrite||path!==source.path)?await observePublicationTarget(path):undefined
- if(path===source.path&&target&&!target.version)throw new Error('The original presentation was moved or deleted. Use Save As a separate copy; current work is retained.')
- if(sessions.get(wcId)!==session||publication.snapshot()!==source)throw new Error('The presentation source changed while its explicit destination was being checked.')
- return toolSaves.request(wcId,path,overwrite,options?.requireClean===true,'save',undefined,{}, {source,target})
+export async function requestSlidesToolSave(
+  wcId: number,
+  path: string,
+  overwrite: boolean,
+  options?: { requireClean?: boolean },
+) {
+  const session = sessions.get(wcId)
+  if (!session) throw new Error('The presentation is not open.')
+  const publication = publicationForSession(session),
+    source = publication.snapshot(),
+    target =
+      path && (overwrite || path !== source.path) ? await observePublicationTarget(path) : undefined
+  if (path === source.path && target && !target.version)
+    throw new Error(
+      'The original presentation was moved or deleted. Use Save As a separate copy; current work is retained.',
+    )
+  if (sessions.get(wcId) !== session || publication.snapshot() !== source)
+    throw new Error(
+      'The presentation source changed while its explicit destination was being checked.',
+    )
+  return toolSaves.request(
+    wcId,
+    path,
+    overwrite,
+    options?.requireClean === true,
+    'save',
+    undefined,
+    {},
+    { source, target },
+  )
 }
-export function cancelSlidesToolSave(wcId:number,requestId:string):void{toolSaves.cancelRequest(wcId,requestId)}
-export function completeSlidesToolClose(wcId:number,requestId:string,close:()=>boolean):boolean{return toolSaves.completeClose(wcId,requestId,close)}
-function invalidateToolCloseForSession(session:Session):void{for(const id of attachedIds(session))toolSaves.invalidateReady(id)}
-export async function prepareSlidesClose(contents:WebContents,filePath?:string,intent:SlidesCloseIntent='save',approvedStamp?:CloseLeaseStamp,options:SlidesClosePrepareOptions={}):Promise<SlidesNativeCloseReceipt>{
- if(!slidesClosePermit(options))throw new Error('The close operation is no longer current.')
- const session=sessions.get(contents.id);if(!session)throw new Error('The presentation is no longer open.')
- const publication=publicationForSession(session),source=publication.snapshot(),target=intent==='save'&&filePath&&filePath!==source.path?await observePublicationTarget(filePath):undefined
- if(sessions.get(contents.id)!==session||publication.snapshot()!==source||!slidesClosePermit(options))throw new Error('The presentation source or close operation changed while its destination was being checked.')
- const receipt=await toolSaves.request(contents.id,filePath??session.path??'',true,true,intent,approvedStamp,options,{source,target})
- if(!slidesClosePermit(options)||receipt.phase!=='prepared'&&receipt.phase!=='ready'){toolSaves.cancelRequest(contents.id,receipt.requestId);throw new Error('The document could not be confirmed ready to close.')}
- return receipt as SlidesNativeCloseReceipt
+export function cancelSlidesToolSave(wcId: number, requestId: string): void {
+  toolSaves.cancelRequest(wcId, requestId)
 }
-export function isSlidesClosePrepared(contents:WebContents,receipt:SlidesToolSaveCompletion):boolean{return!contents.isDestroyed()&&toolSaves.isPrepared(contents.id,receipt)}
-export function sealSlidesClose(contents:WebContents,receipt:SlidesToolSaveCompletion):SlidesNativeCloseReceipt|null{return contents.isDestroyed()?null:toolSaves.seal(contents.id,receipt)}
-export function completeSlidesClose(contents:WebContents,receipt:SlidesToolSaveCompletion,removeSync:()=>boolean):boolean{return toolSaves.completeReceipt(contents.id,receipt,removeSync)}
-export async function cancelSlidesClose(contents:WebContents,receipt:SlidesToolSaveCompletion,reason?:string):Promise<void>{toolSaves.cancelRequest(contents.id,receipt.requestId)}
-const nativeQueries=new Map<number,{id:string;resolve(value:SlidesCloseQuery):void;reject(error:Error):void;timer:ReturnType<typeof setTimeout>}>()
-function querySlidesClose(contents:WebContents):Promise<SlidesCloseQuery>{if(nativeQueries.has(contents.id))return Promise.reject(new Error('A presentation close query is still pending.'));return new Promise((resolve,reject)=>{const id=randomUUID(),timer=setTimeout(()=>{nativeQueries.delete(contents.id);reject(new Error('The renderer did not certify its current pending editors; recovery is retained.'))},5_000);nativeQueries.set(contents.id,{id,resolve,reject,timer});contents.send('slides:close-query',id)})}
-export async function prepareSlidesNativeClose(contents:WebContents,parent?:BrowserWindow|null,options:SlidesClosePrepareOptions={}):Promise<SlidesNativeCloseReceipt|null>{
- if(contents.isDestroyed()||slidesCrashedViews.has(contents.id))throw new Error('An unresponsive presentation cannot certify Save/Discard close. Recovery is retained.')
- return runSlidesNativeClose({holdAutomaticSaves:()=>{const source=sessions.get(contents.id);return source&&!ownership.busy(source)?nativeCloseAdmission.hold(contents.id,source):null},alive:()=>!contents.isDestroyed(),source:()=>sessions.get(contents.id),revision:source=>mainCloseRevision(source),dirty:()=>slidesIsDirty(contents.id),autoSave:source=>!!autoSavePrefByWc.get(contents.id)&&!!source.path,query:()=>querySlidesClose(contents),prompt:async()=>{const promptOptions={type:'warning' as const,message:tm('closeUnsavedMsg'),detail:tm('closeUnsavedDetail'),buttons:[tm('menuSave'),tm('btnDontSave'),tm('btnCancel')],defaultId:0,cancelId:2,noLink:true};const {response}=parent&&!parent.isDestroyed()?await dialog.showMessageBox(parent,promptOptions):await dialog.showMessageBox(promptOptions);return response},prepare:(source,intent,approved,permit)=>prepareSlidesClose(contents,source.path||undefined,intent,approved,permit),cancel:receipt=>cancelSlidesClose(contents,receipt,'The native close group ended after preparation.'),warning:error=>warnSlidesDraft(contents.id,error)},options)
+export function completeSlidesToolClose(
+  wcId: number,
+  requestId: string,
+  close: () => boolean,
+): boolean {
+  return toolSaves.completeClose(wcId, requestId, close)
+}
+function invalidateToolCloseForSession(session: Session): void {
+  for (const id of attachedIds(session)) toolSaves.invalidateReady(id)
+}
+export async function prepareSlidesClose(
+  contents: WebContents,
+  filePath?: string,
+  intent: SlidesCloseIntent = 'save',
+  approvedStamp?: CloseLeaseStamp,
+  options: SlidesClosePrepareOptions = {},
+): Promise<SlidesNativeCloseReceipt> {
+  if (!slidesClosePermit(options)) throw new Error('The close operation is no longer current.')
+  const session = sessions.get(contents.id)
+  if (!session) throw new Error('The presentation is no longer open.')
+  const publication = publicationForSession(session),
+    source = publication.snapshot(),
+    target =
+      intent === 'save' && filePath && filePath !== source.path
+        ? await observePublicationTarget(filePath)
+        : undefined
+  if (
+    sessions.get(contents.id) !== session ||
+    publication.snapshot() !== source ||
+    !slidesClosePermit(options)
+  )
+    throw new Error(
+      'The presentation source or close operation changed while its destination was being checked.',
+    )
+  const receipt = await toolSaves.request(
+    contents.id,
+    filePath ?? session.path ?? '',
+    true,
+    true,
+    intent,
+    approvedStamp,
+    options,
+    { source, target },
+  )
+  if (!slidesClosePermit(options) || (receipt.phase !== 'prepared' && receipt.phase !== 'ready')) {
+    toolSaves.cancelRequest(contents.id, receipt.requestId)
+    throw new Error('The document could not be confirmed ready to close.')
+  }
+  return receipt as SlidesNativeCloseReceipt
+}
+export function isSlidesClosePrepared(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+): boolean {
+  return !contents.isDestroyed() && toolSaves.isPrepared(contents.id, receipt)
+}
+export function sealSlidesClose(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+): SlidesNativeCloseReceipt | null {
+  return contents.isDestroyed() ? null : toolSaves.seal(contents.id, receipt)
+}
+export function completeSlidesClose(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+  removeSync: () => boolean,
+): boolean {
+  return toolSaves.completeReceipt(contents.id, receipt, removeSync)
+}
+export async function cancelSlidesClose(
+  contents: WebContents,
+  receipt: SlidesToolSaveCompletion,
+  reason?: string,
+): Promise<void> {
+  toolSaves.cancelRequest(contents.id, receipt.requestId)
+}
+const nativeQueries = new Map<
+  number,
+  {
+    id: string
+    resolve(value: SlidesCloseQuery): void
+    reject(error: Error): void
+    timer: ReturnType<typeof setTimeout>
+  }
+>()
+function querySlidesClose(contents: WebContents): Promise<SlidesCloseQuery> {
+  if (nativeQueries.has(contents.id))
+    return Promise.reject(new Error('A presentation close query is still pending.'))
+  return new Promise((resolve, reject) => {
+    const id = randomUUID(),
+      timer = setTimeout(() => {
+        nativeQueries.delete(contents.id)
+        reject(
+          new Error(
+            'The renderer did not certify its current pending editors; recovery is retained.',
+          ),
+        )
+      }, 5_000)
+    nativeQueries.set(contents.id, { id, resolve, reject, timer })
+    contents.send('slides:close-query', id)
+  })
+}
+export async function prepareSlidesNativeClose(
+  contents: WebContents,
+  parent?: BrowserWindow | null,
+  options: SlidesClosePrepareOptions = {},
+): Promise<SlidesNativeCloseReceipt | null> {
+  if (contents.isDestroyed() || slidesCrashedViews.has(contents.id))
+    throw new Error(
+      'An unresponsive presentation cannot certify Save/Discard close. Recovery is retained.',
+    )
+  return runSlidesNativeClose(
+    {
+      holdAutomaticSaves: () => {
+        const source = sessions.get(contents.id)
+        return source && !ownership.busy(source)
+          ? nativeCloseAdmission.hold(contents.id, source)
+          : null
+      },
+      alive: () => !contents.isDestroyed(),
+      source: () => sessions.get(contents.id),
+      revision: (source) => mainCloseRevision(source),
+      dirty: () => slidesIsDirty(contents.id),
+      autoSave: (source) => !!autoSavePrefByWc.get(contents.id) && !!source.path,
+      query: () => querySlidesClose(contents),
+      prompt: async () => {
+        const promptOptions = {
+          type: 'warning' as const,
+          message: tm('closeUnsavedMsg'),
+          detail: tm('closeUnsavedDetail'),
+          buttons: [tm('menuSave'), tm('btnDontSave'), tm('btnCancel')],
+          defaultId: 0,
+          cancelId: 2,
+          noLink: true,
+        }
+        const { response } =
+          parent && !parent.isDestroyed()
+            ? await dialog.showMessageBox(parent, promptOptions)
+            : await dialog.showMessageBox(promptOptions)
+        return response
+      },
+      prepare: (source, intent, approved, permit) =>
+        prepareSlidesClose(contents, source.path || undefined, intent, approved, permit),
+      cancel: (receipt) =>
+        cancelSlidesClose(contents, receipt, 'The native close group ended after preparation.'),
+      warning: (error) => warnSlidesDraft(contents.id, error),
+    },
+    options,
+  )
 }
 
 const RECENT_PATH = () => join(app.getPath('userData'), 'slides-recent.json')
@@ -711,17 +1071,39 @@ export async function replaceSlidesRecentFile(oldPath: string, newPath: string):
 
 /** Shell notification: an open view's file was renamed — sync the session path (subsequent
  *  saves write the new file) and push to the renderer to update the editor title bar. */
-const publicationRenameTails=new WeakMap<Session,Promise<void>>()
-export async function slidesFileRenamed(wc:WebContents,oldPath:string,newPath:string):Promise<void>{
- const session=sessions.get(wc.id);if(!session)return
- const prior=publicationRenameTails.get(session);if(prior)await prior
- if(session.path===newPath){if(!wc.isDestroyed())wc.send('slides:renamed',newPath);return}
- if(session.path!==oldPath)return
- ownership.assert(session)
- invalidateToolCloseForSession(session)
- const refresh=(async()=>{await publicationForSession(session).rebindMoved(oldPath,newPath,()=>sessions.get(wc.id)===session&&session.path===oldPath);session.path=newPath;slidesDrafts.rename(session,oldPath,newPath)})()
- publicationRenameTails.set(session,refresh)
- try{await refresh;if(!wc.isDestroyed())wc.send('slides:renamed',newPath)}finally{if(publicationRenameTails.get(session)===refresh)publicationRenameTails.delete(session)}
+const publicationRenameTails = new WeakMap<Session, Promise<void>>()
+export async function slidesFileRenamed(
+  wc: WebContents,
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
+  const session = sessions.get(wc.id)
+  if (!session) return
+  const prior = publicationRenameTails.get(session)
+  if (prior) await prior
+  if (session.path === newPath) {
+    if (!wc.isDestroyed()) wc.send('slides:renamed', newPath)
+    return
+  }
+  if (session.path !== oldPath) return
+  ownership.assert(session)
+  invalidateToolCloseForSession(session)
+  const refresh = (async () => {
+    await publicationForSession(session).rebindMoved(
+      oldPath,
+      newPath,
+      () => sessions.get(wc.id) === session && session.path === oldPath,
+    )
+    session.path = newPath
+    slidesDrafts.rename(session, oldPath, newPath)
+  })()
+  publicationRenameTails.set(session, refresh)
+  try {
+    await refresh
+    if (!wc.isDestroyed()) wc.send('slides:renamed', newPath)
+  } finally {
+    if (publicationRenameTails.get(session) === refresh) publicationRenameTails.delete(session)
+  }
 }
 
 // ── Autosave (crash recovery): dirty sessions write a recovery copy every 30s; a normal save cleans it up ──
@@ -751,7 +1133,7 @@ function sessionDirty(session: Session): boolean {
 const slidesDraftOwners = new Set<number>()
 const slidesCrashedViews = new Set<number>()
 const slidesPendingEdits = new Map<number, boolean>()
-const slidesDrafts:SlidesDraftController = new SlidesDraftController({
+const slidesDrafts: SlidesDraftController = new SlidesDraftController({
   revisionFor: (owner) => {
     const session = sessions.get(owner)
     return session ? draftRevision(session) : null
@@ -762,7 +1144,7 @@ const slidesDrafts:SlidesDraftController = new SlidesDraftController({
     slidesDraftOwners.has(owner) &&
     !viewerWcIds.has(owner) &&
     webContents.fromId(owner)?.isDestroyed() === false,
-  retaining:(owner):boolean=>toolSaves.retaining(owner),
+  retaining: (owner): boolean => toolSaves.retaining(owner),
   capture: (owner, pending) => {
     const session = sessions.get(owner)
     if (!session) throw new Error('This presentation is no longer open.')
@@ -777,8 +1159,11 @@ function warnSlidesDraft(owner: number, error: unknown): void {
 }
 export async function discardActiveSlidesDraft(id: string): Promise<boolean> {
   for (const owner of slidesDraftOwners) {
-    if(!slidesDrafts.ownsToken(owner,id))continue
-    toolSaves.cancel(owner,'An explicit recovery deletion canceled the pending close; its retained custody remains separately reviewable.')
+    if (!slidesDrafts.ownsToken(owner, id)) continue
+    toolSaves.cancel(
+      owner,
+      'An explicit recovery deletion canceled the pending close; its retained custody remains separately reviewable.',
+    )
     const session = sessions.get(owner)
     const discarded = slidesDrafts.discardCurrent(owner)
     const contents = webContents.fromId(owner)
@@ -855,7 +1240,14 @@ export function slidesIsDirty(webContentsId: number): boolean {
  * the existing save flow (flushNotes + adoptSavedSlides + Save As dialog for untitled) and
  * awaits the result; on failure/timeout stay open.
  */
-export async function requestSlidesClose(_contents:WebContents,_parent?:BrowserWindow|null):Promise<boolean>{throw new Error('Use prepareSlidesNativeClose + completeSlidesClose around the actual synchronous removal; a boolean cannot retain close authority.')}
+export async function requestSlidesClose(
+  _contents: WebContents,
+  _parent?: BrowserWindow | null,
+): Promise<boolean> {
+  throw new Error(
+    'Use prepareSlidesNativeClose + completeSlidesClose around the actual synchronous removal; a boolean cannot retain close authority.',
+  )
+}
 
 /**
  * Drop a session's crash-recovery copies without saving — the dialog-free
@@ -949,10 +1341,14 @@ async function preparePresentationForOpen(filePath: string): Promise<string | nu
   )
   if (r.canceled || !r.filePath) return null
   try {
-    await publishSelectedUserOutput(r.filePath,async()=>{
-      const result=await convertOdpToPptx(new Uint8Array(await readFile(filePath)))
-      return Buffer.from(result.pptx)
-    },{sourcePaths:[filePath]})
+    await publishSelectedUserOutput(
+      r.filePath,
+      async () => {
+        const result = await convertOdpToPptx(new Uint8Array(await readFile(filePath)))
+        return Buffer.from(result.pptx)
+      },
+      { sourcePaths: [filePath] },
+    )
   } catch {
     const errorOptions = {
       type: 'error' as const,
@@ -1027,49 +1423,124 @@ function adoptEmbeddedFonts(opened: OpenedPptx): void {
   }
 }
 
-interface SourceCandidate {carryHistory:boolean;id:string;previous:Session|undefined;candidate:Session;result:OpenResult;timer:ReturnType<typeof setTimeout>}
-const sourceCandidates=new Map<number,SourceCandidate>()
-function prepareSourceCandidate(contents:WebContents,candidate:Session,result:OpenResult,carryHistory=false):OpenResult{
- const prior=sourceCandidates.get(contents.id);if(prior)clearTimeout(prior.timer)
- if(!prior&&sourceCandidates.size>=16)throw new Error('Too many presentation sources are being prepared.')
- const id=randomUUID(),entry:SourceCandidate={carryHistory,id,previous:sessions.get(contents.id),candidate,result,timer:setTimeout(()=>{if(sourceCandidates.get(contents.id)?.id===id)sourceCandidates.delete(contents.id)},120_000)}
- sourceCandidates.set(contents.id,entry)
- return{...result,sourceCandidateId:id}
+interface SourceCandidate {
+  carryHistory: boolean
+  id: string
+  previous: Session | undefined
+  candidate: Session
+  result: OpenResult
+  timer: ReturnType<typeof setTimeout>
 }
-async function confirmSourceCandidate(contents:WebContents,id:string):Promise<boolean>{
- const entry=sourceCandidates.get(contents.id)
- if(!entry||entry.id!==id||sessions.get(contents.id)!==entry.previous)throw new Error('The prepared presentation was superseded; the current editor was retained.')
- const receipt=entry.previous?await prepareSlidesNativeClose(contents,hostWindowFor(contents)):null
- if(entry.previous&&!receipt)return false
- try{
-  const adopt=()=>ownership.run(contents.id,()=>{
-   if(sourceCandidates.get(contents.id)!==entry||sessions.get(contents.id)!==entry.previous)return false
-   if(entry.carryHistory)carryHistoryForReplacement(entry.previous,entry.candidate)
-   ownership.adopt(contents.id,entry.candidate)
-   slidesDrafts.retire(contents.id)
-   sessions.set(contents.id,entry.candidate);rendererSources.delete(contents.id);slidesPendingEdits.delete(contents.id)
-   sourceCandidates.delete(contents.id);clearTimeout(entry.timer);scheduleHistoryNotify(entry.candidate)
-   return true
-  },true)
-  const adopted=receipt?completeSlidesClose(contents,receipt,adopt):adopt()
-  if(adopted){contents.send('slides:source-adopted',entry.result);if(entry.candidate.path){slidesOpenedHook?.(contents,entry.candidate.path);void pushRecent(entry.candidate.path)}}
-  return adopted
- }finally{if(receipt)await cancelSlidesClose(contents,receipt)}
+const sourceCandidates = new Map<number, SourceCandidate>()
+function prepareSourceCandidate(
+  contents: WebContents,
+  candidate: Session,
+  result: OpenResult,
+  carryHistory = false,
+): OpenResult {
+  const prior = sourceCandidates.get(contents.id)
+  if (prior) clearTimeout(prior.timer)
+  if (!prior && sourceCandidates.size >= 16)
+    throw new Error('Too many presentation sources are being prepared.')
+  const id = randomUUID(),
+    entry: SourceCandidate = {
+      carryHistory,
+      id,
+      previous: sessions.get(contents.id),
+      candidate,
+      result,
+      timer: setTimeout(() => {
+        if (sourceCandidates.get(contents.id)?.id === id) sourceCandidates.delete(contents.id)
+      }, 120_000),
+    }
+  sourceCandidates.set(contents.id, entry)
+  return { ...result, sourceCandidateId: id }
 }
-async function openAndBuild(wc:WebContents,path:string,fitWidthPx:number):Promise<OpenResult>{
- const wanted=resolve(path)
- for(const[id,existing]of sessions){if(id===wc.id||!existing.path||resolve(existing.path)!==wanted)continue
-  return prepareSourceCandidate(wc,existing,{path:existing.path,slides:buildAllRenderSlides(existing.opened,fitWidthPx),size:{cx:existing.opened.deck.size.cx,cy:existing.opened.deck.size.cy},defaultFont:deckDefaultFont(existing.opened)})
- }
- const loaded=await readPublicationFile(path,()=>readFile(path)),raw=Buffer.from(loaded.bytes)
- const{bytes,recovered}=await maybeRecoverBytes(path,raw.length===0?await createBlankPptx():new Uint8Array(raw))
- await shapedMetricsReady()
- const opened=await openPptx(bytes);adoptEmbeddedFonts(opened)
- const candidate:Session={path,opened,fitWidthPx,undoStack:[],redoStack:[],...(recovered?{metaDirty:true}:{})}
- publicationBySession.set(candidate,new DocumentPublication(loaded.binding))
- let slides=buildAllRenderSlides(opened,fitWidthPx)
- if(await refineComplexWidths(wc))slides=buildAllRenderSlides(opened,fitWidthPx)
- return prepareSourceCandidate(wc,candidate,{path,slides,size:{cx:opened.deck.size.cx,cy:opened.deck.size.cy},defaultFont:deckDefaultFont(opened)})
+async function confirmSourceCandidate(contents: WebContents, id: string): Promise<boolean> {
+  const entry = sourceCandidates.get(contents.id)
+  if (!entry || entry.id !== id || sessions.get(contents.id) !== entry.previous)
+    throw new Error('The prepared presentation was superseded; the current editor was retained.')
+  const receipt = entry.previous
+    ? await prepareSlidesNativeClose(contents, hostWindowFor(contents))
+    : null
+  if (entry.previous && !receipt) return false
+  try {
+    const adopt = () =>
+      ownership.run(
+        contents.id,
+        () => {
+          if (
+            sourceCandidates.get(contents.id) !== entry ||
+            sessions.get(contents.id) !== entry.previous
+          )
+            return false
+          if (entry.carryHistory) carryHistoryForReplacement(entry.previous, entry.candidate)
+          ownership.adopt(contents.id, entry.candidate)
+          slidesDrafts.retire(contents.id)
+          sessions.set(contents.id, entry.candidate)
+          rendererSources.delete(contents.id)
+          slidesPendingEdits.delete(contents.id)
+          sourceCandidates.delete(contents.id)
+          clearTimeout(entry.timer)
+          scheduleHistoryNotify(entry.candidate)
+          return true
+        },
+        true,
+      )
+    const adopted = receipt ? completeSlidesClose(contents, receipt, adopt) : adopt()
+    if (adopted) {
+      contents.send('slides:source-adopted', entry.result)
+      if (entry.candidate.path) {
+        slidesOpenedHook?.(contents, entry.candidate.path)
+        void pushRecent(entry.candidate.path)
+      }
+    }
+    return adopted
+  } finally {
+    if (receipt) await cancelSlidesClose(contents, receipt)
+  }
+}
+async function openAndBuild(
+  wc: WebContents,
+  path: string,
+  fitWidthPx: number,
+): Promise<OpenResult> {
+  const wanted = resolve(path)
+  for (const [id, existing] of sessions) {
+    if (id === wc.id || !existing.path || resolve(existing.path) !== wanted) continue
+    return prepareSourceCandidate(wc, existing, {
+      path: existing.path,
+      slides: buildAllRenderSlides(existing.opened, fitWidthPx),
+      size: { cx: existing.opened.deck.size.cx, cy: existing.opened.deck.size.cy },
+      defaultFont: deckDefaultFont(existing.opened),
+    })
+  }
+  const loaded = await readPublicationFile(path, () => readFile(path)),
+    raw = Buffer.from(loaded.bytes)
+  const { bytes, recovered } = await maybeRecoverBytes(
+    path,
+    raw.length === 0 ? await createBlankPptx() : new Uint8Array(raw),
+  )
+  await shapedMetricsReady()
+  const opened = await openPptx(bytes)
+  adoptEmbeddedFonts(opened)
+  const candidate: Session = {
+    path,
+    opened,
+    fitWidthPx,
+    undoStack: [],
+    redoStack: [],
+    ...(recovered ? { metaDirty: true } : {}),
+  }
+  publicationBySession.set(candidate, new DocumentPublication(loaded.binding))
+  let slides = buildAllRenderSlides(opened, fitWidthPx)
+  if (await refineComplexWidths(wc)) slides = buildAllRenderSlides(opened, fitWidthPx)
+  return prepareSourceCandidate(wc, candidate, {
+    path,
+    slides,
+    size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
+    defaultFont: deckDefaultFont(opened),
+  })
 }
 
 /** Directory where AI-generated drafts are saved: the configurable default save folder (falls back to <Documents>/Vantage) */
@@ -1140,9 +1611,18 @@ async function saveDraftAfterGenerate(
       draftPath = pickDraftPath(draftsDir, deckName)
     }
 
-    const publication=publicationForSession(session),loaded=publication.snapshot(),ticket=publication.pin(draftPath,loaded.path===draftPath?undefined:absentPublicationTarget(draftPath),loaded)
-    await publication.publishBytes(ticket,()=>bytes)
-    if(sessions.get(wc.id)!==session&&attachedIds(session).length)throw new Error('The source changed during generated publication; its bytes were retained without adopting an obsolete path.')
+    const publication = publicationForSession(session),
+      loaded = publication.snapshot(),
+      ticket = publication.pin(
+        draftPath,
+        loaded.path === draftPath ? undefined : absentPublicationTarget(draftPath),
+        loaded,
+      )
+    await publication.publishBytes(ticket, () => bytes)
+    if (sessions.get(wc.id) !== session && attachedIds(session).length)
+      throw new Error(
+        'The source changed during generated publication; its bytes were retained without adopting an obsolete path.',
+      )
     const previousPath = session.path || null
     session.path = draftPath
     slidesDrafts.rename(session, previousPath, draftPath)
@@ -1480,26 +1960,62 @@ let ipcRegistered = false
 export function registerSlidesIpc(): void {
   if (ipcRegistered) return
   ipcRegistered = true
-  slidesOwnedHandle('slides:source-confirm',(event,id:string)=>confirmSourceCandidate(event.sender,id))
-  slidesOwnedHandle('slides:close-claim',(event,ticket:CloseLeaseTicket)=>toolSaves.claim(event.sender.id,ticket))
-  slidesOwnedHandle('slides:close-cancel',(event,ticket:CloseLeaseTicket,reason:string)=>{toolSaves.cancelRequest(event.sender.id,ticket?.id)})
-  ipcMain.on('slides:close-query-result',(event,value:SlidesCloseQuery)=>{const pending=nativeQueries.get(event.sender.id);if(!pending||value?.id!==pending.id||typeof value.dirty!=='boolean'||typeof value.pending!=='boolean'||!isCloseLeaseStamp(value.stamp)||value.stamp.source!==currentSourceIdentity(event.sender.id)||(value.unsupported!==undefined&&(typeof value.unsupported!=='string'||value.unsupported.length>2000)))return;nativeQueries.delete(event.sender.id);clearTimeout(pending.timer);pending.resolve(value)})
-  slidesOwnedHandle('slides:tool-save-probe', (event, identity: SlidesToolSaveIdentity) => toolSaves.probe(event.sender.id, identity))
-  slidesOwnedHandle('slides:tool-save-write', (event, identity: SlidesToolSaveIdentity) => toolSaves.publish(event.sender.id, identity))
-  ipcMain.on('slides:tool-save-result', (event, value: unknown) => { void toolSaves.finish(event.sender.id, value) })
-  slidesOwnedHandle('slides:tool-save-cancel', (event, requestId: unknown) => toolSaves.cancelRequest(event.sender.id, requestId))
-  slidesOwnedHandle('slides:draft-activate', (event, path: unknown,identity:unknown) => {
+  slidesOwnedHandle('slides:source-confirm', (event, id: string) =>
+    confirmSourceCandidate(event.sender, id),
+  )
+  slidesOwnedHandle('slides:close-claim', (event, ticket: CloseLeaseTicket) =>
+    toolSaves.claim(event.sender.id, ticket),
+  )
+  slidesOwnedHandle('slides:close-cancel', (event, ticket: CloseLeaseTicket, reason: string) => {
+    toolSaves.cancelRequest(event.sender.id, ticket?.id)
+  })
+  ipcMain.on('slides:close-query-result', (event, value: SlidesCloseQuery) => {
+    const pending = nativeQueries.get(event.sender.id)
+    if (
+      !pending ||
+      value?.id !== pending.id ||
+      typeof value.dirty !== 'boolean' ||
+      typeof value.pending !== 'boolean' ||
+      !isCloseLeaseStamp(value.stamp) ||
+      value.stamp.source !== currentSourceIdentity(event.sender.id) ||
+      (value.unsupported !== undefined &&
+        (typeof value.unsupported !== 'string' || value.unsupported.length > 2000))
+    )
+      return
+    nativeQueries.delete(event.sender.id)
+    clearTimeout(pending.timer)
+    pending.resolve(value)
+  })
+  slidesOwnedHandle('slides:tool-save-probe', (event, identity: SlidesToolSaveIdentity) =>
+    toolSaves.probe(event.sender.id, identity),
+  )
+  slidesOwnedHandle('slides:tool-save-write', (event, identity: SlidesToolSaveIdentity) =>
+    toolSaves.publish(event.sender.id, identity),
+  )
+  ipcMain.on('slides:tool-save-result', (event, value: unknown) => {
+    void toolSaves.finish(event.sender.id, value)
+  })
+  slidesOwnedHandle('slides:tool-save-cancel', (event, requestId: unknown) =>
+    toolSaves.cancelRequest(event.sender.id, requestId),
+  )
+  slidesOwnedHandle('slides:draft-activate', (event, path: unknown, identity: unknown) => {
     try {
-      if(typeof identity!=='string'||identity.length>1024||!/^[-a-f0-9]{36}:\d+$/.test(identity))throw new Error('Presentation activation needs its renderer document generation.')
-      const prior=rendererSources.get(event.sender.id)
-      if(prior&&prior!==identity)toolSaves.cancel(event.sender.id,'A new presentation source retired the pending close.')
+      if (
+        typeof identity !== 'string' ||
+        identity.length > 1024 ||
+        !/^[-a-f0-9]{36}:\d+$/.test(identity)
+      )
+        throw new Error('Presentation activation needs its renderer document generation.')
+      const prior = rendererSources.get(event.sender.id)
+      if (prior && prior !== identity)
+        toolSaves.cancel(event.sender.id, 'A new presentation source retired the pending close.')
       // Ordinary source authority remains usable even if optional recovery activation refuses.
-      rendererSources.set(event.sender.id,identity)
+      rendererSources.set(event.sender.id, identity)
       slidesPendingEdits.delete(event.sender.id)
       slidesCrashedViews.delete(event.sender.id)
       requireRecoveryRuntime('Presentation automatic recovery activation')
-      const token=slidesDrafts.activate(event.sender.id,path)
-      return{ok:true,token}
+      const token = slidesDrafts.activate(event.sender.id, path)
+      return { ok: true, token }
     } catch (error) {
       return { ok: false, error: String(error) }
     }
@@ -1544,8 +2060,11 @@ export function registerSlidesIpc(): void {
       typeof request.token === 'string' &&
       typeof request.dirty === 'boolean' &&
       slidesDrafts.tokenFor(event.sender.id) === request.token
-    )
-      {slidesPendingEdits.set(event.sender.id,request.dirty);const session=sessions.get(event.sender.id);if(request.dirty&&session)ownership.assert(session)}
+    ) {
+      slidesPendingEdits.set(event.sender.id, request.dirty)
+      const session = sessions.get(event.sender.id)
+      if (request.dirty && session) ownership.assert(session)
+    }
   })
   // AI-generated slide pages land in app-owned temp directories; sweep
   // expired ones at startup (never at land time — markers can be redeemed
@@ -2208,13 +2727,19 @@ export function registerSlidesIpc(): void {
           }
           existing.fitWidthPx = fitWidthPx
           // Save the draft: persist the current complete deck
-          const generationRevision=mainCloseRevision(existing)
-          const bytes=await savePptx({deck:structuredClone(opened.deck),archive:opened.archive.clone()})
+          const generationRevision = mainCloseRevision(existing)
+          const bytes = await savePptx({
+            deck: structuredClone(opened.deck),
+            archive: opened.archive.clone(),
+          })
           await saveDraftAfterGenerate(e.sender, existing, bytes, 'append', deckName)
           // Draft now matches memory: reopen from the output bytes to clear dirty (same as
           // slides:save) — otherwise pure AI generation (per-page append merges mark
           // structureDirty) would trigger the close confirmation even without edits
-          if(existing.path&&mainCloseRevision(existing)===generationRevision){commitSaved(existing.opened);existing.metaDirty=false}
+          if (existing.path && mainCloseRevision(existing) === generationRevision) {
+            commitSaved(existing.opened)
+            existing.metaDirty = false
+          }
           return {
             path: existing.path,
             slides: buildAllRenderSlides(existing.opened, fitWidthPx),
@@ -2258,10 +2783,16 @@ export function registerSlidesIpc(): void {
             return { error: r.failures?.[0]?.error ?? tm('errReplaceFailed') }
           }
           existing.fitWidthPx = fitWidthPx
-          const generationRevision=mainCloseRevision(existing)
-          const bytes=await savePptx({deck:structuredClone(opened.deck),archive:opened.archive.clone()})
+          const generationRevision = mainCloseRevision(existing)
+          const bytes = await savePptx({
+            deck: structuredClone(opened.deck),
+            archive: opened.archive.clone(),
+          })
           await saveDraftAfterGenerate(e.sender, existing, bytes, 'append', deckName)
-          if(existing.path&&mainCloseRevision(existing)===generationRevision){commitSaved(existing.opened);existing.metaDirty=false}
+          if (existing.path && mainCloseRevision(existing) === generationRevision) {
+            commitSaved(existing.opened)
+            existing.metaDirty = false
+          }
           return {
             path: existing.path,
             slides: buildAllRenderSlides(existing.opened, fitWidthPx),
@@ -2302,10 +2833,16 @@ export function registerSlidesIpc(): void {
             return { error: r.failures?.[0]?.error ?? tm('errInsertFailed') }
           }
           existing.fitWidthPx = fitWidthPx
-          const generationRevision=mainCloseRevision(existing)
-          const bytes=await savePptx({deck:structuredClone(opened.deck),archive:opened.archive.clone()})
+          const generationRevision = mainCloseRevision(existing)
+          const bytes = await savePptx({
+            deck: structuredClone(opened.deck),
+            archive: opened.archive.clone(),
+          })
           await saveDraftAfterGenerate(e.sender, existing, bytes, 'append', deckName)
-          if(existing.path&&mainCloseRevision(existing)===generationRevision){commitSaved(existing.opened);existing.metaDirty=false}
+          if (existing.path && mainCloseRevision(existing) === generationRevision) {
+            commitSaved(existing.opened)
+            existing.metaDirty = false
+          }
           return {
             path: existing.path,
             slides: buildAllRenderSlides(existing.opened, fitWidthPx),
@@ -2325,11 +2862,24 @@ export function registerSlidesIpc(): void {
           undoStack: [],
           redoStack: [],
         }
-        const old=sessions.get(e.sender.id)
-        if(old&&editorAttachedIds(old).length>1)throw new Error('Close the other presentation editing views before replacing the entire shared deck; their pending input was preserved.')
-        await saveDraftAfterGenerate(e.sender,replaceSession,bytes,'replace',deckName)
-        const result=prepareSourceCandidate(e.sender,replaceSession,{path:replaceSession.path,slides:buildAllRenderSlides(opened,fitWidthPx),size:{cx:opened.deck.size.cx,cy:opened.deck.size.cy},defaultFont:deckDefaultFont(opened)},true)
-        e.sender.send('slides:opened',result)
+        const old = sessions.get(e.sender.id)
+        if (old && editorAttachedIds(old).length > 1)
+          throw new Error(
+            'Close the other presentation editing views before replacing the entire shared deck; their pending input was preserved.',
+          )
+        await saveDraftAfterGenerate(e.sender, replaceSession, bytes, 'replace', deckName)
+        const result = prepareSourceCandidate(
+          e.sender,
+          replaceSession,
+          {
+            path: replaceSession.path,
+            slides: buildAllRenderSlides(opened, fitWidthPx),
+            size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
+            defaultFont: deckDefaultFont(opened),
+          },
+          true,
+        )
+        e.sender.send('slides:opened', result)
         return result
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) }
@@ -2347,12 +2897,16 @@ export function registerSlidesIpc(): void {
       const s = size as { cx?: unknown; cy?: unknown } | undefined
       if (s && side(s.cx) && side(s.cy)) setSlideSize(opened, s.cx, s.cy)
       toolSaves.cancel(e.sender.id)
-      return prepareSourceCandidate(e.sender,{path:'',opened,fitWidthPx,undoStack:[],redoStack:[]},{
-        path: '',
-        slides: buildAllRenderSlides(opened, fitWidthPx),
-        size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
-        defaultFont: deckDefaultFont(opened),
-      })
+      return prepareSourceCandidate(
+        e.sender,
+        { path: '', opened, fitWidthPx, undoStack: [], redoStack: [] },
+        {
+          path: '',
+          slides: buildAllRenderSlides(opened, fitWidthPx),
+          size: { cx: opened.deck.size.cx, cy: opened.deck.size.cy },
+          defaultFont: deckDefaultFont(opened),
+        },
+      )
     },
   )
 
@@ -3807,10 +4361,14 @@ export function registerSlidesIpc(): void {
     return items.length
   })
 
-  slidesOwnedHandle('slides:copy-elements-image', (e, clipboardToken: string, pngBase64: string) => {
-    if (!canWriteElementClipboardImage(elementClipboard, e.sender.id, clipboardToken)) return false
-    return writeElementClipboardImage(clipboardToken, pngBase64)
-  })
+  slidesOwnedHandle(
+    'slides:copy-elements-image',
+    (e, clipboardToken: string, pngBase64: string) => {
+      if (!canWriteElementClipboardImage(elementClipboard, e.sender.id, clipboardToken))
+        return false
+      return writeElementClipboardImage(clipboardToken, pngBase64)
+    },
+  )
 
   slidesOwnedHandle('slides:paste-elements', (e, op: PasteElementsOp) => {
     const session = sessions.get(e.sender.id)
@@ -4744,11 +5302,15 @@ export function registerSlidesIpc(): void {
     else e.sender.paste()
   })
 
-  slidesOwnedHandle('slides:history-batch-begin',(event)=>historyBatches.begin(event.sender,historyBatchFrame(event)))
+  slidesOwnedHandle('slides:history-batch-begin', (event) =>
+    historyBatches.begin(event.sender, historyBatchFrame(event)),
+  )
   // Capability-only continuation. The broker validates nonce+owner+frame and
   // joins actual running invokes before its exact synchronous collapse. This
   // endpoint grants no ordinary mutation/source-envelope bypass.
-  ipcMain.handle('slides:history-batch-owned-finish',(event,ticket:unknown)=>historyBatches.finish(event.sender,historyBatchFrame(event),ticket))
+  ipcMain.handle('slides:history-batch-owned-finish', (event, ticket: unknown) =>
+    historyBatches.finish(event.sender, historyBatchFrame(event), ticket),
+  )
 
   slidesOwnedHandle('slides:ai-snapshot-restore', (e, id: number) => {
     const session = sessions.get(e.sender.id)
@@ -4794,52 +5356,115 @@ export function registerSlidesIpc(): void {
     return slidesIsDirty(e.sender.id)
   })
 
-  slidesOwnedHandle('slides:save',async e=>{
-    const session=sessions.get(e.sender.id);if(!session)return{ok:false,error:'no file open'}
-    const filePath=session.path||pickDraftPath(getDraftsDir(),tm('untitledDeck'))
-    try{await saveSessionDeckTo(session,filePath);return{ok:true,path:filePath,dirty:sessionDirty(session),slides:buildAllRenderSlides(session.opened,session.fitWidthPx)}}catch(error){return{ok:false,error:String(error)}}
+  slidesOwnedHandle('slides:save', async (e) => {
+    const session = sessions.get(e.sender.id)
+    if (!session) return { ok: false, error: 'no file open' }
+    const filePath = session.path || pickDraftPath(getDraftsDir(), tm('untitledDeck'))
+    try {
+      await saveSessionDeckTo(session, filePath)
+      return {
+        ok: true,
+        path: filePath,
+        dirty: sessionDirty(session),
+        slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
+      }
+    } catch (error) {
+      return { ok: false, error: String(error) }
+    }
   })
-  slidesOwnedHandle('slides:save-as',async(e,defaultName:string)=>{
-    const session=sessions.get(e.sender.id);if(!session)return{ok:false,error:'no file open'}
-    const publication=publicationForSession(session),source=publication.snapshot()
-    const r=await showSaveDialogWithMemory(dialog,dialogParent(),{defaultPath:saveAsSuggestion(session.path,defaultName),filters:[{name:'PowerPoint',extensions:['pptx']}]},getDraftsDir())
-    if(r.canceled||!r.filePath)return{ok:false}
-    if(sessions.get(e.sender.id)!==session||publication.snapshot()!==source)return{ok:false,error:'The presentation changed while Save As was open.'}
-    try{
-      const target=await observePublicationTarget(r.filePath)
-      if(target.version){const parent=dialogParent(),choice={type:'warning' as const,message:'Replace the selected file?',detail:r.filePath+'\nThe exact version now on disk will be replaced. A later change will stop this save.',buttons:['Replace','Cancel'],defaultId:1,cancelId:1,noLink:true};const answer=parent&&!parent.isDestroyed()?await dialog.showMessageBox(parent,choice):await dialog.showMessageBox(choice);if(answer.response!==0)return{ok:false}}
-      if(sessions.get(e.sender.id)!==session||publication.snapshot()!==source)return{ok:false,error:'The presentation changed before the selected write.'}
-      await saveSessionDeckTo(session,r.filePath,{source,target});return{ok:true,path:r.filePath,dirty:sessionDirty(session),slides:buildAllRenderSlides(session.opened,session.fitWidthPx)}
-    }catch(error){return{ok:false,error:String(error)}}
+  slidesOwnedHandle('slides:save-as', async (e, defaultName: string) => {
+    const session = sessions.get(e.sender.id)
+    if (!session) return { ok: false, error: 'no file open' }
+    const publication = publicationForSession(session),
+      source = publication.snapshot()
+    const r = await showSaveDialogWithMemory(
+      dialog,
+      dialogParent(),
+      {
+        defaultPath: saveAsSuggestion(session.path, defaultName),
+        filters: [{ name: 'PowerPoint', extensions: ['pptx'] }],
+      },
+      getDraftsDir(),
+    )
+    if (r.canceled || !r.filePath) return { ok: false }
+    if (sessions.get(e.sender.id) !== session || publication.snapshot() !== source)
+      return { ok: false, error: 'The presentation changed while Save As was open.' }
+    try {
+      const target = await observePublicationTarget(r.filePath)
+      if (target.version) {
+        const parent = dialogParent(),
+          choice = {
+            type: 'warning' as const,
+            message: 'Replace the selected file?',
+            detail:
+              r.filePath +
+              '\nThe exact version now on disk will be replaced. A later change will stop this save.',
+            buttons: ['Replace', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true,
+          }
+        const answer =
+          parent && !parent.isDestroyed()
+            ? await dialog.showMessageBox(parent, choice)
+            : await dialog.showMessageBox(choice)
+        if (answer.response !== 0) return { ok: false }
+      }
+      if (sessions.get(e.sender.id) !== session || publication.snapshot() !== source)
+        return { ok: false, error: 'The presentation changed before the selected write.' }
+      await saveSessionDeckTo(session, r.filePath, { source, target })
+      return {
+        ok: true,
+        path: r.filePath,
+        dirty: sessionDirty(session),
+        slides: buildAllRenderSlides(session.opened, session.fitWidthPx),
+      }
+    } catch (error) {
+      return { ok: false, error: String(error) }
+    }
   })
 
   // ── Export (PDF / images): the renderer renders hi-res PNGs with offscreen Konva; the main process handles dialogs/writing ──
 
-  slidesOwnedHandle('slides:pick-export-dir', async (event,plan:{baseName:string;count:number}) => {
-    return selectCurrentSlidesOutput({captureProof:()=>slidesExportSourceProof(event.sender),pick:async()=>{
-    const parent = dialogParent()
-    const options = {
-      title: tm('dlgPickExportDir'),
-      buttonLabel: tm('btnExport'),
-      properties: ['openDirectory' as const, 'createDirectory' as const],
-    }
-    const r = await showOpenDialogWithMemory(dialog, parent, options)
-    if(r.canceled||!r.filePaths[0])return null
-    return r.filePaths[0]
-    },pin:async(dir,proof)=>{
-    const paths=selectedSlidesImagePaths(dir,plan?.baseName,plan?.count)
-    const selectionId=await slidesOutputSelections.capture(event.sender,paths,proof)
-    return{path:dir,selectionId}
-    }})
-  })
+  slidesOwnedHandle(
+    'slides:pick-export-dir',
+    async (event, plan: { baseName: string; count: number }) => {
+      return selectCurrentSlidesOutput({
+        captureProof: () => slidesExportSourceProof(event.sender),
+        pick: async () => {
+          const parent = dialogParent()
+          const options = {
+            title: tm('dlgPickExportDir'),
+            buttonLabel: tm('btnExport'),
+            properties: ['openDirectory' as const, 'createDirectory' as const],
+          }
+          const r = await showOpenDialogWithMemory(dialog, parent, options)
+          if (r.canceled || !r.filePaths[0]) return null
+          return r.filePaths[0]
+        },
+        pin: async (dir, proof) => {
+          const paths = selectedSlidesImagePaths(dir, plan?.baseName, plan?.count)
+          const selectionId = await slidesOutputSelections.capture(event.sender, paths, proof)
+          return { path: dir, selectionId }
+        },
+      })
+    },
+  )
 
   slidesOwnedHandle(
     'slides:export-images',
     async (_e, op: ExportImagesOp): Promise<ExportImagesResult> => {
       try {
-        const paths=selectedSlidesImagePaths(op.dir,op.baseName,op.pngsBase64.length)
-        const selected=slidesOutputSelections.claim(_e.sender,op.selectionId,paths)
-        await publishSelectedUserOutputs(paths.map((path,index)=>({path,expectedVersion:selected.versions[index]!,prepare:async()=>Buffer.from(op.pngsBase64[index]!, 'base64')})),selected.proof)
+        const paths = selectedSlidesImagePaths(op.dir, op.baseName, op.pngsBase64.length)
+        const selected = slidesOutputSelections.claim(_e.sender, op.selectionId, paths)
+        await publishSelectedUserOutputs(
+          paths.map((path, index) => ({
+            path,
+            expectedVersion: selected.versions[index]!,
+            prepare: async () => Buffer.from(op.pngsBase64[index]!, 'base64'),
+          })),
+          selected.proof,
+        )
         return { ok: true, paths }
       } catch (err) {
         return { ok: false, error: String(err) }
@@ -4848,20 +5473,24 @@ export function registerSlidesIpc(): void {
   )
 
   slidesOwnedHandle('slides:pick-export-pdf-path', async (_e, defaultName: string) => {
-    return selectCurrentSlidesOutput({captureProof:()=>slidesExportSourceProof(_e.sender),pick:async()=>{
-    const parent = dialogParent()
-    const options = {
-      title: tm('dlgExportPdf'),
-      defaultPath: defaultName,
-      filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    }
-    const r = await showSaveDialogWithMemory(dialog, parent, options, getDraftsDir())
-    if(r.canceled||!r.filePath)return null
-    return r.filePath
-    },pin:async(path,proof)=>{
-    const selectionId=await slidesOutputSelections.capture(_e.sender,[path],proof)
-    return{path,selectionId}
-    }})
+    return selectCurrentSlidesOutput({
+      captureProof: () => slidesExportSourceProof(_e.sender),
+      pick: async () => {
+        const parent = dialogParent()
+        const options = {
+          title: tm('dlgExportPdf'),
+          defaultPath: defaultName,
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        }
+        const r = await showSaveDialogWithMemory(dialog, parent, options, getDraftsDir())
+        if (r.canceled || !r.filePath) return null
+        return r.filePath
+      },
+      pin: async (path, proof) => {
+        const selectionId = await slidesOutputSelections.capture(_e.sender, [path], proof)
+        return { path, selectionId }
+      },
+    })
   })
 
   slidesOwnedHandle(
@@ -4875,7 +5504,7 @@ export function registerSlidesIpc(): void {
       const r = await showSaveDialogWithMemory(dialog, dialogParent(), options, getDraftsDir())
       if (r.canceled || !r.filePath) return { ok: false }
       try {
-        await publishSelectedUserOutput(r.filePath, async()=>Buffer.from(op.pngBase64, 'base64'))
+        await publishSelectedUserOutput(r.filePath, async () => Buffer.from(op.pngBase64, 'base64'))
         return { ok: true, path: r.filePath }
       } catch (err) {
         return { ok: false, error: String(err) }
@@ -4884,24 +5513,28 @@ export function registerSlidesIpc(): void {
   )
 
   slidesOwnedHandle('slides:export-pdf', async (_e, op: ExportPdfOp): Promise<ExportPdfResult> => {
-    const actual=async()=>{
-    const selected=slidesOutputSelections.claim(_e.sender,op.selectionId??headlessOutputSelectionIds.get(_e.sender.id),[op.filePath])
-    return exportSlidesPdf({
-      ...op,
-      selectedVersion:selected.versions[0]!,
-      sourceProof:selected.proof,
-      // hidden window: without this, throttled timers/rAF stall the
-      // PRINT_READY_SCRIPT settle wait (same as the headless export window)
-      createWindow: () =>
-        new BrowserWindow({
-          show: false,
-          webPreferences: { sandbox: true, backgroundThrottling: false },
-        }),
-      openExportedPdf,
-    })
+    const actual = async () => {
+      const selected = slidesOutputSelections.claim(
+        _e.sender,
+        op.selectionId ?? headlessOutputSelectionIds.get(_e.sender.id),
+        [op.filePath],
+      )
+      return exportSlidesPdf({
+        ...op,
+        selectedVersion: selected.versions[0]!,
+        sourceProof: selected.proof,
+        // hidden window: without this, throttled timers/rAF stall the
+        // PRINT_READY_SCRIPT settle wait (same as the headless export window)
+        createWindow: () =>
+          new BrowserWindow({
+            show: false,
+            webPreferences: { sandbox: true, backgroundThrottling: false },
+          }),
+        openExportedPdf,
+      })
     }
-    const admission=headlessExportAdmissions.get(_e.sender.id)
-    return admission?admission.run(actual):actual()
+    const admission = headlessExportAdmissions.get(_e.sender.id)
+    return admission ? admission.run(actual) : actual()
   })
 
   slidesOwnedHandle(
@@ -5108,24 +5741,43 @@ export function registerProjectIpc(): void {
 }
 
 /** hidden export windows: webContents id -> the PDF path the renderer must write */
-const slidesOutputSelections=new UserOutputSelections<WebContents>()
-const headlessOutputSelectionIds=new Map<number,string>()
-const headlessExportAdmissions=new Map<number,SlidesExportAdmission>()
-function slidesExportSourceProof(owner:WebContents):UserOutputSourceProof{
- const session=sessions.get(owner.id)
- if(!session)throw new Error('The presentation source is unavailable.')
- const sourcePath=session.path,revision=draftRevision(session)
- return{sourcePaths:sourcePath?[sourcePath]:[],assertCurrent:()=>{
-  if(owner.isDestroyed()||sessions.get(owner.id)!==session||session.path!==sourcePath||draftRevision(session)!==revision)
-   throw new Error('The presentation changed while its export destination was selected.')
- }}
+const slidesOutputSelections = new UserOutputSelections<WebContents>()
+const headlessOutputSelectionIds = new Map<number, string>()
+const headlessExportAdmissions = new Map<number, SlidesExportAdmission>()
+function slidesExportSourceProof(owner: WebContents): UserOutputSourceProof {
+  const session = sessions.get(owner.id)
+  if (!session) throw new Error('The presentation source is unavailable.')
+  const sourcePath = session.path,
+    revision = draftRevision(session)
+  return {
+    sourcePaths: sourcePath ? [sourcePath] : [],
+    assertCurrent: () => {
+      if (
+        owner.isDestroyed() ||
+        sessions.get(owner.id) !== session ||
+        session.path !== sourcePath ||
+        draftRevision(session) !== revision
+      )
+        throw new Error('The presentation changed while its export destination was selected.')
+    },
+  }
 }
-function selectedSlidesImagePaths(dir:string,baseName:string,count:number):string[]{
- if(typeof baseName!=='string'||baseName.length>200||!Number.isSafeInteger(count)||count<1||count>4096)throw new Error('Invalid image export target plan.')
- const pad=count>=100?3:2
- const paths=Array.from({length:count},(_,index)=>join(dir,`${baseName}-${String(index+1).padStart(pad,'0')}.png`))
- if(paths.some(path=>resolve(dirname(path))!==resolve(dir)))throw new Error('Image export targets must remain inside the selected directory.')
- return paths
+function selectedSlidesImagePaths(dir: string, baseName: string, count: number): string[] {
+  if (
+    typeof baseName !== 'string' ||
+    baseName.length > 200 ||
+    !Number.isSafeInteger(count) ||
+    count < 1 ||
+    count > 4096
+  )
+    throw new Error('Invalid image export target plan.')
+  const pad = count >= 100 ? 3 : 2
+  const paths = Array.from({ length: count }, (_, index) =>
+    join(dir, `${baseName}-${String(index + 1).padStart(pad, '0')}.png`),
+  )
+  if (paths.some((path) => resolve(dirname(path)) !== resolve(dir)))
+    throw new Error('Image export targets must remain inside the selected directory.')
+  return paths
 }
 const headlessExportTargets = new Map<number, string>()
 /** settled by 'slides:headless-export-done' (or by the renderer dying) */
@@ -5147,7 +5799,7 @@ export async function exportSlidesPdfHeadless(
   outPath: string,
   timeoutMs = 300_000,
 ): Promise<void> {
-  const startedAt=Date.now()
+  const startedAt = Date.now()
   registerSlidesIpc()
   const win = new BrowserWindow({
     show: false,
@@ -5165,34 +5817,45 @@ export async function exportSlidesPdfHeadless(
   trackSlidesWebContents(win.webContents)
   pendingByWc.set(wcId, input)
   headlessExportTargets.set(wcId, outPath)
-  const lifecycle=new SlidesHeadlessExportLifecycle(timeoutMs,startedAt)
-  const admission=lifecycle.admission
-  headlessExportAdmissions.set(wcId,admission)
+  const lifecycle = new SlidesHeadlessExportLifecycle(timeoutMs, startedAt)
+  const admission = lifecycle.admission
+  headlessExportAdmissions.set(wcId, admission)
   // Register terminal ownership before metadata capture can yield.
-  const terminal=(value:HeadlessSlidesReport)=>lifecycle.terminal(value)
-  headlessExportWaiters.set(wcId,terminal)
-  win.webContents.on('render-process-gone',(_event,details)=>terminal({ok:false,error:`slides renderer stopped (${details.reason})`}))
+  const terminal = (value: HeadlessSlidesReport) => lifecycle.terminal(value)
+  headlessExportWaiters.set(wcId, terminal)
+  win.webContents.on('render-process-gone', (_event, details) =>
+    terminal({ ok: false, error: `slides renderer stopped (${details.reason})` }),
+  )
   try {
-    const selectionId=await lifecycle.pin(()=>slidesOutputSelections.capture(win.webContents,[outPath],{sourcePaths:[input],assertCurrent:()=>{
-      lifecycle.assertActive()
-      if(win.isDestroyed())throw new Error('The registered headless export ended.')
-    }}))
+    const selectionId = await lifecycle.pin(() =>
+      slidesOutputSelections.capture(win.webContents, [outPath], {
+        sourcePaths: [input],
+        assertCurrent: () => {
+          lifecycle.assertActive()
+          if (win.isDestroyed()) throw new Error('The registered headless export ended.')
+        },
+      }),
+    )
     lifecycle.assertActive()
-    headlessOutputSelectionIds.set(wcId,selectionId)
-    void win.webContents.loadURL(rendererUrl(runtime.rendererDevUrl,'slides')).catch(error=>terminal({ok:false,error:String(error)}))
-    const report=await lifecycle.report
+    headlessOutputSelectionIds.set(wcId, selectionId)
+    void win.webContents
+      .loadURL(rendererUrl(runtime.rendererDevUrl, 'slides'))
+      .catch((error) => terminal({ ok: false, error: String(error) }))
+    const report = await lifecycle.report
     if (!report.ok) throw new Error(report.error ?? 'slides export failed')
   } finally {
-    terminal({ok:false,error:'The registered headless export ended.'})
-    try{await admission.drain()}finally{
-    headlessExportAdmissions.delete(wcId)
-    headlessOutputSelectionIds.delete(wcId)
-    slidesOutputSelections.forget(win.webContents)
-    lifecycle.dispose()
-    headlessExportWaiters.delete(wcId)
-    headlessExportTargets.delete(wcId)
-    pendingByWc.delete(wcId)
-    if (!win.isDestroyed()) win.destroy()
+    terminal({ ok: false, error: 'The registered headless export ended.' })
+    try {
+      await admission.drain()
+    } finally {
+      headlessExportAdmissions.delete(wcId)
+      headlessOutputSelectionIds.delete(wcId)
+      slidesOutputSelections.forget(win.webContents)
+      lifecycle.dispose()
+      headlessExportWaiters.delete(wcId)
+      headlessExportTargets.delete(wcId)
+      pendingByWc.delete(wcId)
+      if (!win.isDestroyed()) win.destroy()
     }
   }
 }
@@ -5231,7 +5894,20 @@ export function createSlidesWindow(openPath?: string | null): BrowserWindow {
   // Close guard for standalone-window mode (tab mode runs the same flow via the shell's tab-manager/window-close path)
   win.on('close', (event) => {
     event.preventDefault()
-    void prepareSlidesNativeClose(win.webContents,win).then(receipt=>{if(!receipt)return;try{completeSlidesClose(win.webContents,receipt,()=>{if(win.isDestroyed())return false;win.destroy();return true})}finally{void cancelSlidesClose(win.webContents,receipt)}}).catch(error=>warnSlidesDraft(win.webContents.id,error))
+    void prepareSlidesNativeClose(win.webContents, win)
+      .then((receipt) => {
+        if (!receipt) return
+        try {
+          completeSlidesClose(win.webContents, receipt, () => {
+            if (win.isDestroyed()) return false
+            win.destroy()
+            return true
+          })
+        } finally {
+          void cancelSlidesClose(win.webContents, receipt)
+        }
+      })
+      .catch((error) => warnSlidesDraft(win.webContents.id, error))
   })
 
   void win.loadURL(rendererUrl(runtime.rendererDevUrl, 'slides'))
@@ -5464,14 +6140,25 @@ export function startSlidesStandalone(): void {
   // variables, so fall back to Electron session.resolveProxy() reading the system proxy
   // settings.
   void applyMainProcessProxy()
-  const standaloneRecoveryProfile = configureRecoveryProfile({ app, mode: 'gui', guiProfile: app.getPath('userData') })
+  const standaloneRecoveryProfile = configureRecoveryProfile({
+    app,
+    mode: 'gui',
+    guiProfile: app.getPath('userData'),
+  })
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return
   }
-  initializeStandaloneRecovery({ app, ...standaloneRecoveryProfile, lockAcquired: true,
-    warning: message => { void dialog.showMessageBox({ type: 'warning', message }).catch(() => {}) },
-    terminal: cleanup => { app.once('will-quit', cleanup) },
+  initializeStandaloneRecovery({
+    app,
+    ...standaloneRecoveryProfile,
+    lockAcquired: true,
+    warning: (message) => {
+      void dialog.showMessageBox({ type: 'warning', message }).catch(() => {})
+    },
+    terminal: (cleanup) => {
+      app.once('will-quit', cleanup)
+    },
   })
 
   app.on('open-file', (event, path) => {
@@ -5491,7 +6178,7 @@ export function startSlidesStandalone(): void {
   if (argPath && existsSync(argPath)) pendingOpenPath = argPath
 
   app.whenReady().then(async () => {
-  // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
+    // RECOVERY_BOOTSTRAP: runtime belongs to GUI startup, not handler registration.
     installRendererProtocol({ slides: join(__dirname, '../renderer') })
     setUiLang(normalizeLang(process.env.VANTAGE_LANG ?? app.getLocale()))
     registerSlidesIpc()

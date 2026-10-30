@@ -9,13 +9,18 @@ import {
 function deferred() {
   let resolve!: () => void
   let reject!: (error: unknown) => void
-  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+  const promise = new Promise<void>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
   return { promise, resolve, reject }
 }
 
 class QuitEvent implements SheetsBeforeQuitEvent {
   prevented = false
-  preventDefault(): void { this.prevented = true }
+  preventDefault(): void {
+    this.prevented = true
+  }
 }
 
 class TestApp {
@@ -46,23 +51,34 @@ function fixture(ledger = new SheetsCloseQuitLedger()) {
   const blocked = vi.fn()
   const guard = installSheetsCloseQuitGuard(app, ledger, {
     epoch: () => epoch,
-    isCurrent: captured => captured === epoch,
-    subscribeCancel: listener => {
+    isCurrent: (captured) => captured === epoch,
+    subscribeCancel: (listener) => {
       cancellations.add(listener)
-      return () => { cancellations.delete(listener) }
+      return () => {
+        cancellations.delete(listener)
+      }
     },
     onBlocked: blocked,
   })
   return {
-    app, ledger, guard, blocked,
-    revise: () => { epoch++ },
-    cancel: () => { epoch++; for (const listener of [...cancellations]) listener() },
+    app,
+    ledger,
+    guard,
+    blocked,
+    revise: () => {
+      epoch++
+    },
+    cancel: () => {
+      epoch++
+      for (const listener of [...cancellations]) listener()
+    },
   }
 }
 
 describe('Sheets actual close custody at before-quit', () => {
   it('joins the unresolved protected actual promise before retrying quit', async () => {
-    const f = fixture(), actual = deferred()
+    const f = fixture(),
+      actual = deferred()
     const retry = vi.fn(async () => {})
     f.ledger.holdProtectedRetirement(actual.promise, retry)
     f.app.quit()
@@ -79,7 +95,8 @@ describe('Sheets actual close custody at before-quit', () => {
   })
 
   it('cancels the intention without releasing its actual work or resuming afterward', async () => {
-    const f = fixture(), actual = deferred()
+    const f = fixture(),
+      actual = deferred()
     f.ledger.holdUntilSettled(actual.promise)
     f.app.quit()
     f.cancel()
@@ -96,7 +113,8 @@ describe('Sheets actual close custody at before-quit', () => {
   })
 
   it('rechecks the caller epoch after the actual operation settles', async () => {
-    const f = fixture(), actual = deferred()
+    const f = fixture(),
+      actual = deferred()
     f.ledger.holdUntilSettled(actual.promise)
     f.app.quit()
     f.revise()
@@ -109,8 +127,10 @@ describe('Sheets actual close custody at before-quit', () => {
   })
 
   it('does not mistake a caller timeout for actual settlement; an ordinary rejection can settle', async () => {
-    const reported = vi.fn(), ledger = new SheetsCloseQuitLedger({ report: reported })
-    const actual = deferred(), callerDeadline = deferred()
+    const reported = vi.fn(),
+      ledger = new SheetsCloseQuitLedger({ report: reported })
+    const actual = deferred(),
+      callerDeadline = deferred()
     const caller = Promise.race([actual.promise, callerDeadline.promise])
     ledger.holdUntilSettled(actual.promise)
     ledger.holdUntilSettled(actual.promise) // identical actual ownership is joined once
@@ -118,7 +138,9 @@ describe('Sheets actual close custody at before-quit', () => {
     await caller
     expect(ledger.hasPending()).toBe(true)
     let joined = false
-    const join = ledger.joinActual().then(() => { joined = true })
+    const join = ledger.joinActual().then(() => {
+      joined = true
+    })
     await Promise.resolve()
     expect(joined).toBe(false)
     const error = new Error('ordinary preparation failed')
@@ -130,7 +152,8 @@ describe('Sheets actual close custody at before-quit', () => {
   })
 
   it('prevents the current event when a later before-quit listener adds its first hold', async () => {
-    const f = fixture(), actual = deferred()
+    const f = fixture(),
+      actual = deferred()
     f.app.on('before-quit', () => {
       if (f.app.events.length === 1) f.ledger.holdUntilSettled(actual.promise)
     })
@@ -146,7 +169,10 @@ describe('Sheets actual close custody at before-quit', () => {
   })
 
   it('also blocks a synchronous late hold on the retry and retains its successor waiter', async () => {
-    const f = fixture(), first = deferred(), second = deferred(), retryObserved = deferred()
+    const f = fixture(),
+      first = deferred(),
+      second = deferred(),
+      retryObserved = deferred()
     f.ledger.holdUntilSettled(first.promise)
     f.app.on('before-quit', () => {
       if (f.app.events.length === 2) {
@@ -170,12 +196,20 @@ describe('Sheets actual close custody at before-quit', () => {
   })
 
   it('keeps failed protected retirement blocked until its exact cleanup retry actually succeeds', async () => {
-    const f = fixture(), retired = deferred(), retryOne = deferred(), retryTwo = deferred()
-    const retry = vi.fn().mockImplementationOnce(() => retryOne.promise).mockImplementationOnce(() => retryTwo.promise)
+    const f = fixture(),
+      retired = deferred(),
+      retryOne = deferred(),
+      retryTwo = deferred()
+    const retry = vi
+      .fn()
+      .mockImplementationOnce(() => retryOne.promise)
+      .mockImplementationOnce(() => retryTwo.promise)
     f.ledger.holdUntilSettled(retired.promise, { retainFailure: true, retry })
     f.app.quit()
     retired.reject(new Error('protected retirement failed'))
-    await expect(f.ledger.joinActual()).rejects.toBeInstanceOf(SheetsProtectedRetirementBlockedError)
+    await expect(f.ledger.joinActual()).rejects.toBeInstanceOf(
+      SheetsProtectedRetirementBlockedError,
+    )
     await Promise.resolve()
     expect(f.blocked).toHaveBeenCalledTimes(1)
     expect(f.app.accepted).toBe(0)
@@ -187,8 +221,12 @@ describe('Sheets actual close custody at before-quit', () => {
     expect(retry).toHaveBeenCalledTimes(1)
     expect(f.ledger.hasPending()).toBe(true)
     expect(f.ledger.hasBlockedFailures()).toBe(true)
-    const rejectedFirst = expect(firstRetry).rejects.toBeInstanceOf(SheetsProtectedRetirementBlockedError)
-    const rejectedConcurrent = expect(concurrentRetry).rejects.toBeInstanceOf(SheetsProtectedRetirementBlockedError)
+    const rejectedFirst = expect(firstRetry).rejects.toBeInstanceOf(
+      SheetsProtectedRetirementBlockedError,
+    )
+    const rejectedConcurrent = expect(concurrentRetry).rejects.toBeInstanceOf(
+      SheetsProtectedRetirementBlockedError,
+    )
     retryOne.reject(new Error('cleanup retry failed'))
     await Promise.all([rejectedFirst, rejectedConcurrent])
     expect(f.ledger.hasBlockedFailures()).toBe(true)
@@ -208,7 +246,9 @@ describe('Sheets actual close custody at before-quit', () => {
   })
 
   it('joins a new actual hold registered by a settlement listener in the same drain', async () => {
-    const ledger = new SheetsCloseQuitLedger(), first = deferred(), second = deferred()
+    const ledger = new SheetsCloseQuitLedger(),
+      first = deferred(),
+      second = deferred()
     ledger.holdUntilSettled(first.promise)
     let added = false
     const stop = ledger.onWorkChange(() => {
@@ -218,7 +258,9 @@ describe('Sheets actual close custody at before-quit', () => {
       }
     })
     let settled = false
-    const join = ledger.joinActual().then(() => { settled = true })
+    const join = ledger.joinActual().then(() => {
+      settled = true
+    })
     first.resolve()
     await Promise.resolve()
     await Promise.resolve()

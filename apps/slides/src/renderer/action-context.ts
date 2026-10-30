@@ -143,9 +143,9 @@ export interface ChartDataDialogInit {
 
 /** App state bundle passed to every extracted action; refreshed each render. */
 export interface ActionCtx {
-  api?:typeof window.slidesApi
-  historyBatches?:import('./slides-history-batch').SlidesHistoryBatchAccess
-  closeScope?:import('./slides-authored').SlidesAuthoredScope
+  api?: typeof window.slidesApi
+  historyBatches?: import('./slides-history-batch').SlidesHistoryBatchAccess
+  closeScope?: import('./slides-authored').SlidesAuthoredScope
 
   // Document
   slides: RenderSlide[]

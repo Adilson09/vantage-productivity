@@ -15,19 +15,33 @@ export async function checkpointWorkbookForClose(
     throw new Error('The spreadsheet changed before its full checkpoint was staged.')
   if (binding && binding.payloadSha256 !== fingerprint.sha256)
     throw new Error('The locked full spreadsheet payload changed before its checkpoint.')
-  const staged = await stageEditsForSave(window.desktopApi, snapshot.state.file.sessionId, snapshot.payload.edits)
+  const staged = await stageEditsForSave(
+    window.desktopApi,
+    snapshot.state.file.sessionId,
+    snapshot.payload.edits,
+  )
   try {
     if (context.lazyWorkbookRef.current !== snapshot.state)
       throw new Error('The spreadsheet changed while its full checkpoint was staged.')
-    const receipt = await window.desktopApi.checkpointWorkbookDocument({
-      ...snapshot.payload, edits: staged.edits,
-      ...(staged.editsTransferId ? { editsTransferId: staged.editsTransferId } : {}),
-    }, snapshot.dirtyAtSnapshot, binding, context.writeContext ?? { origin: binding ? 'close' : 'manual' })
+    const receipt = await window.desktopApi.checkpointWorkbookDocument(
+      {
+        ...snapshot.payload,
+        edits: staged.edits,
+        ...(staged.editsTransferId ? { editsTransferId: staged.editsTransferId } : {}),
+      },
+      snapshot.dirtyAtSnapshot,
+      binding,
+      context.writeContext ?? { origin: binding ? 'close' : 'manual' },
+    )
     if (context.lazyWorkbookRef.current !== snapshot.state)
       throw new Error('The spreadsheet changed while its full checkpoint was acknowledged.')
     return { payloadSha256: fingerprint.sha256, receipt }
   } catch (error) {
-    await abortStagedEditsTransfer(window.desktopApi, snapshot.state.file.sessionId, staged.editsTransferId)
+    await abortStagedEditsTransfer(
+      window.desktopApi,
+      snapshot.state.file.sessionId,
+      staged.editsTransferId,
+    )
     throw error
   }
 }

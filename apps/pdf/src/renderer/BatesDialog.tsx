@@ -68,8 +68,16 @@ export function BatesDialog({
   const [start, setStart] = usePdfEditorState('bates-start', 'bates', '1')
   const [digits, setDigits] = usePdfEditorState('bates-digits', 'bates', '6')
   const [fontSize, setFontSize] = usePdfEditorState('bates-font-size', 'bates', '10')
-  const [color, setColor] = usePdfEditorState<[number, number, number]>('bates-color', 'bates', COLOR_CHOICES[0])
-  const [position, setPosition] = usePdfEditorState<BatesPosition>('bates-position', 'bates', 'bottom-right')
+  const [color, setColor] = usePdfEditorState<[number, number, number]>(
+    'bates-color',
+    'bates',
+    COLOR_CHOICES[0],
+  )
+  const [position, setPosition] = usePdfEditorState<BatesPosition>(
+    'bates-position',
+    'bates',
+    'bottom-right',
+  )
   const [firstPage, setFirstPage] = usePdfEditorState('bates-first', 'bates', '1')
   const [lastPage, setLastPage] = usePdfEditorState('bates-last', 'bates', '')
   const [error, setError] = useState<string | null>(null)

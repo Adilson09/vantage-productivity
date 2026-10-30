@@ -119,11 +119,7 @@ export function SubtotalDialog({
             {t('dlgCancel')}
           </button>
           {fields.length > 0 && (
-            <button
-              className="primary-action"
-              disabled={pending}
-              onClick={() => void create()}
-            >
+            <button className="primary-action" disabled={pending} onClick={() => void create()}>
               {t('dlgOk')}
             </button>
           )}

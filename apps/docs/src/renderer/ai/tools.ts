@@ -1086,7 +1086,8 @@ async function setPictureWatermark(
     heightPx: natural.height,
   })
   if ('error' in resolved) return fail(summary, resolved.error)
-  if (mutationSource !== docMutationSource()) return fail(summary, 'The document changed; the watermark was not applied.')
+  if (mutationSource !== docMutationSource())
+    return fail(summary, 'The document changed; the watermark was not applied.')
   const error = extras.watermark.set(resolved.spec)
   if (error) return fail(summary, error)
   return {
@@ -1147,7 +1148,8 @@ async function insertPicture(
   if (editedExternally(editor)) return fail(summary, STALE_DOC_ERROR)
   const pos = insertPosition(editor, call.input.afterBlockIndex)
   if ('error' in pos) return fail(summary, pos.error)
-  if (mutationSource !== docMutationSource()) return fail(summary, 'The document changed; the picture was not applied.')
+  if (mutationSource !== docMutationSource())
+    return fail(summary, 'The document changed; the picture was not applied.')
   editor.chain().insertContentAt(pos.pos, built.node).run()
   markDocSeen(editor)
   return {
@@ -1193,7 +1195,8 @@ async function insertImageFromUrl(
     // The download can take long: user edits made meanwhile must keep the
     // freshness baseline stale, so only our own insertion may mark the doc
     // seen. Checked right before the write — there is no async gap after.
-    if (mutationSource !== docMutationSource()) return fail(labels.failLabel, 'The document changed; the pending image was not applied.')
+    if (mutationSource !== docMutationSource())
+      return fail(labels.failLabel, 'The document changed; the pending image was not applied.')
     const userEditedDuringFetch = editedExternally(editor)
     insertPictureAtSelection(editor, {
       dataUrl,
@@ -1231,12 +1234,43 @@ export function executeTool(
   const source = docMutationSource()
   const run = () => {
     if (source !== docMutationSource() || editor.isDestroyed || signal?.aborted)
-      return fail(t('aiSumUnknownTool'), 'The document changed or this writer was stopped before its edit could begin.')
-    if (!['get_document_context','read_blocks','web_search','image_search','analyze_media'].includes(call.name)) docCloseBarrier.mutate(()=>{},source)
-    return executeToolUnlocked(editor, call, numIds, track, signal, frozen, comments, hf, writer, pageSetup, extras, notes)
+      return fail(
+        t('aiSumUnknownTool'),
+        'The document changed or this writer was stopped before its edit could begin.',
+      )
+    if (
+      ![
+        'get_document_context',
+        'read_blocks',
+        'web_search',
+        'image_search',
+        'analyze_media',
+      ].includes(call.name)
+    )
+      docCloseBarrier.mutate(() => {}, source)
+    return executeToolUnlocked(
+      editor,
+      call,
+      numIds,
+      track,
+      signal,
+      frozen,
+      comments,
+      hf,
+      writer,
+      pageSetup,
+      extras,
+      notes,
+    )
   }
-  if (call.name === 'get_document_context' || call.name === 'read_blocks' ||
-    call.name === 'web_search' || call.name === 'image_search' || call.name === 'analyze_media') return run()
+  if (
+    call.name === 'get_document_context' ||
+    call.name === 'read_blocks' ||
+    call.name === 'web_search' ||
+    call.name === 'image_search' ||
+    call.name === 'analyze_media'
+  )
+    return run()
   return docCloseBarrier.runMutationWork(run, source)
 }
 
@@ -1332,7 +1366,8 @@ async function writeDocument(
   } finally {
     rendered = draft.finish()
   }
-  if (mutationSource !== docMutationSource()) return fail(summary, 'The document changed; the pending draft was not applied.')
+  if (mutationSource !== docMutationSource())
+    return fail(summary, 'The document changed; the pending draft was not applied.')
   if (editor.isDestroyed) return fail(summary, 'the document was closed')
   if (!result.ok || !result.html) {
     return fail(

@@ -1,17 +1,131 @@
-import {randomUUID} from 'node:crypto'
-import {CloseLeaseBroker,type CloseLeaseTicket,type CloseLeaseStamp} from '../../../../packages/electron-utils/src/close-lease'
-import {htmlClosePermit,type HtmlClosePrepareOptions} from './html-close-lease'
-import type {HtmlCloseReceipt,HtmlNativeCloseReceipt} from '../shared/html-close-lease'
-interface Entry{ticket:CloseLeaseTicket;stamp:CloseLeaseStamp;receipt:HtmlCloseReceipt;phase:'prepared'|'ready';permit:HtmlClosePrepareOptions;detach?:()=>void}
+import { randomUUID } from 'node:crypto'
+import {
+  CloseLeaseBroker,
+  type CloseLeaseTicket,
+  type CloseLeaseStamp,
+} from '../../../../packages/electron-utils/src/close-lease'
+import { htmlClosePermit, type HtmlClosePrepareOptions } from './html-close-lease'
+import type { HtmlCloseReceipt, HtmlNativeCloseReceipt } from '../shared/html-close-lease'
+interface Entry {
+  ticket: CloseLeaseTicket
+  stamp: CloseLeaseStamp
+  receipt: HtmlCloseReceipt
+  phase: 'prepared' | 'ready'
+  permit: HtmlClosePrepareOptions
+  detach?: () => void
+}
 /** Read-only presentation views own no journal/editor, but still need explicit main phase authority. */
-export class HtmlPresentationClose{
- private readonly entries=new Map<number,Entry>()
- private readonly broker:CloseLeaseBroker<number>
- constructor(private readonly host:{alive(owner:number):boolean;sourceOwner(owner:number):number|undefined}){this.broker=new CloseLeaseBroker({alive:owner=>host.alive(owner)&&host.sourceOwner(owner)!==undefined,source:owner=>'presentation:'+host.sourceOwner(owner),validate:(owner,ticket,stamp)=>{const e=this.entries.get(owner);return!!e&&e.ticket.id===ticket.id&&e.stamp.source===stamp.source&&e.stamp.revision===stamp.revision&&!e.permit.signal?.aborted&&e.receipt.readOnlyPresentation===host.sourceOwner(owner)},release:(owner,ticket)=>{const e=this.entries.get(owner);if(e?.ticket.id===ticket.id){e.detach?.();this.entries.delete(owner)}}})}
- prepare(owner:number,options:HtmlClosePrepareOptions={}):HtmlNativeCloseReceipt{const permit=Object.freeze({deferSeal:options.deferSeal===true,signal:options.signal,isCurrent:options.isCurrent});if(!htmlClosePermit(permit))throw new Error('The presentation close group ended.');const source=this.host.sourceOwner(owner);if(!this.host.alive(owner)||source===undefined)throw new Error('This view is no longer a read-only presentation.');const ticket=this.broker.reserve(owner,randomUUID()),stamp={source:'presentation:'+source,revision:'0'},receipt:HtmlNativeCloseReceipt={requestId:ticket.id,published:false,current:true,clean:true,phase:'prepared',readOnlyPresentation:source},entry:Entry={ticket,stamp,receipt,phase:'prepared',permit};this.entries.set(owner,entry);this.broker.settle(owner,ticket);if(permit.signal){const abort=()=>this.cancel(owner,receipt);permit.signal.addEventListener('abort',abort,{once:true});entry.detach=()=>permit.signal?.removeEventListener('abort',abort)}if(!htmlClosePermit(permit)){this.cancel(owner,receipt);throw new Error('The presentation close group ended before approval.')}if(permit.deferSeal)return receipt;const ready=this.seal(owner,receipt);if(!ready)throw new Error('The presentation changed before it could close.');return ready}
- isPrepared(owner:number,receipt:HtmlCloseReceipt):boolean{const e=this.entries.get(owner);return!!e&&e.phase==='prepared'&&receipt.phase==='prepared'&&e.receipt===receipt&&!e.permit.signal?.aborted&&this.host.alive(owner)&&this.host.sourceOwner(owner)===receipt.readOnlyPresentation&&this.broker.claim(owner,e.ticket)}
- seal(owner:number,receipt:HtmlCloseReceipt):HtmlNativeCloseReceipt|null{const e=this.entries.get(owner);if(!e||!htmlClosePermit(e.permit)||!this.isPrepared(owner,receipt)){this.cancel(owner,receipt);return null}if(!this.broker.ready(owner,e.ticket,e.stamp))return null;const ready={...receipt,phase:'ready' as const};e.phase='ready';e.receipt=ready;return ready}
- complete(owner:number,receipt:HtmlCloseReceipt,remove:()=>boolean):boolean{const e=this.entries.get(owner);return!!e&&e.phase==='ready'&&receipt.phase==='ready'&&e.receipt===receipt&&htmlClosePermit(e.permit)&&this.broker.complete(owner,e.ticket,e.stamp,remove)}
- destroy(owner:number):void{this.broker.destroy(owner)}
- cancel(owner:number,receipt:HtmlCloseReceipt):void{const e=this.entries.get(owner);if(e?.ticket.id===receipt.requestId)this.broker.cancel(owner,e.ticket,'presentation close canceled')}
+export class HtmlPresentationClose {
+  private readonly entries = new Map<number, Entry>()
+  private readonly broker: CloseLeaseBroker<number>
+  constructor(
+    private readonly host: {
+      alive(owner: number): boolean
+      sourceOwner(owner: number): number | undefined
+    },
+  ) {
+    this.broker = new CloseLeaseBroker({
+      alive: (owner) => host.alive(owner) && host.sourceOwner(owner) !== undefined,
+      source: (owner) => 'presentation:' + host.sourceOwner(owner),
+      validate: (owner, ticket, stamp) => {
+        const e = this.entries.get(owner)
+        return (
+          !!e &&
+          e.ticket.id === ticket.id &&
+          e.stamp.source === stamp.source &&
+          e.stamp.revision === stamp.revision &&
+          !e.permit.signal?.aborted &&
+          e.receipt.readOnlyPresentation === host.sourceOwner(owner)
+        )
+      },
+      release: (owner, ticket) => {
+        const e = this.entries.get(owner)
+        if (e?.ticket.id === ticket.id) {
+          e.detach?.()
+          this.entries.delete(owner)
+        }
+      },
+    })
+  }
+  prepare(owner: number, options: HtmlClosePrepareOptions = {}): HtmlNativeCloseReceipt {
+    const permit = Object.freeze({
+      deferSeal: options.deferSeal === true,
+      signal: options.signal,
+      isCurrent: options.isCurrent,
+    })
+    if (!htmlClosePermit(permit)) throw new Error('The presentation close group ended.')
+    const source = this.host.sourceOwner(owner)
+    if (!this.host.alive(owner) || source === undefined)
+      throw new Error('This view is no longer a read-only presentation.')
+    const ticket = this.broker.reserve(owner, randomUUID()),
+      stamp = { source: 'presentation:' + source, revision: '0' },
+      receipt: HtmlNativeCloseReceipt = {
+        requestId: ticket.id,
+        published: false,
+        current: true,
+        clean: true,
+        phase: 'prepared',
+        readOnlyPresentation: source,
+      },
+      entry: Entry = { ticket, stamp, receipt, phase: 'prepared', permit }
+    this.entries.set(owner, entry)
+    this.broker.settle(owner, ticket)
+    if (permit.signal) {
+      const abort = () => this.cancel(owner, receipt)
+      permit.signal.addEventListener('abort', abort, { once: true })
+      entry.detach = () => permit.signal?.removeEventListener('abort', abort)
+    }
+    if (!htmlClosePermit(permit)) {
+      this.cancel(owner, receipt)
+      throw new Error('The presentation close group ended before approval.')
+    }
+    if (permit.deferSeal) return receipt
+    const ready = this.seal(owner, receipt)
+    if (!ready) throw new Error('The presentation changed before it could close.')
+    return ready
+  }
+  isPrepared(owner: number, receipt: HtmlCloseReceipt): boolean {
+    const e = this.entries.get(owner)
+    return (
+      !!e &&
+      e.phase === 'prepared' &&
+      receipt.phase === 'prepared' &&
+      e.receipt === receipt &&
+      !e.permit.signal?.aborted &&
+      this.host.alive(owner) &&
+      this.host.sourceOwner(owner) === receipt.readOnlyPresentation &&
+      this.broker.claim(owner, e.ticket)
+    )
+  }
+  seal(owner: number, receipt: HtmlCloseReceipt): HtmlNativeCloseReceipt | null {
+    const e = this.entries.get(owner)
+    if (!e || !htmlClosePermit(e.permit) || !this.isPrepared(owner, receipt)) {
+      this.cancel(owner, receipt)
+      return null
+    }
+    if (!this.broker.ready(owner, e.ticket, e.stamp)) return null
+    const ready = { ...receipt, phase: 'ready' as const }
+    e.phase = 'ready'
+    e.receipt = ready
+    return ready
+  }
+  complete(owner: number, receipt: HtmlCloseReceipt, remove: () => boolean): boolean {
+    const e = this.entries.get(owner)
+    return (
+      !!e &&
+      e.phase === 'ready' &&
+      receipt.phase === 'ready' &&
+      e.receipt === receipt &&
+      htmlClosePermit(e.permit) &&
+      this.broker.complete(owner, e.ticket, e.stamp, remove)
+    )
+  }
+  destroy(owner: number): void {
+    this.broker.destroy(owner)
+  }
+  cancel(owner: number, receipt: HtmlCloseReceipt): void {
+    const e = this.entries.get(owner)
+    if (e?.ticket.id === receipt.requestId)
+      this.broker.cancel(owner, e.ticket, 'presentation close canceled')
+  }
 }

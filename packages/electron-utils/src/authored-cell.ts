@@ -6,7 +6,7 @@ export function batchAuthoredCells<Result>(action: () => Result): Result {
   notificationDepth++
   try {
     const result = action()
-    if (result && typeof (result as {then?:unknown}).then === 'function')
+    if (result && typeof (result as { then?: unknown }).then === 'function')
       throw new Error('An authored cell batch must be synchronous; capture before awaiting.')
     return result
   } finally {
@@ -35,7 +35,12 @@ export function createAuthoredCell<State>(
   const listeners = new Set<() => void>()
   return {
     getSnapshot: () => value,
-    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
     set: (action) => {
       // Exactly one original submission. The author action never runs inside
       // React's replayable updater or a renderer's delayed projection.
@@ -43,7 +48,8 @@ export function createAuthoredCell<State>(
       submit(() => {
         if (applied) return
         applied = true
-        const next = typeof action === 'function' ? (action as (prior: State) => State)(value) : action
+        const next =
+          typeof action === 'function' ? (action as (prior: State) => State)(value) : action
         if (Object.is(next, value)) return
         value = next
         for (const listener of [...listeners]) {

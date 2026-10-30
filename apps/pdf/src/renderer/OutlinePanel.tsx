@@ -86,10 +86,14 @@ function PendingItem({
   onRename: (path: string, title: string) => void
   onDelete: (path: string) => void
 }): ReactElement {
-  const [pendingTitle, setPendingTitle] = usePdfEditorState(`bookmark:${path}`, 'bookmark-title', { editing: false, draft: node.title })
+  const [pendingTitle, setPendingTitle] = usePdfEditorState(`bookmark:${path}`, 'bookmark-title', {
+    editing: false,
+    draft: node.title,
+  })
   const { editing, draft } = pendingTitle
-  const setEditing = (value: boolean) => setPendingTitle(previous => ({ ...previous, editing: value }))
-  const setDraft = (value: string) => setPendingTitle(previous => ({ ...previous, draft: value }))
+  const setEditing = (value: boolean) =>
+    setPendingTitle((previous) => ({ ...previous, editing: value }))
+  const setDraft = (value: string) => setPendingTitle((previous) => ({ ...previous, draft: value }))
   const commit = (): void => {
     setEditing(false)
     const trimmed = draft.trim()

@@ -93,7 +93,10 @@ export function RedactionLayer({
           style={pdfRectToCss(geom, mark.rect, scale)}
           aria-label={markLabel}
           aria-selected={mark.id === selectedId}
-          onClick={(event) => { event.stopPropagation(); onSelect?.(mark.id) }}
+          onClick={(event) => {
+            event.stopPropagation()
+            onSelect?.(mark.id)
+          }}
         />
       ))}
       {live && (

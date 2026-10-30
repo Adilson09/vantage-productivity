@@ -14,7 +14,7 @@ import {
 } from './slides-pending-edit'
 
 export interface SlidesRecoveryApi {
-  activateDraft: (path: string | null,sourceIdentity?:string) => Promise<SlidesDraftActivation>
+  activateDraft: (path: string | null, sourceIdentity?: string) => Promise<SlidesDraftActivation>
   writeDraft: (request: SlidesDraftWriteRequest) => Promise<SlidesDraftResult>
   acknowledgeDraftSave: (request: SlidesDraftSaveAcknowledgment) => Promise<SlidesDraftResult>
   draftState: () => Promise<SlidesDraftState | null>
@@ -32,8 +32,8 @@ interface Dependencies {
   capturePending: () => { pending: SlidesPendingDraft; composing: boolean }
   reportError: (error: unknown) => void
   markPendingDirty?: () => void
-  sourceIdentity?:()=>string
-  maySnapshot?:()=>boolean
+  sourceIdentity?: () => string
+  maySnapshot?: () => boolean
 }
 const meaningful = (pending: SlidesPendingDraft) => !!pending.text || !!pending.notes
 
@@ -65,7 +65,9 @@ export class SlidesRecoveryClient {
     this.lastError = ''
     this.startActivation()
   }
-  throughSequence():number{return this.sequence}
+  throughSequence(): number {
+    return this.sequence
+  }
   rename(path: string): void {
     this.documentPath = path || null
   }
@@ -128,7 +130,12 @@ export class SlidesRecoveryClient {
     return captured.composing || meaningful(captured.pending)
   }
   async snapshot(): Promise<boolean> {
-    if (this.stopped || this.running?.generation === this.generation || this.dependencies.maySnapshot?.()===false) return false
+    if (
+      this.stopped ||
+      this.running?.generation === this.generation ||
+      this.dependencies.maySnapshot?.() === false
+    )
+      return false
     const running = { generation: this.generation }
     this.running = running
     // Reserve before activation/status IPC, so a real save can fence unfinished captures.
@@ -188,28 +195,30 @@ export class SlidesRecoveryClient {
   }
   private startActivation(): void {
     const generation = this.generation
-    this.activation = this.dependencies.api.activateDraft(this.documentPath,this.dependencies.sourceIdentity?.()).then(
-      (value) => {
-        if (
-          !value ||
-          typeof value.ok !== 'boolean' ||
-          (value.ok && typeof value.token !== 'string')
-        ) {
-          const error = 'The presentation recovery service returned an invalid activation.'
-          if (generation === this.generation) this.warn(new Error(error))
-          return { ok: false, error }
-        }
-        if (generation === this.generation && value.ok && value.token) {
-          this.token = value.token
-          this.pendingChanged()
-        }
-        return value
-      },
-      (error) => {
-        if (generation === this.generation) this.warn(error)
-        return null
-      },
-    )
+    this.activation = this.dependencies.api
+      .activateDraft(this.documentPath, this.dependencies.sourceIdentity?.())
+      .then(
+        (value) => {
+          if (
+            !value ||
+            typeof value.ok !== 'boolean' ||
+            (value.ok && typeof value.token !== 'string')
+          ) {
+            const error = 'The presentation recovery service returned an invalid activation.'
+            if (generation === this.generation) this.warn(new Error(error))
+            return { ok: false, error }
+          }
+          if (generation === this.generation && value.ok && value.token) {
+            this.token = value.token
+            this.pendingChanged()
+          }
+          return value
+        },
+        (error) => {
+          if (generation === this.generation) this.warn(error)
+          return null
+        },
+      )
   }
   private pendingChanged(): void {
     if (this.stopped || !this.token) return

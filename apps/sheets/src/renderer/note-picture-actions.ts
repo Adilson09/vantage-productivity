@@ -23,7 +23,10 @@ import type { UniverRuntime } from './univer-state'
 const MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif'])
 
 /// Picks a picture and puts it into the note at the selection.
-export async function handleInsertNotePicture(ctx: RibbonCommandContext, runtime: UniverRuntime): Promise<void> {
+export async function handleInsertNotePicture(
+  ctx: RibbonCommandContext,
+  runtime: UniverRuntime,
+): Promise<void> {
   const acceptedState = ctx.lazyWorkbookRef.current
   const workbook = runtime.univerAPI.getActiveWorkbook()
   const sheet = workbook?.getActiveSheet()
@@ -47,8 +50,12 @@ export async function handleInsertNotePicture(ctx: RibbonCommandContext, runtime
     input.click()
   })
   if (!file) return
-  if (!acceptedState || ctx.lazyWorkbookRef.current !== acceptedState ||
-    ctx.univerRef.current !== runtime || runtime.univerAPI.getActiveWorkbook()?.getId() !== workbook?.getId())
+  if (
+    !acceptedState ||
+    ctx.lazyWorkbookRef.current !== acceptedState ||
+    ctx.univerRef.current !== runtime ||
+    runtime.univerAPI.getActiveWorkbook()?.getId() !== workbook?.getId()
+  )
     throw new Error('The note-picture target changed while choosing its file.')
   await insertNotePictureFile(ctx, runtime, sheetId, row, column, file)
 }

@@ -20,8 +20,8 @@ interface DraftSession {
   highestReceived: number
   clearedThrough: number
   lastWritten: number
-  lastWrittenDocumentPath:string|null
-  lastWrittenSha256?:string
+  lastWrittenDocumentPath: string | null
+  lastWrittenSha256?: string
   active: boolean
   queue: Promise<unknown>
 }
@@ -42,18 +42,18 @@ export interface DocDraftDependencies {
 }
 
 export interface DocDraftCloseStage {
- token:string
- documentPath:string|null
- drained:Promise<void>
- binding():{expectedDocumentPath:string|null;expectedSha256?:string}|null
- cancel():void
- discardCaptured(signal:AbortSignal):Promise<void>
+  token: string
+  documentPath: string | null
+  drained: Promise<void>
+  binding(): { expectedDocumentPath: string | null; expectedSha256?: string } | null
+  cancel(): void
+  discardCaptured(signal: AbortSignal): Promise<void>
 }
 
 /** Per-activation identities prevent candidate opens and slow saves from changing draft ownership. */
 export class DocDraftController {
   private readonly sessions = new Map<number, DraftSession>()
-  private readonly activations = new Map<number,symbol>()
+  private readonly activations = new Map<number, symbol>()
   private readonly write: typeof writeDraftJournal
   private readonly discard: typeof discardDraftJournal
 
@@ -74,14 +74,14 @@ export class DocDraftController {
     const previous = this.sessions.get(owner)
     if (previous) previous.active = false
     const token = randomUUID()
-    this.activations.set(owner,Symbol('document activation'))
+    this.activations.set(owner, Symbol('document activation'))
     this.sessions.set(owner, {
       token,
       documentPath,
       highestReceived: 0,
       clearedThrough: 0,
       lastWritten: 0,
-      lastWrittenDocumentPath:documentPath,
+      lastWrittenDocumentPath: documentPath,
       active: true,
       queue: Promise.resolve(),
     })
@@ -147,7 +147,7 @@ export class DocDraftController {
         request.sequence !== state.highestReceived
       )
         return false
-      const writtenPath=state.documentPath
+      const writtenPath = state.documentPath
       const entry = await this.write(this.dependencies.recoveryRoot(), {
         id: state.token,
         module: 'docs',
@@ -155,9 +155,17 @@ export class DocDraftController {
         extension: '.docx',
         bytes,
       })
-      if(entry){
-        if(entry.id!==state.token||entry.module!=='docs'||canonical(entry.documentPath)!==canonical(writtenPath)||entry.sha256!==createHash('sha256').update(bytes).digest('hex'))throw new Error('The actual journal write did not return the captured document binding.')
-        state.lastWritten=request.sequence;state.lastWrittenDocumentPath=entry.documentPath;state.lastWrittenSha256=entry.sha256
+      if (entry) {
+        if (
+          entry.id !== state.token ||
+          entry.module !== 'docs' ||
+          canonical(entry.documentPath) !== canonical(writtenPath) ||
+          entry.sha256 !== createHash('sha256').update(bytes).digest('hex')
+        )
+          throw new Error('The actual journal write did not return the captured document binding.')
+        state.lastWritten = request.sequence
+        state.lastWrittenDocumentPath = entry.documentPath
+        state.lastWrittenSha256 = entry.sha256
       }
       return entry !== null
     })
@@ -187,43 +195,65 @@ export class DocDraftController {
   }
 
   /** Retire accepted work without deleting its durable journal before actual removal. */
-  stageClose(owner:number,throughSequence:number):DocDraftCloseStage|null {
-    if(!sequence(throughSequence))throw new Error('Invalid close recovery watermark.')
-    const state=this.sessions.get(owner)
-    if(!state)return null
-    state.active=false
-    state.clearedThrough=Math.max(state.clearedThrough,state.highestReceived,throughSequence)
+  stageClose(owner: number, throughSequence: number): DocDraftCloseStage | null {
+    if (!sequence(throughSequence)) throw new Error('Invalid close recovery watermark.')
+    const state = this.sessions.get(owner)
+    if (!state) return null
+    state.active = false
+    state.clearedThrough = Math.max(state.clearedThrough, state.highestReceived, throughSequence)
     this.sessions.delete(owner)
-    const root=this.dependencies.recoveryRoot(),token=state.token,documentPath=state.documentPath,activation=this.activations.get(owner)
-    const writtenBinding=()=>state.lastWritten>0?{expectedDocumentPath:state.lastWrittenDocumentPath,expectedSha256:state.lastWrittenSha256}:null
-    let capturedBinding=writtenBinding()
+    const root = this.dependencies.recoveryRoot(),
+      token = state.token,
+      documentPath = state.documentPath,
+      activation = this.activations.get(owner)
+    const writtenBinding = () =>
+      state.lastWritten > 0
+        ? {
+            expectedDocumentPath: state.lastWrittenDocumentPath,
+            expectedSha256: state.lastWrittenSha256,
+          }
+        : null
+    let capturedBinding = writtenBinding()
     // Seal inside the captured queue after accepted writers, before any newer
     // resumed setter can commit. Never re-read the resumed lifecycle later.
-    const drained=this.serialized(state,async()=>{capturedBinding=writtenBinding()})
-    let canceled=false,deletionAuthorized=false
-    return {token,documentPath,drained,
-      binding:()=>capturedBinding?{...capturedBinding}:null,
-      cancel:()=>{
-        if(canceled||deletionAuthorized)return
-        canceled=true
-        if(activation!==undefined&&this.activations.get(owner)===activation&&!this.sessions.has(owner)&&this.dependencies.isLive(owner)){
-          state.active=true
-          this.sessions.set(owner,state)
+    const drained = this.serialized(state, async () => {
+      capturedBinding = writtenBinding()
+    })
+    let canceled = false,
+      deletionAuthorized = false
+    return {
+      token,
+      documentPath,
+      drained,
+      binding: () => (capturedBinding ? { ...capturedBinding } : null),
+      cancel: () => {
+        if (canceled || deletionAuthorized) return
+        canceled = true
+        if (
+          activation !== undefined &&
+          this.activations.get(owner) === activation &&
+          !this.sessions.has(owner) &&
+          this.dependencies.isLive(owner)
+        ) {
+          state.active = true
+          this.sessions.set(owner, state)
         }
       },
-      discardCaptured:signal=>{
+      discardCaptured: (signal) => {
         signal.throwIfAborted()
-        if(canceled)throw new Error('A canceled captured producer cannot authorize journal deletion.')
-        deletionAuthorized=true
-        return this.serialized(state,async()=>{
+        if (canceled)
+          throw new Error('A canceled captured producer cannot authorize journal deletion.')
+        deletionAuthorized = true
+        return this.serialized(state, async () => {
           signal.throwIfAborted()
           // No main-owned complete write means no journal deletion authority.
           // The custody stage already refused an unknown existing entry.
-          if(capturedBinding){
-            if(!capturedBinding.expectedSha256)throw new Error('Captured recovery has no verified main-owned payload hash.')
-            await this.discard(root,token,{expectedSha256:capturedBinding.expectedSha256})
+          if (capturedBinding) {
+            if (!capturedBinding.expectedSha256)
+              throw new Error('Captured recovery has no verified main-owned payload hash.')
+            await this.discard(root, token, { expectedSha256: capturedBinding.expectedSha256 })
           }
-          if(this.activations.get(owner)===activation)this.activations.delete(owner)
+          if (this.activations.get(owner) === activation) this.activations.delete(owner)
         })
       },
     }
@@ -233,7 +263,7 @@ export class DocDraftController {
   async discardCurrent(owner: number): Promise<void> {
     const state = this.sessions.get(owner)
     if (!state) return
-    const activation=this.activations.get(owner)
+    const activation = this.activations.get(owner)
     state.active = false
     state.clearedThrough = Math.max(state.clearedThrough, state.highestReceived)
     this.sessions.delete(owner)
@@ -241,12 +271,17 @@ export class DocDraftController {
       await this.serialized(state, () =>
         this.discard(this.dependencies.recoveryRoot(), state.token),
       )
-      if(this.activations.get(owner)===activation)this.activations.delete(owner)
+      if (this.activations.get(owner) === activation) this.activations.delete(owner)
     } catch (error) {
       // A storage failure refuses the close/replacement. The still-open
       // document must remain able to journal new edits and retry discard;
       // snapshots already started before the decision stay invalid.
-      if (activation!==undefined&&this.activations.get(owner)===activation&&!this.sessions.has(owner) && this.dependencies.isLive(owner)) {
+      if (
+        activation !== undefined &&
+        this.activations.get(owner) === activation &&
+        !this.sessions.has(owner) &&
+        this.dependencies.isLive(owner)
+      ) {
         state.active = true
         this.sessions.set(owner, state)
       }

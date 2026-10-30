@@ -33,8 +33,11 @@ interface DraftSession {
   active: boolean
   queue: Promise<unknown>
   pending: Set<Promise<unknown>>
-  receipts:Set<{sequence:number;binding:Readonly<{expectedDocumentPath:string|null;expectedSha256:string}>|null}>
-  lastBinding: {expectedDocumentPath:string|null;expectedSha256:string}|null
+  receipts: Set<{
+    sequence: number
+    binding: Readonly<{ expectedDocumentPath: string | null; expectedSha256: string }> | null
+  }>
+  lastBinding: { expectedDocumentPath: string | null; expectedSha256: string } | null
 }
 export interface SlidesDraftDependencies {
   recoveryRoot: () => string
@@ -45,7 +48,7 @@ export interface SlidesDraftDependencies {
   capture: (owner: number, pending: SlidesPendingDraft) => () => Promise<Buffer>
   write?: typeof writeDraftJournal
   discard?: typeof discardDraftJournal
-  retaining?: (owner:number)=>boolean
+  retaining?: (owner: number) => boolean
 }
 
 /** Per-view identities preserve independent overlays even when views alias one live deck. */
@@ -79,8 +82,8 @@ export class SlidesDraftController {
       active: true,
       queue: Promise.resolve(),
       pending: new Set(),
-      receipts:new Set(),
-      lastBinding:null,
+      receipts: new Set(),
+      lastBinding: null,
     })
     return token
   }
@@ -88,7 +91,10 @@ export class SlidesDraftController {
     const state = this.sessions.get(owner)
     return state && this.isCurrent(owner, state) ? state.token : null
   }
-  ownsToken(owner:number,token:string):boolean{const state=this.sessions.get(owner);return!!state&&state.token===token&&this.dependencies.sourceFor(owner)===state.source}
+  ownsToken(owner: number, token: string): boolean {
+    const state = this.sessions.get(owner)
+    return !!state && state.token === token && this.dependencies.sourceFor(owner) === state.source
+  }
   retire(owner: number): void {
     const state = this.sessions.get(owner)
     if (state) state.active = false
@@ -151,7 +157,13 @@ export class SlidesDraftController {
     value = undefined
     this.queued++
     this.queuedBytes += bytes
-    const receipt={sequence:captured.sequence,binding:null as Readonly<{expectedDocumentPath:string|null;expectedSha256:string}>|null}
+    const receipt = {
+      sequence: captured.sequence,
+      binding: null as Readonly<{
+        expectedDocumentPath: string | null
+        expectedSha256: string
+      }> | null,
+    }
     state.receipts.add(receipt)
     const operation = this.preparationTail
       .catch(() => {})
@@ -165,7 +177,7 @@ export class SlidesDraftController {
         return this.serialized(state, async () => {
           if (!this.validSnapshot(owner, state, captured)) return false
           this.requireRevision(owner, captured)
-          const writtenPath=state.documentPath
+          const writtenPath = state.documentPath
           const entry = await this.write(this.dependencies.recoveryRoot(), {
             id: state.token,
             module: 'slides',
@@ -174,10 +186,23 @@ export class SlidesDraftController {
             bytes: data,
           })
           if (entry) {
-            if(entry.id!==state.token||entry.module!=='slides'||entry.extension!=='.pptx'||entry.bytes!==data.length||canonical(entry.documentPath)!==canonical(writtenPath)||entry.sha256!==createHash('sha256').update(data).digest('hex'))throw new Error('The presentation journal returned an unverified main write receipt; previous authority is retained.')
+            if (
+              entry.id !== state.token ||
+              entry.module !== 'slides' ||
+              entry.extension !== '.pptx' ||
+              entry.bytes !== data.length ||
+              canonical(entry.documentPath) !== canonical(writtenPath) ||
+              entry.sha256 !== createHash('sha256').update(data).digest('hex')
+            )
+              throw new Error(
+                'The presentation journal returned an unverified main write receipt; previous authority is retained.',
+              )
             state.lastWritten = captured.sequence
-            state.lastBinding=Object.freeze({expectedDocumentPath:entry.documentPath,expectedSha256:entry.sha256})
-            receipt.binding=state.lastBinding
+            state.lastBinding = Object.freeze({
+              expectedDocumentPath: entry.documentPath,
+              expectedSha256: entry.sha256,
+            })
+            receipt.binding = state.lastBinding
           }
           return entry !== null
         })
@@ -213,7 +238,8 @@ export class SlidesDraftController {
     state.clearedThrough = Math.max(state.clearedThrough, request.throughSequence)
     await this.serialized(state, async () => {
       if (state.lastWritten > request.throughSequence) return
-      if(!this.dependencies.retaining?.(owner))await this.discard(this.dependencies.recoveryRoot(), state.token)
+      if (!this.dependencies.retaining?.(owner))
+        await this.discard(this.dependencies.recoveryRoot(), state.token)
     })
   }
   /** Invalidate synchronously before awaiting storage, including a Root Recovery discard. */
@@ -240,21 +266,50 @@ export class SlidesDraftController {
     }
   }
   /** Retire this exact per-view producer now, KEEP durable bytes until actual removal. */
-  stageClose(owner:number,throughSequence=0){
-    const state=this.sessions.get(owner)
-    if(!state||!this.isCurrent(owner,state))throw new Error('Presentation recovery is not active for this source.')
-    state.active=false
-    state.clearedThrough=Math.max(state.clearedThrough,state.highestReceived,throughSequence)
-    const baseline=state.lastBinding?Object.freeze({...state.lastBinding}):null
-    const acceptedReceipts=[...state.receipts]
-    let sealed:Readonly<{expectedDocumentPath:string|null;expectedSha256:string}>|null=null
-    const drained=Promise.allSettled([...state.pending,state.queue]).then(()=>{const last=acceptedReceipts.filter(receipt=>receipt.binding).sort((a,b)=>a.sequence-b.sequence).at(-1);sealed=last?.binding?Object.freeze({...last.binding}):baseline})
-    let removed=false
-    return {token:state.token,documentPath:state.documentPath,ready:drained,
-      attest:()=>sealed?{...sealed}:null,
-      removed:()=>{removed=true;if(this.sessions.get(owner)===state)this.sessions.delete(owner)},
-      cancel:()=>{if(!removed&&this.sessions.get(owner)===state&&this.dependencies.isLive(owner)&&this.dependencies.sourceFor(owner)===state.source)state.active=true},
-      cleanup:async(signal:AbortSignal)=>{await drained;signal.throwIfAborted();if(sealed)await this.discard(this.dependencies.recoveryRoot(),state.token,{expectedSha256:sealed.expectedSha256})},
+  stageClose(owner: number, throughSequence = 0) {
+    const state = this.sessions.get(owner)
+    if (!state || !this.isCurrent(owner, state))
+      throw new Error('Presentation recovery is not active for this source.')
+    state.active = false
+    state.clearedThrough = Math.max(state.clearedThrough, state.highestReceived, throughSequence)
+    const baseline = state.lastBinding ? Object.freeze({ ...state.lastBinding }) : null
+    const acceptedReceipts = [...state.receipts]
+    let sealed: Readonly<{ expectedDocumentPath: string | null; expectedSha256: string }> | null =
+      null
+    const drained = Promise.allSettled([...state.pending, state.queue]).then(() => {
+      const last = acceptedReceipts
+        .filter((receipt) => receipt.binding)
+        .sort((a, b) => a.sequence - b.sequence)
+        .at(-1)
+      sealed = last?.binding ? Object.freeze({ ...last.binding }) : baseline
+    })
+    let removed = false
+    return {
+      token: state.token,
+      documentPath: state.documentPath,
+      ready: drained,
+      attest: () => (sealed ? { ...sealed } : null),
+      removed: () => {
+        removed = true
+        if (this.sessions.get(owner) === state) this.sessions.delete(owner)
+      },
+      cancel: () => {
+        if (
+          !removed &&
+          this.sessions.get(owner) === state &&
+          this.dependencies.isLive(owner) &&
+          this.dependencies.sourceFor(owner) === state.source
+        )
+          state.active = true
+      },
+      cleanup: async (signal: AbortSignal) => {
+        await drained
+        signal.throwIfAborted()
+        if (sealed)
+          await this.discard(this.dependencies.recoveryRoot(), state.token, {
+            expectedSha256: sealed.expectedSha256,
+          })
+      },
     }
   }
   private source(owner: number): Source {

@@ -1,6 +1,8 @@
 import type { WorkbookWriteContext } from '../shared/desktop-api'
 
-export const AUTOMATIC_WORKBOOK_WRITE: Readonly<WorkbookWriteContext> = Object.freeze({ origin: 'automatic' })
+export const AUTOMATIC_WORKBOOK_WRITE: Readonly<WorkbookWriteContext> = Object.freeze({
+  origin: 'automatic',
+})
 
 interface BlurTarget {
   addEventListener(type: 'blur', listener: () => void): void
@@ -19,8 +21,13 @@ export function installAutomaticWorkbookWriteLoop(options: {
   let disposed = false
   const tick = () => {
     if (disposed) return
-    try { void Promise.resolve(options.write(AUTOMATIC_WORKBOOK_WRITE)).catch(error => options.report?.(error)) }
-    catch (error) { options.report?.(error) }
+    try {
+      void Promise.resolve(options.write(AUTOMATIC_WORKBOOK_WRITE)).catch((error) =>
+        options.report?.(error),
+      )
+    } catch (error) {
+      options.report?.(error)
+    }
   }
   const timer = options.setInterval(tick, options.intervalMs)
   options.target?.addEventListener('blur', tick)

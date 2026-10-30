@@ -366,7 +366,9 @@ interface ExcelShellProps {
     sheets: { id: string; name: string }[]
     activeSheetId: string | null
   }
-  readonly onDefinedNameAction: (action: DefinedNameAction) => string | null | Promise<string | null>
+  readonly onDefinedNameAction: (
+    action: DefinedNameAction,
+  ) => string | null | Promise<string | null>
   /// Subtotals use the selection; pivots pass their resolved source range.
   readonly onGetPivotFields: (sourceRange?: string) => PivotField[]
   readonly onGetSourceRange: () => string
@@ -400,11 +402,15 @@ interface ExcelShellProps {
   readonly onListFunctions: () => readonly IFunctionInfo[]
   readonly functionArguments: FunctionArgumentsHost
   readonly onCreateSubtotal: (config: SubtotalConfig) => string | null | Promise<string | null>
-  readonly onCreateConsolidate: (config: ConsolidateConfig) => string | null | Promise<string | null>
+  readonly onCreateConsolidate: (
+    config: ConsolidateConfig,
+  ) => string | null | Promise<string | null>
   /// Prefill for the Consolidate reference input (current multi-cell selection).
   readonly onGetConsolidateDefault: () => string
   /// Header & Footer dialog OK; returns an error message, or null on success.
-  readonly onApplyHeaderFooter: (result: HeaderFooterResult) => string | null | Promise<string | null>
+  readonly onApplyHeaderFooter: (
+    result: HeaderFooterResult,
+  ) => string | null | Promise<string | null>
   /// Print with Preview, open while non-null.
   readonly printHost: PrintPreviewHost | null
   readonly onClosePrint: () => void
@@ -619,27 +625,37 @@ export function ExcelShell({
     const invalid = validatePivotModel(model)
     if (invalid !== null) {
       const failure = t(PIVOT_MODEL_ERRORS[invalid])
-      setPivotPane((current) => current?.seed.key === pane.seed.key
-        ? { ...current, model, deferred, dirty: true, error: failure }
-        : current)
+      setPivotPane((current) =>
+        current?.seed.key === pane.seed.key
+          ? { ...current, model, deferred, dirty: true, error: failure }
+          : current,
+      )
       return failure
     }
     pivotPendingRef.current = true
     setPivotPending(true)
-    setPivotPane((current) => current?.seed.key === pane.seed.key
-      ? { ...current, model, deferred, dirty: true, error: null }
-      : current)
+    setPivotPane((current) =>
+      current?.seed.key === pane.seed.key
+        ? { ...current, model, deferred, dirty: true, error: null }
+        : current,
+    )
     try {
-      const failure = await onEditPivot(modelToConfig(model, pane.seed.sourceRange, pane.seed.targetCell))
-      setPivotPane((current) => current?.seed.key === pane.seed.key && current.model === model
-        ? { ...current, dirty: failure !== null, error: failure }
-        : current)
+      const failure = await onEditPivot(
+        modelToConfig(model, pane.seed.sourceRange, pane.seed.targetCell),
+      )
+      setPivotPane((current) =>
+        current?.seed.key === pane.seed.key && current.model === model
+          ? { ...current, dirty: failure !== null, error: failure }
+          : current,
+      )
       return failure
     } catch (error) {
       const failure = error instanceof Error ? error.message : String(error)
-      setPivotPane((current) => current?.seed.key === pane.seed.key && current.model === model
-        ? { ...current, dirty: true, error: failure }
-        : current)
+      setPivotPane((current) =>
+        current?.seed.key === pane.seed.key && current.model === model
+          ? { ...current, dirty: true, error: failure }
+          : current,
+      )
       return failure
     } finally {
       pivotPendingRef.current = false

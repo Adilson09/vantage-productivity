@@ -38,27 +38,39 @@ export interface StandaloneSheetsCloseRuntimeDependencies {
 export function createStandaloneSheetsCloseRuntimeInitializer(
   dependencies: StandaloneSheetsCloseRuntimeDependencies,
 ) {
-  let initialized: {
-    options: StandaloneSheetsCloseRuntimeOptions
-    control: StandaloneSheetsCloseRuntime
-  } | undefined
+  let initialized:
+    | {
+        options: StandaloneSheetsCloseRuntimeOptions
+        control: StandaloneSheetsCloseRuntime
+      }
+    | undefined
 
   return (options: StandaloneSheetsCloseRuntimeOptions): StandaloneSheetsCloseRuntime | null => {
     // Headless work and the process that lost the profile lock must not create
     // shared recovery, custody providers, ledgers, quit listeners, or editors.
     if (options.mode !== 'gui' || !options.lockAcquired) return null
     if (initialized) {
-      if (initialized.options.app !== options.app || initialized.options.setRuntime !== options.setRuntime ||
-        initialized.options.closeState !== options.closeState)
+      if (
+        initialized.options.app !== options.app ||
+        initialized.options.setRuntime !== options.setRuntime ||
+        initialized.options.closeState !== options.closeState
+      )
         throw new Error('Standalone Sheets close runtime already belongs to another main host.')
       return initialized.control
     }
 
     const warning = (message: string): void => {
-      try { options.warning(message) } catch { /* No fallback logger for protected errors. */ }
+      try {
+        options.warning(message)
+      } catch {
+        /* No fallback logger for protected errors. */
+      }
     }
-    try { options.initializeShared() }
-    catch { warning('Spreadsheet recovery could not be initialized. Close checks may be unavailable.') }
+    try {
+      options.initializeShared()
+    } catch {
+      warning('Spreadsheet recovery could not be initialized. Close checks may be unavailable.')
+    }
     let epoch = 1
     const cancellations = new Set<() => void>()
     const ledger = dependencies.createLedger({
@@ -67,12 +79,22 @@ export function createStandaloneSheetsCloseRuntimeInitializer(
     const cancel = (): void => {
       epoch++
       for (const listener of [...cancellations]) {
-        try { listener() } catch { warning('The spreadsheet quit request could not be fully canceled.') }
+        try {
+          listener()
+        } catch {
+          warning('The spreadsheet quit request could not be fully canceled.')
+        }
       }
-      try { dependencies.cancelSharedQuitDrain() }
-      catch { warning('The spreadsheet cleanup quit request could not be canceled.') }
-      try { options.resetShutdown() }
-      catch { warning('The spreadsheet shutdown state could not be reset.') }
+      try {
+        dependencies.cancelSharedQuitDrain()
+      } catch {
+        warning('The spreadsheet cleanup quit request could not be canceled.')
+      }
+      try {
+        options.resetShutdown()
+      } catch {
+        warning('The spreadsheet shutdown state could not be reset.')
+      }
     }
     const control: StandaloneSheetsCloseRuntime = Object.freeze({ cancel, ledger })
     initialized = { options, control }
@@ -81,17 +103,22 @@ export function createStandaloneSheetsCloseRuntimeInitializer(
     try {
       dependencies.installGuard(options.app, ledger, {
         epoch: () => epoch,
-        isCurrent: expected => expected === epoch,
-        subscribeCancel: listener => {
+        isCurrent: (expected) => expected === epoch,
+        subscribeCancel: (listener) => {
           cancellations.add(listener)
-          return () => { cancellations.delete(listener) }
+          return () => {
+            cancellations.delete(listener)
+          }
         },
         onBlocked: () => {
           // Failure after removal is not permission to quit. Cleanup can be
           // retried explicitly, but this old quit intention remains canceled.
           cancel()
-          try { options.onBlocked(() => ledger.retryFailed()) }
-          catch { warning('Protected spreadsheet cleanup is incomplete. Keep the application open.') }
+          try {
+            options.onBlocked(() => ledger.retryFailed())
+          } catch {
+            warning('Protected spreadsheet cleanup is incomplete. Keep the application open.')
+          }
         },
         report: () => warning('Spreadsheet quit preparation did not complete.'),
       })
@@ -103,7 +130,11 @@ export function createStandaloneSheetsCloseRuntimeInitializer(
       try {
         // Production installs the real provider plus its promise-only native
         // work observer before exposing the runtime to any editor services.
-        dependencies.installRuntime({ ledger, setRuntime: options.setRuntime, closeState: options.closeState })
+        dependencies.installRuntime({
+          ledger,
+          setRuntime: options.setRuntime,
+          closeState: options.closeState,
+        })
       } catch {
         warning('Spreadsheet close protection could not be installed. Keep the application open.')
       }
@@ -116,7 +147,7 @@ export function createStandaloneSheetsCloseRuntimeInitializer(
 }
 
 const initializeProduction = createStandaloneSheetsCloseRuntimeInitializer({
-  createLedger: options => new SheetsCloseQuitLedger(options),
+  createLedger: (options) => new SheetsCloseQuitLedger(options),
   installGuard: installSheetsCloseQuitGuard,
   installRuntime: installSheetsCloseRuntime,
   cancelSharedQuitDrain: cancelCloseCleanupQuitDrain,

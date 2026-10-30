@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Editor } from '@tiptap/core'
 import { readDocxRecoveryData } from '@vantage/docx-engine'
-import { captureCommentDraftRecovery, commentDraftSnapshot, putCommentDraft, removeCommentDraft } from '../src/renderer/comment-draft-recovery'
+import {
+  captureCommentDraftRecovery,
+  commentDraftSnapshot,
+  putCommentDraft,
+  removeCommentDraft,
+} from '../src/renderer/comment-draft-recovery'
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseDocx, readSections, saveDocx, type SaveBlock } from '@vantage/docx-engine'
@@ -160,7 +165,9 @@ async function fixture(rich = false) {
 
 function deferredValue<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
   return { promise, resolve }
 }
 
@@ -168,12 +175,26 @@ async function closeSaveFixture() {
   const f = await fixture()
   const state = f.state as unknown as Record<string, unknown>
   Object.assign(state, {
-    sectionDirty: false, trailingStartType: null, pageColorDirty: false,
-    headerDirty: false, footerDirty: false, pgNumEdit: null, numberingDirty: false,
-    titlePgDirty: false, evenOddHfDirty: false, mirrorMarginsDirty: false,
-    watermarkDirty: false, inksDirty: false, notesDirty: false, sourcesDirty: false,
-    zoteroDocumentDataDirty: false, themeFontsDirty: false, themeColorsDirty: false,
-    protectionDirty: false, writeProtectionDirty: false, removePersonalInfoDirty: false,
+    sectionDirty: false,
+    trailingStartType: null,
+    pageColorDirty: false,
+    headerDirty: false,
+    footerDirty: false,
+    pgNumEdit: null,
+    numberingDirty: false,
+    titlePgDirty: false,
+    evenOddHfDirty: false,
+    mirrorMarginsDirty: false,
+    watermarkDirty: false,
+    inksDirty: false,
+    notesDirty: false,
+    sourcesDirty: false,
+    zoteroDocumentDataDirty: false,
+    themeFontsDirty: false,
+    themeColorsDirty: false,
+    protectionDirty: false,
+    writeProtectionDirty: false,
+    removePersonalInfoDirty: false,
   })
   ;(f.state.doc as { filePath: string | null }).filePath = '/private/source.docx'
   const context: FileActionContext = new Proxy(f.context, {
@@ -189,8 +210,11 @@ async function closeSaveFixture() {
       return Reflect.get(target, property)
     },
   })
-  f.editor.on('update', () => { f.state.dirtyRef.current = true })
-  const entered = deferredValue<void>(), acknowledgment = deferredValue<void>()
+  f.editor.on('update', () => {
+    f.state.dirtyRef.current = true
+  })
+  const entered = deferredValue<void>(),
+    acknowledgment = deferredValue<void>()
   const requests: { throughSequence: number; clean: boolean }[] = []
   const written: Uint8Array[] = []
   Object.assign(window.desktop, {
@@ -214,7 +238,8 @@ describe('production save completion after recovery acknowledgment', () => {
   it.each(['main document', 'composite state', 'pending surface'] as const)(
     'keeps newer %s edits dirty while reporting the older publication accurately',
     async (kind) => {
-      const f = await closeSaveFixture(), generation = currentDocGeneration()
+      const f = await closeSaveFixture(),
+        generation = currentDocGeneration()
       let pending = false
       const listener = recoverySnapshotListener((event) => {
         if (pending) markRecoveryPending(event)
@@ -223,7 +248,8 @@ describe('production save completion after recovery acknowledgment', () => {
       const publication = saveDocument(f.context, false)
       try {
         await f.entered.promise
-        if (kind === 'main document') f.editor.commands.insertContent('Newer typing after publication.')
+        if (kind === 'main document')
+          f.editor.commands.insertContent('Newer typing after publication.')
         if (kind === 'composite state') f.state.headerDirty = true
         if (kind === 'pending surface') pending = true
         f.acknowledgment.resolve()
@@ -243,8 +269,10 @@ describe('production save completion after recovery acknowledgment', () => {
   )
 
   it('does not acknowledge an uncommitted surface as represented by earlier file bytes', async () => {
-    const f = await closeSaveFixture(), generation = currentDocGeneration()
-    const publishing = deferredValue<void>(), finishWrite = deferredValue<void>()
+    const f = await closeSaveFixture(),
+      generation = currentDocGeneration()
+    const publishing = deferredValue<void>(),
+      finishWrite = deferredValue<void>()
     let pending = false
     const listener = recoverySnapshotListener((event) => {
       if (pending) markRecoveryPending(event)
@@ -279,7 +307,8 @@ describe('production save completion after recovery acknowledgment', () => {
   })
 
   it('allows a fully persisted current document to close after the acknowledgment', async () => {
-    const f = await closeSaveFixture(), generation = currentDocGeneration()
+    const f = await closeSaveFixture(),
+      generation = currentDocGeneration()
     const publication = saveDocument(f.context, false)
     try {
       await f.entered.promise
@@ -294,7 +323,8 @@ describe('production save completion after recovery acknowledgment', () => {
   })
 
   it('does not grant close permission for a replacement activation after an old save completes', async () => {
-    const f = await closeSaveFixture(), generation = currentDocGeneration()
+    const f = await closeSaveFixture(),
+      generation = currentDocGeneration()
     const publication = saveDocument(f.context, false)
     try {
       await f.entered.promise
@@ -325,7 +355,9 @@ describe('production save completion after recovery acknowledgment', () => {
       const [entry] = await listDraftJournal(f.root)
       expect(entry).toBeDefined()
       const zip = await JSZip.loadAsync((await readDraftJournal(f.root, entry.id)).bytes)
-      expect(await zip.file('word/document.xml')!.async('string')).toContain('Newer journal content')
+      expect(await zip.file('word/document.xml')!.async('string')).toContain(
+        'Newer journal content',
+      )
       expect(f.context.saveIncompleteRef.current).toBe(true)
     } finally {
       settled.resolve(f.context)
@@ -527,115 +559,168 @@ describe('production renderer full-document draft snapshots', () => {
   })
 })
 
-describe('coherent authored write and replacement snapshots',()=>{
-  it('freezes serialization sidecars while a live canonical view advances',async()=>{
-    const f=await closeSaveFixture()
-    const comments=[{id:'one',text:'represented',author:'Author'}]
-    f.state.comments=comments as never
-    const represented=captureDocWriteContext(f.context)
-    comments[0]!.text='mutated outside the writer'
-    f.state.comments=[{id:'two',text:'newer',author:'Author'}] as never
+describe('coherent authored write and replacement snapshots', () => {
+  it('freezes serialization sidecars while a live canonical view advances', async () => {
+    const f = await closeSaveFixture()
+    const comments = [{ id: 'one', text: 'represented', author: 'Author' }]
+    f.state.comments = comments as never
+    const represented = captureDocWriteContext(f.context)
+    comments[0]!.text = 'mutated outside the writer'
+    f.state.comments = [{ id: 'two', text: 'newer', author: 'Author' }] as never
     expect(represented.comments[0]!.text).toBe('represented')
     expect(represented.comments).not.toBe(f.context.comments)
     expect(represented.currentContext).toBeUndefined()
   })
-  it('refuses a replacement approved before newer typing, preserving the original source and journal activation',async()=>{
-    const f=await closeSaveFixture()
-    const oldDoc=f.context.doc,oldGeneration=currentDocGeneration(),oldToken=f.controller.tokenFor(1)
-    const approval={stamp:docCloseBarrier.snapshot(),intent:'discard' as const}
-    expect(docReplacementIsCurrent(f.context,approval)).toBe(true)
+  it('refuses a replacement approved before newer typing, preserving the original source and journal activation', async () => {
+    const f = await closeSaveFixture()
+    const oldDoc = f.context.doc,
+      oldGeneration = currentDocGeneration(),
+      oldToken = f.controller.tokenFor(1)
+    const approval = { stamp: docCloseBarrier.snapshot(), intent: 'discard' as const }
+    expect(docReplacementIsCurrent(f.context, approval)).toBe(true)
     f.editor.commands.insertContent('Newer accepted work')
-    expect(docReplacementIsCurrent(f.context,approval)).toBe(false)
-    const bytes=await buildDocx({bodyXml:'<w:p><w:r><w:t>Replacement candidate</w:t></w:r></w:p>'})
-    const candidate={path:'/private/new.docx',name:'new.docx',hash:'new',dataUrl:`data:application/octet-stream;base64,${Buffer.from(bytes).toString('base64')}`}
-    expect(await loadDocument(f.context,candidate,approval)).toBe('failed')
-    expect(currentDocGeneration()).toBe(oldGeneration);expect(f.context.doc).toBe(oldDoc)
+    expect(docReplacementIsCurrent(f.context, approval)).toBe(false)
+    const bytes = await buildDocx({
+      bodyXml: '<w:p><w:r><w:t>Replacement candidate</w:t></w:r></w:p>',
+    })
+    const candidate = {
+      path: '/private/new.docx',
+      name: 'new.docx',
+      hash: 'new',
+      dataUrl: `data:application/octet-stream;base64,${Buffer.from(bytes).toString('base64')}`,
+    }
+    expect(await loadDocument(f.context, candidate, approval)).toBe('failed')
+    expect(currentDocGeneration()).toBe(oldGeneration)
+    expect(f.context.doc).toBe(oldDoc)
     expect(f.editor.getText()).toContain('Newer accepted work')
     // A canceled discard resumes recovery under a fresh producer; it cannot
     // delete or acknowledge the newer accepted state as the old publication.
     expect(f.controller.tokenFor(1)).not.toBe(oldToken)
   })
-  it('does not certify unsubmitted comment text as fully persisted',async()=>{
-    const f=await closeSaveFixture()
-    Object.assign(f.state,{hasPendingAuthorInput:()=>true})
-    const publication=saveDocument(f.context,false)
+  it('does not certify unsubmitted comment text as fully persisted', async () => {
+    const f = await closeSaveFixture()
+    Object.assign(f.state, { hasPendingAuthorInput: () => true })
+    const publication = saveDocument(f.context, false)
     f.acknowledgment.resolve()
     expect(await publication).toBe(true)
     expect(f.requests).toEqual([])
-    expect(canCloseSavedDocument(f.context,currentDocGeneration())).toBe(false)
+    expect(canCloseSavedDocument(f.context, currentDocGeneration())).toBe(false)
     expect(f.context.dirtyRef.current).toBe(true)
   })
 })
 
-describe('production recovery keeps comments as unsent UI data',()=>{
-  it('records compose, reply and edit text without publishing comments or changing ordinary document bytes',async()=>{
-    const f=await fixture(),source=commentDraftSnapshot().source
-    putCommentDraft(source,{id:'new',kind:'new',text:'Unsent new comment',anchor:{from:1,to:6,quote:'Draft',before:'',after:' opening.'}})
-    putCommentDraft(source,{id:'reply:7',kind:'reply',text:'Unsent reply',target:{id:'7',parentId:null,author:'A',date:'2026-10-30',text:'Published thread',anchor:'Draft'}})
-    putCommentDraft(source,{id:'edit:8',kind:'edit',text:'Unsent replacement',target:{id:'8',parentId:'7',author:'B',date:'2026-10-30',text:'Published reply',anchor:'Draft'}})
+describe('production recovery keeps comments as unsent UI data', () => {
+  it('records compose, reply and edit text without publishing comments or changing ordinary document bytes', async () => {
+    const f = await fixture(),
+      source = commentDraftSnapshot().source
+    putCommentDraft(source, {
+      id: 'new',
+      kind: 'new',
+      text: 'Unsent new comment',
+      anchor: { from: 1, to: 6, quote: 'Draft', before: '', after: ' opening.' },
+    })
+    putCommentDraft(source, {
+      id: 'reply:7',
+      kind: 'reply',
+      text: 'Unsent reply',
+      target: {
+        id: '7',
+        parentId: null,
+        author: 'A',
+        date: '2026-10-30',
+        text: 'Published thread',
+        anchor: 'Draft',
+      },
+    })
+    putCommentDraft(source, {
+      id: 'edit:8',
+      kind: 'edit',
+      text: 'Unsent replacement',
+      target: {
+        id: '8',
+        parentId: '7',
+        author: 'B',
+        date: '2026-10-30',
+        text: 'Published reply',
+        anchor: 'Draft',
+      },
+    })
     await writeRecoveryCopy(f.context)
-    const [entry]=await listDraftJournal(f.root),saved=await readDraftJournal(f.root,entry.id)
+    const [entry] = await listDraftJournal(f.root),
+      saved = await readDraftJournal(f.root, entry.id)
     expect(await readDocxRecoveryData(saved.bytes)).toEqual(captureCommentDraftRecovery())
     expect((await parseDocx(saved.bytes)).comments).toHaveLength(0)
-    const ordinary=await buildDocBytes(f.context)
+    const ordinary = await buildDocBytes(f.context)
     expect(await readDocxRecoveryData(ordinary!)).toBeUndefined()
     expect(f.normalSave).not.toHaveBeenCalled()
   })
-  it('retains the previous complete journal and full visible draft when the next unsent text exceeds its recovery bound',async()=>{
-    const f=await fixture(),source=commentDraftSnapshot().source
-    putCommentDraft(source,{id:'new',kind:'new',text:'Previous complete unsent text'})
+  it('retains the previous complete journal and full visible draft when the next unsent text exceeds its recovery bound', async () => {
+    const f = await fixture(),
+      source = commentDraftSnapshot().source
+    putCommentDraft(source, { id: 'new', kind: 'new', text: 'Previous complete unsent text' })
     await writeRecoveryCopy(f.context)
-    const [before]=await listDraftJournal(f.root)
-    const full='x'.repeat(65*1024)
-    putCommentDraft(source,{id:'new',kind:'new',text:full})
+    const [before] = await listDraftJournal(f.root)
+    const full = 'x'.repeat(65 * 1024)
+    putCommentDraft(source, { id: 'new', kind: 'new', text: full })
     await writeRecoveryCopy(f.context)
-    const [after]=await listDraftJournal(f.root)
+    const [after] = await listDraftJournal(f.root)
     expect(after.sha256).toBe(before.sha256)
     expect(commentDraftSnapshot().drafts[0].text).toBe(full)
     expect(commentDraftSnapshot().error).toBeTruthy()
   })
-  it('rejects a retired source callback without adding its text to the replacement source recovery',async()=>{
-    const f=await fixture(),sourceA=commentDraftSnapshot().source
-    putCommentDraft(sourceA,{id:'new',kind:'new',text:'Source A only'})
+  it('rejects a retired source callback without adding its text to the replacement source recovery', async () => {
+    const f = await fixture(),
+      sourceA = commentDraftSnapshot().source
+    putCommentDraft(sourceA, { id: 'new', kind: 'new', text: 'Source A only' })
     noteDocumentSwapped()
-    expect(putCommentDraft(sourceA,{id:'new',kind:'new',text:'Late A callback'})).toBe(false)
-    const sourceB=commentDraftSnapshot().source
-    putCommentDraft(sourceB,{id:'new',kind:'new',text:'Source B only'})
+    expect(putCommentDraft(sourceA, { id: 'new', kind: 'new', text: 'Late A callback' })).toBe(
+      false,
+    )
+    const sourceB = commentDraftSnapshot().source
+    putCommentDraft(sourceB, { id: 'new', kind: 'new', text: 'Source B only' })
     await writeRecoveryCopy(f.context)
-    const [entry]=await listDraftJournal(f.root),saved=await readDraftJournal(f.root,entry.id)
+    const [entry] = await listDraftJournal(f.root),
+      saved = await readDraftJournal(f.root, entry.id)
     expect(JSON.stringify(await readDocxRecoveryData(saved.bytes))).toContain('Source B only')
     expect(JSON.stringify(await readDocxRecoveryData(saved.bytes))).not.toContain('Source A')
   })
 })
 
-it('does not recreate discarded unsent recovery until its text changes, then starts a fresh activation',async()=>{
-  const f=await fixture(),source=commentDraftSnapshot().source
-  putCommentDraft(source,{id:'new',kind:'new',text:'Discarded unsent text'})
+it('does not recreate discarded unsent recovery until its text changes, then starts a fresh activation', async () => {
+  const f = await fixture(),
+    source = commentDraftSnapshot().source
+  putCommentDraft(source, { id: 'new', kind: 'new', text: 'Discarded unsent text' })
   await writeRecoveryCopy(f.context)
-  const token=f.controller.tokenFor(1)!
+  const token = f.controller.tokenFor(1)!
   await f.controller.discardCurrent(1)
-  noteRecoveryDiscarded(f.context,token)
+  noteRecoveryDiscarded(f.context, token)
   await Promise.resolve()
   await writeRecoveryCopy(f.context)
   expect(await listDraftJournal(f.root)).toHaveLength(0)
-  putCommentDraft(source,{id:'new',kind:'new',text:'Changed unsent text'})
+  putCommentDraft(source, { id: 'new', kind: 'new', text: 'Changed unsent text' })
   await writeRecoveryCopy(f.context)
-  const [entry]=await listDraftJournal(f.root)
+  const [entry] = await listDraftJournal(f.root)
   expect(entry.id).not.toBe(token)
-  expect(JSON.stringify(await readDocxRecoveryData((await readDraftJournal(f.root,entry.id)).bytes))).toContain('Changed unsent text')
+  expect(
+    JSON.stringify(await readDocxRecoveryData((await readDraftJournal(f.root, entry.id)).bytes)),
+  ).toContain('Changed unsent text')
 })
 
-it('replaces canceled last-comment metadata even when the document body is clean',async()=>{
-  const f=await fixture(),source=commentDraftSnapshot().source
-  f.state.dirtyRef.current=false
-  putCommentDraft(source,{id:'new',kind:'new',text:'Canceled text must not return'})
+it('replaces canceled last-comment metadata even when the document body is clean', async () => {
+  const f = await fixture(),
+    source = commentDraftSnapshot().source
+  f.state.dirtyRef.current = false
+  putCommentDraft(source, { id: 'new', kind: 'new', text: 'Canceled text must not return' })
   await writeRecoveryCopy(f.context)
-  const [before]=await listDraftJournal(f.root)
-  removeCommentDraft(source,'new')
+  const [before] = await listDraftJournal(f.root)
+  removeCommentDraft(source, 'new')
   await writeRecoveryCopy(f.context)
-  const [after]=await listDraftJournal(f.root)
+  const [after] = await listDraftJournal(f.root)
   expect(after.id).toBe(before.id)
   expect(after.sha256).not.toBe(before.sha256)
-  expect(await readDocxRecoveryData((await readDraftJournal(f.root,after.id)).bytes)).toEqual({version:1,drafts:[]})
+  expect(await readDocxRecoveryData((await readDraftJournal(f.root, after.id)).bytes)).toEqual({
+    version: 1,
+    drafts: [],
+  })
   expect(commentDraftSnapshot().recordedRevision).toBe(commentDraftSnapshot().revision)
 })
