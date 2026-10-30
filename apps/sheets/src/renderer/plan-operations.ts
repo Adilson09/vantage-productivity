@@ -1263,12 +1263,10 @@ export function carryCopyFormulasPlan(
  * of letting the formulas display silently wrong results.
  */
 /**
- * The save rewrites every formula across a row/column deletion and fails
- * closed when a reference lands fully inside the deleted span (the rewrite
- * cannot produce #REF! yet) — which used to surface only at ⌘S, after the
- * apply had reported success and the canvas showed the deletion. Run the
- * exact same rewrite (shiftFormulaText) over the known formula texts at
- * apply time and fail the batch loud instead, workbook untouched.
+ * The save shrinks partially deleted A1 ranges and replaces fully deleted
+ * references with #REF!. It still refuses unsupported formula syntax.
+ * Run the same rewrite (shiftFormulaText) over known texts at apply time
+ * so unsupported changes fail with the workbook untouched.
  *
  * Best-effort by design: prior structural session ops shift the file texts'
  * coordinates (the save replays ops in sequence; this check does not), and a
@@ -1316,9 +1314,9 @@ function deletedSpanTextError(
       if (error instanceof StructuralShiftError) {
         const span = spec.axis === 'column' ? 'columns' : 'rows'
         return (
-          `A formula (${text.length > 80 ? `${text.slice(0, 80)}…` : text}) references only the ` +
-          `deleted ${span} — the save cannot rewrite it to #REF! yet, so the deletion would ` +
-          'fail there. Update or remove such formulas first (find_cells locates them), then retry.'
+          `A formula (${text.length > 80 ? `${text.slice(0, 80)}…` : text}) cannot be updated ` +
+          `safely after deleting these ${span}. ${error.message} ` +
+          'Update or remove this formula first (find_cells locates it), then retry.'
         )
       }
       throw error

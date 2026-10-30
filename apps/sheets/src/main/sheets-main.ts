@@ -1,4 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { atomicCopyFile, withAtomicSaveQueue } from '@vantage/electron-utils/atomic-write'
+import { WorkbookDocumentRecovery } from './workbook-document-recovery'
+import { allocateSessionSnapshotDirectory } from './session-snapshot-directory'
+import {
+  documentPayloadFromSave,
+  emptyDocumentPayload,
+  validateDocumentPayload,
+} from '../shared/document-checkpoint'
+import { writeDocumentSavePipeline } from './document-save-pipeline'
+import { writeWorkbookDocumentPackage, type DocumentWriteSession } from './workbook-document-writer'
 import {
   createReadStream,
   existsSync,
@@ -15,7 +25,7 @@ import {
   mkdtemp,
   open,
   readFile,
-  readdir,
+  rmdir,
   rm,
   stat,
   writeFile,
@@ -122,13 +132,11 @@ import {
   localMediaRoots,
 } from '@vantage/ai-search'
 import { parseFileToText } from '@vantage/file-parse'
-import type { CellEdit, SheetStructuralOps } from '@vantage/xlsx-gateway/gateway/xlsx-gateway'
 import {
   readArchiveEntryText,
   saveWorkbookViaSidecar,
 } from '@vantage/xlsx-gateway/gateway/xlsx-package-io'
 import { parsePivotDefinition } from '@vantage/xlsx-gateway/gateway/xlsx-pivot'
-import type { SheetEditPlan } from '@vantage/xlsx-gateway/gateway/xlsx-sheets'
 import { readWorkbookRedactionPart } from './workbook-redactions'
 import type {
   AttachmentAddResult,
@@ -1743,6 +1751,8 @@ interface SessionInfo {
   readonly password?: string
   /// Digest of the snapshot (== the file at open time).
   readonly sha256: string
+  /// Known bytes published by this session, separate from its immutable base.
+  readonly publishedVersions?: ReadonlyMap<string, string>
   readonly sheetNames: ReadonlyMap<string, string>
   readonly automaticRecoveryDisabled: boolean
   /// Set when the session opened a converted copy (.xls import): the
@@ -1752,6 +1762,8 @@ interface SessionInfo {
   /// import the first Save is a Save As, but AutoSave and the recovery copy
   /// keep running (keyed on suggestSaveAs), and a quiet save writes in place.
   readonly unsavedNew?: boolean
+  /// The backing bytes contain work that still needs a user-visible save.
+  readonly pendingBase?: boolean
   /// The converted copy came from a CSV: the Save As dialog explains that
   /// formatting requires .xlsx (CSV keeps values only).
   readonly csvImport?: boolean
@@ -1762,6 +1774,9 @@ interface SessionInfo {
   /// Digest of the original .csv at open/save time — guards the write-back
   /// against external modification, like restoreTargetSha.
   readonly csvSourceSha?: string
+  /// Original imported file identity is separate from the Save As suggestion.
+  readonly recoverySourcePath?: string
+  readonly recoverySourceSha?: string
   /// App-owned directory containing the converted CSV/XLS copy. Removed only
   /// after the sidecar session and its independent snapshot are closed.
   readonly importTempDir?: string
@@ -1778,6 +1793,31 @@ interface SessionInfo {
   /// recovery copy, this session still needs its own crash-recovery copy,
   /// keyed by the original.
   readonly emptySource?: boolean
+}
+
+function expectedWorkbookDigest(
+  session: SessionInfo,
+  path: string,
+  openingDigest: string | undefined,
+): string | undefined {
+  return session.publishedVersions?.get(path) ?? openingDigest
+}
+
+function rememberWorkbookPublication(
+  sessions: Map<string, SessionInfo>,
+  sessionId: string,
+  path: string,
+  digest: string,
+): void {
+  const session = sessions.get(sessionId)
+  if (session)
+    sessions.set(sessionId, {
+      ...session,
+      publishedVersions: new Map<string, string>([
+        ...(session.publishedVersions ?? []),
+        [path, digest],
+      ]),
+    })
 }
 
 // ---- runtime configuration (paths differ when bundled into the shell) ----
@@ -1929,6 +1969,255 @@ const sheetsTabs = new Map<number, SheetsTabSession>()
 // a stable identity across sidecar restarts, isolated from other tabs and from
 // later app launches until the recovery UI adopts the authority's saved edits.
 const editAuthorityNamespace = randomUUID()
+let documentRecoveryService: WorkbookDocumentRecovery | undefined
+let documentRecoveryClient: XlsxSidecarClient | undefined
+const documentCandidates = new Map<string, string>()
+const adoptedDocumentCandidates = new Map<string, string>()
+const materializedRecoveryDirectories = new Map<string, string>()
+const materializedRecoveryNames = new Map<string, string>()
+const adoptingDocumentCandidates = new Set<string>()
+const documentPublicationGates = new Map<string, Promise<void>>()
+const documentSnapshotResponseSchema = z
+  .object({
+    apiVersion: z.literal(1),
+    documentId: z.string().uuid(),
+    revision: z.number().int().nonnegative().safe(),
+    payload: z.unknown(),
+  })
+  .passthrough()
+
+function documentRecovery(): WorkbookDocumentRecovery {
+  if (!documentRecoveryService) {
+    documentRecoveryClient = new XlsxSidecarClient(resolveSidecarPath())
+    documentRecoveryService = new WorkbookDocumentRecovery({
+      privateRoot: join(app.getPath('userData'), 'sheets-document-recovery'),
+      nativeClient: documentRecoveryClient,
+    })
+  }
+  return documentRecoveryService
+}
+
+function documentOwnerKey(ownerId: number, sessionId: string): string {
+  return `${ownerId}:${sessionId}`
+}
+
+function runDocumentPublication<T>(
+  ownerId: number,
+  sessionId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const key = documentOwnerKey(ownerId, sessionId)
+  const previous = documentPublicationGates.get(key) ?? Promise.resolve()
+  const pending = previous.then(task)
+  const settled = pending.then(
+    () => undefined,
+    () => undefined,
+  )
+  documentPublicationGates.set(key, settled)
+  void settled.then(() => {
+    if (documentPublicationGates.get(key) === settled) documentPublicationGates.delete(key)
+  })
+  return pending
+}
+
+async function discardOwnedDocumentCheckpoints(ownerId: number): Promise<void> {
+  await Promise.all(
+    [...documentPublicationGates]
+      .filter(([key]) => key.startsWith(`${ownerId}:`))
+      .map(([, gate]) => gate),
+  )
+  const entry = sheetsTabs.get(ownerId)
+  if (entry)
+    for (const [id, session] of entry.sessions) await retireDocumentSession(ownerId, id, session)
+}
+
+async function checkpointDocumentForSession(
+  ownerId: number,
+  sessionId: string,
+  session: SessionInfo,
+  request: WorkbookSaveRequest,
+) {
+  if (sheetsTabs.get(ownerId)?.sessions.get(sessionId) !== session)
+    throw new Error('Unknown workbook session.')
+  const originalPath =
+    session.restoreTarget ??
+    session.recoverySourcePath ??
+    session.csvSourcePath ??
+    session.suggestSaveAs ??
+    session.path
+  const digest =
+    session.restoreTarget !== undefined
+      ? session.restoreTargetSha
+      : session.recoverySourcePath !== undefined
+        ? session.recoverySourceSha
+        : session.csvSourcePath !== undefined
+          ? session.csvSourceSha
+          : session.suggestSaveAs !== undefined
+            ? undefined
+            : session.sha256
+  const receipt = await documentRecovery().checkpoint({
+    ownerId,
+    sessionId,
+    originalPath,
+    sourcePath: session.snapshotPath,
+    originalFingerprint: digest === undefined ? null : `sha256:${digest}`,
+    sheets: [...session.sheetNames].map(([id, name]) => ({ id, name })),
+    payload: documentPayloadFromSave(request),
+    encrypted: session.password !== undefined,
+    actor: 'desktop',
+  })
+  if (sheetsTabs.get(ownerId)?.sessions.get(sessionId) !== session) {
+    throw new Error(
+      'The workbook closed or changed while its document checkpoint was being committed.',
+    )
+  }
+  const key = documentOwnerKey(ownerId, sessionId)
+  // Memory-only protected documents also need explicit retirement on save,
+  // undo-to-clean and close; their document ID has no disk candidate.
+  documentCandidates.set(key, receipt.documentId)
+  return receipt
+}
+
+async function retireDocumentSession(
+  ownerId: number,
+  sessionId: string,
+  session?: SessionInfo,
+): Promise<void> {
+  const key = documentOwnerKey(ownerId, sessionId)
+  const candidate = documentCandidates.get(key)
+  const adopted = session && adoptedDocumentCandidates.get(session.path)
+  if (candidate) await documentRecovery().retire(candidate)
+  if (adopted && adopted !== candidate) await documentRecovery().retire(adopted)
+  documentCandidates.delete(key)
+  if (session) {
+    adoptedDocumentCandidates.delete(session.path)
+    const directory = materializedRecoveryDirectories.get(session.path)
+    if (directory) {
+      await rm(session.path, { force: true }).catch(() => undefined)
+      await rmdir(directory).catch(() => undefined)
+      materializedRecoveryDirectories.delete(session.path)
+      materializedRecoveryNames.delete(session.path)
+    }
+  }
+}
+
+async function nativeDocumentRecoveryForOpen(
+  client: XlsxSidecarClient,
+  originalPath: string,
+  contents?: WebContents,
+  parent?: BrowserWindow,
+  newWorkbookPath?: string,
+): Promise<{
+  handled: boolean
+  prepared?: {
+    openPath: string
+    restoreTarget?: string
+    suggestSaveAs?: string
+    recoverySourcePath?: string
+    recoverySourceSha?: string
+  }
+}> {
+  const candidates = await documentRecovery().listCandidates(originalPath)
+  const adopted = new Set(adoptedDocumentCandidates.values())
+  const candidate = candidates.find(
+    (item) => !adopted.has(item.id) && !adoptingDocumentCandidates.has(item.id),
+  )
+  if (!candidate) return { handled: false }
+  adoptingDocumentCandidates.add(candidate.id)
+  try {
+    const recovered = await documentRecovery().readCandidate(candidate.id, originalPath)
+    const promptPath = join(dirname(recovered.pinnedBasePath), 'manifest.json')
+    const choice =
+      contents && !contents.isDestroyed()
+        ? await promptRecoveryRestore(
+            contents,
+            originalPath,
+            promptPath,
+            newWorkbookPath === undefined,
+            recovered.sourceConflict,
+          )
+        : await promptRecoveryRestoreNative(
+            originalPath,
+            promptPath,
+            parent,
+            newWorkbookPath === undefined,
+            recovered.sourceConflict,
+          )
+    if (choice === 'discard') {
+      await documentRecovery().retire(candidate.id)
+      if (newWorkbookPath) forgetUnsavedNewRecovery(originalPath)
+      else clearWorkbookRecovery(originalPath)
+      return { handled: true }
+    }
+    if (choice !== 'restore') return { handled: true }
+    const payload = validateDocumentPayload(recovered.snapshot.payload)
+    await mkdir(recoveryDir(), { recursive: true, mode: 0o700 })
+    const directory = await mkdtemp(join(recoveryDir(), 'native-document-'))
+    const target = join(directory, 'recovered.bin')
+    try {
+      const source: SessionInfo = {
+        path: originalPath,
+        snapshotPath: recovered.pinnedBasePath,
+        sha256: recovered.snapshot.sourceFingerprint.replace(/^sha256:/, ''),
+        sheetNames: new Map(recovered.snapshot.sheets.map((sheet) => [sheet.id, sheet.name])),
+        automaticRecoveryDisabled: false,
+      }
+      await writeWorkbookTo(
+        client,
+        source,
+        { ...payload, sessionId: randomUUID(), mode: 'save-as' },
+        target,
+      )
+      if (newWorkbookPath) {
+        await copyFile(target, newWorkbookPath)
+        await rm(target, { force: true })
+        await rmdir(directory)
+        adoptedDocumentCandidates.set(newWorkbookPath, candidate.id)
+        return { handled: true, prepared: { openPath: newWorkbookPath } }
+      }
+      materializedRecoveryDirectories.set(target, directory)
+      materializedRecoveryNames.set(target, originalPath)
+      adoptedDocumentCandidates.set(target, candidate.id)
+      // A changed original or a non-OOXML source always gets an explicit Save As.
+      const current = await sha256File(originalPath)
+        .then((digest) => `sha256:${digest}`)
+        .catch(() => null)
+      const changed = current !== null && current !== recovered.originalFingerprint
+      const officePackage = /\.(xlsx|xlsm)$/i.test(originalPath)
+      return {
+        handled: true,
+        prepared:
+          officePackage && !changed
+            ? {
+                openPath: target,
+                restoreTarget: originalPath,
+                recoverySourcePath: originalPath,
+                ...(recovered.originalFingerprint === null
+                  ? {}
+                  : {
+                      recoverySourceSha: recovered.originalFingerprint.replace(/^sha256:/, ''),
+                    }),
+              }
+            : {
+                openPath: target,
+                suggestSaveAs: officePackage
+                  ? originalPath
+                  : originalPath.replace(/\.[^.]+$/, '.xlsx'),
+                recoverySourcePath: originalPath,
+                ...(recovered.originalFingerprint === null
+                  ? {}
+                  : { recoverySourceSha: recovered.originalFingerprint.replace(/^sha256:/, '') }),
+              },
+      }
+    } catch (error) {
+      await rm(target, { force: true }).catch(() => undefined)
+      await rmdir(directory).catch(() => undefined)
+      throw error
+    }
+  } finally {
+    adoptingDocumentCandidates.delete(candidate.id)
+  }
+}
 let activeSheetsWebContents: WebContents | null = null
 let pastedTempCleanupStarted = false
 
@@ -2030,11 +2319,22 @@ function registerSheetsSession(webContents: WebContents, client: XlsxSidecarClie
   webContents.once('destroyed', () => {
     const entry = sheetsTabs.get(webContents.id)
     sheetsTabs.delete(webContents.id)
+    // A lost renderer is not an explicit discard. Keep durable checkpoints.
+    void documentRecoveryService
+      ?.forgetOwner(webContents.id)
+      .catch((error) => console.warn('[sheets] Document recovery authority close failed:', error))
     if (entry) {
+      const recoveryPaths = [...entry.sessions.values()].map((session) => session.path)
+      for (const [sessionId, session] of entry.sessions) {
+        documentCandidates.delete(documentOwnerKey(webContents.id, sessionId))
+        adoptedDocumentCandidates.delete(session.path)
+      }
       // Free pending chunked-save uploads with the tab (the sweep timer's
       // closure would otherwise keep them reachable until the idle expiry).
       entry.saveTransfers.dispose()
       void closeAllSessions(entry)
+        .finally(() => Promise.all(recoveryPaths.map(releasePreparedDocumentRecovery)))
+        .catch((error) => console.warn('[sheets] Lost renderer session cleanup failed:', error))
     }
     if (activeSheetsWebContents === webContents) activeSheetsWebContents = null
   })
@@ -2238,10 +2538,21 @@ function forgetUnsavedNewRecovery(suggestSaveAs: string): void {
 }
 
 /** shell, at launch: would-be paths of new workbooks whose recovery copy survived a crash */
-export function pendingUnsavedNewRecoveries(): string[] {
+export async function pendingUnsavedNewRecoveries(): Promise<string[]> {
   const live = readUnsavedNewIndex().filter((p) => existsSync(recoveryPathFor(p)))
   writeUnsavedNewIndex(live)
-  return live
+  const native = await documentRecovery().listAllCandidates()
+  return [
+    ...new Set([
+      ...live,
+      ...native
+        .filter(
+          (candidate) =>
+            /\.(xlsx|xlsm)$/i.test(candidate.originalPath) && !existsSync(candidate.originalPath),
+        )
+        .map((candidate) => candidate.originalPath),
+    ]),
+  ]
 }
 
 /** the would-be name changed: the crash copy keyed on it follows (false = copy stays under the old key) */
@@ -2277,6 +2588,7 @@ function promptRecoveryRestore(
   filePath: string,
   recoveryPath: string,
   onDisk = true,
+  sourceConflict = false,
 ): Promise<RecoveryChoice> {
   return new Promise((resolve) => {
     let savedAtMs = Date.now()
@@ -2295,7 +2607,9 @@ function promptRecoveryRestore(
     contents.once('destroyed', onDestroyed)
     contents.send(IPC_CHANNELS.recoveryPrompt, {
       title: tm('autosaveFoundTitle'),
-      body: recoveryPromptBody(filePath, recoveryPath, onDisk),
+      body:
+        recoveryPromptBody(filePath, recoveryPath, onDisk) +
+        (sourceConflict ? `\n\n${tm('errDiskChanged')}` : ''),
       restoreLabel: tm('autosaveRestore'),
       discardLabel: tm('autosaveDiscard'),
       fileName: basename(filePath),
@@ -2310,6 +2624,7 @@ async function promptRecoveryRestoreNative(
   recoveryPath: string,
   parent?: BrowserWindow | undefined,
   onDisk = true,
+  sourceConflict = false,
 ): Promise<RecoveryChoice> {
   const options = {
     type: 'question' as const,
@@ -2317,7 +2632,9 @@ async function promptRecoveryRestoreNative(
     defaultId: 0,
     cancelId: 1,
     message: tm('autosaveFoundTitle'),
-    detail: recoveryPromptBody(filePath, recoveryPath, onDisk),
+    detail:
+      recoveryPromptBody(filePath, recoveryPath, onDisk) +
+      (sourceConflict ? `\n\n${tm('errDiskChanged')}` : ''),
   }
   const answer = parent
     ? await dialog.showMessageBox(parent, options)
@@ -2835,7 +3152,12 @@ export async function requestSheetsClose(
       ? await dialog.showMessageBox(parent, options)
       : await dialog.showMessageBox(options)
   if (response === 2) return false
-  if (response === 1) return true
+  if (response === 1) {
+    await discardOwnedDocumentCheckpoints(contents.id).catch((error) =>
+      console.warn('[sheets] Discarded document recovery cleanup failed:', error),
+    )
+    return true
+  }
   // The window went away (or a quit started) while the prompt was up: don't save
   if (shutdownLatch.active || contents.isDestroyed()) return true
   return await new Promise<boolean>((resolve) => {
@@ -3000,6 +3322,8 @@ export function registerSheetsIpc(): void {
         suggestSaveAs: prepared.suggestSaveAs,
         csvImport: prepared.csvImport,
         csvSourcePath: prepared.csvSourcePath,
+        recoverySourcePath: prepared.recoverySourcePath,
+        recoverySourceSha: prepared.recoverySourceSha,
         emptyCsv: prepared.emptyCsv,
         importTempDir: prepared.importTempDir,
         restoreTarget: prepared.restoreTarget,
@@ -3028,6 +3352,7 @@ export function registerSheetsIpc(): void {
           importTempDir: session.importTempDir,
           closeSidecar: () => entry.client.close(result.sessionId),
         })
+        await releasePreparedDocumentRecovery(session.path)
       }
       return null
     }
@@ -3149,6 +3474,8 @@ export function registerSheetsIpc(): void {
           suggestSaveAs: prepared.suggestSaveAs,
           csvImport: prepared.csvImport,
           csvSourcePath: prepared.csvSourcePath,
+          recoverySourcePath: prepared.recoverySourcePath,
+          recoverySourceSha: prepared.recoverySourceSha,
           importTempDir: prepared.importTempDir,
           restoreTarget: prepared.restoreTarget,
           emptySource: prepared.emptySource,
@@ -3273,6 +3600,15 @@ export function registerSheetsIpc(): void {
     )
     const idsByName = new Map([...session.sheetNames].map(([id, name]) => [name, id]))
     return workbookRecalcResultSchema.parse({
+      ...(result.cacheWritebackAllowed === undefined
+        ? {}
+        : { cacheWritebackAllowed: result.cacheWritebackAllowed }),
+      ...(result.calculationCompleteness === undefined
+        ? {}
+        : { calculationCompleteness: result.calculationCompleteness }),
+      ...(result.cacheWritebackReasons === undefined
+        ? {}
+        : { cacheWritebackReasons: result.cacheWritebackReasons }),
       cells: result.cells.flatMap((cell) => {
         const sheetId = idsByName.get(cell.sheet)
         if (sheetId === undefined) return []
@@ -3282,6 +3618,7 @@ export function registerSheetsIpc(): void {
             row: cell.row,
             column: cell.column,
             formatted: cell.formatted,
+            ...(cell.value === undefined ? {} : { value: cell.value }),
             ...(cell.number === undefined ? {} : { number: cell.number }),
             ...(cell.isError ? { isError: true } : {}),
             isFormula: cell.isFormula,
@@ -3575,184 +3912,300 @@ export function registerSheetsIpc(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.saveWorkbook, async (event, input: unknown) => {
-    const entry = sessionFor(event)
-    const client = entry.client
-    const request = resolveTransferredEdits(entry, workbookSaveRequestSchema.parse(input))
-    const session = entry.sessions.get(request.sessionId)
-    if (!session) throw new Error('Unknown workbook session.')
+    const validatedRequest = workbookSaveRequestSchema.parse(input)
+    return runDocumentPublication(event.sender.id, validatedRequest.sessionId, async () => {
+      const entry = sessionFor(event)
+      const client = entry.client
+      let request = resolveTransferredEdits(entry, validatedRequest)
+      const session = entry.sessions.get(request.sessionId)
+      if (!session) throw new Error('Unknown workbook session.')
 
-    // A CSV session's plain Save keeps the CSV identity: the xlsx save lands
-    // on the temp copy and the serialized csvContent is written back to the
-    // original .csv afterwards.
-    const csvInPlace = request.mode === 'save' && session.csvSourcePath !== undefined
-    let targetPath = session.path
-    // MCP explicit-path save (planning/mcp-server.md): dialog-free Save As to
-    // an exact path with a clobber guard — docs:save-to parity. Only the xlsx
-    // pipeline is reachable this way (.xlsm/.csv need their interactive flows).
-    if (request.targetPath !== undefined) {
-      if (request.mode !== 'save-as') throw new Error('An explicit save path needs Save As.')
-      if (!isAbsolute(request.targetPath)) throw new Error('Save path must be absolute.')
-      targetPath = /\.xlsx$/i.test(request.targetPath)
-        ? request.targetPath
-        : `${request.targetPath}.xlsx`
-      // only a target the MCP layer resolved for this tab may be written without a dialog
-      if (!canMcpSheetWrite(event.sender.id, targetPath)) {
-        throw new Error('save target was not authorized')
+      // A CSV session's plain Save keeps the CSV identity: the xlsx save lands
+      // on the temp copy and the serialized csvContent is written back to the
+      // original .csv afterwards.
+      const csvInPlace = request.mode === 'save' && session.csvSourcePath !== undefined
+      let targetPath = session.path
+      // MCP explicit-path save (planning/mcp-server.md): dialog-free Save As to
+      // an exact path with a clobber guard — docs:save-to parity. Only the xlsx
+      // pipeline is reachable this way (.xlsm/.csv need their interactive flows).
+      if (request.targetPath !== undefined) {
+        if (request.mode !== 'save-as') throw new Error('An explicit save path needs Save As.')
+        if (!isAbsolute(request.targetPath)) throw new Error('Save path must be absolute.')
+        targetPath = /\.xlsx$/i.test(request.targetPath)
+          ? request.targetPath
+          : `${request.targetPath}.xlsx`
+        // only a target the MCP layer resolved for this tab may be written without a dialog
+        if (!canMcpSheetWrite(event.sender.id, targetPath)) {
+          throw new Error('save target was not authorized')
+        }
+        if (existsSync(targetPath) && request.overwrite !== true) {
+          throw new Error(`file already exists: ${targetPath}`)
+        }
+      } else if (request.mode === 'save' && request.quiet && session.unsavedNew) {
+        // AutoSave / AI-run autosave of a workbook the user has not named yet:
+        // no dialog mid-flow, the edits land in the backing temp file and the
+        // session stays an unsaved new one (Ctrl+S still asks where to save)
+        targetPath = session.path
+      } else if (request.mode === 'save-as' || session.suggestSaveAs !== undefined) {
+        // .xlsm keeps its extension: untouched archive entries (vbaProject.bin,
+        // the macro-enabled content type) round-trip verbatim through the save.
+        const macroEnabled = /\.xlsm$/i.test(
+          session.suggestSaveAs ?? session.restoreTarget ?? session.path,
+        )
+        const ext = macroEnabled ? 'xlsm' : 'xlsx'
+        // A name the model proposed for the reader's own request prefills the
+        // dialog rather than replacing it: the reader still chooses where the
+        // file goes, and cancelling still cancels. Without one, the dialog opens
+        // on the name the save would have offered anyway.
+        const fallbackPath =
+          session.suggestSaveAs ??
+          session.csvSourcePath?.replace(/\.[^.]+$/, '.xlsx') ??
+          session.restoreTarget ??
+          session.path
+        const proposed = request.defaultName ? sanitizeAutoRenameBase(request.defaultName) : null
+        const selection = await saveFileDialog(event, {
+          defaultPath: proposed ? join(dirname(fallbackPath), `${proposed}.${ext}`) : fallbackPath,
+          filters: macroEnabled
+            ? [{ name: tm('filterXlsm'), extensions: ['xlsm'] }]
+            : [
+                { name: tm('filterXlsx'), extensions: ['xlsx'] },
+                { name: tm('filterCsv'), extensions: ['csv'] },
+              ],
+          // CSV import: explain why the save goes through .xlsx (CSV keeps values only)
+          ...(session.csvImport
+            ? { title: tm('csvSaveAsNotice'), message: tm('csvSaveAsNotice') }
+            : {}),
+        })
+        if (selection.canceled || !selection.filePath) return { canceled: true }
+        // A CSV pick can't ride the xlsx pipeline: hand the path back so the
+        // renderer serializes the active sheet through the CSV export channel.
+        if (!macroEnabled && selection.filePath.toLowerCase().endsWith('.csv')) {
+          return { canceled: true, csvSaveAsPath: selection.filePath }
+        }
+        targetPath = selection.filePath.toLowerCase().endsWith(`.${ext}`)
+          ? selection.filePath
+          : `${selection.filePath}.${ext}`
+      } else if (session.restoreTarget !== undefined) {
+        // Restored crash-recovery copy: the restore prompt was the confirmation,
+        // so Save writes straight back to the original — unless someone else
+        // changed it since the restore.
+        const currentSha = await sha256File(session.restoreTarget).catch(() => undefined)
+        if (
+          currentSha !== undefined &&
+          currentSha !==
+            expectedWorkbookDigest(session, session.restoreTarget, session.restoreTargetSha)
+        ) {
+          throw new Error(tm('errDiskChanged'))
+        }
+        targetPath = session.restoreTarget
+      } else {
+        // Plain in-place save: refuse to silently overwrite a file some other
+        // program changed after this session opened it. Save As (above) skips
+        // this guard on purpose — it patches the session snapshot, not the live
+        // file, and writes to a path the user just confirmed, so it stays
+        // usable as the escape hatch this error message points to. A file that
+        // was deleted on disk is fine: saving recreates it.
+        const currentSha = await sha256File(session.path).catch(() => undefined)
+        if (
+          currentSha !== undefined &&
+          currentSha !== expectedWorkbookDigest(session, session.path, session.sha256)
+        ) {
+          throw new Error(tm('errDiskChanged'))
+        }
       }
-      if (existsSync(targetPath) && request.overwrite !== true) {
-        throw new Error(`file already exists: ${targetPath}`)
+      // The CSV write-back gets the same external-change guard as restoreTarget;
+      // a deleted .csv is fine — the write recreates it.
+      if (csvInPlace && session.csvSourcePath !== undefined) {
+        const csvSha = await sha256File(session.csvSourcePath).catch(() => undefined)
+        if (
+          csvSha !== undefined &&
+          csvSha !== expectedWorkbookDigest(session, session.csvSourcePath, session.csvSourceSha)
+        ) {
+          throw new Error(tm('errDiskChanged'))
+        }
       }
-    } else if (request.mode === 'save' && request.quiet && session.unsavedNew) {
-      // AutoSave / AI-run autosave of a workbook the user has not named yet:
-      // no dialog mid-flow, the edits land in the backing temp file and the
-      // session stays an unsaved new one (Ctrl+S still asks where to save)
-      targetPath = session.path
-    } else if (request.mode === 'save-as' || session.suggestSaveAs !== undefined) {
-      // .xlsm keeps its extension: untouched archive entries (vbaProject.bin,
-      // the macro-enabled content type) round-trip verbatim through the save.
-      const macroEnabled = /\.xlsm$/i.test(
-        session.suggestSaveAs ?? session.restoreTarget ?? session.path,
+
+      // The I/O adapter consumes the exact immutable revision acknowledged by
+      // Rust, rather than a second independently interpreted renderer payload.
+      const acknowledged = await checkpointDocumentForSession(
+        event.sender.id,
+        request.sessionId,
+        session,
+        request,
       )
-      const ext = macroEnabled ? 'xlsm' : 'xlsx'
-      // A name the model proposed for the reader's own request prefills the
-      // dialog rather than replacing it: the reader still chooses where the
-      // file goes, and cancelling still cancels. Without one, the dialog opens
-      // on the name the save would have offered anyway.
-      const fallbackPath =
-        session.suggestSaveAs ??
-        session.csvSourcePath?.replace(/\.[^.]+$/, '.xlsx') ??
-        session.restoreTarget ??
-        session.path
-      const proposed = request.defaultName ? sanitizeAutoRenameBase(request.defaultName) : null
-      const selection = await saveFileDialog(event, {
-        defaultPath: proposed ? join(dirname(fallbackPath), `${proposed}.${ext}`) : fallbackPath,
-        filters: macroEnabled
-          ? [{ name: tm('filterXlsm'), extensions: ['xlsm'] }]
-          : [
-              { name: tm('filterXlsx'), extensions: ['xlsx'] },
-              { name: tm('filterCsv'), extensions: ['csv'] },
-            ],
-        // CSV import: explain why the save goes through .xlsx (CSV keeps values only)
-        ...(session.csvImport
-          ? { title: tm('csvSaveAsNotice'), message: tm('csvSaveAsNotice') }
-          : {}),
-      })
-      if (selection.canceled || !selection.filePath) return { canceled: true }
-      // A CSV pick can't ride the xlsx pipeline: hand the path back so the
-      // renderer serializes the active sheet through the CSV export channel.
-      if (!macroEnabled && selection.filePath.toLowerCase().endsWith('.csv')) {
-        return { canceled: true, csvSaveAsPath: selection.filePath }
-      }
-      targetPath = selection.filePath.toLowerCase().endsWith(`.${ext}`)
-        ? selection.filePath
-        : `${selection.filePath}.${ext}`
-    } else if (session.restoreTarget !== undefined) {
-      // Restored crash-recovery copy: the restore prompt was the confirmation,
-      // so Save writes straight back to the original — unless someone else
-      // changed it since the restore.
-      const currentSha = await sha256File(session.restoreTarget).catch(() => undefined)
-      if (currentSha !== undefined && currentSha !== session.restoreTargetSha) {
-        throw new Error(tm('errDiskChanged'))
-      }
-      targetPath = session.restoreTarget
-    } else {
-      // Plain in-place save: refuse to silently overwrite a file some other
-      // program changed after this session opened it. Save As (above) skips
-      // this guard on purpose — it patches the session snapshot, not the live
-      // file, and writes to a path the user just confirmed, so it stays
-      // usable as the escape hatch this error message points to. A file that
-      // was deleted on disk is fine: saving recreates it.
-      const currentSha = await sha256File(session.path).catch(() => undefined)
-      if (currentSha !== undefined && currentSha !== session.sha256) {
-        throw new Error(tm('errDiskChanged'))
-      }
-    }
-    // The CSV write-back gets the same external-change guard as restoreTarget;
-    // a deleted .csv is fine — the write recreates it.
-    if (csvInPlace && session.csvSourcePath !== undefined) {
-      const csvSha = await sha256File(session.csvSourcePath).catch(() => undefined)
-      if (csvSha !== undefined && csvSha !== session.csvSourceSha) {
-        throw new Error(tm('errDiskChanged'))
-      }
-    }
-
-    const mutation = await writeWorkbookTo(client, session, request, targetPath)
-
-    if (csvInPlace && session.csvSourcePath !== undefined && request.csvContent !== undefined) {
-      // The temp copy already holds the saved bytes: refresh the session's
-      // guard digest first, so a failed CSV write-back below leaves a
-      // retryable session instead of stranding the next Save on
-      // errDiskChanged against its own write.
-      const savedSha = await sha256File(session.path).catch(() => undefined)
-      if (savedSha !== undefined && entry.sessions.has(request.sessionId)) {
-        entry.sessions.set(request.sessionId, { ...session, sha256: savedSha })
-      }
-      // UTF-8 BOM so Excel decodes the reopened file correctly.
-      await atomicWriteFile(
-        session.csvSourcePath,
-        Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(request.csvContent, 'utf8')]),
+      const pinned = documentSnapshotResponseSchema.parse(
+        await documentRecoveryClient!.documentSnapshot({
+          apiVersion: 1,
+          documentId: acknowledged.documentId,
+          revision: acknowledged.revision,
+        }),
       )
-    }
+      if (
+        pinned.documentId !== acknowledged.documentId ||
+        pinned.revision !== acknowledged.revision
+      ) {
+        throw new Error(
+          'The native document snapshot does not match the acknowledged save revision.',
+        )
+      }
+      const { editsTransferId: _consumedTransfer, ...saveOptions } = request
+      request = { ...saveOptions, ...validateDocumentPayload(pinned.payload) }
+      const beforePublish = async () => {
+        if (sheetsTabs.get(event.sender.id)?.sessions.get(request.sessionId) !== session) {
+          throw new Error('The workbook closed or changed before its save could be published.')
+        }
+        const latest = documentSnapshotResponseSchema.parse(
+          await documentRecoveryClient!.documentSnapshot({
+            apiVersion: 1,
+            documentId: acknowledged.documentId,
+          }),
+        )
+        if (
+          latest.documentId !== acknowledged.documentId ||
+          latest.revision !== acknowledged.revision
+        ) {
+          throw new Error(
+            'The document advanced while saving. Retry Save to include its latest changes.',
+          )
+        }
+        if (
+          request.mode === 'save' &&
+          request.targetPath === undefined &&
+          session.suggestSaveAs === undefined
+        ) {
+          const guardedPath = session.restoreTarget ?? session.path
+          const expected = expectedWorkbookDigest(
+            session,
+            guardedPath,
+            session.restoreTarget !== undefined ? session.restoreTargetSha : session.sha256,
+          )
+          const current = await sha256File(guardedPath).catch(() => undefined)
+          if (current !== undefined && current !== expected) throw new Error(tm('errDiskChanged'))
+        }
+      }
+      const mutation = await writeWorkbookTo(client, session, request, targetPath, beforePublish)
+      rememberWorkbookPublication(
+        entry.sessions,
+        request.sessionId,
+        targetPath,
+        mutation.publishedSha256,
+      )
 
-    // The sidecar session still streams the pre-save bytes; swap it for a
-    // fresh session over the saved file so future reads match the disk state.
-    const quietUnsavedNew = targetPath === session.path && session.unsavedNew === true
-    entry.sessions.delete(request.sessionId)
-    await cleanupSessionResources({
-      tempRoot: app.getPath('temp'),
-      snapshotPath: session.snapshotPath,
-      // A CSV in-place save keeps saving into the temp copy, and a quiet save of
-      // an unsaved new workbook just wrote its backing file — the directory
-      // must survive the session swap.
-      importTempDir: csvInPlace || quietUnsavedNew ? undefined : session.importTempDir,
-      closeSidecar: () => client.close(request.sessionId),
-    })
-    const file = await openWorkbookSession(client, targetPath, entry.sessions, {
-      ...(csvInPlace
-        ? {
-            csvImport: true,
-            csvSourcePath: session.csvSourcePath,
-            importTempDir: session.importTempDir,
-          }
-        : quietUnsavedNew
+      if (csvInPlace && session.csvSourcePath !== undefined && request.csvContent !== undefined) {
+        // The temp copy already holds the saved bytes: refresh the session's
+        // guard digest first, so a failed CSV write-back below leaves a
+        // retryable session instead of stranding the next Save on
+        // errDiskChanged against its own write.
+        // UTF-8 BOM so Excel decodes the reopened file correctly.
+        const currentCsvSha = await sha256File(session.csvSourcePath).catch(() => undefined)
+        if (
+          currentCsvSha !== undefined &&
+          currentCsvSha !==
+            expectedWorkbookDigest(session, session.csvSourcePath, session.csvSourceSha)
+        ) {
+          throw new Error(tm('errDiskChanged'))
+        }
+        const csvBytes = Buffer.concat([
+          Buffer.from([0xef, 0xbb, 0xbf]),
+          Buffer.from(request.csvContent, 'utf8'),
+        ])
+        await atomicWriteFile(session.csvSourcePath, csvBytes)
+        rememberWorkbookPublication(
+          entry.sessions,
+          request.sessionId,
+          session.csvSourcePath,
+          createHash('sha256').update(csvBytes).digest('hex'),
+        )
+      }
+
+      // The sidecar session still streams the pre-save bytes; swap it for a
+      // fresh session over the saved file so future reads match the disk state.
+      const quietUnsavedNew = targetPath === session.path && session.unsavedNew === true
+      const file = await openWorkbookSession(client, targetPath, entry.sessions, {
+        retainExistingBaseOnFailure: true,
+        ...(csvInPlace
           ? {
-              suggestSaveAs: session.suggestSaveAs,
+              csvImport: true,
+              csvSourcePath: session.csvSourcePath,
               importTempDir: session.importTempDir,
-              unsavedNew: true,
             }
-          : {}),
-      ...(session.password === undefined ? {} : { password: session.password }),
-    })
-    if (quietUnsavedNew && session.suggestSaveAs !== undefined) {
-      // the temp path must not reach the title or recents; the recovery copy
-      // is what a crash restores from, so it tracks the saved bytes
-      try {
-        await mkdir(recoveryDir(), { recursive: true })
-        await copyFile(targetPath, recoveryPathFor(session.suggestSaveAs))
-        rememberUnsavedNewRecovery(session.suggestSaveAs)
-      } catch (error) {
-        console.warn('[sheets] recovery copy of an unsaved new workbook failed:', error)
+          : quietUnsavedNew
+            ? {
+                suggestSaveAs: session.suggestSaveAs,
+                importTempDir: session.importTempDir,
+                unsavedNew: true,
+                pendingBase: true,
+              }
+            : {}),
+        ...(session.password === undefined ? {} : { password: session.password }),
+      }).catch((error: unknown) => {
+        throw new Error(
+          `The workbook was saved to "${targetPath}", but its replacement view could not be opened. Your edits remain available; retry Save or reopen the saved file. ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        )
+      })
+      // Keep the previous reader and checkpoint usable until a replacement has
+      // opened successfully. Cleanup after publication cannot turn a saved file
+      // into a failed save or strand the renderer on a deleted session.
+      entry.sessions.delete(request.sessionId)
+      await cleanupSessionResources({
+        tempRoot: app.getPath('temp'),
+        snapshotPath: session.snapshotPath,
+        importTempDir: csvInPlace || quietUnsavedNew ? undefined : session.importTempDir,
+        closeSidecar: () => client.close(request.sessionId),
+      }).catch((error) =>
+        console.warn('[sheets] Saved workbook previous reader cleanup failed:', error),
+      )
+      if (quietUnsavedNew && session.suggestSaveAs !== undefined) {
+        // Keep the newly saved backing file under a fresh durable authority.
+        // Its base already includes the saved changes, so do not replay the old
+        // structural operations when recording its recovery checkpoint.
+        const freshSession = entry.sessions.get(file.sessionId)
+        if (freshSession) {
+          try {
+            await checkpointDocumentForSession(event.sender.id, file.sessionId, freshSession, {
+              ...emptyDocumentPayload(),
+              sessionId: file.sessionId,
+              mode: 'save-as',
+            })
+            await retireDocumentSession(event.sender.id, request.sessionId, session)
+          } catch (error) {
+            console.warn('[sheets] Unsaved workbook recovery authority handoff failed:', error)
+          }
+        }
+        // the temp path must not reach the title or recents; the recovery copy
+        // is what a crash restores from, so it tracks the saved bytes
+        try {
+          await mkdir(recoveryDir(), { recursive: true })
+          await copyFile(targetPath, recoveryPathFor(session.suggestSaveAs))
+          rememberUnsavedNewRecovery(session.suggestSaveAs)
+        } catch (error) {
+          console.warn('[sheets] recovery copy of an unsaved new workbook failed:', error)
+        }
+        return { canceled: false, file, touchedEntries: mutation.touchedEntries }
       }
+      // Notify shell (if running) so it can update the tab title and record the
+      // saved path in recent files (mirrors the open hook; covers Save As + first
+      // save after converting an .xls/.csv import). A CSV session's user-visible
+      // file is the original .csv, not the temp copy the xlsx save landed on.
+      workbookOpenedHook?.(
+        event.sender,
+        (csvInPlace ? session.csvSourcePath : undefined) ?? targetPath,
+      )
+      // The file on disk now carries these edits
+      clearWorkbookRecovery(targetPath)
+      await retireDocumentSession(event.sender.id, request.sessionId, session).catch((error) =>
+        console.warn('[sheets] Saved document recovery cleanup failed:', error),
+      )
+      if (session.suggestSaveAs !== undefined) {
+        if (session.unsavedNew) forgetUnsavedNewRecovery(session.suggestSaveAs)
+        else clearWorkbookRecovery(session.suggestSaveAs)
+      }
+      // Restored session saved (possibly Save As elsewhere): the unsaved work is
+      // persisted, so the original's recovery copy must not re-offer it.
+      if (session.restoreTarget !== undefined) clearWorkbookRecovery(session.restoreTarget)
       return { canceled: false, file, touchedEntries: mutation.touchedEntries }
-    }
-    // Notify shell (if running) so it can update the tab title and record the
-    // saved path in recent files (mirrors the open hook; covers Save As + first
-    // save after converting an .xls/.csv import). A CSV session's user-visible
-    // file is the original .csv, not the temp copy the xlsx save landed on.
-    workbookOpenedHook?.(
-      event.sender,
-      (csvInPlace ? session.csvSourcePath : undefined) ?? targetPath,
-    )
-    // The file on disk now carries these edits
-    clearWorkbookRecovery(targetPath)
-    if (session.suggestSaveAs !== undefined) {
-      if (session.unsavedNew) forgetUnsavedNewRecovery(session.suggestSaveAs)
-      else clearWorkbookRecovery(session.suggestSaveAs)
-    }
-    // Restored session saved (possibly Save As elsewhere): the unsaved work is
-    // persisted, so the original's recovery copy must not re-offer it.
-    if (session.restoreTarget !== undefined) clearWorkbookRecovery(session.restoreTarget)
-    return { canceled: false, file, touchedEntries: mutation.touchedEntries }
+    })
   })
 
   // Chunked upload for edit sets too large to inline in one save request:
@@ -3788,6 +4241,37 @@ export function registerSheetsIpc(): void {
 
   // Crash-recovery copy of a dirty workbook: the same save pipeline with a
   // userData target, no session swap and no dialogs — best-effort, silent on failure.
+  ipcMain.handle(
+    IPC_CHANNELS.checkpointWorkbookDocument,
+    async (event, input: unknown, dirty: unknown) => {
+      if (typeof dirty !== 'boolean') throw new Error('Invalid document checkpoint state.')
+      const validatedRequest = workbookSaveRequestSchema.parse(input)
+      await documentPublicationGates.get(
+        documentOwnerKey(event.sender.id, validatedRequest.sessionId),
+      )
+      const entry = sessionFor(event)
+      const request = resolveTransferredEdits(entry, validatedRequest)
+      const session = entry.sessions.get(request.sessionId)
+      if (!session) throw new Error('Unknown workbook session.')
+      const receipt = await checkpointDocumentForSession(
+        event.sender.id,
+        request.sessionId,
+        session,
+        request,
+      )
+      if (
+        !dirty &&
+        !session.pendingBase &&
+        session.restoreTarget === undefined &&
+        !adoptedDocumentCandidates.has(session.path)
+      ) {
+        await retireDocumentSession(event.sender.id, request.sessionId, session)
+        return { ...receipt, candidateId: null }
+      }
+      return receipt
+    },
+  )
+
   ipcMain.handle(IPC_CHANNELS.writeWorkbookRecovery, async (event, input: unknown) => {
     const entry = sessionFor(event)
     const request = resolveTransferredEdits(entry, workbookSaveRequestSchema.parse(input))
@@ -3823,12 +4307,17 @@ export function registerSheetsIpc(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.closeWorkbook, async (event, sessionId: unknown) => {
-    const entry = sessionFor(event)
     const validatedSessionId = z.string().uuid().parse(sessionId)
+    await documentPublicationGates.get(documentOwnerKey(event.sender.id, validatedSessionId))
+    const entry = sessionFor(event)
     entry.saveTransfers.discardSession(validatedSessionId)
     const session = entry.sessions.get(validatedSessionId)
     if (!entry.sessions.delete(validatedSessionId)) return
     if (session === undefined) return
+    // This channel follows the close guard's explicit save/discard decision.
+    await retireDocumentSession(event.sender.id, validatedSessionId, session).catch((error) =>
+      console.warn('[sheets] Closed document recovery cleanup failed:', error),
+    )
     if (session.unsavedNew && session.suggestSaveAs !== undefined)
       forgetUnsavedNewRecovery(session.suggestSaveAs)
     await cleanupSessionResources({
@@ -4380,362 +4869,116 @@ async function writeWorkbookTo(
   session: SessionInfo,
   request: WorkbookSaveRequest,
   targetPath: string,
-): Promise<Awaited<ReturnType<typeof saveWorkbookViaSidecar>>> {
-  // Sheet ops resolve first: added sheets have Univer ids the session map
-  // doesn't know, so cell edits into them resolve through the op's name.
-  const addedSheetNames = new Map<string, string>()
-  // Added sheet id → file name of the sheet whose part seeds the new part.
-  const duplicateSources = new Map<string, string>()
-  const renames: { sheetName: string; newName: string }[] = []
-  const removals: string[] = []
-  const hiddenChanges: { sheetName: string; hidden: boolean }[] = []
-  const tabColorStates: { sheetName: string; color: string | null }[] = []
-  let orderChanged = false
-  for (const op of request.sheetOps) {
-    if (op.kind === 'add-sheet') {
-      addedSheetNames.set(op.sheetId, op.name)
-      continue
-    }
-    if (op.kind === 'duplicate-sheet') {
-      // The renderer resolves duplicate chains to a sheet the file knows,
-      // so the source must be in the session map.
-      const sourceName = session.sheetNames.get(op.sourceSheetId)
-      if (!sourceName) throw new Error(`Unknown duplicate source ${op.sourceSheetId}.`)
-      addedSheetNames.set(op.sheetId, op.name)
-      duplicateSources.set(op.sheetId, sourceName)
-      continue
-    }
-    if (op.kind === 'reorder-sheets') {
-      orderChanged = true
-      continue
-    }
-    const sheetName = addedSheetNames.get(op.sheetId) ?? session.sheetNames.get(op.sheetId)
-    if (!sheetName) throw new Error(`Unknown worksheet ${op.sheetId}.`)
-    if (op.kind === 'rename-sheet') renames.push({ sheetName, newName: op.newName })
-    else if (op.kind === 'set-sheet-hidden') {
-      hiddenChanges.push({ sheetName, hidden: op.hidden })
-    } else if (op.kind === 'set-sheet-tab-color') {
-      tabColorStates.push({ sheetName, color: op.color })
-    } else removals.push(sheetName)
-  }
-  const renameByOriginal = new Map(renames.map((rename) => [rename.sheetName, rename.newName]))
-  const resolveSheetName = (sheetId: string): string => {
-    const sheetName = addedSheetNames.get(sheetId) ?? session.sheetNames.get(sheetId)
-    if (!sheetName) throw new Error(`Unknown worksheet ${sheetId}.`)
-    return sheetName
-  }
-  let sheetPlan: SheetEditPlan | undefined
-  if (request.sheetOps.some((op) => op.kind !== 'set-sheet-tab-color')) {
-    sheetPlan = {
-      renames,
-      additions: [...addedSheetNames].map(([sheetId, name]) => ({
-        name,
-        sourceSheetName: duplicateSources.get(sheetId),
-      })),
-      removals,
-      hiddenChanges,
-      orderChanged,
-      order: request.sheetOrder.map((sheetId) => {
-        const original = resolveSheetName(sheetId)
-        return addedSheetNames.has(sheetId)
-          ? original
-          : (renameByOriginal.get(original) ?? original)
-      }),
-    }
-  }
-
-  const edits: CellEdit[] = request.edits.map((edit) => ({
-    sheetName: resolveSheetName(edit.sheetId),
-    row: edit.row,
-    column: edit.column,
-    writeValue: edit.writeValue,
-    cell: { value: edit.value, formula: edit.formula },
-    style: edit.style,
-    rich: edit.rich,
-    styleReset: edit.styleReset,
-  }))
-  const bulkConstantFills = (request.bulkConstantFills ?? []).map(({ sheetId, ...fill }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...fill,
-  }))
-  const opsBySheet = new Map<string, SheetStructuralOps['ops'][number][]>()
-  for (const op of request.structuralOps) {
-    const sheetName = resolveSheetName(op.sheetId)
-    const sheetOps = opsBySheet.get(sheetName) ?? []
-    if ('range' in op) {
-      sheetOps.push({ kind: op.kind, range: op.range })
-    } else if ('size' in op) {
-      sheetOps.push({ kind: op.kind, start: op.start, end: op.end, size: op.size })
-    } else if ('level' in op) {
-      sheetOps.push({
-        kind: op.kind,
-        start: op.start,
-        end: op.end,
-        level: op.level,
-        ...(op.collapsed === undefined ? {} : { collapsed: op.collapsed }),
+  beforePublish?: () => Promise<void>,
+): Promise<Awaited<ReturnType<typeof saveWorkbookViaSidecar>> & { publishedSha256: string }> {
+  type PhaseSession = DocumentWriteSession & { nativeSessionId?: string }
+  return withAtomicSaveQueue(targetPath, async () => {
+    const privateRoot = await getSessionSnapshotDirectory()
+    const readyDirectory = await mkdtemp(join(privateRoot, 'document-publish-'))
+    const readyPath = join(readyDirectory, 'complete.bin')
+    try {
+      const mutation = await writeDocumentSavePipeline<
+        PhaseSession,
+        Awaited<ReturnType<typeof saveWorkbookViaSidecar>>
+      >({
+        sheetNames: (phase) => phase.sheetNames,
+        session,
+        request,
+        targetPath: readyPath,
+        write: (base, payload, target) =>
+          writeWorkbookDocumentPackage({
+            client,
+            session: { ...base, password: undefined },
+            request: payload,
+            targetPath: target,
+            tempRoot: privateRoot,
+            verifyPreservation: false,
+            encryptOoxml,
+            atomicWriteFile,
+            withNativeSaveRecovery,
+          }),
+        allocatePhase: async () => {
+          const directory = await mkdtemp(join(privateRoot, 'document-phase-'))
+          const path = join(directory, 'phase.bin')
+          return {
+            path,
+            cleanup: async () => {
+              await rm(path, { force: true })
+              await rmdir(directory)
+            },
+          }
+        },
+        openPhase: async (path) => {
+          const opened = sidecarOpenResultSchema.parse(
+            await client.open(path, getUiLang(), systemShortDate()),
+          )
+          return {
+            snapshotPath: path,
+            sheetNames: new Map(opened.sheets.map((sheet) => [sheet.id, sheet.name])),
+            nativeSessionId: opened.sessionId,
+          }
+        },
+        closePhase: async (phase) => {
+          if (phase.nativeSessionId) await client.close(phase.nativeSessionId)
+        },
+        combineResults: (first, last) => ({
+          ...last,
+          touchedEntries: [...new Set([...first.touchedEntries, ...last.touchedEntries])],
+          addedEntries: [...new Set([...first.addedEntries, ...last.addedEntries])],
+          removedEntries: [...new Set([...first.removedEntries, ...last.removedEntries])],
+        }),
       })
-    } else if ('summaryBelow' in op) {
-      sheetOps.push({
-        kind: op.kind,
-        summaryBelow: op.summaryBelow,
-        summaryRight: op.summaryRight,
-      })
-    } else if ('hidden' in op) {
-      sheetOps.push({ kind: op.kind, start: op.start, end: op.end, hidden: op.hidden })
-    } else if ('style' in op) {
-      sheetOps.push({ kind: op.kind, start: op.start, end: op.end, style: op.style })
-    } else if ('before' in op) {
-      sheetOps.push({ kind: op.kind, index: op.index, count: op.count, before: op.before })
-    } else {
-      sheetOps.push({ kind: op.kind, index: op.index, count: op.count })
-    }
-    opsBySheet.set(sheetName, sheetOps)
-  }
-  const structuralOps: SheetStructuralOps[] = [...opsBySheet].map(([sheetName, ops]) => ({
-    sheetName,
-    ops,
-  }))
-  const filterStates = request.filterStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    filter: state.filter,
-    hiddenRows: state.hiddenRows,
-    visibilityRange: state.visibilityRange,
-  }))
-  const linksBySheet = new Map<string, { row: number; column: number; target: string | null }[]>()
-  for (const link of request.hyperlinkEdits) {
-    const sheetName = resolveSheetName(link.sheetId)
-    const sheetLinks = linksBySheet.get(sheetName) ?? []
-    sheetLinks.push({ row: link.row, column: link.column, target: link.target })
-    linksBySheet.set(sheetName, sheetLinks)
-  }
-  const hyperlinkEdits = [...linksBySheet].map(([sheetName, links]) => ({
-    sheetName,
-    edits: links,
-  }))
-  const cfStates = request.cfStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    rules: state.rules,
-  }))
-  const dvStates = request.dvStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    rules: state.rules,
-  }))
-  const sheetProtections = request.sheetProtections.map(({ sheetId, ...state }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...state,
-  }))
-  const protectedRangeStates = request.protectedRangeStates.map((state) => ({
-    sheetName: resolveSheetName(state.sheetId),
-    ranges: state.ranges,
-  }))
-  const pageSetupStates = request.pageSetupStates.map(({ sheetId, ...state }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...state,
-  }))
-  const noteStates = request.noteStates.map(({ sheetId, notes }) => ({
-    sheetName: resolveSheetName(sheetId),
-    notes,
-  }))
-  const visualAdditions = request.visualAdditions.map((addition) => ({
-    sheetName: resolveSheetName(addition.sheetId),
-    anchor: addition.anchor,
-    chart: addition.chart,
-    shape: addition.shape,
-    image: addition.image,
-  }))
-  const cellImageAdditions = (request.cellImageAdditions ?? []).map(({ sheetId, ...addition }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...addition,
-  }))
-  const tableAdditions = request.tableAdditions.map((table) => ({
-    sheetName: resolveSheetName(table.sheetId),
-    area: table.area,
-    name: table.name,
-    columnNames: table.columnNames,
-    style: table.style,
-    bandedRows: table.bandedRows,
-    options: {
-      headerRow: table.headerRow,
-      totalsRow: table.totalsRow,
-      firstColumn: table.firstColumn,
-      lastColumn: table.lastColumn,
-      bandedColumns: table.bandedColumns,
-      filterButton: table.filterButton,
-    },
-  }))
-  const tableEdits = (request.tableEdits ?? []).map(({ sheetId, ...edit }) => ({
-    ...edit,
-    sheetName: resolveSheetName(sheetId),
-  }))
-  const pivotAdditions = request.pivotAdditions.map((pivot) => ({
-    sheetName: resolveSheetName(pivot.sheetId),
-    sourceSheetName: resolveSheetName(pivot.sourceSheetId),
-    sourceArea: pivot.sourceArea,
-    location: pivot.location,
-    name: pivot.name,
-    fieldNames: pivot.fieldNames,
-    rowFieldIndices: pivot.rowFieldIndices,
-    columnFieldIndex: pivot.columnFieldIndex,
-    pageFieldIndices: pivot.pageFieldIndices,
-    pageLevelItems: pivot.pageLevelItems,
-    pageItems: pivot.pageItems,
-    rowItems: pivot.rowItems,
-    rowLevelItems: pivot.rowLevelItems,
-    rowLines: pivot.rowLines,
-    columnItems: pivot.columnItems,
-    columnFieldIndices: pivot.columnFieldIndices,
-    colLevelItems: pivot.colLevelItems,
-    colLines: pivot.colLines,
-    groupings: pivot.groupings,
-    filters: pivot.filters,
-    rowHiddenItems: pivot.rowHiddenItems,
-    colHiddenItems: pivot.colHiddenItems,
-    values: pivot.values,
-  }))
-  const sparklineAdditions = request.sparklineAdditions.map(({ sheetId, ...group }) => ({
-    sheetName: resolveSheetName(sheetId),
-    ...group,
-  }))
-  // Recalculated formula values: sheetId → file sheet name, the same
-  // resolution the cell edits use.
-  const formulaValuesBySheet = new Map<
-    string,
-    { row: number; column: number; value: string | number | boolean | null | { error: string } }[]
-  >()
-  for (const cell of request.formulaValues) {
-    const sheetName = resolveSheetName(cell.sheetId)
-    const list = formulaValuesBySheet.get(sheetName) ?? []
-    list.push({ row: cell.row, column: cell.column, value: cell.value })
-    formulaValuesBySheet.set(sheetName, list)
-  }
-  const formulaValues = [...formulaValuesBySheet].map(([sheetName, cells]) => ({
-    sheetName,
-    cells,
-  }))
-  // The redaction part is keyed by sheet NAME, so there is nothing to resolve
-  // here: the marks arrive under the names the session loaded, which is what
-  // the gateway's re-keying against this save's renames and removals expects.
-  const redactionStates =
-    (request.redactionStates ?? null)?.map((state) => ({
-      sheetName: state.sheetName,
-      marks: state.marks.map((mark) => ({
-        startRow: mark.startRow,
-        endRow: mark.endRow,
-        startColumn: mark.startColumn,
-        endColumn: mark.endColumn,
-        label: mark.label,
-        // Carried through, not rebuilt from the known fields: this mapping is
-        // the third place a mark passes through (the zod schema, the preload's
-        // hand-rolled check, and here), and only the zod one refuses an unknown
-        // key. The other two drop it silently, which is how a field added to the
-        // mark can vanish between the renderer and the file with nothing failing.
-        // Omitted when absent so an older part's bytes stay identical.
-        ...('previousFill' in mark ? { previousFill: mark.previousFill ?? null } : {}),
-      })),
-    })) ?? null
-  const encryptedSaveTempDir = session.password
-    ? await mkdtemp(join(app.getPath('temp'), 'vantage-encrypted-save-'))
-    : undefined
-  const plainTargetPath = encryptedSaveTempDir
-    ? join(encryptedSaveTempDir, 'workbook.xlsx')
-    : targetPath
-  let mutation: Awaited<ReturnType<typeof saveWorkbookViaSidecar>>
-  try {
-    const writePlainWorkbook = () =>
-      saveWorkbookViaSidecar({
-        client,
-        // The snapshot, not the live path: the save base must be the bytes this
-        // session's pending edits were made against, regardless of what other
-        // programs did to the file since.
+      const report = (await client.auditPreservation({
         sourcePath: session.snapshotPath,
-        targetPath: plainTargetPath,
-        edits,
-        bulkConstantFills,
-        structuralOps,
-        chartEdits: request.chartEdits,
-        // Located by package-absolute drawingPath, so no sheet-name mapping.
-        visualEdits: request.visualEdits,
-        sheetPlan,
-        filterStates,
-        hyperlinkEdits,
-        cfStates,
-        dvStates,
-        sheetProtections,
-        tabColorStates,
-        definedNamesState: request.definedNamesState,
-        themeState: request.themeState,
-        workbookProtectionState: request.workbookProtectionState,
-        protectedRangeStates,
-        visualAdditions,
-        cellImageAdditions,
-        pageSetupStates,
-        noteStates,
-        tableAdditions,
-        tableEdits,
-        pivotAdditions,
-        sparklineAdditions,
-        formulaValues,
-        pivotCacheRefreshPaths: request.pivotCacheRefreshPaths,
-        // Output-area expansion from layout growth: sheetId → sheet name; the part
-        // path is resolved by the gateway.
-        pivotRefreshUpdates: request.pivotRefreshUpdates.map((update) => ({
-          cachePath: update.cachePath,
-          sheetName: resolveSheetName(update.sheetId),
-          newOutputRef: update.newOutputRef,
-          ...(update.relayout === undefined
-            ? {}
-            : {
-                relayout: (({ sheetId: _sheetId, sourceSheetId, ...rest }) => ({
-                  ...rest,
-                  sourceSheetName: resolveSheetName(sourceSheetId),
-                }))(update.relayout),
-              }),
-        })),
-        redactionStates,
+        targetPath: readyPath,
+        allowedChangedEntries: [
+          ...new Set([
+            ...mutation.touchedEntries,
+            ...mutation.addedEntries,
+            ...mutation.removedEntries,
+          ]),
+        ],
+      })) as { preserved?: unknown; violations?: readonly { message?: string }[] }
+      if (
+        report?.preserved !== true ||
+        !Array.isArray(report.violations) ||
+        report.violations.length !== 0
+      )
+        throw new Error(
+          report?.violations
+            ?.map((item) => item.message)
+            .filter(Boolean)
+            .join(' ') || 'Workbook package preservation verification failed.',
+        )
+      // Encode first, then recheck the input revision and file version just
+      // before publishing. A bad plan can never reach the user's destination.
+      const encrypted =
+        session.password === undefined
+          ? undefined
+          : encryptOoxml(await readFile(readyPath), session.password)
+      const publishedSha256 =
+        encrypted === undefined
+          ? await sha256File(readyPath)
+          : createHash('sha256').update(encrypted).digest('hex')
+      await beforePublish?.()
+      await withNativeSaveRecovery(targetPath, async () => {
+        await beforePublish?.()
+        if (encrypted !== undefined) await atomicWriteFile(targetPath, encrypted)
+        else await atomicCopyFile(readyPath, targetPath)
       })
-    mutation = session.password
-      ? await writePlainWorkbook()
-      : await withNativeSaveRecovery(targetPath, writePlainWorkbook)
-    if (session.password) {
-      const encryptedBytes = encryptOoxml(await readFile(plainTargetPath), session.password)
-      await atomicWriteFile(targetPath, encryptedBytes)
+      return { ...mutation, publishedSha256 }
+    } finally {
+      await rm(readyPath, { force: true }).catch(() => undefined)
+      await rmdir(readyDirectory).catch(() => undefined)
     }
-  } finally {
-    if (encryptedSaveTempDir) {
-      await rm(encryptedSaveTempDir, { recursive: true, force: true }).catch(() => undefined)
-    }
-  }
-  return mutation
+  })
 }
 
 let sessionSnapshotDirectoryPromise: Promise<string> | undefined
 
 /** Create a private per-process snapshot directory and sweep abandoned sessions. */
 async function createSessionSnapshotDirectory(): Promise<string> {
-  const root = join(app.getPath('temp'), 'vantage-sheets-sessions')
-  await mkdir(root, { recursive: true, mode: 0o700 })
-  const directory = join(root, `${process.pid}-${randomUUID()}`)
-  await mkdir(directory, { mode: 0o700 })
-
-  const previousDirectories = await readdir(root, { withFileTypes: true })
-  await Promise.all(
-    previousDirectories.map(async (entry) => {
-      if (!entry.isDirectory() || entry.name === directory.slice(root.length + 1)) return
-      const match = /^(\d+)-/.exec(entry.name)
-      if (!match) return
-      const pid = Number(match[1])
-      if (pid !== process.pid) {
-        try {
-          process.kill(pid, 0)
-          return
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return
-        }
-      }
-      await rm(join(root, entry.name), { recursive: true, force: true }).catch(() => undefined)
-    }),
-  )
-  return directory
+  return allocateSessionSnapshotDirectory(app.getPath('temp'))
 }
 
 async function getSessionSnapshotDirectory(): Promise<string> {
@@ -4788,8 +5031,23 @@ async function discardPreparedOpen(prepared: {
   importTempDir?: string | undefined
 }): Promise<void> {
   unsavedNewWorkbooks.delete(prepared.openPath)
+  await releasePreparedDocumentRecovery(prepared.openPath)
   if (prepared.importTempDir !== undefined)
     await cleanupImportTempDirectory(app.getPath('temp'), prepared.importTempDir)
+}
+
+/** Release an unused materialized view; the durable recovery candidate survives. */
+async function releasePreparedDocumentRecovery(path: string): Promise<void> {
+  adoptedDocumentCandidates.delete(path)
+  const directory = materializedRecoveryDirectories.get(path)
+  materializedRecoveryDirectories.delete(path)
+  materializedRecoveryNames.delete(path)
+  if (directory) {
+    await rm(path, { force: true }).catch((error) =>
+      console.warn('[sheets] Recovery view cleanup failed:', error),
+    )
+    await rmdir(directory).catch(() => undefined)
+  }
 }
 
 async function openWorkbookSession(
@@ -4800,24 +5058,33 @@ async function openWorkbookSession(
     suggestSaveAs?: string | undefined
     csvImport?: boolean | undefined
     csvSourcePath?: string | undefined
+    recoverySourcePath?: string | undefined
+    recoverySourceSha?: string | undefined
     emptyCsv?: boolean | undefined
     importTempDir?: string | undefined
     restoreTarget?: string | undefined
     emptySource?: boolean | undefined
     unsavedNew?: boolean | undefined
+    pendingBase?: boolean | undefined
     password?: string | undefined
+    /** A save replacement shares the existing session's backing resources. */
+    retainExistingBaseOnFailure?: boolean | undefined
   },
 ): Promise<WorkbookFile> {
   const {
     suggestSaveAs,
     csvImport,
     csvSourcePath,
+    recoverySourcePath,
+    recoverySourceSha,
     emptyCsv,
     importTempDir,
     restoreTarget,
     emptySource,
     unsavedNew,
+    pendingBase,
     password,
+    retainExistingBaseOnFailure,
   } = options ?? {}
   // Only a CFB container (the encrypted wrapper) is read into memory; a plain
   // zip package keeps the streamed copy + file digest so large workbooks do
@@ -4834,9 +5101,9 @@ async function openWorkbookSession(
   // from the same bytes, even if the file on disk changes right after the
   // copy. The digest also describes exactly those bytes.
   const snapshotPath = await snapshotWorkbook(path, snapshotBytes)
+  let openedSessionId: string | undefined
   try {
-    const [rawOpened, digest, fileBytes, restoreTargetSha, csvSourceSha] = await Promise.all([
-      client.open(snapshotPath, getUiLang(), systemShortDate()),
+    const [digest, fileBytes, restoreTargetSha, csvSourceSha] = await Promise.all([
       sourceBytes
         ? createHash('sha256').update(sourceBytes).digest('hex')
         : sha256File(snapshotPath),
@@ -4844,12 +5111,36 @@ async function openWorkbookSession(
       // Missing original (deleted since the crash) is fine: the write-back recreates it.
       restoreTarget === undefined
         ? Promise.resolve(undefined)
-        : sha256File(restoreTarget).catch(() => undefined),
+        : sha256File(restoreTarget)
+            .catch(() => undefined)
+            .then((value) => {
+              if (
+                recoverySourcePath === restoreTarget &&
+                value !== undefined &&
+                value !== recoverySourceSha
+              ) {
+                throw new Error(tm('errDiskChanged'))
+              }
+              return recoverySourcePath === restoreTarget ? recoverySourceSha : value
+            }),
       csvSourcePath === undefined
         ? Promise.resolve(undefined)
-        : sha256File(csvSourcePath).catch(() => undefined),
+        : sha256File(csvSourcePath).then((value) => {
+            if (
+              recoverySourcePath === csvSourcePath &&
+              recoverySourceSha !== undefined &&
+              value !== recoverySourceSha
+            ) {
+              throw new Error(tm('errDiskChanged'))
+            }
+            return value
+          }),
     ])
+    const rawOpened = await client.open(snapshotPath, getUiLang(), systemShortDate())
+    const openingIdentity = z.object({ sessionId: z.string().uuid() }).safeParse(rawOpened)
+    if (openingIdentity.success) openedSessionId = openingIdentity.data.sessionId
     const opened = sidecarOpenResultSchema.parse(rawOpened)
+    openedSessionId = opened.sessionId
     sessions.set(opened.sessionId, {
       path,
       snapshotPath,
@@ -4861,18 +5152,24 @@ async function openWorkbookSession(
       ...(csvImport ? { csvImport } : {}),
       ...(csvSourcePath === undefined ? {} : { csvSourcePath }),
       ...(csvSourceSha === undefined ? {} : { csvSourceSha }),
+      ...(recoverySourcePath === undefined ? {} : { recoverySourcePath }),
+      ...(recoverySourceSha === undefined ? {} : { recoverySourceSha }),
       ...(importTempDir === undefined ? {} : { importTempDir }),
       ...(restoreTarget === undefined ? {} : { restoreTarget }),
       ...(restoreTargetSha === undefined ? {} : { restoreTargetSha }),
       ...(emptySource ? { emptySource } : {}),
       ...(unsavedNew ? { unsavedNew } : {}),
+      ...(pendingBase ? { pendingBase } : {}),
     })
     unsavedNewWorkbooks.delete(path)
     return workbookFileSchema.parse({
       ...opened,
       // The renderer-facing path is what the user opened: for a restored
       // recovery copy that is the original file, not the copy under userData.
-      path: restoreTarget ?? path,
+      path: restoreTarget ?? materializedRecoveryNames.get(path) ?? path,
+      ...(materializedRecoveryNames.has(path)
+        ? { name: basename(materializedRecoveryNames.get(path)!) }
+        : {}),
       sha256: digest,
       fileBytes,
       readOnly: false,
@@ -4881,13 +5178,19 @@ async function openWorkbookSession(
       ...(unsavedNew ? { unsavedNew: true } : {}),
       ...(csvSourcePath === undefined ? {} : { csvPath: csvSourcePath }),
       ...(emptyCsv ? { emptyCsv: true } : {}),
-      restoredFromRecovery: restoreTarget !== undefined,
+      restoredFromRecovery:
+        restoreTarget !== undefined || pendingBase === true || adoptedDocumentCandidates.has(path),
       automaticRecoveryDisabled: !allowsAutomaticWorkbookRecovery(opened.sheets),
     })
   } catch (error) {
+    if (openedSessionId !== undefined) {
+      sessions.delete(openedSessionId)
+      await client.close(openedSessionId).catch(() => undefined)
+    }
     await rm(snapshotPath, { force: true }).catch(() => undefined)
+    if (!retainExistingBaseOnFailure) await releasePreparedDocumentRecovery(path)
     unsavedNewWorkbooks.delete(path)
-    if (importTempDir !== undefined) {
+    if (importTempDir !== undefined && !retainExistingBaseOnFailure) {
       await cleanupImportTempDirectory(app.getPath('temp'), importTempDir)
     }
     throw error
@@ -4966,6 +5269,8 @@ async function prepareWorkbookForOpen(
   suggestSaveAs?: string
   csvImport?: boolean
   csvSourcePath?: string
+  recoverySourcePath?: string
+  recoverySourceSha?: string
   emptyCsv?: boolean
   importTempDir?: string
   restoreTarget?: string
@@ -4978,15 +5283,28 @@ async function prepareWorkbookForOpen(
   // openWorkbookSession) so the name stays reserved through the open and a
   // reopened path is a normal file.
   const unsavedNew = unsavedNewWorkbooks.get(path)
+  const nativeRecovery: Awaited<ReturnType<typeof nativeDocumentRecoveryForOpen>> =
+    options?.skipRecoveryPrompt
+      ? { handled: false }
+      : await nativeDocumentRecoveryForOpen(
+          client,
+          unsavedNew?.suggestSaveAs ?? path,
+          contents,
+          parent,
+          unsavedNew ? path : undefined,
+        )
   if (unsavedNew !== undefined) {
     const base = {
       suggestSaveAs: unsavedNew.suggestSaveAs,
       importTempDir: unsavedNew.tempDir,
       unsavedNew: true,
     }
+    if (nativeRecovery.prepared) return { ...nativeRecovery.prepared, ...base }
     // a crash left work under this would-be name: offer it like a file's
     // recovery copy, opening the copy itself as the (still unsaved) workbook
-    const recovery = pendingUnsavedNewRecoveryFor(unsavedNew.suggestSaveAs)
+    const recovery = nativeRecovery.handled
+      ? null
+      : pendingUnsavedNewRecoveryFor(unsavedNew.suggestSaveAs)
     if (recovery) {
       const choice =
         contents && !contents.isDestroyed()
@@ -5006,6 +5324,7 @@ async function prepareWorkbookForOpen(
     return { openPath: path, ...base }
   }
   const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  if (nativeRecovery.prepared) return nativeRecovery.prepared
   // ODF has no editable representation here at all (.ots is the same package
   // with a -template mimetype): the user confirms the lossy .xlsx copy first,
   // and declining leaves the file unopened and unwritten.
@@ -5020,7 +5339,8 @@ async function prepareWorkbookForOpen(
     // prompt (which spells out the overwrite) was the confirmation.
     // Merge sources are read-only picks: never surface (or worse, discard)
     // another workbook's crash recovery from here.
-    const recovery = options?.skipRecoveryPrompt ? undefined : pendingRecoveryFor(path)
+    const recovery =
+      options?.skipRecoveryPrompt || nativeRecovery.handled ? undefined : pendingRecoveryFor(path)
     if (recovery) {
       const choice =
         contents && !contents.isDestroyed()
@@ -5033,6 +5353,7 @@ async function prepareWorkbookForOpen(
     return { openPath: path }
   }
   const stem = basename(path).replace(/\.[^.]+$/, '')
+  const recoverySourceSha = await sha256File(path)
   const directory = join(app.getPath('temp'), 'vantage-imports', randomUUID())
   await mkdir(directory, { recursive: true })
   const openPath = join(directory, `${stem}.xlsx`)
@@ -5057,6 +5378,7 @@ async function prepareWorkbookForOpen(
     } else {
       await client.convertWorkbook({ path, targetPath: openPath })
     }
+    if ((await sha256File(path)) !== recoverySourceSha) throw new Error(tm('errDiskChanged'))
   } catch (error) {
     await cleanupImportTempDirectory(app.getPath('temp'), directory)
     throw error
@@ -5071,9 +5393,17 @@ async function prepareWorkbookForOpen(
         importTempDir: directory,
         csvImport: true,
         csvSourcePath: path,
+        recoverySourcePath: path,
+        recoverySourceSha,
         ...(emptyCsv ? { emptyCsv: true } : {}),
       }
-    : { openPath, importTempDir: directory, suggestSaveAs: path.replace(/\.[^.]+$/, '.xlsx') }
+    : {
+        openPath,
+        importTempDir: directory,
+        suggestSaveAs: path.replace(/\.[^.]+$/, '.xlsx'),
+        recoverySourcePath: path,
+        recoverySourceSha,
+      }
 }
 
 /** shell-injected items appended to the File menu (e.g. Back to Home) */

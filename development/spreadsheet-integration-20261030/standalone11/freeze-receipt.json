@@ -1,0 +1,78 @@
+{
+  "status": "PRIVATE_SOURCE_ONLY_UNRUN_NOT_APPLIED",
+  "date": "2026-10-30",
+  "heldCandidate": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\vantage-next-composed-20261030",
+  "heldCandidateManifestSha256": "003f136afa7d067fe7d41970984fe83f496b93adab7a0730599deb1f61e4c9e7",
+  "dependencies": [
+    {
+      "name": "Sheets Native19",
+      "receiptSha256": "541b8b59f3a207d41b33f5c738fb31b7c52915de7b5e2a6dfc73ce87779080d6",
+      "patchSha256": "599b88bd9615d6b38bf0a8e2a1cf18fa8b5ebcc8da30902a8b99903bbc0d69fd",
+      "mainBeforeSha256": "556e57c115466b54dfb1de73026042cfd7f0dd44c9d4ced2507727ce22a4b41d"
+    },
+    {
+      "name": "Sheets Runtime6",
+      "receiptSha256": "989bf542c4267ed2eb92b8fa763bceb72b9eb203fbd7d97d46df753e027b6e03"
+    },
+    {
+      "name": "Root W2 file publication exclusion",
+      "sourceCheckpointSha256": "33078d59cf313c583d10775a1dd1c4ac1d226d086d8bcc7bf2956f2b3ebfdb40"
+    }
+  ],
+  "afterFiles": 11,
+  "changedOrNewFiles": 11,
+  "allBeforeOriginsVerified": true,
+  "candidateWrites": false,
+  "primaryWrites": false,
+  "sealedReleaseWrites": false,
+  "testsRun": false,
+  "typeChecksRun": false,
+  "buildsRun": false,
+  "guiRun": false,
+  "sourceSyntaxChecksRunForThisFreeze": false,
+  "validationScope": "Source reads and cryptographic packaging only; no source parsing, application import, tests, types, build, or GUI execution.",
+  "testSources": [
+    {
+      "file": "apps/sheets/tests/standalone-close-runtime.test.ts",
+      "proposedCases": 9,
+      "scope": "Pure standalone startup order, failure/cancellation, GUI lock and headless refusal"
+    },
+    {
+      "file": "apps/sheets/tests/workbook-document-volatile.test.ts",
+      "proposedExpandedCases": 16,
+      "scope": "Actual recovery class with fake native responses and filesystem fixtures; includes default durable and protected semantics"
+    },
+    {
+      "file": "apps/sheets/tests/xlsx-sidecar-process-settlement.test.ts",
+      "proposedCases": 4,
+      "scope": "Real Node subprocess synthetic protocol fixture; not Rust binary, package, or OS sandbox acceptance"
+    },
+    {
+      "file": "apps/sheets/tests/headless-sheets-cleanup.test.ts",
+      "proposedCases": 7,
+      "scope": "Actual owner, initial open/PDF/staging continuation, late admission refusal, native drain and verified shutdown; unrun"
+    }
+  ],
+  "knownLimits": [
+    "All tests in this successor remain unrun. Root owns matching combined validation and release acceptance.",
+    "Headless isolated export has no GUI recovery provider, quit ledger, durable recovery store, or imported close authority. Password encryption remains independent of volatile storage.",
+    "The cleanup grace only initiates terminal native shutdown. It is never proof of completion, and actual native/JS finalizers may deliberately keep an unprovable shutdown pending.",
+    "The terminal stopSettled API refuses future admissions/restart on that client. Legacy stop remains restartable when terminal shutdown was never requested.",
+    "Actual subprocess source cases use a synthetic Node protocol worker. They do not certify the Rust executable, package inclusion, signing, or full desktop process tree.",
+    "Generic Root external file-move refresh and broader combined GUI/quit behavior remain Root-owned acceptance paths."
+  ],
+  "patch": {
+    "path": "frozen.patch",
+    "sha256": "069397b79e4b1f38056842889c5c14eb3d7b5b9366b5483f14804aff7b40ccf4",
+    "bytes": 110143,
+    "format": "LF normalized review diff; after byte hashes authoritative"
+  },
+  "inventorySha256": "91b351cb5c52f0fbfa64b68d48213fa3f741b252ee3ee288fb34337277928919",
+  "baselineCheckSha256": "db1be5b530cd2360a567b98469891abe11e9e991d595112989be2e1f371dea7b",
+  "freezeInputSha256": "4881ec7b15475624d605408e2cae5573247af2d3118f58ec16673f47a33998a8",
+  "packagingUtilitySha256": "5a89d261d0ca9bec6ff95978b710ca0a2df40c6a26e3a26f9d505b8ad6e6018f",
+  "reviewDocuments": {
+    "HANDOFF.txt": "2e8ec07f24554bbe15e8bfb2b6ba8134285cf2ff26a79ff9aa2e254f01799511",
+    "rebase-standalone-main.py": "0964a285a5e12759626c1604297c672ae1bfced3bbc5f2cd3a6a490a5b014ce9"
+  }
+}

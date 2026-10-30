@@ -337,7 +337,7 @@ export const nl = {
   appPivotSheetNoStructural:
     'Dit werkblad bevat een draaitabel — structuurwijzigingen worden nog niet ondersteund.',
   appDeleteSpanFormulas:
-    'Een formule verwijst alleen naar de verwijderde rijen/kolommen — werk deze eerst bij of verwijder deze.',
+    'Een formule kan na deze verwijdering niet veilig worden bijgewerkt. Pas die formule eerst aan of verwijder deze.',
   appIconSetUnsupported:
     'Deze pictogramcombinatie kan niet worden opgeslagen als xlsx — kies een andere pictogramset.',
   appFullLoadFilterTitle: 'Deze actie vereist de volledige werkmap',

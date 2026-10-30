@@ -1,0 +1,90 @@
+[
+  {
+    "path": "apps/sheets/src/main/headless-sheets-cleanup.ts",
+    "beforeSha256": null,
+    "afterSha256": "c06abc641c3a37451ccdd8098a72a89ebe4a51cfd2b58e22700a42ba9ef3cc38",
+    "bytes": 2676,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/headless-sheets-owner-work.ts",
+    "beforeSha256": null,
+    "afterSha256": "a8cf15444d8a777ff1eec0f99242b38edb5396d520ee44c4fe11508a320ef2fe",
+    "bytes": 1273,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/sheets-main.ts",
+    "beforeSha256": "556e57c115466b54dfb1de73026042cfd7f0dd44c9d4ced2507727ce22a4b41d",
+    "afterSha256": "f13a80393ee5248e3bb15f47a98f2794dca9dab533b4e45a395b6fd8a54ecf4a",
+    "bytes": 327011,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/src/main/standalone-close-runtime.ts",
+    "beforeSha256": null,
+    "afterSha256": "b11b791ec7a39fdc39ecd1dce925a54b23f5963e775b5534cfbdb73f98b0d4b4",
+    "bytes": 5341,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/workbook-document-recovery.ts",
+    "beforeSha256": "8b9c403e5eb5853425ab5abc0213af0045e0055d9b720c5736be8aa58bdd50e4",
+    "afterSha256": "c9cdd47c9c890653413af37224450091e5718c6f8b11f3d6e828c790d404b95d",
+    "bytes": 50942,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/src/main/xlsx-sidecar-client.ts",
+    "beforeSha256": "ecf1374af898633b14cd71ba53a2d1a841108542093acdfd40380a2f86714c8c",
+    "afterSha256": "cdd20711bbb03e87feb6a44bffc5a8e42880d84f93d4df7c343d5418c25791eb",
+    "bytes": 32864,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/tests/fixtures/native-lifecycle-child.cjs",
+    "beforeSha256": null,
+    "afterSha256": "849cc42afb7064526138190ef7b7e722ec0af5834fd76aa276f76cff74202c4f",
+    "bytes": 1560,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/headless-sheets-cleanup.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "31c18c7223b3df902332f5c881b108289a259cf37b1a68c40d098045ce66ddf4",
+    "bytes": 6905,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/standalone-close-runtime.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "309a5e035390db6d0c8d2de7aa76530d5d5c936e222472b2f77c0c2ea4f18e2c",
+    "bytes": 8859,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/workbook-document-volatile.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "b9b0bb8cb64fe3eed00bc540bcc780fe1baa8fefafcd6168d54f72740e6940be",
+    "bytes": 14387,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/xlsx-sidecar-process-settlement.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "e1381f162da1f835f9fbe65ad488bc8587303eee684d33a24f6a7340863fb181",
+    "bytes": 9480,
+    "changed": true,
+    "newFile": true
+  }
+]

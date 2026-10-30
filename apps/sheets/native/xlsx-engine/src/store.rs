@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::session::{CommandRecord, SessionStore, StoreError, StoredWorkbook};
+use crate::session::{CommandRecord, SessionStore, StoreError, StoredWorkbook, validate_append};
 use crate::snapshot::WorkbookSnapshot;
 
 const APPLICATION_ID: i64 = 0x4153_5452; // ASTR
@@ -274,6 +274,64 @@ impl SessionStore for SqliteSessionStore {
         transaction.commit().map_err(storage)
     }
 
+    fn append(
+        &mut self,
+        expected_revision: u64,
+        snapshot: &WorkbookSnapshot,
+        command: &CommandRecord,
+    ) -> Result<(), StoreError> {
+        let expected = revision_number(expected_revision)?;
+        let revision = revision_number(snapshot.revision)?;
+        if !command.result.durable {
+            return Err(storage("The command receipt must acknowledge a durable revision."));
+        }
+
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        // Read only the current head, not every historical receipt. Recovery
+        // validates the complete receipt sequence when opening the workbook;
+        // the hot path preserves that immutable prefix by inserting one row.
+        let head: Option<(i64, u32, String)> = transaction.query_row(
+            "SELECT revision, api_version, snapshot_json FROM vantage_workbook_heads WHERE workbook_id = ?1",
+            [&snapshot.workbook_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).optional().map_err(storage)?;
+        let Some((current_revision, api_version, previous_json)) = head else {
+            return Err(StoreError::Conflict);
+        };
+        if current_revision != expected {
+            return Err(StoreError::Conflict);
+        }
+        let previous: WorkbookSnapshot = serde_json::from_str(&previous_json)
+            .map_err(|_| storage("Workbook journal snapshot is invalid."))?;
+        if revision_number(previous.revision)? != current_revision
+            || previous.api_version != api_version
+            || previous.workbook_id != snapshot.workbook_id
+        {
+            return Err(storage("Workbook journal snapshot does not match its committed head."));
+        }
+        validate_append(expected_revision, &previous, snapshot, command)?;
+        let snapshot_json = serde_json::to_string(snapshot).map_err(storage)?;
+        let result_json = serde_json::to_string(&command.result).map_err(storage)?;
+        let changed = transaction.execute(
+            "UPDATE vantage_workbook_heads SET revision = ?2, api_version = ?3, snapshot_json = ?4 WHERE workbook_id = ?1 AND revision = ?5",
+            params![snapshot.workbook_id, revision, snapshot.api_version, snapshot_json, expected],
+        ).map_err(storage)?;
+        if changed != 1 {
+            return Err(StoreError::Conflict);
+        }
+        // Primary-key and per-workbook revision uniqueness reject a reused ID
+        // or sequence slot. Any failure drops this transaction and rolls the
+        // head update back, leaving the already committed prefix untouched.
+        transaction.execute(
+            "INSERT INTO vantage_command_receipts (workbook_id, command_id, revision, request_hash, result_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![snapshot.workbook_id, command.command_id, revision, command.request_hash, result_json],
+        ).map_err(storage)?;
+        transaction.commit().map_err(storage)
+    }
+
     fn is_durable(&self) -> bool {
         true
     }
@@ -390,6 +448,235 @@ mod tests {
         let recovered = store.load(&original.snapshot.workbook_id).unwrap().unwrap();
         assert_eq!(recovered.snapshot.revision, 1);
         assert_eq!(recovered.commands, first.commands);
+    }
+
+    #[test]
+    fn append_preserves_legacy_receipts_and_rejects_an_independent_stale_writer() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.sqlite");
+        let mut first = SqliteSessionStore::open(&path).unwrap();
+        let mut second = SqliteSessionStore::open(&path).unwrap();
+        let original = initial();
+        first.commit(None, &original).unwrap();
+        let legacy = edited(original.clone(), "legacy input", "legacy-command");
+        first.commit(Some(0), &legacy).unwrap();
+
+        let winner = edited(legacy.clone(), "winning input", "winner");
+        first.append(1, &winner.snapshot, winner.commands.last().unwrap()).unwrap();
+        let stale = edited(legacy, "stale input", "stale");
+        assert!(matches!(
+            second.append(1, &stale.snapshot, stale.commands.last().unwrap()),
+            Err(StoreError::Conflict)
+        ));
+        drop(first);
+        drop(second);
+
+        let mut reopened = SqliteSessionStore::open(&path).unwrap();
+        let recovered = reopened.load(&original.snapshot.workbook_id).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(recovered).unwrap(), serde_json::to_value(winner).unwrap());
+    }
+
+    #[test]
+    fn failed_append_receipt_rolls_back_head_and_allows_a_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.sqlite");
+        let mut store = SqliteSessionStore::open(&path).unwrap();
+        let original = initial();
+        store.commit(None, &original).unwrap();
+        let next = edited(original.clone(), "retry input", "retry-command");
+        store.connection.execute_batch(
+            "CREATE TRIGGER fail_append BEFORE INSERT ON vantage_command_receipts
+             BEGIN SELECT RAISE(ABORT, 'simulated append failure'); END;",
+        ).unwrap();
+        assert!(matches!(
+            store.append(0, &next.snapshot, next.commands.last().unwrap()),
+            Err(StoreError::Storage(_))
+        ));
+        drop(store);
+
+        let mut reopened = SqliteSessionStore::open(&path).unwrap();
+        let recovered = reopened.load(&original.snapshot.workbook_id).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(recovered).unwrap(), serde_json::to_value(&original).unwrap());
+        reopened.connection.execute_batch("DROP TRIGGER fail_append;").unwrap();
+        reopened.append(0, &next.snapshot, next.commands.last().unwrap()).unwrap();
+        let recovered = reopened.load(&original.snapshot.workbook_id).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(recovered).unwrap(), serde_json::to_value(next).unwrap());
+    }
+
+    #[test]
+    fn append_cannot_reuse_a_committed_command_id() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.sqlite");
+        let mut store = SqliteSessionStore::open(&path).unwrap();
+        let original = initial();
+        store.commit(None, &original).unwrap();
+        let first = edited(original.clone(), "first", "one-command-id");
+        store.append(0, &first.snapshot, first.commands.last().unwrap()).unwrap();
+        let duplicate = edited(first.clone(), "must not replace first", "one-command-id");
+        assert!(matches!(
+            store.append(1, &duplicate.snapshot, duplicate.commands.last().unwrap()),
+            Err(StoreError::Storage(_))
+        ));
+        drop(store);
+
+        let mut reopened = SqliteSessionStore::open(&path).unwrap();
+        let recovered = reopened.load(&original.snapshot.workbook_id).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(recovered).unwrap(), serde_json::to_value(first).unwrap());
+    }
+
+    #[test]
+    fn append_rejects_source_schema_and_durability_changes_before_publication() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.sqlite");
+        let mut store = SqliteSessionStore::open(&path).unwrap();
+        let original = initial();
+        store.commit(None, &original).unwrap();
+        let next = edited(original.clone(), "new input", "new-command");
+
+        let mut source_changed = next.snapshot.clone();
+        source_changed.source_fingerprint = "different-source".into();
+        let mut sheets_changed = next.snapshot.clone();
+        sheets_changed.sheets[0].name = "Different sheet".into();
+        let mut schema_changed = next.snapshot.clone();
+        schema_changed.api_version = 2;
+        for invalid in [source_changed, sheets_changed, schema_changed] {
+            assert!(matches!(
+                store.append(0, &invalid, next.commands.last().unwrap()),
+                Err(StoreError::Storage(_))
+            ));
+        }
+        let mut nondurable = next.commands.last().unwrap().clone();
+        nondurable.result.durable = false;
+        assert!(matches!(
+            store.append(0, &next.snapshot, &nondurable),
+            Err(StoreError::Storage(_))
+        ));
+
+        let recovered = store.load(&original.snapshot.workbook_id).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(recovered).unwrap(), serde_json::to_value(original).unwrap());
+        store.append(0, &next.snapshot, next.commands.last().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn many_durable_appends_recover_the_original_receipt_and_continue_editing() {
+        const EDITS: u64 = 256;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.sqlite");
+        let source = initial().snapshot;
+        let open = OpenSessionRequest {
+            api_version: 1,
+            workbook_id: source.workbook_id.clone(),
+            source_fingerprint: source.source_fingerprint.clone(),
+            sheets: source.sheets.clone(),
+        };
+        let command = |revision: u64| TransactionCommand {
+            api_version: 1,
+            workbook_id: source.workbook_id.clone(),
+            command_id: format!("sequential-command-{revision}"),
+            expected_revision: revision,
+            actor: "durable-append-test".into(),
+            operations: vec![TransactionOperation::SetCell {
+                sheet_id: "sheet-1".into(), row: 0, column: 0,
+                input: format!("value-{revision}"),
+            }],
+        };
+        let original_command = command(0);
+        let original_result = {
+            let mut authority = SessionAuthority::new(Box::new(SqliteSessionStore::open(&path).unwrap()));
+            authority.open(open.clone()).unwrap();
+            let first = authority.apply(original_command.clone()).unwrap();
+            assert!(first.durable);
+            for revision in 1..EDITS {
+                let result = authority.apply(command(revision)).unwrap();
+                assert_eq!(result.revision, revision + 1);
+                assert!(result.durable);
+            }
+            first
+        };
+
+        let mut authority = SessionAuthority::new(Box::new(SqliteSessionStore::open(&path).unwrap()));
+        let recovered = authority.open(open).unwrap();
+        assert!(recovered.recovered);
+        assert_eq!(recovered.revision, EDITS);
+        assert_eq!(authority.apply(original_command.clone()).unwrap(), original_result);
+        let mut changed_payload = original_command;
+        changed_payload.operations = command(EDITS).operations;
+        assert_eq!(authority.apply(changed_payload).unwrap_err().code, "idempotency_conflict");
+        let snapshot = authority.snapshot(&source.workbook_id, None).unwrap();
+        assert_eq!(snapshot.revision, EDITS);
+        assert_eq!(snapshot.inputs.len(), 1);
+        assert_eq!(snapshot.inputs[0].input, format!("value-{}", EDITS - 1));
+        assert_eq!(authority.apply(command(EDITS)).unwrap().revision, EDITS + 1);
+        drop(authority);
+
+        let mut reopened = SqliteSessionStore::open(&path).unwrap();
+        let recovered = reopened.load(&source.workbook_id).unwrap().unwrap();
+        assert_eq!(recovered.commands.len() as u64, EDITS + 1);
+        assert_eq!(recovered.commands[0].result, original_result);
+        assert_eq!(recovered.snapshot.inputs[0].input, format!("value-{EDITS}"));
+    }
+
+    #[test]
+    fn disjoint_full_overlay_replacement_recovers_twice_the_input_limit_as_changed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.sqlite");
+        let source = initial().snapshot;
+        let open = OpenSessionRequest {
+            api_version: 1,
+            workbook_id: source.workbook_id.clone(),
+            source_fingerprint: source.source_fingerprint.clone(),
+            sheets: source.sheets.clone(),
+        };
+        let inputs = |column: u32, prefix: &str| -> Vec<CellInput> {
+            (0..crate::transaction::MAX_SESSION_INPUTS).map(|row| CellInput {
+                sheet_id: "sheet-1".into(), row: row as u32, column,
+                input: format!("{prefix}-{row}"),
+            }).collect()
+        };
+        let old_inputs = inputs(0, "old");
+        let new_inputs = inputs(1, "new");
+        let replace = |id: &str, revision: u64, edits: Vec<CellInput>| TransactionCommand {
+            api_version: 1,
+            workbook_id: source.workbook_id.clone(),
+            command_id: id.into(),
+            expected_revision: revision,
+            actor: "disjoint-overlay-test".into(),
+            operations: vec![TransactionOperation::ReplaceInputs { edits }],
+        };
+        // Each command replaces one bounded overlay in one transaction. Moving
+        // all addresses changes 10,000 removals plus 10,000 additions, while
+        // neither the submitted nor stored overlay exceeds 10,000 inputs.
+        let original_command = replace("original-overlay", 0, old_inputs.clone());
+        let replacement_command = replace("disjoint-replacement", 1, new_inputs.clone());
+        let (old_lease, original_result, replacement_result) = {
+            let mut authority = SessionAuthority::new(Box::new(SqliteSessionStore::open(&path).unwrap()));
+            authority.open(open.clone()).unwrap();
+            let original_result = authority.apply(original_command.clone()).unwrap();
+            assert_eq!(original_result.changed, crate::transaction::MAX_SESSION_INPUTS);
+            let old_lease = authority.snapshot(&source.workbook_id, Some(1)).unwrap();
+            let replacement_result = authority.apply(replacement_command.clone()).unwrap();
+            assert!(replacement_result.durable);
+            assert_eq!(replacement_result.changed, 2 * crate::transaction::MAX_SESSION_INPUTS);
+            assert_eq!(replacement_result.revision, 2);
+            assert_eq!(old_lease.revision, 1);
+            assert_eq!(old_lease.inputs, old_inputs);
+            assert_eq!(authority.snapshot(&source.workbook_id, None).unwrap().inputs, new_inputs);
+            assert_eq!(authority.apply(original_command.clone()).unwrap(), original_result);
+            assert!(authority.close(&source.workbook_id));
+            assert_eq!(old_lease.inputs, old_inputs);
+            (old_lease, original_result, replacement_result)
+        };
+
+        let mut recovered = SessionAuthority::new(Box::new(SqliteSessionStore::open(&path).unwrap()));
+        let info = recovered.open(open).unwrap();
+        assert!(info.recovered);
+        assert_eq!(info.revision, 2);
+        assert_eq!(recovered.snapshot(&source.workbook_id, None).unwrap().inputs, new_inputs);
+        assert_eq!(recovered.apply(original_command).unwrap(), original_result);
+        assert_eq!(recovered.apply(replacement_command).unwrap(), replacement_result);
+        assert_eq!(recovered.snapshot(&source.workbook_id, None).unwrap().revision, 2);
+        assert_eq!(old_lease.revision, 1);
+        assert_eq!(old_lease.inputs, old_inputs);
     }
 
     #[test]

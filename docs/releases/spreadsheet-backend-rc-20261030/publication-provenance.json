@@ -1,0 +1,37 @@
+{
+  "kind": "scoped-backend-rc-publication",
+  "repository": "Adilson09/aster-office",
+  "baseCommit": "d77196c6d70b9a4b2e78a1ecb9317865ebab3902",
+  "sourceFreezeSha256": "3bc86c21bdaa5a40a4533f4dd679c1d87af38b2422e3280118152816b295bf4f",
+  "sourceSetSha256": "e250cc9fb79671ff9090472e54ab4f691c97f8c22a517c621547c7b5bf60ae0c",
+  "scopedSourceFiles": 969,
+  "runtimeZip": {
+    "name": "Spreadsheet-Backend-Release-Candidate-20261030.zip",
+    "bytes": 44743903,
+    "sha256": "8b726b62bec2dcbb87112767db4a9fa5fc2d253e942de70f64532c5811b8c744"
+  },
+  "scope": "Only frozen spreadsheet inventory paths map to recorded RC source. Other application paths retain published baseline; no new full desktop build is claimed.",
+  "gitBytes": "Git blobs and attached source archive preserve exact captured bytes. Repository checkout attributes may normalize line endings on later clones.",
+  "developmentLayers": [
+    {
+      "label": "native19",
+      "receiptSha256": "541b8b59f3a207d41b33f5c738fb31b7c52915de7b5e2a6dfc73ce87779080d6",
+      "files": 19,
+      "status": "unapplied-source-only-not-release-validated"
+    },
+    {
+      "label": "standalone11",
+      "receiptSha256": "de59f16fcd4bccdd62dcfe233d79631551ae21e4e97d11870959234eb3053186",
+      "files": 11,
+      "status": "unapplied-source-only-not-release-validated"
+    },
+    {
+      "label": "headless-print-s1",
+      "receiptSha256": "3fd356c9083b9bb807a8d4e86e8b1e98ba063691bede96aed38251a658b7db41",
+      "files": 3,
+      "status": "unapplied-source-only-not-release-validated"
+    }
+  ],
+  "fullOfficeParity": false,
+  "publicReleaseAcceptance": false
+}

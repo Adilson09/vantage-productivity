@@ -1,0 +1,2534 @@
+diff --git a/apps/sheets/src/main/headless-sheets-cleanup.ts b/apps/sheets/src/main/headless-sheets-cleanup.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/headless-sheets-cleanup.ts
+@@ -0,0 +1,61 @@
++/** A grace deadline requests verified termination; it never settles work. */
++export const HEADLESS_SHEETS_CLEANUP_GRACE_MS = 30_000
++
++export async function settleHeadlessSheetsCleanup(options: {
++  /** Real destroyed-owner finalizer. Missing registration is a failure. */
++  ownerCleanup: Promise<void> | undefined
++  /** True only when owner registration was never entered or work admitted. */
++  setupOnly?: boolean
++  onMissingOwner?(): void
++  joinNative(): Promise<void>
++  /** Must await actual process exit/close. Called again to catch late clients. */
++  stopNative(): Promise<void>
++  graceMs?: number
++}): Promise<void> {
++  const grace = options.graceMs ?? HEADLESS_SHEETS_CLEANUP_GRACE_MS
++  if (!Number.isSafeInteger(grace) || grace < 1 || grace > 120_000)
++    throw new Error('Invalid headless spreadsheet cleanup grace.')
++  let failed = false
++  let failure: unknown
++  const remember = (error: unknown) => { if (!failed) { failed = true; failure = error } }
++  const stops: Promise<void>[] = []
++  const stop = (): Promise<void> => {
++    let actual: Promise<void>
++    try { actual = options.stopNative() }
++    catch (error) { actual = Promise.reject(error) }
++    stops.push(actual)
++    // Retain every real stop promise until finalization. A timer only starts
++    // this operation; it cannot turn a hung owner or child into a settled one.
++    void actual.catch(remember)
++    return actual
++  }
++  const timer = setTimeout(() => { void stop() }, grace)
++  try {
++    if (!options.ownerCleanup) {
++      if (!options.setupOnly) {
++        try { options.onMissingOwner?.() } catch { /* Keep waiting without a fabricated acknowledgment. */ }
++        // Native exit cannot prove an unregistered JS owner finalizer. Stop
++        // native work, but never return permission for app.exit/profile removal.
++        await Promise.allSettled([stop()])
++        try { await options.joinNative() } catch { /* No owner proof: keep teardown pending either way. */ }
++        clearTimeout(timer)
++        await new Promise<never>(() => {})
++      }
++    } else {
++      try { await options.ownerCleanup }
++      catch (error) { remember(error); void stop() }
++    }
++    try { await options.joinNative() }
++    catch (error) { remember(error) }
++  } finally {
++    clearTimeout(timer)
++    // Teardown can create the document client after a forced stop began.
++    // Re-evaluate both clients now instead of relying on the earlier snapshot.
++    void stop()
++    const results = await Promise.allSettled(stops)
++    for (const result of results) if (result.status === 'rejected') remember(result.reason)
++    try { await options.joinNative() }
++    catch (error) { remember(error) }
++  }
++  if (failed) throw failure
++}
+diff --git a/apps/sheets/src/main/headless-sheets-owner-work.ts b/apps/sheets/src/main/headless-sheets-owner-work.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/headless-sheets-owner-work.ts
+@@ -0,0 +1,28 @@
++/** Actual headless export JS custody; contains no document or recovery metadata. */
++export class HeadlessSheetsOwnerWork {
++  private closing = false
++  private readonly accepted = new Set<Promise<unknown>>()
++
++  closeAdmission(): void { this.closing = true }
++
++  run<T>(producer: () => Promise<T>): Promise<T> {
++    if (this.closing) return Promise.reject(new Error('The headless spreadsheet owner is closing.'))
++    let resolve!: (value: T | PromiseLike<T>) => void
++    let reject!: (error: unknown) => void
++    const actual = new Promise<T>((done, fail) => { resolve = done; reject = fail })
++    // Register before producer invocation, including its synchronous work.
++    this.accepted.add(actual)
++    void actual.catch(() => {})
++    try { void producer().then(resolve, reject) } catch (error) { reject(error) }
++    return actual
++  }
++
++  async joinOwner(ownerCleanup: Promise<void>): Promise<void> {
++    this.closeAdmission()
++    // Admission is closed before destruction. A rejected owner/export must not
++    // skip another accepted export's file/print/staging finalizers.
++    const results = await Promise.allSettled([ownerCleanup, ...this.accepted])
++    this.accepted.clear()
++    for (const result of results) if (result.status === 'rejected') throw result.reason
++  }
++}
+diff --git a/apps/sheets/src/main/sheets-main.ts b/apps/sheets/src/main/sheets-main.ts
+--- a/apps/sheets/src/main/sheets-main.ts
++++ b/apps/sheets/src/main/sheets-main.ts
+@@ -1,4 +1,7 @@
+-import { configureRecoveryProfile, initializeStandaloneRecovery } from '../../../../packages/electron-utils/src/recovery-bootstrap'
++import { configureRecoveryProfile, initializeStandaloneRecovery, recoveryRuntimeState } from '../../../../packages/electron-utils/src/recovery-bootstrap'
++import { initializeStandaloneSheetsCloseRuntime, type StandaloneSheetsCloseRuntime } from './standalone-close-runtime'
++import { settleHeadlessSheetsCleanup } from './headless-sheets-cleanup'
++import { HeadlessSheetsOwnerWork } from './headless-sheets-owner-work'
+ import { createHash, randomUUID } from 'node:crypto'
+ import { AsyncResource } from 'node:async_hooks'
+ import { assertWorkbookTargetUnchanged } from './workbook-source-expectation'
+@@ -216,7 +219,7 @@
+   cleanupImportTempDirectory,
+   cleanupSessionResources,
+ } from './temp-files'
+-import { XlsxSidecarClient, subscribeNativeActualWork } from './xlsx-sidecar-client'
++import { XlsxSidecarClient, subscribeNativeActualWork, joinNativeActualWork } from './xlsx-sidecar-client'
+ import { editWorkbookId } from './xlsx-edit-session'
+ import { editRecalcResultSchema, type EditSessionOpen } from './xlsx-edit-contract'
+ import { knownRelocationDigest, matchesWorkbookRelocation, sameWorkbookPath, sessionAfterVerifiedRelocation, verifyRelocatedWorkbook } from './workbook-relocation'
+@@ -2008,6 +2011,7 @@
+   coverageComplete(owner: WebContents): boolean
+ }
+ let sheetsCloseRuntime: SheetsCloseRuntime | undefined
++let standaloneCloseControl: StandaloneSheetsCloseRuntime | null = null
+ export function setSheetsCloseRuntime(runtime: SheetsCloseRuntime): void { sheetsCloseRuntime = runtime }
+ const reportedCloseStates = new Map<number, { state: SheetsCloseState; coverage: boolean }>()
+ const closeCapturedAuthorities = new Map<number, CapturedNativeCloseAuthority>()
+@@ -2027,6 +2031,7 @@
+ const sourceOffers = new Map<string, SourceOffer>()
+ const activeWorkbookRenames = new Map<WebContents, Promise<void>>()
+ const ownerCleanupByContents = new WeakMap<WebContents, Promise<void>>()
++const headlessOwnerWork = new WeakMap<WebContents, HeadlessSheetsOwnerWork>()
+ /** Actual destroyed-owner finalizer; absence is not proof of completion. */
+ export function sheetsOwnerCleanup(owner: WebContents): Promise<void> | undefined { return ownerCleanupByContents.get(owner) }
+ const mainPublicationLifecycles = new Map<WebContents, Set<WorkbookPublicationLifecycle>>()
+@@ -2261,6 +2266,7 @@
+     documentRecoveryService = new WorkbookDocumentRecovery({
+       privateRoot: join(app.getPath('userData'), 'sheets-document-recovery'),
+       nativeClient: createSettledDocumentNativeClient(documentRecoveryClient),
++      ...(recoveryRuntimeState().phase === 'disabled' ? { storage: 'volatile' as const } : {}),
+     })
+   }
+   return documentRecoveryService
+@@ -2400,6 +2406,7 @@
+     recoverySourceSha?: string
+   }
+ }> {
++  if (recoveryRuntimeState().phase === 'disabled' || (contents && headlessOwnerWork.has(contents))) return { handled: false }
+   const candidates = await documentRecovery().listCandidates(originalPath)
+   const adopted = new Set(adoptedDocumentCandidates.values())
+   const candidate = candidates.find(
+@@ -2587,6 +2594,14 @@
+ }
+ 
+ function registerSheetsSession(webContents: WebContents, client: XlsxSidecarClient): void {
++  if (ownerCleanupByContents.has(webContents)) throw new Error('The spreadsheet owner is already registered.')
++  let completeOwner!: () => void
++  let failOwner!: (error: unknown) => void
++  const actualOwnerCleanup = new Promise<void>((resolve, reject) => { completeOwner = resolve; failOwner = reject })
++  // Publish the genuine destruction finalizer before any registration effect.
++  // Only the full teardown below settles it; an interrupted handler stays pending.
++  ownerCleanupByContents.set(webContents, actualOwnerCleanup)
++  void actualOwnerCleanup.catch(() => {})
+   startPastedTempCleanup()
+   if (!crashNotifiedClients.has(client)) {
+     crashNotifiedClients.add(client)
+@@ -2624,15 +2639,17 @@
+       // Free pending chunked-save uploads with the tab (the sweep timer's
+       // closure would otherwise keep them reachable until the idle expiry).
+       entry.saveTransfers.dispose()
+-      await closeAllSessions(entry).finally(() => Promise.all(recoveryPaths.map(releasePreparedDocumentRecovery)))
++      await closeAllSessions(entry, headlessOwnerWork.has(webContents)).finally(() => Promise.all(recoveryPaths.map(releasePreparedDocumentRecovery)))
+     }
+     })
+     const renameActual = activeWorkbookRenames.get(webContents)
+     // The rename's verified-destruction path below waits the BASE cleanup.
+     // Only the exported outer join waits rename continuation too; making the
+     // captured publication lifecycle wait this outer join would self-deadlock.
+-    const fullOwnerCleanup = renameActual ? actualCleanup.then(async () => { await renameActual }) : actualCleanup
+-    ownerCleanupByContents.set(webContents, fullOwnerCleanup)
++    const fullOwnerCleanup = renameActual ? Promise.allSettled([actualCleanup, renameActual]).then(results => {
++      for (const result of results) if (result.status === 'rejected') throw result.reason
++    }) : actualCleanup
++    void fullOwnerCleanup.then(completeOwner, failOwner)
+     // Include teardown even if adoption already removed its map entry while
+     // its finalizer was running. No offered lifecycle can escape on owner loss.
+     for (const lifecycle of mainPublicationLifecycles.get(webContents) ?? []) {
+@@ -2829,6 +2846,7 @@
+   join(recoveryDir(), `${createHash('sha1').update(filePath).digest('hex').slice(0, 16)}.xlsx`)
+ 
+ function clearWorkbookRecovery(filePath: string): void {
++  if (recoveryRuntimeState().phase === 'disabled') return
+   try {
+     unlinkSync(recoveryPathFor(filePath))
+   } catch {
+@@ -2842,11 +2860,13 @@
+ const unsavedNewIndexPath = () => join(recoveryDir(), 'unsaved-new.json')
+ 
+ function readUnsavedNewIndex(): string[] {
++  if (recoveryRuntimeState().phase === 'disabled') return []
+   const list = readJson<unknown>(unsavedNewIndexPath(), [])
+   return Array.isArray(list) ? list.filter((p): p is string => typeof p === 'string') : []
+ }
+ 
+ function writeUnsavedNewIndex(list: string[]): void {
++  if (recoveryRuntimeState().phase === 'disabled') return
+   try {
+     mkdirSync(recoveryDir(), { recursive: true })
+     writeFileSync(unsavedNewIndexPath(), JSON.stringify(list))
+@@ -2868,6 +2888,7 @@
+ 
+ /** shell, at launch: would-be paths of new workbooks whose recovery copy survived a crash */
+ export async function pendingUnsavedNewRecoveries(): Promise<string[]> {
++  if (recoveryRuntimeState().phase === 'disabled') return []
+   const live = readUnsavedNewIndex().filter((p) => existsSync(recoveryPathFor(p)))
+   writeUnsavedNewIndex(live)
+   const native = await documentRecovery().listAllCandidates()
+@@ -2899,6 +2920,7 @@
+ }
+ 
+ function pendingUnsavedNewRecoveryFor(suggestSaveAs: string): string | null {
++  if (recoveryRuntimeState().phase === 'disabled') return null
+   const copy = recoveryPathFor(suggestSaveAs)
+   return readUnsavedNewIndex().includes(suggestSaveAs) && existsSync(copy) ? copy : null
+ }
+@@ -2974,6 +2996,7 @@
+ /** Recovery copy left by a lost session. A newer original does not discard it (the copy
+  * may hold the only pre-crash edits): the prompt just says the disk file is newer. */
+ function pendingRecoveryFor(filePath: string): string | null {
++  if (recoveryRuntimeState().phase === 'disabled') return null
+   const copy = recoveryPathFor(filePath)
+   try {
+     return existsSync(copy) ? copy : null
+@@ -3144,7 +3167,10 @@
+     }).then((proceed) => {
+       // not proceeding vetoes any quit that was in flight: go back to
+       // prompting on later closes (see resetSheetsShuttingDown)
+-      if (!proceed) resetSheetsShuttingDown()
++      if (!proceed) cancelStandaloneSheetsQuit()
++    }).catch(() => {
++      cancelStandaloneSheetsQuit()
++      warnStandaloneSheets('Spreadsheet close preparation failed. The application will remain open.')
+     })
+   })
+   window.on('closed', () => {
+@@ -3186,45 +3212,103 @@
+ ): Promise<void> {
+   const client = sidecar ?? new XlsxSidecarClient(resolveSidecarPath())
+   sidecar = client
+-  client.start()
+-  const win = new BrowserWindow({
+-    show: false,
+-    width: 1440,
+-    height: 900,
+-    webPreferences: {
+-      preload: runtime.preloadPath,
+-      contextIsolation: true,
+-      nodeIntegration: false,
+-      sandbox: true,
+-      backgroundThrottling: false,
+-    },
+-  })
+-  registerSheetsIpc()
+-  registerSheetsSession(win.webContents, client)
+-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+-  win.webContents.on('will-navigate', (event) => event.preventDefault())
+-  const wcId = win.webContents.id
+-  queueWorkbookForView(win.webContents, input)
+-  headlessExportTargets.set(wcId, outPath)
++  let win: BrowserWindow | undefined
++  let contents: WebContents | undefined
++  let wcId: number | undefined
++  let registrationAttempted = false
++  let actualOwnerCleanup: Promise<void> | undefined
++  const ownerWork = new HeadlessSheetsOwnerWork()
++  const stoppedClients = new Map<XlsxSidecarClient, Promise<void>>()
++  const stopNative = async (): Promise<void> => {
++    // Re-evaluate the document client after teardown continuations, not just
++    // the clients that happened to exist when a grace stop first began.
++    const clients = new Set([client, ...(documentRecoveryClient ? [documentRecoveryClient] : [])])
++    const results = await Promise.allSettled([...clients].map(native => {
++      let actual = stoppedClients.get(native)
++      if (!actual) {
++        try { actual = native.stopSettled() }
++        catch (error) { actual = Promise.reject(error) }
++        stoppedClients.set(native, actual)
++      }
++      return actual
++    }))
++    for (const result of results) if (result.status === 'rejected') throw result.reason
++  }
+   let timer: ReturnType<typeof setTimeout> | undefined
+   try {
++    client.start()
++    win = new BrowserWindow({
++      show: false,
++      width: 1440,
++      height: 900,
++      webPreferences: {
++        preload: runtime.preloadPath,
++        contextIsolation: true,
++        nodeIntegration: false,
++        sandbox: true,
++        backgroundThrottling: false,
++      },
++    })
++    const owner = win.webContents
++    contents = owner
++    headlessOwnerWork.set(owner, ownerWork)
++    registerSheetsIpc()
++    registrationAttempted = true
++    registerSheetsSession(owner, client)
++    actualOwnerCleanup = sheetsOwnerCleanup(owner)
++    owner.setWindowOpenHandler(() => ({ action: 'deny' }))
++    owner.on('will-navigate', (event) => event.preventDefault())
++    const id = owner.id
++    wcId = id
++    queueWorkbookForView(owner, input)
++    headlessExportTargets.set(id, outPath)
+     const report = await new Promise<HeadlessSheetsReport>((resolve) => {
+-      headlessExportWaiters.set(wcId, resolve)
+-      win.webContents.on('render-process-gone', (_event, details) =>
++      headlessExportWaiters.set(id, resolve)
++      owner.on('render-process-gone', (_event, details) =>
+         resolve({ ok: false, error: `sheets renderer stopped (${details.reason})` }),
+       )
+       timer = setTimeout(
+         () => resolve({ ok: false, error: `sheets export timed out after ${timeoutMs}ms` }),
+         timeoutMs,
+       )
+-      void win.webContents.loadURL(rendererUrl(runtime.rendererUrl, 'sheets'))
++      void owner.loadURL(rendererUrl(runtime.rendererUrl, 'sheets')).catch(() =>
++        resolve({ ok: false, error: 'The headless spreadsheet renderer could not load.' }))
+     })
+     if (!report.ok) throw new Error(report.error ?? 'sheets export failed')
+   } finally {
+     if (timer) clearTimeout(timer)
+-    headlessExportWaiters.delete(wcId)
+-    headlessExportTargets.delete(wcId)
+-    if (!win.isDestroyed()) win.destroy()
++    // Close producer admission before removing targets or destroying the owner;
++    // queued IPC cannot sneak another export into the teardown snapshot.
++    ownerWork.closeAdmission()
++    if (wcId !== undefined) {
++      headlessExportWaiters.delete(wcId)
++      headlessExportTargets.delete(wcId)
++    }
++    let destroyFailed = false
++    let destroyFailure: unknown
++    try { if (win && !win.isDestroyed()) win.destroy() }
++    catch (error) { destroyFailed = true; destroyFailure = error }
++    // Saved at registration, before owner destruction. A late getter can only
++    // recover that same genuine bridge, never manufacture a resolved fallback.
++    actualOwnerCleanup ??= contents ? sheetsOwnerCleanup(contents) : undefined
++    try {
++      await settleHeadlessSheetsCleanup({
++        ownerCleanup: actualOwnerCleanup ? ownerWork.joinOwner(actualOwnerCleanup) : undefined,
++        setupOnly: !registrationAttempted,
++        onMissingOwner: () => console.warn('[sheets] Headless cleanup is waiting for its registered owner finalizer.'),
++        joinNative: joinNativeActualWork,
++        stopNative,
++      })
++      if (destroyFailed) throw destroyFailure
++    } finally {
++        // Keep this closed owner membership until WebContents is collected;
++        // an already-queued late IPC must never fall back to GUI admission.
++      if (sidecar === client && stoppedClients.has(client)) sidecar = null
++      if (documentRecoveryClient && stoppedClients.has(documentRecoveryClient)) {
++        documentRecoveryClient = undefined
++        documentRecoveryService = undefined
++      }
++    }
+   }
+ }
+ 
+@@ -3773,7 +3857,7 @@
+   /// (prepareWorkbookForOpen + openWorkbookSession + the opened hook) as a
+   /// user-picked or shell-queued open, so a recovered workbook is a normal
+   /// session rather than a merge source.
+-  const openSelectedWorkbook = async (
++  const openSelectedWorkbookActual = async (
+     event: IpcMainInvokeEvent,
+     explicitPath?: string,
+     password?: string,
+@@ -3833,6 +3917,7 @@
+         restoreTarget: prepared.restoreTarget,
+         emptySource: prepared.emptySource,
+         unsavedNew: prepared.unsavedNew,
++        requireExitOnCloseFailure: headlessOwnerWork.has(event.sender),
+         password,
+       })
+     } catch (error) {
+@@ -3854,7 +3939,16 @@
+           tempRoot: app.getPath('temp'),
+           snapshotPath: session.snapshotPath,
+           importTempDir: session.importTempDir,
+-          closeSidecar: () => entry.client.close(result.sessionId),
++          closeSidecar: async () => {
++            if (!headlessOwnerWork.has(event.sender)) return entry.client.close(result.sessionId)
++            try { await entry.client.closeSettled(result.sessionId) }
++            catch (error) {
++              // Temp cleanup swallows close errors. A headless late open may
++              // release its staging only after its reader has truly exited.
++              await entry.client.stopSettled()
++              throw error
++            }
++          },
+         })
+         await releasePreparedDocumentRecovery(session.path)
+       }
+@@ -3873,6 +3967,22 @@
+         if (sourceOpenAdmissions.get(event.sender.id) === sourceOpen) sourceOpenAdmissions.delete(event.sender.id)
+       }
+     }
++  }
++
++  const openSelectedWorkbook = (
++    event: IpcMainInvokeEvent,
++    explicitPath?: string,
++    password?: string,
++  ) => {
++    const open = () => openSelectedWorkbookActual(event, explicitPath, password)
++    const headless = headlessOwnerWork.get(event.sender)
++    // Reserve the entire open continuation before it can create a snapshot or
++    // native reader. Owner teardown must join late-open staging cleanup too.
++    if (headless) {
++      if (event.sender.isDestroyed()) return Promise.reject(new Error('The headless spreadsheet owner is closing.'))
++      return headless.run(open)
++    }
++    return open()
+   }
+ 
+   ipcMain.handle(IPC_CHANNELS.selectWorkbook, async (event) => {
+@@ -4316,9 +4426,19 @@
+   ipcMain.handle(IPC_CHANNELS.exportPdf, async (event, input: unknown) => {
+     sessionFor(event)
+     const request = workbookExportPdfRequestSchema.parse(input)
+-    const result = await exportPdf(event, request)
+-    if (!result.canceled && result.path) openGeneratedFile(result.path)
+-    return result
++    const write = async () => {
++      const result = await exportPdf(event, request)
++      if (!result.canceled && result.path) openGeneratedFile(result.path)
++      return result
++    }
++    const headless = headlessOwnerWork.get(event.sender)
++    // run() records the actual JS lifetime before invoking the first export
++    // effect. Closed headless owners cannot admit a queued late print/write.
++    if (headless) {
++      if (event.sender.isDestroyed()) throw new Error('The headless spreadsheet owner is closing.')
++      return headless.run(write)
++    }
++    return write()
+   })
+ 
+   ipcMain.handle(IPC_CHANNELS.printWorkbook, async (event, input: unknown) => {
+@@ -4744,7 +4864,8 @@
+       const ownedPublication = offerSavedSource(event.sender, previousSource, file, async () => {
+       await releaseWorkbookReader(event.sender, request.sessionId, true,
+         csvInPlace || quietUnsavedNew ? session.importTempDir : undefined)
+-      if (quietUnsavedNew && session.suggestSaveAs !== undefined) {
++      if (quietUnsavedNew && session.suggestSaveAs !== undefined &&
++        recoveryRuntimeState().phase !== 'disabled' && !headlessOwnerWork.has(event.sender)) {
+         // Keep the newly saved backing file under a fresh durable authority.
+         // Its base already includes the saved changes, so do not replay the old
+         // structural operations when recording its recovery checkpoint.
+@@ -4855,6 +4976,7 @@
+ 
+   ipcMain.handle(IPC_CHANNELS.writeWorkbookRecovery, async (event, input: unknown, rawWriteContext: unknown) => {
+     const entry = sessionFor(event)
++    if (headlessOwnerWork.has(event.sender) || recoveryRuntimeState().phase === 'disabled') return { ok: false }
+     const request = resolveTransferredEdits(entry, workbookSaveRequestSchema.parse(input))
+     if (!entry.sessions.has(request.sessionId)) return { ok: false }
+     const writeAdmission = sheetsPromptWriteGate.admit(event.sender, parseWorkbookWriteContext(rawWriteContext))
+@@ -5727,6 +5849,8 @@
+     retainExistingBaseOnFailure?: boolean | undefined
+     /** Recovery refusal must not overwrite or close an existing reader UUID. */
+     preserveExistingReaderIds?: boolean | undefined
++    /** Headless staging may be removed only after a failed reader close has actual exit proof. */
++    requireExitOnCloseFailure?: boolean | undefined
+   },
+ ): Promise<WorkbookFile> {
+   const {
+@@ -5744,6 +5868,7 @@
+     password,
+     retainExistingBaseOnFailure,
+     preserveExistingReaderIds,
++    requireExitOnCloseFailure,
+   } = options ?? {}
+   // Only a CFB container (the encrypted wrapper) is read into memory; a plain
+   // zip package keeps the streamed copy + file digest so large workbooks do
+@@ -5855,7 +5980,9 @@
+   } catch (error) {
+     if (openedSessionId !== undefined && !conflictingReaderId) {
+       sessions.delete(openedSessionId)
+-      await client.closeSettled(openedSessionId).catch(() => undefined)
++      await client.closeSettled(openedSessionId).catch(async () => {
++        if (requireExitOnCloseFailure) await client.stopSettled()
++      })
+     }
+     await rm(snapshotPath, { force: true }).catch(() => undefined)
+     if (!retainExistingBaseOnFailure) await releasePreparedDocumentRecovery(path)
+@@ -6246,10 +6373,16 @@
+   }
+ }
+ 
++function cancelStandaloneSheetsQuit(): void {
++  if (standaloneCloseControl) standaloneCloseControl.cancel()
++  else resetSheetsShuttingDown()
++}
++
++function warnStandaloneSheets(message: string): void {
++  void dialog.showMessageBox({ type: 'warning', message }).catch(() => {})
++}
++
+ export function startSheetsStandalone(): void {
+-  registerRendererScheme()
+-  installNavigationGuard(app)
+-  installContextMenu(app, () => contextMenuLabels(getUiLang()))
+   // VANTAGE_USER_DATA: test drivers point this at a scratch dir so automated
+   // instances get their own userData AND single-instance lock (the lock is scoped
+   // to userData), allowing parallel instances alongside a normal dev run.
+@@ -6258,28 +6391,60 @@
+     app.setPath('userData', process.env.VANTAGE_USER_DATA)
+   }
+   const standaloneRecoveryProfile = configureRecoveryProfile({ app, mode: 'gui', guiProfile: app.getPath('userData') })
+-  if (!app.requestSingleInstanceLock()) { app.quit(); return }
+-  initializeStandaloneRecovery({ app, ...standaloneRecoveryProfile, lockAcquired: true,
+-    warning: message => { void dialog.showMessageBox({ type: 'warning', message }).catch(() => {}) },
+-    terminal: cleanup => { app.once('will-quit', cleanup) },
+-  })
+-  void applyMainProcessProxy()
+-  app.whenReady().then(() => {
+-    installRendererProtocol({ sheets: join(__dirname, '../renderer') })
+-    setUiLang(normalizeLang(process.env.VANTAGE_LANG ?? app.getLocale()))
+-    app.setAccessibilitySupportEnabled(true)
+-    installApplicationMenu()
+-    startCaptureServer()
+-    return createSheetsWindow()
+-  })
+-  app.on('window-all-closed', () => {
+-    if (process.platform !== 'darwin') app.quit()
+-  })
+-  app.on('will-quit', () => {
+-    stopSheetsSidecar()
+-  })
+-  app.on('activate', () => {
+-    if (!mainWindow) void createSheetsWindow()
++  const lockAcquired = app.requestSingleInstanceLock()
++  if (!lockAcquired) { app.quit(); return }
++  standaloneCloseControl = initializeStandaloneSheetsCloseRuntime({
++    mode: 'gui', lockAcquired, app,
++    setRuntime: setSheetsCloseRuntime,
++    closeState: sheetsCloseState,
++    initializeShared: () => {
++      initializeStandaloneRecovery({ app, ...standaloneRecoveryProfile, lockAcquired: true,
++        warning: warnStandaloneSheets,
++        terminal: cleanup => { app.once('will-quit', cleanup) },
++      })
++    },
++    resetShutdown: resetSheetsShuttingDown,
++    warning: warnStandaloneSheets,
++    onBlocked: retry => {
++      void dialog.showMessageBox({
++        type: 'warning',
++        message: 'Spreadsheet cleanup is incomplete. Keep the application open.',
++        buttons: ['Retry cleanup', 'Keep open'], defaultId: 1, cancelId: 1,
++      }).then(async result => {
++        if (result.response !== 0) return
++        try { await retry() }
++        catch { warnStandaloneSheets('Spreadsheet cleanup is still incomplete. Keep the application open.') }
++      }).catch(() => warnStandaloneSheets('Spreadsheet cleanup is incomplete. Keep the application open.'))
++    },
++    startEditors: () => {
++      registerRendererScheme()
++      installNavigationGuard(app)
++      installContextMenu(app, () => contextMenuLabels(getUiLang()))
++      void applyMainProcessProxy()
++      void app.whenReady().then(() => {
++        installRendererProtocol({ sheets: join(__dirname, '../renderer') })
++        setUiLang(normalizeLang(process.env.VANTAGE_LANG ?? app.getLocale()))
++        app.setAccessibilitySupportEnabled(true)
++        installApplicationMenu()
++        startCaptureServer()
++        return createSheetsWindow()
++      }).catch(() => {
++        cancelStandaloneSheetsQuit()
++        warnStandaloneSheets('Spreadsheet startup did not complete. Keep the application open.')
++      })
++      app.on('window-all-closed', () => {
++        if (process.platform !== 'darwin') app.quit()
++      })
++      app.on('will-quit', () => {
++        stopSheetsSidecar()
++      })
++      app.on('activate', () => {
++        if (!mainWindow) void createSheetsWindow().catch(() => {
++          cancelStandaloneSheetsQuit()
++          warnStandaloneSheets('Spreadsheet startup did not complete. Keep the application open.')
++        })
++      })
++    },
+   })
+ }
+ 
+@@ -6304,7 +6469,7 @@
+ async function closeAllSessions(entry: {
+   client: XlsxSidecarClient
+   sessions: Map<string, SessionInfo>
+-}): Promise<void> {
++}, requireExitOnCloseFailure = false): Promise<void> {
+   const sessions = [...entry.sessions.entries()]
+   entry.sessions.clear()
+   await Promise.allSettled(
+@@ -6313,7 +6478,15 @@
+         tempRoot: app.getPath('temp'),
+         snapshotPath: session.snapshotPath,
+         importTempDir: session.importTempDir,
+-        closeSidecar: () => entry.client.closeSettled(sessionId),
++        closeSidecar: async () => {
++          try { await entry.client.closeSettled(sessionId) }
++          catch (error) {
++            // Temp cleanup swallows close rejection. Headless staging cannot
++            // be removed until even a refused/failed close has actual exit proof.
++            if (requireExitOnCloseFailure) await entry.client.stopSettled()
++            throw error
++          }
++        },
+       })
+     }),
+   )
+diff --git a/apps/sheets/src/main/standalone-close-runtime.ts b/apps/sheets/src/main/standalone-close-runtime.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/standalone-close-runtime.ts
+@@ -0,0 +1,129 @@
++import { cancelCloseCleanupQuitDrain } from '../../../../packages/electron-utils/src/close-cleanup-runtime'
++import {
++  installSheetsCloseRuntime,
++  type SheetsCloseRuntimeInstallationOptions,
++} from '../../../shell/src/main/sheets-close-runtime'
++import {
++  installSheetsCloseQuitGuard,
++  SheetsCloseQuitLedger,
++  type SheetsQuitApp,
++} from '../../../shell/src/main/sheets-close-quit-ledger'
++
++export interface StandaloneSheetsCloseRuntimeOptions {
++  mode: 'gui' | 'headless-export'
++  lockAcquired: boolean
++  app: SheetsQuitApp
++  setRuntime: SheetsCloseRuntimeInstallationOptions['setRuntime']
++  closeState: SheetsCloseRuntimeInstallationOptions['closeState']
++  initializeShared(): void
++  startEditors(): void
++  resetShutdown(): void
++  warning(message: string): void
++  onBlocked(retry: () => Promise<void>): void
++}
++
++export interface StandaloneSheetsCloseRuntime {
++  cancel(): void
++  readonly ledger: SheetsCloseQuitLedger
++}
++
++export interface StandaloneSheetsCloseRuntimeDependencies {
++  createLedger(options: { report(error: unknown): void }): SheetsCloseQuitLedger
++  installGuard: typeof installSheetsCloseQuitGuard
++  installRuntime(options: SheetsCloseRuntimeInstallationOptions): unknown
++  cancelSharedQuitDrain(): void
++}
++
++/** Factory injection keeps startup-order tests independent of Electron/Main. */
++export function createStandaloneSheetsCloseRuntimeInitializer(
++  dependencies: StandaloneSheetsCloseRuntimeDependencies,
++) {
++  let initialized: {
++    options: StandaloneSheetsCloseRuntimeOptions
++    control: StandaloneSheetsCloseRuntime
++  } | undefined
++
++  return (options: StandaloneSheetsCloseRuntimeOptions): StandaloneSheetsCloseRuntime | null => {
++    // Headless work and the process that lost the profile lock must not create
++    // shared recovery, custody providers, ledgers, quit listeners, or editors.
++    if (options.mode !== 'gui' || !options.lockAcquired) return null
++    if (initialized) {
++      if (initialized.options.app !== options.app || initialized.options.setRuntime !== options.setRuntime ||
++        initialized.options.closeState !== options.closeState)
++        throw new Error('Standalone Sheets close runtime already belongs to another main host.')
++      return initialized.control
++    }
++
++    const warning = (message: string): void => {
++      try { options.warning(message) } catch { /* No fallback logger for protected errors. */ }
++    }
++    try { options.initializeShared() }
++    catch { warning('Spreadsheet recovery could not be initialized. Close checks may be unavailable.') }
++    let epoch = 1
++    const cancellations = new Set<() => void>()
++    const ledger = dependencies.createLedger({
++      report: () => warning('Spreadsheet background work did not complete.'),
++    })
++    const cancel = (): void => {
++      epoch++
++      for (const listener of [...cancellations]) {
++        try { listener() } catch { warning('The spreadsheet quit request could not be fully canceled.') }
++      }
++      try { dependencies.cancelSharedQuitDrain() }
++      catch { warning('The spreadsheet cleanup quit request could not be canceled.') }
++      try { options.resetShutdown() }
++      catch { warning('The spreadsheet shutdown state could not be reset.') }
++    }
++    const control: StandaloneSheetsCloseRuntime = Object.freeze({ cancel, ledger })
++    initialized = { options, control }
++
++    let guarded = false
++    try {
++      dependencies.installGuard(options.app, ledger, {
++        epoch: () => epoch,
++        isCurrent: expected => expected === epoch,
++        subscribeCancel: listener => {
++          cancellations.add(listener)
++          return () => { cancellations.delete(listener) }
++        },
++        onBlocked: () => {
++          // Failure after removal is not permission to quit. Cleanup can be
++          // retried explicitly, but this old quit intention remains canceled.
++          cancel()
++          try { options.onBlocked(() => ledger.retryFailed()) }
++          catch { warning('Protected spreadsheet cleanup is incomplete. Keep the application open.') }
++        },
++        report: () => warning('Spreadsheet quit preparation did not complete.'),
++      })
++      guarded = true
++    } catch {
++      warning('Spreadsheet close protection could not be initialized. Keep the application open.')
++    }
++    if (guarded) {
++      try {
++        // Production installs the real provider plus its promise-only native
++        // work observer before exposing the runtime to any editor services.
++        dependencies.installRuntime({ ledger, setRuntime: options.setRuntime, closeState: options.closeState })
++      } catch {
++        warning('Spreadsheet close protection could not be installed. Keep the application open.')
++      }
++    }
++    // Missing/failed runtime installation leaves main close coverage closed;
++    // the GUI can still explain the failure and preserve the live workbook.
++    options.startEditors()
++    return control
++  }
++}
++
++const initializeProduction = createStandaloneSheetsCloseRuntimeInitializer({
++  createLedger: options => new SheetsCloseQuitLedger(options),
++  installGuard: installSheetsCloseQuitGuard,
++  installRuntime: installSheetsCloseRuntime,
++  cancelSharedQuitDrain: cancelCloseCleanupQuitDrain,
++})
++
++export function initializeStandaloneSheetsCloseRuntime(
++  options: StandaloneSheetsCloseRuntimeOptions,
++): StandaloneSheetsCloseRuntime | null {
++  return initializeProduction(options)
++}
+diff --git a/apps/sheets/src/main/workbook-document-recovery.ts b/apps/sheets/src/main/workbook-document-recovery.ts
+--- a/apps/sheets/src/main/workbook-document-recovery.ts
++++ b/apps/sheets/src/main/workbook-document-recovery.ts
+@@ -140,7 +140,13 @@
+   readonly encrypted: boolean
+   readonly ready: Promise<void>
+   readonly cancelled: boolean
+-  attest(): { documentId: string; revision: number; sourceFingerprint: string; pending: boolean; payloadSha256?: string } | null
++  attest(): {
++    documentId: string
++    revision: number
++    sourceFingerprint: string
++    pending: boolean
++    payloadSha256?: string
++  } | null
+   snapshotProof(): Promise<NativeCloseSnapshotProof>
+   retireCapturedOnly(signal: AbortSignal): Promise<void>
+   cancel(): Promise<void>
+@@ -152,7 +158,9 @@
+ 
+ const capturedNativeAuthorities = new WeakSet<object>()
+ 
+-export function isCapturedNativeCloseAuthority(value: unknown): value is CapturedNativeCloseAuthority {
++export function isCapturedNativeCloseAuthority(
++  value: unknown,
++): value is CapturedNativeCloseAuthority {
+   return typeof value === 'object' && value !== null && capturedNativeAuthorities.has(value)
+ }
+ 
+@@ -346,7 +354,10 @@
+   return value as unknown as NativeDocumentReceipt
+ }
+ 
+-function nativeSnapshot(value: unknown, manifest: Pick<Manifest, 'id' | 'sourceFingerprint' | 'sheets'>): NativeDocumentSnapshot {
++function nativeSnapshot(
++  value: unknown,
++  manifest: Pick<Manifest, 'id' | 'sourceFingerprint' | 'sheets'>,
++): NativeDocumentSnapshot {
+   if (
+     !object(value) ||
+     value.apiVersion !== 1 ||
+@@ -415,6 +426,7 @@
+ export class WorkbookDocumentRecovery {
+   private readonly privateRoot: string
+   private readonly native: DocumentNativeClient
++  private readonly storage: 'durable' | 'volatile'
+   private readonly runtimeId = randomUUID()
+   private readonly live = new Map<string, LiveDocument>()
+   private readonly producers = new Map<string, LiveDocument>()
+@@ -427,12 +439,25 @@
+   constructor(options: {
+     readonly privateRoot: string
+     readonly nativeClient: DocumentNativeClient
++    /** Volatile authority still validates real native ACKs; it creates no recovery storage. */
++    readonly storage?: 'durable' | 'volatile'
+   }) {
+     this.privateRoot = absolutePath(options.privateRoot)
+     if (/^(?:\\\\|\/\/)/.test(options.privateRoot)) {
+       fail('invalid_private_root', 'Workbook recovery requires an app-owned local directory.')
+     }
+     this.native = options.nativeClient
++    if (
++      options.storage !== undefined &&
++      options.storage !== 'durable' &&
++      options.storage !== 'volatile'
++    )
++      fail('invalid_storage', 'Unknown workbook authority storage policy.')
++    this.storage = options.storage ?? 'durable'
++  }
++
++  private isMemory(state: Pick<LiveDocument, 'encrypted'>): boolean {
++    return this.storage === 'volatile' || state.encrypted
+   }
+ 
+   private enqueue<T>(key: string, operation: () => Promise<T>): Promise<T> {
+@@ -450,7 +475,9 @@
+   }
+ 
+   /** Allocate before enqueue: detaching an epoch cannot redirect already admitted work. */
+-  private admit(input: Omit<DocumentCheckpointInput, 'payload' | 'actor' | 'commandId'>): LiveDocument {
++  private admit(
++    input: Omit<DocumentCheckpointInput, 'payload' | 'actor' | 'commandId'>,
++  ): LiveDocument {
+     const ownerId = String(input.ownerId)
+     const key = JSON.stringify([ownerId, input.sessionId])
+     const originalPath = absolutePath(input.originalPath)
+@@ -463,33 +490,65 @@
+     if (state?.retireQueued || state?.retiring) state = undefined
+     if (!state) {
+       state = {
+-        id: randomUUID(), generation: ++this.generation, ownerId, key, originalPath, sourcePath,
+-        sheets, encrypted: input.encrypted === true, opened: false, revision: 0,
+-        ...(input.originalFingerprint === undefined ? {} : { originalFingerprint: input.originalFingerprint }),
++        id: randomUUID(),
++        generation: ++this.generation,
++        ownerId,
++        key,
++        originalPath,
++        sourcePath,
++        sheets,
++        encrypted: input.encrypted === true,
++        opened: false,
++        revision: 0,
++        ...(input.originalFingerprint === undefined
++          ? {}
++          : { originalFingerprint: input.originalFingerprint }),
+       }
+       this.live.set(key, state)
+       this.producers.set(state.id, state)
+     } else if (
+       pathIdentity(state.originalPath) !== pathIdentity(originalPath) ||
+-      state.encrypted !== (input.encrypted === true) || !sameSheets(state.sheets, sheets)
++      state.encrypted !== (input.encrypted === true) ||
++      !sameSheets(state.sheets, sheets)
+     ) {
+-      fail('source_conflict', 'An existing workbook session cannot change source identity, worksheet mapping, or encryption mode.')
++      fail(
++        'source_conflict',
++        'An existing workbook session cannot change source identity, worksheet mapping, or encryption mode.',
++      )
+     }
+     const original = state.manifest ? state.manifest.originalFingerprint : state.originalFingerprint
+-    if (input.originalFingerprint !== undefined && original !== undefined && input.originalFingerprint !== original)
+-      fail('source_conflict', 'An existing recovery session cannot change its opening-time original fingerprint.')
+-    if (!state.manifest && state.originalFingerprint === undefined && input.originalFingerprint !== undefined)
++    if (
++      input.originalFingerprint !== undefined &&
++      original !== undefined &&
++      input.originalFingerprint !== original
++    )
++      fail(
++        'source_conflict',
++        'An existing recovery session cannot change its opening-time original fingerprint.',
++      )
++    if (
++      !state.manifest &&
++      state.originalFingerprint === undefined &&
++      input.originalFingerprint !== undefined
++    )
+       state.originalFingerprint = input.originalFingerprint
+     this.ownerKeys.set(key, ownerId)
+     return state
+   }
+ 
+   /** Call stageNativeCleanup immediately after this synchronous detach, before awaiting ready. */
+-  captureNativeCloseAuthority(ownerId: OwnerId, sessionId: string): CapturedNativeCloseAuthority | null {
++  captureNativeCloseAuthority(
++    ownerId: OwnerId,
++    sessionId: string,
++  ): CapturedNativeCloseAuthority | null {
++    // Headless volatile state is a calculation/save authority, never a GUI
++    // custody/removal capability. Refusal must not detach its live producer.
++    if (this.storage === 'volatile') return null
+     const key = JSON.stringify([String(ownerId), sessionId])
+     const state = this.live.get(key)
+     if (!state) return null
+-    if (state.retiring) fail('authority_busy', 'The previous workbook retirement is still finishing.')
++    if (state.retiring)
++      fail('authority_busy', 'The previous workbook retirement is still finishing.')
+     state.captured = true
+     this.live.delete(key)
+     const tail = this.queues.get(key) ?? Promise.resolve()
+@@ -497,11 +556,16 @@
+     let cancelled = false
+     let retired = false
+     let cancellation: Promise<void> | undefined
+-    const ready = tail.then(() => { drained = true })
++    const ready = tail.then(() => {
++      drained = true
++    })
+     let operations = ready
+     const serialize = <T>(work: () => Promise<T>): Promise<T> => {
+       const result = operations.then(work)
+-      operations = result.then(() => undefined, () => undefined)
++      operations = result.then(
++        () => undefined,
++        () => undefined,
++      )
+       return result
+     }
+     const cancel = (): Promise<void> => {
+@@ -511,8 +575,12 @@
+       // Release this old handle only after its real snapshot I/O has settled.
+       // Keep its durable files; removing the registry entry makes it discoverable.
+       cancellation = serialize(async () => {
+-        try { await this.native.closeDocument({ apiVersion: 1, documentId: state.id }) }
+-        catch (error) { state.opened = false; throw error }
++        try {
++          await this.native.closeDocument({ apiVersion: 1, documentId: state.id })
++        } catch (error) {
++          state.opened = false
++          throw error
++        }
+         state.opened = false
+         this.producers.delete(state.id)
+       })
+@@ -523,77 +591,141 @@
+     }
+     const ensure = () => {
+       if (cancelled || retired || this.producers.get(state.id) !== state)
+-        fail('obsolete_close_authority', 'This captured workbook producer no longer grants cleanup authority.')
++        fail(
++          'obsolete_close_authority',
++          'This captured workbook producer no longer grants cleanup authority.',
++        )
+     }
+     const authority: CapturedNativeCloseAuthority = {
+-      id: state.id, producer: state.id, generation: state.generation, ownerId: state.ownerId,
+-      sessionId, originalPath: state.originalPath, encrypted: state.encrypted, ready,
+-      get cancelled() { return cancelled },
++      id: state.id,
++      producer: state.id,
++      generation: state.generation,
++      ownerId: state.ownerId,
++      sessionId,
++      originalPath: state.originalPath,
++      encrypted: state.encrypted,
++      ready,
++      get cancelled() {
++        return cancelled
++      },
+       attest: () => {
+         if (!drained || cancelled || retired || state.sourceFingerprint === undefined) return null
+-        return { documentId: state.id, revision: state.revision, sourceFingerprint: state.sourceFingerprint,
++        return {
++          documentId: state.id,
++          revision: state.revision,
++          sourceFingerprint: state.sourceFingerprint,
+           pending: state.pending !== undefined,
+-          ...(state.last?.receipt.revision === state.revision ? { payloadSha256: state.last.payloadHash } : {}) }
++          ...(state.last?.receipt.revision === state.revision
++            ? { payloadSha256: state.last.payloadHash }
++            : {}),
++        }
+       },
+-      snapshotProof: () => serialize(async () => {
+-        await ready
+-        ensure()
+-        if (state.pending || state.manifest?.pending)
+-          fail('uncertain_checkpoint', 'A pending checkpoint acknowledgement is unknown. The original authority was retained.')
+-        await this.openState(state)
+-        ensure()
+-        if (state.sourceFingerprint === undefined) fail('source_conflict', 'The captured source has no verified fingerprint.')
+-        const snapshot = nativeSnapshot(await this.native.documentSnapshot({ apiVersion: 1, documentId: state.id, revision: state.revision }),
+-          { id: state.id, sourceFingerprint: state.sourceFingerprint, sheets: state.sheets })
+-        ensure()
+-        if (snapshot.revision !== state.revision)
+-          fail('persistence_conflict', 'The drained native authority no longer matches its captured revision.')
+-        const payloadSha256 = sha256(JSON.stringify(snapshot.payload))
+-        if (!state.last || state.last.receipt.revision !== snapshot.revision || state.last.payloadHash !== payloadSha256)
+-          fail('persistence_conflict', 'The native snapshot differs from its known final acknowledged payload. The original was retained.')
+-        const pinnedBasePath = state.manifest ? (await this.storePaths(state.manifest)).sourcePath : state.sourcePath
+-        const info = await lstat(pinnedBasePath)
+-        if (!info.isFile() || info.isSymbolicLink() || await fingerprint(pinnedBasePath) !== snapshot.sourceFingerprint)
+-          fail('source_conflict', 'The captured workbook base no longer matches its native fingerprint.')
+-        ensure()
+-        return {
+-          producer: state.id, generation: state.generation, originalPath: state.originalPath,
+-          originalFingerprint: state.manifest?.originalFingerprint ?? state.originalFingerprint ?? null,
+-          pinnedBasePath, baseBytes: info.size, snapshot,
+-          payloadSha256,
+-        }
+-      }),
+-      retireCapturedOnly: (signal) => serialize(async () => {
+-        await ready
+-        signal.throwIfAborted()
+-        ensure()
+-        if (state.pending || state.manifest?.pending)
+-          fail('uncertain_checkpoint', 'Unknown checkpoint outcome prevents retirement; the original was retained.')
+-        if (state.encrypted && !state.manifest) {
+-          await this.native.closeDocument({ apiVersion: 1, documentId: state.id })
++      snapshotProof: () =>
++        serialize(async () => {
++          await ready
++          ensure()
++          if (state.pending || state.manifest?.pending)
++            fail(
++              'uncertain_checkpoint',
++              'A pending checkpoint acknowledgement is unknown. The original authority was retained.',
++            )
++          await this.openState(state)
++          ensure()
++          if (state.sourceFingerprint === undefined)
++            fail('source_conflict', 'The captured source has no verified fingerprint.')
++          const snapshot = nativeSnapshot(
++            await this.native.documentSnapshot({
++              apiVersion: 1,
++              documentId: state.id,
++              revision: state.revision,
++            }),
++            { id: state.id, sourceFingerprint: state.sourceFingerprint, sheets: state.sheets },
++          )
++          ensure()
++          if (snapshot.revision !== state.revision)
++            fail(
++              'persistence_conflict',
++              'The drained native authority no longer matches its captured revision.',
++            )
++          const payloadSha256 = sha256(JSON.stringify(snapshot.payload))
++          if (
++            !state.last ||
++            state.last.receipt.revision !== snapshot.revision ||
++            state.last.payloadHash !== payloadSha256
++          )
++            fail(
++              'persistence_conflict',
++              'The native snapshot differs from its known final acknowledged payload. The original was retained.',
++            )
++          const pinnedBasePath = state.manifest
++            ? (await this.storePaths(state.manifest)).sourcePath
++            : state.sourcePath
++          const info = await lstat(pinnedBasePath)
++          if (
++            !info.isFile() ||
++            info.isSymbolicLink() ||
++            (await fingerprint(pinnedBasePath)) !== snapshot.sourceFingerprint
++          )
++            fail(
++              'source_conflict',
++              'The captured workbook base no longer matches its native fingerprint.',
++            )
++          ensure()
++          return {
++            producer: state.id,
++            generation: state.generation,
++            originalPath: state.originalPath,
++            originalFingerprint:
++              state.manifest?.originalFingerprint ?? state.originalFingerprint ?? null,
++            pinnedBasePath,
++            baseBytes: info.size,
++            snapshot,
++            payloadSha256,
++          }
++        }),
++      retireCapturedOnly: (signal) =>
++        serialize(async () => {
++          await ready
+           signal.throwIfAborted()
+           ensure()
++          if (state.pending || state.manifest?.pending)
++            fail(
++              'uncertain_checkpoint',
++              'Unknown checkpoint outcome prevents retirement; the original was retained.',
++            )
++          if (this.isMemory(state) && !state.manifest) {
++            await this.native.closeDocument({ apiVersion: 1, documentId: state.id })
++            signal.throwIfAborted()
++            ensure()
++            this.producers.delete(state.id)
++            retired = true
++            return
++          }
++          const { manifest, directory } = await this.readManifest(state.id)
++          if (
++            manifest.pending ||
++            manifest.revision !== state.revision ||
++            manifest.sourceFingerprint !== state.sourceFingerprint
++          )
++            fail(
++              'persistence_conflict',
++              'The captured recovery manifest changed; its files were retained.',
++            )
++          signal.throwIfAborted()
++          ensure()
++          await this.native.closeDocument({ apiVersion: 1, documentId: state.id })
++          const checked = await this.directory(state.id)
++          signal.throwIfAborted()
++          ensure()
++          if (checked !== directory)
++            fail('invalid_candidate', 'The captured recovery directory changed.')
++          // Destructive commit point. No mutable owner/session lookup participates.
++          await rm(checked, { recursive: true, force: false })
+           this.producers.delete(state.id)
++          this.trustedOriginals.delete(state.id)
+           retired = true
+-          return
+-        }
+-        const { manifest, directory } = await this.readManifest(state.id)
+-        if (manifest.pending || manifest.revision !== state.revision || manifest.sourceFingerprint !== state.sourceFingerprint)
+-          fail('persistence_conflict', 'The captured recovery manifest changed; its files were retained.')
+-        signal.throwIfAborted()
+-        ensure()
+-        await this.native.closeDocument({ apiVersion: 1, documentId: state.id })
+-        const checked = await this.directory(state.id)
+-        signal.throwIfAborted()
+-        ensure()
+-        if (checked !== directory) fail('invalid_candidate', 'The captured recovery directory changed.')
+-        // Destructive commit point. No mutable owner/session lookup participates.
+-        await rm(checked, { recursive: true, force: false })
+-        this.producers.delete(state.id)
+-        this.trustedOriginals.delete(state.id)
+-        retired = true
+-        await syncDirectory((await this.root(false))!)
+-      }),
++          await syncDirectory((await this.root(false))!)
++        }),
+       cancel,
+       resume: cancel,
+       settled: () => operations,
+@@ -609,12 +741,21 @@
+     if (!state) return Promise.resolve()
+     this.live.delete(key)
+     return this.enqueue(key, async () => {
+-      try { await this.native.closeDocument({ apiVersion: 1, documentId: state.id }) }
+-      finally { state.opened = false; this.producers.delete(state.id) }
++      try {
++        await this.native.closeDocument({ apiVersion: 1, documentId: state.id })
++      } finally {
++        state.opened = false
++        this.producers.delete(state.id)
++      }
+     })
+   }
+ 
+   private async root(create: boolean): Promise<string | null> {
++    if (this.storage === 'volatile') {
++      if (create)
++        fail('volatile_storage', 'Volatile workbook authority cannot create recovery storage.')
++      return null
++    }
+     if (create) await mkdir(this.privateRoot, { recursive: true, mode: 0o700 })
+     let info: Awaited<ReturnType<typeof lstat>>
+     try {
+@@ -735,7 +876,19 @@
+   }
+ 
+   private async prepare(state: LiveDocument): Promise<void> {
+-    if (state.encrypted || state.manifest) return
++    if (this.isMemory(state)) {
++      if (!state.encrypted) {
++        const actual = await fingerprint(state.sourcePath)
++        if (state.sourceFingerprint !== undefined && actual !== state.sourceFingerprint)
++          fail(
++            'source_conflict',
++            'The volatile workbook source no longer matches its accepted bytes.',
++          )
++        state.sourceFingerprint = actual
++      }
++      return
++    }
++    if (state.manifest) return
+     const directory = await this.directory(state.id, true)
+     const temporary = join(directory, `base-${randomUUID()}.tmp`)
+     await copyFile(state.sourcePath, temporary, constants.COPYFILE_EXCL)
+@@ -808,9 +961,10 @@
+ 
+   private async openState(state: LiveDocument): Promise<void> {
+     if (state.opened) return
+-    const paths = state.manifest
+-      ? await this.storePaths(state.manifest)
+-      : { sourcePath: state.sourcePath }
++    const paths =
++      !this.isMemory(state) && state.manifest
++        ? await this.storePaths(state.manifest)
++        : { sourcePath: state.sourcePath }
+     const info = nativeInfo(
+       await this.native.openDocument({
+         apiVersion: 1,
+@@ -821,7 +975,7 @@
+       state.id,
+     )
+     if (
+-      info.durable === state.encrypted ||
++      info.durable !== !this.isMemory(state) ||
+       (state.sourceFingerprint !== undefined && info.sourceFingerprint !== state.sourceFingerprint)
+     ) {
+       fail(
+@@ -839,7 +993,10 @@
+     pending: PendingCheckpoint,
+     receipt: NativeDocumentReceipt,
+   ): Promise<void> {
+-    if (receipt.revision !== pending.expectedRevision + 1 || receipt.durable === state.encrypted) {
++    if (
++      receipt.revision !== pending.expectedRevision + 1 ||
++      receipt.durable !== !this.isMemory(state)
++    ) {
+       fail(
+         'invalid_native_response',
+         'The native checkpoint did not acknowledge its expected revision and storage mode.',
+@@ -938,8 +1095,8 @@
+         revision: state.revision,
+         sourceFingerprint: state.sourceFingerprint!,
+         recovered: state.revision > 0,
+-        durable: !state.encrypted,
+-        candidateId: state.encrypted ? null : state.id,
++        durable: !this.isMemory(state),
++        candidateId: this.isMemory(state) ? null : state.id,
+       }
+     })
+   }
+@@ -1014,7 +1171,7 @@
+         state.last?.payloadHash === payloadHash &&
+         (input.commandId === undefined || input.commandId === state.last.receipt.commandId)
+       ) {
+-        return { ...state.last.receipt, candidateId: state.encrypted ? null : state.id }
++        return { ...state.last.receipt, candidateId: this.isMemory(state) ? null : state.id }
+       }
+       const receipt = await this.submit(state, {
+         commandId: input.commandId ?? randomUUID(),
+@@ -1023,7 +1180,7 @@
+         payload,
+         payloadHash,
+       })
+-      return { ...receipt, candidateId: state.encrypted ? null : state.id }
++      return { ...receipt, candidateId: this.isMemory(state) ? null : state.id }
+     })
+   }
+ 
+@@ -1158,51 +1315,57 @@
+   async retire(id: string): Promise<void> {
+     candidateId(id)
+     const active = this.producers.get(id)
++    if (this.storage === 'volatile' && !active) return
+     if (active?.captured)
+-      fail('captured_authority', 'A captured producer requires verified post-removal custody retirement.')
++      fail(
++        'captured_authority',
++        'A captured producer requires verified post-removal custody retirement.',
++      )
+     if (active) active.retireQueued = true
+     await this.enqueue(active?.key ?? `candidate:${id}`, async () => {
+       if (active?.captured)
+         fail('captured_authority', 'This producer was captured while legacy retirement was queued.')
+       if (active) active.retiring = true
+       try {
+-      if (active?.encrypted && !active.manifest) {
+-        // Protected documents deliberately have no manifest or disk store.
+-        // Retire their exact queued authority without even probing the root.
++        if (active && this.isMemory(active) && !active.manifest) {
++          // Protected and volatile documents have no manifest or disk store.
++          // Retire their exact queued authority without even probing the root.
++          await this.native.closeDocument({ apiVersion: 1, documentId: id })
++          if (this.live.get(active.key) === active) this.live.delete(active.key)
++          this.producers.delete(id)
++          this.trustedOriginals.delete(id)
++          // ownerKeys remains until owner teardown: a later checkpoint may
++          // already be queued on this key and must still be included in flush.
++          return
++        }
++        let candidate: Awaited<ReturnType<WorkbookDocumentRecovery['readManifest']>>
++        try {
++          candidate = await this.readManifest(id)
++        } catch (error) {
++          if (missing(error)) {
++            if (active)
++              fail(
++                'missing_checkpoint',
++                'The durable document manifest is missing. Its authority and recovery files were preserved.',
++              )
++            return
++          }
++          throw error
++        }
+         await this.native.closeDocument({ apiVersion: 1, documentId: id })
+-        if (this.live.get(active.key) === active) this.live.delete(active.key)
++        // directory() canonicalizes and checks the UUID child immediately before
++        // recursive removal. No path in an untrusted manifest chooses the target.
++        const checked = await this.directory(id)
++        if (checked !== candidate.directory)
++          fail('invalid_candidate', 'The recovery directory changed before retirement.')
++        await rm(checked, { recursive: true, force: false })
++        if (active && this.live.get(active.key) === active) this.live.delete(active.key)
+         this.producers.delete(id)
+         this.trustedOriginals.delete(id)
+-        // ownerKeys remains until owner teardown: a later checkpoint may
+-        // already be queued on this key and must still be included in flush.
+-        return
+-      }
+-      let candidate: Awaited<ReturnType<WorkbookDocumentRecovery['readManifest']>>
+-      try {
+-        candidate = await this.readManifest(id)
+-      } catch (error) {
+-        if (missing(error)) {
+-          if (active)
+-            fail(
+-              'missing_checkpoint',
+-              'The durable document manifest is missing. Its authority and recovery files were preserved.',
+-            )
+-          return
+-        }
+-        throw error
+-      }
+-      await this.native.closeDocument({ apiVersion: 1, documentId: id })
+-      // directory() canonicalizes and checks the UUID child immediately before
+-      // recursive removal. No path in an untrusted manifest chooses the target.
+-      const checked = await this.directory(id)
+-      if (checked !== candidate.directory)
+-        fail('invalid_candidate', 'The recovery directory changed before retirement.')
+-      await rm(checked, { recursive: true, force: false })
+-      if (active && this.live.get(active.key) === active) this.live.delete(active.key)
+-      this.producers.delete(id)
+-      this.trustedOriginals.delete(id)
+-      await syncDirectory((await this.root(false))!)
+-      } finally { if (active) delete active.retiring }
++        await syncDirectory((await this.root(false))!)
++      } finally {
++        if (active) delete active.retiring
++      }
+     })
+   }
+ 
+@@ -1210,8 +1373,7 @@
+   async forgetOwner(ownerId: OwnerId): Promise<void> {
+     const normalized = String(ownerId)
+     const states = [...this.producers.values()].filter((state) => state.ownerId === normalized)
+-    for (const state of states)
+-      if (this.live.get(state.key) === state) this.live.delete(state.key)
++    for (const state of states) if (this.live.get(state.key) === state) this.live.delete(state.key)
+     await this.flush(ownerId)
+     await Promise.all(
+       states.map((state) =>
+@@ -1250,6 +1412,7 @@
+ 
+   /** Host bookkeeping only: this does not acknowledge an uncertain checkpoint. */
+   candidateFor(ownerId: OwnerId, sessionId: string): string | null {
++    if (this.storage === 'volatile') return null
+     const state = this.live.get(JSON.stringify([String(ownerId), sessionId]))
+     return state?.manifest ? state.id : null
+   }
+diff --git a/apps/sheets/src/main/xlsx-sidecar-client.ts b/apps/sheets/src/main/xlsx-sidecar-client.ts
+--- a/apps/sheets/src/main/xlsx-sidecar-client.ts
++++ b/apps/sheets/src/main/xlsx-sidecar-client.ts
+@@ -43,6 +43,7 @@
+ const MAX_NATIVE_ACTUAL_SUBSCRIBERS = 32
+ const MAX_NATIVE_PENDING_BYTES = 1024 * 1024 * 1024
+ let nativePendingBytes = 0
++let nativeAdmissionRevision = 0
+ const nativeActualWork = new Set<Promise<void>>()
+ const nativeActualSubscribers = new Set<(actualSettled: Promise<void>) => void>()
+ 
+@@ -84,11 +85,23 @@
+   }
+ }
+ 
++/** Close JS producer admission first. This joins native continuations without installing GUI services. */
++export async function joinNativeActualWork(): Promise<void> {
++  for (;;) {
++    const admitted = nativeAdmissionRevision
++    await Promise.all([...nativeActualWork])
++    await Promise.resolve()
++    if (nativeActualWork.size === 0 && admitted === nativeAdmissionRevision) return
++  }
++}
++
+ interface ProcessGeneration {
+   readonly id: number
+   readonly child: ChildProcessWithoutNullStreams
+   readonly lines: Interface
+   readonly requests: Set<string>
++  readonly actualExit: Promise<void>
++  readonly resolveExit: () => void
+   accepting: boolean
+   intentionalStop: boolean
+   finished: boolean
+@@ -152,6 +165,8 @@
+   private readonly pending = new Map<string, PendingRequest>()
+   private pendingBytes = 0
+   private readonly requestLimits: NativeRequestLimits
++  private terminalStopRequested = false
++  private terminalStop: Promise<void> | undefined
+   /// Notified when the sidecar process dies and the NEXT request will spawn a
+   /// replacement that has never heard of the session ids we are holding. This
+   /// is a positive crash signal, and deliberately NOT the same thing as a
+@@ -243,7 +258,14 @@
+ 
+   /** Lifecycle teardown includes the definitive legacy and edit-session ACKs. */
+   async closeSettled(sessionId: string): Promise<void> {
+-    return this.closeSession(sessionId, true)
++    try {
++      await this.closeSession(sessionId, true)
++    } finally {
++      // Isolated shutdown may begin before admission or during either close
++      // await. A terminal refusal is not proof that the prior child exited;
++      // callers may release its input staging only after this actual join.
++      if (this.terminalStopRequested) await this.stopSettled()
++    }
+   }
+ 
+   private async closeSession(sessionId: string, definitive: boolean): Promise<void> {
+@@ -511,6 +533,19 @@
+         this.markBroken(generation, asError(error))
+       }
+     }
++  }
++
++  /** Terminal shutdown: no later request/start may create another native generation. */
++  stopSettled(): Promise<void> {
++    this.terminalStopRequested = true
++    if (this.terminalStop) return this.terminalStop
++    this.stop()
++    // Kill was requested above; these promises require the exact process's
++    // exit/close event or a positively failed spawn, never a timer or pipe error.
++    this.terminalStop = Promise.all(
++      [...this.generations].map((generation) => generation.actualExit),
++    ).then(() => undefined)
++    return this.terminalStop
+   }
+ 
+   /**
+@@ -571,6 +606,10 @@
+     const requestId = crypto.randomUUID()
+     let payload: string, bytes: number, generation: ProcessGeneration
+     try {
++      if (this.terminalStopRequested)
++        throw new Error(
++          'The XLSX sidecar client was terminally stopped; no new native work is admitted.',
++        )
+       if (
+         typeof command.command !== 'string' ||
+         !command.command ||
+@@ -635,6 +674,7 @@
+     this.pendingBytes += bytes
+     nativePendingBytes += bytes
+     nativeActualWork.add(actualSettled)
++    nativeAdmissionRevision++
+     try {
+       // Every owner sees the real promise BEFORE stdin can accept any bytes.
+       for (const listener of [...nativeActualSubscribers])
+@@ -667,6 +707,10 @@
+   }
+ 
+   private ensureStarted(): ProcessGeneration {
++    if (this.terminalStopRequested)
++      throw new Error(
++        'The XLSX sidecar client was terminally stopped; no native process may restart.',
++      )
+     const existing = this.currentGeneration
+     if (existing && !existing.finished && !existing.child.killed) {
+       if (!existing.accepting)
+@@ -696,11 +740,17 @@
+       )
+     }
+     const lines = createInterface({ input: child.stdout })
++    let resolveExit!: () => void
++    const actualExit = new Promise<void>((resolve) => {
++      resolveExit = resolve
++    })
+     const generation: ProcessGeneration = {
+       id: ++this.generationSequence,
+       child,
+       lines,
+       requests: new Set(),
++      actualExit,
++      resolveExit,
+       accepting: true,
+       intentionalStop: false,
+       finished: false,
+@@ -842,6 +892,7 @@
+     }
+     generation.lines.close()
+     this.generations.delete(generation)
++    generation.resolveExit()
+     if (!generation.intentionalStop) this.notifyExit()
+   }
+ }
+diff --git a/apps/sheets/tests/fixtures/native-lifecycle-child.cjs b/apps/sheets/tests/fixtures/native-lifecycle-child.cjs
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/fixtures/native-lifecycle-child.cjs
+@@ -0,0 +1,43 @@
++// Synthetic Node RPC child only. This is not the Rust engine or a workbook parser.
++const { existsSync } = require('node:fs')
++const { createInterface } = require('node:readline')
++
++// EOF on stdin must not manufacture process exit while accepted work remains.
++setInterval(() => {}, 1000)
++const input = createInterface({ input: process.stdin })
++const reply = (requestId, result) =>
++  process.stdout.write(`${JSON.stringify({ version: 1, requestId, ok: true, result })}\n`)
++input.on('line', (line) => {
++  let request
++  try {
++    request = JSON.parse(line)
++  } catch {
++    return
++  }
++  if (request.command === 'cancel') {
++    // An ACK for the cancel request is deliberately separate from the target's
++    // completion. The target still waits for its owned fixture gate.
++    reply(request.requestId, { cancellationReceived: true })
++    return
++  }
++  if (request.command !== 'fixture_wait_file' || typeof request.gatePath !== 'string') {
++    process.stdout.write(
++      `${JSON.stringify({
++        version: 1,
++        requestId: request.requestId,
++        ok: false,
++        error: { code: 'fixture_command', message: 'Unknown synthetic lifecycle request' },
++      })}\n`,
++    )
++    return
++  }
++  process.stdout.write(`${JSON.stringify({ fixtureAccepted: request.fixtureTag })}\n`)
++  const poll = setInterval(() => {
++    if (!existsSync(request.gatePath)) return
++    clearInterval(poll)
++    reply(request.requestId, { fixtureTag: request.fixtureTag, acknowledged: true })
++  }, 10)
++})
++
++process.stdin.on('error', () => {})
++process.on('SIGTERM', () => process.exit(0))
+diff --git a/apps/sheets/tests/headless-sheets-cleanup.test.ts b/apps/sheets/tests/headless-sheets-cleanup.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/headless-sheets-cleanup.test.ts
+@@ -0,0 +1,146 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { settleHeadlessSheetsCleanup } from '../src/main/headless-sheets-cleanup'
++import { HeadlessSheetsOwnerWork } from '../src/main/headless-sheets-owner-work'
++
++function deferred() {
++  let resolve!: () => void
++  let reject!: (error: unknown) => void
++  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
++  return { promise, resolve, reject }
++}
++async function flush() { for (let turn = 0; turn < 8; turn++) await Promise.resolve() }
++beforeEach(() => vi.useFakeTimers())
++afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
++
++describe('headless spreadsheet genuine teardown boundaries', () => {
++  it('gives ordinary owner cleanup its opportunity, then waits for actual native exit', async () => {
++    const owner = deferred(), exit = deferred(), order: string[] = []
++    const stop = vi.fn(() => { order.push('stop'); return exit.promise })
++    const join = vi.fn(async () => { order.push('join') })
++    let completed = false
++    const cleanup = settleHeadlessSheetsCleanup({ ownerCleanup: owner.promise, joinNative: join, stopNative: stop, graceMs: 20 })
++      .then(() => { completed = true })
++    await flush()
++    expect(order).toEqual([])
++    owner.resolve(); await flush()
++    expect(order).toEqual(['join', 'stop'])
++    expect(completed).toBe(false)
++    exit.resolve(); await cleanup
++    expect(order).toEqual(['join', 'stop', 'join'])
++    expect(completed).toBe(true)
++  })
++
++  it('uses grace expiry to start termination, never to settle an unresolved owner or drain', async () => {
++    const owner = deferred(), exit = deferred(), native = deferred()
++    const stop = vi.fn(() => exit.promise)
++    let completed = false
++    const cleanup = settleHeadlessSheetsCleanup({ ownerCleanup: owner.promise,
++      joinNative: () => native.promise, stopNative: stop, graceMs: 20 }).then(() => { completed = true })
++    await vi.advanceTimersByTimeAsync(20)
++    expect(stop).toHaveBeenCalledTimes(1)
++    expect(completed).toBe(false)
++    exit.resolve(); await flush()
++    expect(completed).toBe(false)
++    owner.resolve(); await flush()
++    expect(completed).toBe(false)
++    native.resolve(); await cleanup
++    expect(stop).toHaveBeenCalledTimes(2)
++    expect(completed).toBe(true)
++  })
++
++  it('rethrows owner cleanup failure only after verified stop and the final native drain', async () => {
++    const owner = deferred(), exit = deferred(), finalDrain = deferred()
++    const failure = new Error('synthetic owner finalizer failure')
++    const join = vi.fn().mockResolvedValueOnce(undefined).mockImplementationOnce(() => finalDrain.promise)
++    const cleanup = settleHeadlessSheetsCleanup({ ownerCleanup: owner.promise,
++      joinNative: join, stopNative: () => exit.promise, graceMs: 20 })
++    let completed = false
++    void cleanup.then(() => { completed = true }, () => { completed = true })
++    owner.reject(failure); await flush()
++    expect(completed).toBe(false)
++    exit.resolve(); await flush()
++    expect(completed).toBe(false)
++    const rejected = expect(cleanup).rejects.toBe(failure)
++    finalDrain.resolve(); await rejected
++    expect(completed).toBe(true)
++  })
++
++  it('never returns an exit/profile-cleanup acknowledgment if a required owner finalizer is missing', async () => {
++    const exit = deferred(), stop = vi.fn(() => exit.promise), join = vi.fn(async () => {})
++    const missing = vi.fn()
++    const cleanup = settleHeadlessSheetsCleanup({ ownerCleanup: undefined,
++      onMissingOwner: missing, joinNative: join, stopNative: stop, graceMs: 20 })
++    let completed = false
++    void cleanup.then(() => { completed = true }, () => { completed = true })
++    await flush()
++    expect(stop).toHaveBeenCalledTimes(1)
++    expect(completed).toBe(false)
++    exit.resolve(); await flush()
++    expect(missing).toHaveBeenCalledTimes(1)
++    expect(join).toHaveBeenCalledTimes(1)
++    expect(completed).toBe(false)
++  })
++
++  it('can finalize setup-only failure after true native exit when owner registration never began', async () => {
++    const exit = deferred(), stop = vi.fn(() => exit.promise), join = vi.fn(async () => {})
++    const cleanup = settleHeadlessSheetsCleanup({ ownerCleanup: undefined, setupOnly: true,
++      joinNative: join, stopNative: stop, graceMs: 20 })
++    await flush()
++    expect(stop).toHaveBeenCalledTimes(1)
++    exit.resolve(); await cleanup
++    expect(join).toHaveBeenCalledTimes(2)
++  })
++
++  it('waits accepted PDF JS after an export timeout/owner rejection and refuses late dispatch', async () => {
++    const owner = deferred(), pdf = deferred(), tracker = new HeadlessSheetsOwnerWork()
++    let registered = false
++    const actualPdf = tracker.run(() => { registered = true; return pdf.promise })
++    expect(registered).toBe(true)
++    tracker.closeAdmission()
++    const late = vi.fn(async () => {})
++    await expect(tracker.run(late)).rejects.toThrow('owner is closing')
++    expect(late).not.toHaveBeenCalled()
++    const combined = tracker.joinOwner(owner.promise)
++    let completed = false
++    void combined.then(() => { completed = true }, () => { completed = true })
++    const failure = new Error('renderer export timeout')
++    owner.reject(failure); await flush()
++    expect(completed).toBe(false)
++    const rejected = expect(combined).rejects.toBe(failure)
++    pdf.resolve(); await actualPdf; await rejected
++    expect(completed).toBe(true)
++  })
++
++  it('joins a late-open continuation and its staging finalizer after owner teardown has finished', async () => {
++    const owner = deferred(), nativeOpen = deferred(), readerExit = deferred(), staging = deferred()
++    const tracker = new HeadlessSheetsOwnerWork()
++    let stagingStarted = false, stagingRemoved = false
++    const actualOpen = tracker.run(async () => {
++      await nativeOpen.promise
++      // The destroyed-owner branch must not release input staging until the
++      // close/forced-stop promise confirms reader exit, even if base cleanup
++      // already observed no session. These are injected lifetime barriers.
++      await readerExit.promise
++      stagingStarted = true
++      await staging.promise
++      stagingRemoved = true
++    })
++    const combined = tracker.joinOwner(owner.promise)
++    let completed = false
++    const cleanup = settleHeadlessSheetsCleanup({ ownerCleanup: combined,
++      joinNative: async () => {}, stopNative: () => readerExit.promise, graceMs: 20 })
++      .then(() => { completed = true })
++    owner.resolve(); await flush()
++    await vi.advanceTimersByTimeAsync(20)
++    nativeOpen.resolve(); await flush()
++    expect(stagingStarted).toBe(false)
++    expect(completed).toBe(false)
++    readerExit.resolve(); await flush()
++    expect(stagingStarted).toBe(true)
++    expect(stagingRemoved).toBe(false)
++    expect(completed).toBe(false)
++    staging.resolve(); await actualOpen; await cleanup
++    expect(stagingRemoved).toBe(true)
++    expect(completed).toBe(true)
++  })
++})
+diff --git a/apps/sheets/tests/standalone-close-runtime.test.ts b/apps/sheets/tests/standalone-close-runtime.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/standalone-close-runtime.test.ts
+@@ -0,0 +1,179 @@
++import { describe, expect, it, vi } from 'vitest'
++import {
++  createStandaloneSheetsCloseRuntimeInitializer,
++  type StandaloneSheetsCloseRuntimeOptions,
++} from '../src/main/standalone-close-runtime'
++import {
++  installSheetsCloseQuitGuard,
++  SheetsCloseQuitLedger,
++  SheetsProtectedRetirementBlockedError,
++  type SheetsBeforeQuitEvent,
++} from '../../shell/src/main/sheets-close-quit-ledger'
++import type { SheetsCloseRuntimeInstallationOptions } from '../../shell/src/main/sheets-close-runtime'
++
++// Startup order and host cancellation are exercised without Electron/Main or
++// shared recovery initialization. Production adapters are injected below.
++vi.mock('../../shell/src/main/sheets-close-runtime', () => ({ installSheetsCloseRuntime: vi.fn() }))
++vi.mock('../../../packages/electron-utils/src/close-cleanup-runtime', () => ({ cancelCloseCleanupQuitDrain: vi.fn() }))
++
++function deferred() {
++  let resolve!: () => void
++  let reject!: (error: unknown) => void
++  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
++  return { promise, resolve, reject }
++}
++async function flush() { for (let turn = 0; turn < 8; turn++) await Promise.resolve() }
++
++class TestApp {
++  readonly listeners: ((event: SheetsBeforeQuitEvent) => void)[] = []
++  readonly events: { prevented: boolean; preventDefault(): void }[] = []
++  on(_name: 'before-quit', listener: (event: SheetsBeforeQuitEvent) => void): this {
++    this.listeners.push(listener); return this
++  }
++  removeListener(_name: 'before-quit', listener: (event: SheetsBeforeQuitEvent) => void): this {
++    const index = this.listeners.indexOf(listener)
++    if (index !== -1) this.listeners.splice(index, 1)
++    return this
++  }
++  quit(): void {
++    const event = { prevented: false, preventDefault() { this.prevented = true } }
++    this.events.push(event)
++    for (const listener of [...this.listeners]) listener(event)
++  }
++}
++
++function fixture() {
++  const events: string[] = []
++  const app = new TestApp()
++  const initializeShared = vi.fn(() => { events.push('shared') })
++  const startEditors = vi.fn(() => { events.push('editors') })
++  const resetShutdown = vi.fn()
++  const warning = vi.fn()
++  const onBlocked = vi.fn<StandaloneSheetsCloseRuntimeOptions['onBlocked']>()
++  const setRuntime = vi.fn((_runtime: Parameters<StandaloneSheetsCloseRuntimeOptions['setRuntime']>[0]) => { events.push('setter') })
++  const closeState = vi.fn(() => null)
++  const createLedger = vi.fn((options: { report(error: unknown): void }) => {
++    events.push('ledger'); return new SheetsCloseQuitLedger(options)
++  })
++  const installGuard = vi.fn<typeof installSheetsCloseQuitGuard>((...args) => {
++    events.push('guard'); return installSheetsCloseQuitGuard(...args)
++  })
++  const installRuntime = vi.fn((options: SheetsCloseRuntimeInstallationOptions) => {
++    events.push('native-runtime')
++    // Native provider/observer installation is covered by its own adapter
++    // tests. This fixture only records the actual startup/setter boundary.
++    options.setRuntime({} as Parameters<StandaloneSheetsCloseRuntimeOptions['setRuntime']>[0])
++  })
++  const cancelShared = vi.fn()
++  const initialize = createStandaloneSheetsCloseRuntimeInitializer({
++    createLedger, installGuard, installRuntime, cancelSharedQuitDrain: cancelShared,
++  })
++  const options: StandaloneSheetsCloseRuntimeOptions = {
++    mode: 'gui', lockAcquired: true, app, setRuntime, closeState,
++    initializeShared, startEditors, resetShutdown, warning, onBlocked,
++  }
++  return { initialize, options, app, events, initializeShared, startEditors, resetShutdown, warning,
++    onBlocked, setRuntime, closeState, createLedger, installGuard, installRuntime, cancelShared }
++}
++
++describe('standalone Sheets close runtime startup', () => {
++  it.each([
++    { mode: 'headless-export' as const, lockAcquired: true },
++    { mode: 'headless-export' as const, lockAcquired: false },
++    { mode: 'gui' as const, lockAcquired: false },
++  ])('performs no GUI/runtime initialization for $mode with lock=$lockAcquired', mode => {
++    const f = fixture()
++    expect(f.initialize({ ...f.options, ...mode })).toBeNull()
++    expect(f.events).toEqual([])
++    for (const operation of [f.initializeShared, f.createLedger, f.installGuard, f.installRuntime,
++      f.setRuntime, f.startEditors, f.cancelShared, f.resetShutdown, f.warning])
++      expect(operation).not.toHaveBeenCalled()
++    expect(f.app.listeners).toEqual([])
++  })
++
++  it('installs shared recovery, memory quit guard and native runtime before editor services', () => {
++    const f = fixture()
++    const control = f.initialize(f.options)
++    expect(control).not.toBeNull()
++    expect(f.events).toEqual(['shared', 'ledger', 'guard', 'native-runtime', 'setter', 'editors'])
++    expect(f.installRuntime).toHaveBeenCalledExactlyOnceWith({
++      ledger: control!.ledger, setRuntime: f.setRuntime, closeState: f.closeState,
++    })
++    expect(f.warning).not.toHaveBeenCalled()
++    expect(f.initialize(f.options)).toBe(control)
++    expect(f.startEditors).toHaveBeenCalledTimes(1)
++    expect(f.installGuard).toHaveBeenCalledTimes(1)
++  })
++
++  it('keeps GUI startup available after shared bootstrap failure and reports only a generic warning', () => {
++    const f = fixture()
++    f.initializeShared.mockImplementationOnce(() => { f.events.push('shared'); throw new Error('synthetic private bootstrap detail') })
++    expect(f.initialize(f.options)).not.toBeNull()
++    expect(f.events).toEqual(['shared', 'ledger', 'guard', 'native-runtime', 'setter', 'editors'])
++    expect(f.warning).toHaveBeenCalledWith('Spreadsheet recovery could not be initialized. Close checks may be unavailable.')
++    expect(JSON.stringify(f.warning.mock.calls)).not.toContain('synthetic private bootstrap detail')
++  })
++
++  it('does not expose a runtime if quit-guard installation failed, but still starts the GUI', () => {
++    const f = fixture()
++    f.installGuard.mockImplementationOnce(() => { throw new Error('synthetic guard error') })
++    expect(f.initialize(f.options)).not.toBeNull()
++    expect(f.installRuntime).not.toHaveBeenCalled()
++    expect(f.setRuntime).not.toHaveBeenCalled()
++    expect(f.startEditors).toHaveBeenCalledTimes(1)
++    expect(f.warning).toHaveBeenCalledWith('Spreadsheet close protection could not be initialized. Keep the application open.')
++  })
++
++  it('warns and leaves the runtime unset when native installation fails while preserving GUI startup', async () => {
++    const f = fixture()
++    f.installRuntime.mockImplementationOnce(() => { throw new Error('synthetic private native error') })
++    const control = f.initialize(f.options)!
++    expect(f.setRuntime).not.toHaveBeenCalled()
++    expect(f.startEditors).toHaveBeenCalledTimes(1)
++    expect(f.warning).toHaveBeenCalledWith('Spreadsheet close protection could not be installed. Keep the application open.')
++    expect(JSON.stringify(f.warning.mock.calls)).not.toContain('synthetic private native error')
++    const actual = deferred()
++    control.ledger.holdUntilSettled(actual.promise)
++    f.app.quit()
++    expect(f.app.events[0]?.prevented).toBe(true)
++    control.cancel()
++    actual.resolve()
++    await control.ledger.joinActual()
++  })
++
++  it('cancels native and shared quit intentions without abandoning actual work or auto-resuming', async () => {
++    const f = fixture(), control = f.initialize(f.options)!, actual = deferred()
++    control.ledger.holdUntilSettled(actual.promise)
++    f.app.quit()
++    expect(f.app.events[0]?.prevented).toBe(true)
++    control.cancel()
++    expect(f.cancelShared).toHaveBeenCalledTimes(1)
++    expect(f.resetShutdown).toHaveBeenCalledTimes(1)
++    expect(control.ledger.hasPending()).toBe(true)
++    actual.resolve()
++    await control.ledger.joinActual(); await flush()
++    expect(f.app.events).toHaveLength(1)
++  })
++
++  it('cancels failed protected quit and offers exact cleanup retry without reviving that quit', async () => {
++    const f = fixture(), control = f.initialize(f.options)!, actual = deferred(), cleanup = deferred()
++    const retry = vi.fn(() => cleanup.promise)
++    control.ledger.holdProtectedRetirement(actual.promise, retry)
++    f.app.quit()
++    actual.reject(new Error('synthetic protected detail'))
++    await expect(control.ledger.joinActual()).rejects.toBeInstanceOf(SheetsProtectedRetirementBlockedError)
++    await flush()
++    expect(f.onBlocked).toHaveBeenCalledTimes(1)
++    expect(f.cancelShared).toHaveBeenCalledTimes(1)
++    expect(f.resetShutdown).toHaveBeenCalledTimes(1)
++    const offeredRetry = f.onBlocked.mock.calls[0]![0]
++    const retried = offeredRetry()
++    expect(retry).toHaveBeenCalledTimes(1)
++    expect(control.ledger.hasPending()).toBe(true)
++    cleanup.resolve()
++    await retried; await flush()
++    expect(control.ledger.hasBlockedFailures()).toBe(false)
++    expect(f.app.events).toHaveLength(1)
++    expect(JSON.stringify(f.warning.mock.calls)).not.toContain('synthetic protected detail')
++  })
++})
+diff --git a/apps/sheets/tests/workbook-document-volatile.test.ts b/apps/sheets/tests/workbook-document-volatile.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/workbook-document-volatile.test.ts
+@@ -0,0 +1,355 @@
++/** Actual host authority with a fake native boundary; no native-binary acceptance claim. */
++import { createHash, randomUUID } from 'node:crypto'
++import { access, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { afterEach, beforeEach, describe, expect, it } from 'vitest'
++import type {
++  DocumentNativeClient,
++  NativeDocumentReceipt,
++  NativeDocumentSnapshot,
++} from '../src/main/document-native-contract'
++import {
++  WorkbookDocumentRecovery,
++  isCapturedNativeCloseAuthority,
++  type DocumentCheckpointInput,
++} from '../src/main/workbook-document-recovery'
++
++type Open = Parameters<DocumentNativeClient['openDocument']>[0]
++type Checkpoint = Parameters<DocumentNativeClient['checkpointDocument']>[0]
++interface Document extends NativeDocumentSnapshot {
++  storePath?: string
++  receipts: Map<string, NativeDocumentReceipt>
++}
++function deferred<T>() {
++  let resolve!: (value: T) => void
++  const promise = new Promise<T>((yes) => {
++    resolve = yes
++  })
++  return { promise, resolve }
++}
++function clone<T>(value: T): T {
++  return structuredClone(value)
++}
++
++class Native implements DocumentNativeClient {
++  readonly documents = new Map<string, Document>()
++  readonly opens: Open[] = []
++  readonly commits: Checkpoint[] = []
++  readonly queries: string[] = []
++  readonly closes: string[] = []
++  openDurable?: boolean
++  openFingerprint?: string
++  receiptOverride?: (value: NativeDocumentReceipt) => unknown
++  loseAcknowledgement = false
++  closeGate?: { entered: () => void; actual: Promise<void> }
++
++  async openDocument(input: Open): Promise<unknown> {
++    this.opens.push(clone(input))
++    const fingerprint = `sha256:${createHash('sha256')
++      .update(await readFile(input.sourcePath))
++      .digest('hex')}`
++    let state = this.documents.get(input.documentId)
++    if (state && state.sourceFingerprint !== fingerprint) throw new Error('source conflict')
++    state ??= {
++      apiVersion: 1,
++      documentId: input.documentId,
++      revision: 0,
++      sourceFingerprint: fingerprint,
++      sheets: clone(input.sheets),
++      payload: {},
++      receipts: new Map(),
++      ...(input.storePath ? { storePath: input.storePath } : {}),
++    }
++    this.documents.set(input.documentId, state)
++    if (input.storePath) await writeFile(input.storePath, 'fake native store fixture')
++    return {
++      apiVersion: 1,
++      documentId: state.documentId,
++      revision: state.revision,
++      sourceFingerprint: this.openFingerprint ?? fingerprint,
++      recovered: state.revision > 0,
++      durable: this.openDurable ?? input.storePath !== undefined,
++    }
++  }
++  async checkpointDocument(input: Checkpoint): Promise<unknown> {
++    this.commits.push(clone(input))
++    const state = this.documents.get(input.documentId)
++    if (!state || state.revision !== input.expectedRevision) throw new Error('revision conflict')
++    const receipt: NativeDocumentReceipt = {
++      apiVersion: 1,
++      documentId: input.documentId,
++      commandId: input.commandId,
++      revision: input.expectedRevision + 1,
++      durable: state.storePath !== undefined,
++    }
++    const next: Document = { ...state, revision: receipt.revision, payload: clone(input.payload) }
++    next.receipts.set(input.commandId, receipt)
++    this.documents.set(input.documentId, next)
++    if (this.loseAcknowledgement) {
++      this.loseAcknowledgement = false
++      throw new Error('committed without caller ACK')
++    }
++    return this.receiptOverride?.(clone(receipt)) ?? clone(receipt)
++  }
++  async documentSnapshot(
++    input: Parameters<DocumentNativeClient['documentSnapshot']>[0],
++  ): Promise<unknown> {
++    const state = this.documents.get(input.documentId)
++    if (!state || (input.revision !== undefined && input.revision !== state.revision))
++      throw new Error('stale snapshot')
++    const { storePath: _storePath, receipts: _receipts, ...snapshot } = state
++    return clone(snapshot)
++  }
++  async documentCommandResult(
++    input: Parameters<DocumentNativeClient['documentCommandResult']>[0],
++  ): Promise<unknown> {
++    this.queries.push(input.commandId)
++    return clone(this.documents.get(input.documentId)?.receipts.get(input.commandId) ?? null)
++  }
++  async closeDocument(
++    input: Parameters<DocumentNativeClient['closeDocument']>[0],
++  ): Promise<unknown> {
++    this.closes.push(input.documentId)
++    this.closeGate?.entered()
++    await this.closeGate?.actual
++    return { closed: this.documents.delete(input.documentId) }
++  }
++}
++
++let directory: string, privateRoot: string, sourcePath: string, native: Native
++const services: WorkbookDocumentRecovery[] = []
++function service(storage?: 'durable' | 'volatile') {
++  const value = new WorkbookDocumentRecovery({
++    privateRoot,
++    nativeClient: native,
++    ...(storage ? { storage } : {}),
++  })
++  services.push(value)
++  return value
++}
++function input(extra: Partial<DocumentCheckpointInput> = {}): DocumentCheckpointInput {
++  return {
++    ownerId: 'headless',
++    sessionId: 'reader-1',
++    originalPath: sourcePath,
++    sourcePath,
++    sheets: [{ id: 'sheet-1', name: 'Budget' }],
++    payload: { edits: [{ value: '12' }] },
++    ...extra,
++  }
++}
++async function absent() {
++  await expect(access(privateRoot)).rejects.toMatchObject({ code: 'ENOENT' })
++}
++beforeEach(async () => {
++  directory = await realpath(await mkdtemp(join(tmpdir(), 'vantage-volatile-document-')))
++  privateRoot = join(directory, 'must-not-be-created')
++  sourcePath = join(directory, 'source.xlsx')
++  await writeFile(sourcePath, 'isolated immutable workbook source fixture')
++  native = new Native()
++})
++afterEach(async () => {
++  native.closeGate = undefined
++  for (const value of services.splice(0)) await value.forgetOwner('headless')
++  await rm(directory, { recursive: true, force: true })
++})
++
++describe('volatile complete-document authority storage', () => {
++  it('retains real typed checkpoint ACKs without storePath, manifests or candidates', async () => {
++    const value = service('volatile')
++    const payload = {
++      edits: [
++        { value: '12' },
++        { value: 12 },
++        { value: true },
++        { value: null },
++        { value: '', rich: [{ text: 'á\n💾', bold: true }] },
++        { formula: '=A1*2' },
++      ],
++      noteStates: [{ text: 'retained metadata' }],
++      themeState: { font: 'Aptos' },
++    }
++    const receipt = await value.checkpoint(input({ payload }))
++    expect(receipt).toMatchObject({ revision: 1, durable: false, candidateId: null })
++    expect(native.commits[0]!.payload).toEqual(payload)
++    expect(native.opens[0]).not.toHaveProperty('storePath')
++    expect(value.candidateFor('headless', 'reader-1')).toBeNull()
++    expect(await value.listCandidates(sourcePath)).toEqual([])
++    expect(await value.listAllCandidates()).toEqual([])
++    await absent()
++    await value.releaseDocument('headless', 'reader-1')
++    expect(native.closes).toEqual([receipt.documentId])
++    expect(await readFile(sourcePath, 'utf8')).toBe('isolated immutable workbook source fixture')
++    await absent()
++  })
++
++  it('opens revision zero in RAM and never grants a GUI close capability or detaches its producer', async () => {
++    const value = service('volatile'),
++      first = input()
++    const opened = await value.openDocument(first)
++    expect(opened).toMatchObject({ revision: 0, durable: false, candidateId: null })
++    expect(opened.sourceFingerprint).toBe(
++      `sha256:${createHash('sha256')
++        .update(await readFile(sourcePath))
++        .digest('hex')}`,
++    )
++    expect(value.captureNativeCloseAuthority('headless', 'reader-1')).toBeNull()
++    expect(value.isCurrentProducer('headless', 'reader-1', opened.documentId)).toBe(true)
++    const receipt = await value.checkpoint(first)
++    expect(receipt.documentId).toBe(opened.documentId)
++    expect(receipt.revision).toBe(1)
++    expect(value.captureNativeCloseAuthority('headless', 'reader-1')).toBeNull()
++    await absent()
++  })
++
++  it('does not inspect or mutate even a preexisting non-directory at the private-root path', async () => {
++    await writeFile(privateRoot, 'sentinel: volatile recovery must not inspect this as a store')
++    const value = service('volatile'),
++      receipt = await value.checkpoint(input())
++    expect(await value.listAllCandidates()).toEqual([])
++    expect(await value.listCandidates(sourcePath)).toEqual([])
++    await expect(value.readCandidate(receipt.documentId)).rejects.toMatchObject({
++      code: 'missing_candidate',
++    })
++    await value.retire(receipt.documentId)
++    await value.retire(randomUUID())
++    await value.releaseDocument('headless', 'reader-1')
++    expect(native.closes).toEqual([receipt.documentId])
++    expect(await readFile(privateRoot, 'utf8')).toBe(
++      'sentinel: volatile recovery must not inspect this as a store',
++    )
++  })
++
++  it('release waits for the actual native close completion without creating recovery storage', async () => {
++    const value = service('volatile'),
++      receipt = await value.checkpoint(input())
++    const entered = deferred<void>(),
++      actual = deferred<void>()
++    native.closeGate = { entered: () => entered.resolve(undefined), actual: actual.promise }
++    const closing = value.releaseDocument('headless', 'reader-1')
++    let settled = false
++    void closing.then(() => {
++      settled = true
++    })
++    await entered.promise
++    expect(settled).toBe(false)
++    expect(native.documents.has(receipt.documentId)).toBe(true)
++    await absent()
++    actual.resolve(undefined)
++    await closing
++    expect(settled).toBe(true)
++    expect(native.documents.has(receipt.documentId)).toBe(false)
++    await absent()
++  })
++
++  it('rejects a native durable-store response for an explicitly volatile authority', async () => {
++    native.openDurable = true
++    const value = service('volatile')
++    await expect(value.checkpoint(input())).rejects.toMatchObject({ code: 'source_conflict' })
++    expect(native.opens[0]).not.toHaveProperty('storePath')
++    expect(native.commits).toEqual([])
++    await absent()
++  })
++
++  it('validates the native source fingerprint against the actual unencrypted source bytes', async () => {
++    native.openFingerprint = `sha256:${'f'.repeat(64)}`
++    await expect(service('volatile').checkpoint(input())).rejects.toMatchObject({
++      code: 'source_conflict',
++    })
++    expect(native.commits).toEqual([])
++    await absent()
++  })
++
++  it.each(['durable', 'revision', 'document', 'command', 'api'] as const)(
++    'rejects a mismatched %s ACK, then reconciles only the real native receipt',
++    async (field) => {
++      const value = service('volatile')
++      native.receiptOverride = (receipt) => ({
++        ...receipt,
++        ...(field === 'durable' ? { durable: true } : {}),
++        ...(field === 'revision' ? { revision: receipt.revision + 1 } : {}),
++        ...(field === 'document' ? { documentId: randomUUID() } : {}),
++        ...(field === 'command' ? { commandId: 'wrong-command' } : {}),
++        ...(field === 'api' ? { apiVersion: 2 } : {}),
++      })
++      const request = input({ commandId: 'exact-command' })
++      await expect(value.checkpoint(request)).rejects.toMatchObject({
++        code: 'invalid_native_response',
++      })
++      expect(value.candidateFor('headless', 'reader-1')).toBeNull()
++      native.receiptOverride = undefined
++      const recovered = await value.checkpoint(request)
++      expect(recovered).toMatchObject({
++        commandId: 'exact-command',
++        revision: 1,
++        durable: false,
++        candidateId: null,
++      })
++      expect(native.commits).toHaveLength(1)
++      expect(native.queries).toEqual(['exact-command'])
++      await absent()
++    },
++  )
++
++  it('preserves pending payload/hash identity through a lost ACK without inventing a second commit', async () => {
++    const value = service('volatile'),
++      request = input({ commandId: 'lost-ack', payload: { edits: [{ value: '12' }] } })
++    native.loseAcknowledgement = true
++    await expect(value.checkpoint(request)).rejects.toThrow('without caller ACK')
++    const recovered = await value.checkpoint(request)
++    expect(recovered.revision).toBe(1)
++    expect(native.commits).toHaveLength(1)
++    const changed = await value.checkpoint(input({ payload: { edits: [{ value: 12 }] } }))
++    expect(changed.revision).toBe(2)
++    expect(native.commits[1]!.payload).toEqual({ edits: [{ value: 12 }] })
++    await absent()
++  })
++
++  it('refuses changed source bytes before another checkpoint can be submitted', async () => {
++    const value = service('volatile')
++    await value.checkpoint(input())
++    await writeFile(sourcePath, 'external source replacement')
++    await expect(
++      value.checkpoint(input({ payload: { edits: [{ value: 99 }] } })),
++    ).rejects.toMatchObject({ code: 'source_conflict' })
++    expect(native.commits).toHaveLength(1)
++    await absent()
++  })
++
++  it('does not conflate volatile storage with the protected-document identity flag', async () => {
++    const value = service('volatile')
++    await value.checkpoint(input())
++    await expect(value.checkpoint(input({ encrypted: true }))).rejects.toMatchObject({
++      code: 'source_conflict',
++    })
++    expect(value.captureNativeCloseAuthority('headless', 'reader-1')).toBeNull()
++    expect(native.commits).toHaveLength(1)
++    await absent()
++  })
++
++  it('keeps default GUI storage durable with its existing private manifest and native store', async () => {
++    const value = service(),
++      receipt = await value.checkpoint(input())
++    expect(receipt.durable).toBe(true)
++    expect(receipt.candidateId).toBe(receipt.documentId)
++    expect(native.opens[0]!.storePath).toBe(
++      join(privateRoot, receipt.documentId, 'document.sqlite'),
++    )
++    await access(join(privateRoot, receipt.documentId, 'manifest.json'))
++    await access(join(privateRoot, receipt.documentId, 'document.sqlite'))
++  })
++
++  it('keeps default protected GUI state memory-only while retaining its real protected close capability', async () => {
++    const value = service(),
++      receipt = await value.checkpoint(input({ encrypted: true }))
++    expect(receipt).toMatchObject({ durable: false, candidateId: null })
++    const authority = value.captureNativeCloseAuthority('headless', 'reader-1')!
++    expect(isCapturedNativeCloseAuthority(authority)).toBe(true)
++    expect(authority.encrypted).toBe(true)
++    await authority.ready
++    expect(authority.attest()).toMatchObject({ documentId: receipt.documentId, pending: false })
++    await authority.resume()
++    await absent()
++  })
++})
+diff --git a/apps/sheets/tests/xlsx-sidecar-process-settlement.test.ts b/apps/sheets/tests/xlsx-sidecar-process-settlement.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/xlsx-sidecar-process-settlement.test.ts
+@@ -0,0 +1,265 @@
++/** Real Node subprocess fixture + real streams/OS exit; never a Rust-binary acceptance claim. */
++import type { ChildProcessWithoutNullStreams } from 'node:child_process'
++import { once } from 'node:events'
++import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { fileURLToPath } from 'node:url'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { joinNativeActualWork, XlsxSidecarClient } from '../src/main/xlsx-sidecar-client'
++
++const launch = vi.hoisted(() => ({
++  fixture: '',
++  children: [] as ChildProcessWithoutNullStreams[],
++  observe: undefined as ((child: ChildProcessWithoutNullStreams) => void) | undefined,
++}))
++vi.mock('node:child_process', async (importOriginal) => {
++  const actual = await importOriginal<typeof import('node:child_process')>()
++  return {
++    ...actual,
++    spawn: (_binary: string, _args: readonly string[], options: object) => {
++      // Only launcher selection is replaced. The returned process, pipes,
++      // failures, replies, kill request and exit/close events are real Node I/O.
++      const child = actual.spawn(
++        process.execPath,
++        [launch.fixture],
++        options,
++      ) as ChildProcessWithoutNullStreams
++      launch.children.push(child)
++      launch.observe?.(child)
++      return child
++    },
++  }
++})
++
++function deferred<T>() {
++  let resolve!: (value: T) => void
++  const promise = new Promise<T>((yes) => {
++    resolve = yes
++  })
++  return { promise, resolve }
++}
++interface ChildState {
++  accepted: Set<string>
++  waiting: Map<string, () => void>
++  closed: boolean
++}
++const states = new WeakMap<ChildProcessWithoutNullStreams, ChildState>()
++const clients: XlsxSidecarClient[] = []
++let directory: string
++
++function client() {
++  const value = new XlsxSidecarClient('/test-only/launcher-is-replaced')
++  clients.push(value)
++  return value
++}
++function accepted(child: ChildProcessWithoutNullStreams, tag: string): Promise<void> {
++  const state = states.get(child)!
++  if (state.accepted.has(tag)) return Promise.resolve()
++  return new Promise<void>((resolve) => {
++    state.waiting.set(tag, resolve)
++  })
++}
++function request(value: XlsxSidecarClient, tag: string, timeout = 100) {
++  const gatePath = join(directory, `${tag}.gate`)
++  return {
++    gatePath,
++    operation: value.requestAttested(
++      { command: 'fixture_wait_file', fixtureTag: tag, gatePath },
++      timeout,
++    ),
++  }
++}
++
++beforeEach(async () => {
++  directory = await realpath(await mkdtemp(join(tmpdir(), 'vantage-node-native-lifecycle-')))
++  launch.fixture = fileURLToPath(new URL('./fixtures/native-lifecycle-child.cjs', import.meta.url))
++  launch.observe = (child) => {
++    const state: ChildState = { accepted: new Set(), waiting: new Map(), closed: false }
++    states.set(child, state)
++    let buffered = ''
++    child.stdout.on('data', (chunk: Buffer) => {
++      buffered += chunk.toString('utf8')
++      for (;;) {
++        const newline = buffered.indexOf('\n')
++        if (newline < 0) break
++        const line = buffered.slice(0, newline)
++        buffered = buffered.slice(newline + 1)
++        let value: { fixtureAccepted?: unknown }
++        try {
++          value = JSON.parse(line) as typeof value
++        } catch {
++          continue
++        }
++        if (typeof value.fixtureAccepted !== 'string') continue
++        state.accepted.add(value.fixtureAccepted)
++        state.waiting.get(value.fixtureAccepted)?.()
++        state.waiting.delete(value.fixtureAccepted)
++      }
++    })
++    child.once('close', () => {
++      state.closed = true
++    })
++  }
++})
++afterEach(async () => {
++  vi.restoreAllMocks()
++  const stopped = clients.splice(0).map((value) => value.stopSettled())
++  // Every process below came from the exact fixture launcher in this test.
++  for (const child of launch.children) {
++    if (child.exitCode === null && child.signalCode === null) child.kill()
++    child.stdout.resume()
++    child.stderr.resume()
++  }
++  await Promise.all(stopped)
++  await joinNativeActualWork()
++  await Promise.all(
++    launch.children.map((child) =>
++      states.get(child)?.closed ? Promise.resolve() : once(child, 'close').then(() => undefined),
++    ),
++  )
++  launch.children.length = 0
++  launch.observe = undefined
++  await rm(directory, { recursive: true, force: true })
++})
++
++describe('standalone native terminal shutdown with an actual Node child fixture', () => {
++  it('joins a definitive late response after its bounded caller timed out', async () => {
++    const value = client(),
++      { operation, gatePath } = request(value, 'late-reply')
++    const bounded = expect(operation.result).rejects.toThrow('timed out')
++    await accepted(launch.children[0]!, 'late-reply')
++    await bounded
++    let joined = false
++    const drain = joinNativeActualWork().then(() => {
++      joined = true
++    })
++    await Promise.resolve()
++    expect(joined).toBe(false)
++    await writeFile(gatePath, 'allow definitive fixture ACK')
++    await expect(operation.completion).resolves.toEqual({
++      fixtureTag: 'late-reply',
++      acknowledged: true,
++    })
++    await drain
++    expect(joined).toBe(true)
++    await value.stopSettled()
++  }, 15_000)
++
++  it('a kill request is insufficient until the owned real child confirms exit, and terminal stop cannot restart', async () => {
++    const value = client(),
++      { operation } = request(value, 'held-kill', 10_000)
++    const caller = expect(operation.result).rejects.toThrow('stopped')
++    const child = launch.children[0]!
++    await accepted(child, 'held-kill')
++    const realKill = child.kill.bind(child)
++    let exited = false
++    child.once('exit', () => {
++      exited = true
++    })
++    // Deliberately postpone sending the OS signal. The real accepted child
++    // stays alive, proving a successful kill request alone cannot release it.
++    const kill = vi.spyOn(child, 'kill').mockImplementation(() => true)
++    const stopping = value.stopSettled()
++    expect(value.stopSettled()).toBe(stopping)
++    let closeSettled = false
++    const closing = value.closeSettled('fixture-session').then(
++      () => {
++        closeSettled = true
++      },
++      (error: unknown) => {
++        closeSettled = true
++        throw error
++      },
++    )
++    const closed = expect(closing).rejects.toThrow('terminally stopped')
++    let settled = false
++    void stopping.then(() => {
++      settled = true
++    })
++    await caller
++    await Promise.resolve()
++    expect(kill).toHaveBeenCalledOnce()
++    expect(exited).toBe(false)
++    expect(settled).toBe(false)
++    expect(closeSettled).toBe(false)
++    expect(() => process.kill(child.pid!, 0)).not.toThrow()
++    await expect(value.requestAttested({ command: 'fixture_wait_file' }).result).rejects.toThrow(
++      'terminally stopped',
++    )
++    expect(launch.children).toHaveLength(1)
++    realKill()
++    await stopping
++    await closed
++    await operation.actualSettled
++    expect(exited).toBe(true)
++    expect(settled).toBe(true)
++    expect(closeSettled).toBe(true)
++    await expect(operation.completion).rejects.toThrow(/exited|closed/)
++    await expect(value.requestAttested({ command: 'fixture_wait_file' }).result).rejects.toThrow(
++      'terminally stopped',
++    )
++    expect(launch.children).toHaveLength(1)
++  }, 15_000)
++
++  it('a parent stdin failure leaves a real child and its accepted work alive until the actual reply and exit', async () => {
++    const value = client(),
++      { operation, gatePath } = request(value, 'broken-stdin', 10_000)
++    const child = launch.children[0]!
++    const caller = expect(operation.result).rejects.toThrow(/stdin/)
++    await accepted(child, 'broken-stdin')
++    let actual = false
++    void operation.actualSettled.then(() => {
++      actual = true
++    })
++    const broken = once(child.stdin, 'error')
++    child.stdin.destroy(new Error('fixture stdin failure while process remains alive'))
++    await broken
++    await caller
++    expect(actual).toBe(false)
++    expect(child.exitCode).toBeNull()
++    expect(() => process.kill(child.pid!, 0)).not.toThrow()
++    await writeFile(gatePath, 'accepted child work may now finish')
++    await expect(operation.completion).resolves.toEqual({
++      fixtureTag: 'broken-stdin',
++      acknowledged: true,
++    })
++    await joinNativeActualWork()
++    expect(actual).toBe(true)
++    let exited = false
++    child.once('exit', () => {
++      exited = true
++    })
++    await value.stopSettled()
++    expect(exited).toBe(true)
++  }, 15_000)
++
++  it('stable native joining includes a second admitted request started by the first completion', async () => {
++    const value = client(),
++      first = request(value, 'chain-first')
++    void first.operation.result.catch(() => undefined)
++    const secondStarted = deferred<void>()
++    let second!: ReturnType<typeof request>
++    const complete = first.operation.completion.then(() => {
++      second = request(value, 'chain-second')
++      void second.operation.result.catch(() => undefined)
++      secondStarted.resolve(undefined)
++      return second.operation.completion
++    })
++    let joined = false
++    const drain = joinNativeActualWork().then(() => {
++      joined = true
++    })
++    await accepted(launch.children[0]!, 'chain-first')
++    await writeFile(first.gatePath, 'first ACK')
++    await secondStarted.promise
++    await accepted(launch.children[0]!, 'chain-second')
++    await Promise.resolve()
++    expect(joined).toBe(false)
++    await writeFile(second.gatePath, 'second ACK')
++    await complete
++    await drain
++    expect(joined).toBe(true)
++    await value.stopSettled()
++  }, 15_000)
++})

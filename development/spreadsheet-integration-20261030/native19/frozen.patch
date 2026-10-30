@@ -1,0 +1,3357 @@
+diff --git a/apps/sheets/src/main/settled-document-native-client.ts b/apps/sheets/src/main/settled-document-native-client.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/settled-document-native-client.ts
+@@ -0,0 +1,36 @@
++import type { DocumentNativeClient } from './document-native-contract'
++
++/** The client owns correlation to the exact request and spawned child. */
++export interface AttestedDocumentRequestClient {
++  requestAttested(command: Readonly<Record<string, unknown>>, timeoutMs?: number): {
++    readonly result: Promise<unknown>
++    readonly completion: Promise<unknown>
++    readonly actualSettled: Promise<void>
++  }
++}
++
++const ARCHIVE_TIMEOUT_MS = 180_000
++
++/**
++ * Recovery/captured authority queues advance only after a matching native reply
++ * or a rejection backed by verified child exit/spawn failure. A bounded caller
++ * result, failed stdin write, cancellation request or timer is not that proof.
++ * This adapter adds no timeout/finally-based settlement and no worker protocol.
++ */
++export function createSettledDocumentNativeClient(client: AttestedDocumentRequestClient): DocumentNativeClient {
++  const completed = async (command: Readonly<Record<string, unknown>>, timeoutMs?: number): Promise<unknown> => {
++    const operation = client.requestAttested(command, timeoutMs)
++    // This consumer deliberately does not use the bounded result. Observe its
++    // rejection without replacing the client-owned definitive completion.
++    void operation.result.catch(() => undefined)
++    return operation.completion
++  }
++  const adapter: DocumentNativeClient = {
++    openDocument: input => completed({ command: 'open_document', ...input }, ARCHIVE_TIMEOUT_MS),
++    checkpointDocument: input => completed({ command: 'checkpoint_document', ...input }, ARCHIVE_TIMEOUT_MS),
++    documentSnapshot: input => completed({ command: 'document_snapshot', ...input }, ARCHIVE_TIMEOUT_MS),
++    documentCommandResult: input => completed({ command: 'document_command_result', ...input }),
++    closeDocument: input => completed({ command: 'close_document', ...input }),
++  }
++  return Object.freeze(adapter)
++}
+diff --git a/apps/sheets/src/main/sheets-main.ts b/apps/sheets/src/main/sheets-main.ts
+--- a/apps/sheets/src/main/sheets-main.ts
++++ b/apps/sheets/src/main/sheets-main.ts
+@@ -1,8 +1,14 @@
+ import { configureRecoveryProfile, initializeStandaloneRecovery } from '../../../../packages/electron-utils/src/recovery-bootstrap'
+ import { createHash, randomUUID } from 'node:crypto'
++import { AsyncResource } from 'node:async_hooks'
+ import { assertWorkbookTargetUnchanged } from './workbook-source-expectation'
+ import { atomicCopyFile, withAtomicSaveQueue } from '@vantage/electron-utils/atomic-write'
++import { reserveFileMutation, withAttestedFilePublication, withFilePublication, type FilePublicationScope } from '@vantage/electron-utils/file-publication-exclusion'
++import { WorkbookPublicationLifecycle, type WorkbookPublicationDecision } from './workbook-publication-lifecycle'
++import { SheetsRenameRefreshTransport } from './sheets-rename-refresh'
++import { moveWorkbookExclusively } from './workbook-exclusive-move'
+ import { WorkbookDocumentRecovery, canonicalDocumentPayload } from './workbook-document-recovery'
++import { createSettledDocumentNativeClient } from './settled-document-native-client'
+ import type { CapturedNativeCloseAuthority } from './workbook-document-recovery'
+ import { SheetsCloseCoordinator, type SheetsCleanupAdmission, type SheetsClosePrepareOptions, type SheetsClosePromptHandle } from './sheets-close-coordinator'
+ import { SheetsCloseTransport, isSheetsCloseSource } from './sheets-close-transport'
+@@ -11,7 +17,7 @@
+ import { SheetsSourceLineages, type SheetsSourceOpen, type SheetsSourceAdoption } from './sheets-source-lineage'
+ import { isCloseLeaseStamp, isCloseLeaseTicket, type CloseLeaseStamp, type CloseLeaseTicket } from '../../../../packages/electron-utils/src/close-lease'
+ import { sameSheetsCloseSource, type SheetsCloseReceipt, type SheetsCloseSource, type SheetsCloseState } from '../shared/sheets-close'
+-import type { WorkbookCloseCheckpointBinding, WorkbookPublicationAdoption, WorkbookWriteContext } from '../shared/desktop-api'
++import type { WorkbookCloseCheckpointBinding, WorkbookPublicationAdoption, WorkbookWriteContext, WorkbookRenamedMetadata } from '../shared/desktop-api'
+ import { allocateSessionSnapshotDirectory } from './session-snapshot-directory'
+ import {
+   documentPayloadFromSave,
+@@ -210,7 +216,7 @@
+   cleanupImportTempDirectory,
+   cleanupSessionResources,
+ } from './temp-files'
+-import { XlsxSidecarClient } from './xlsx-sidecar-client'
++import { XlsxSidecarClient, subscribeNativeActualWork } from './xlsx-sidecar-client'
+ import { editWorkbookId } from './xlsx-edit-session'
+ import { editRecalcResultSchema, type EditSessionOpen } from './xlsx-edit-contract'
+ import { knownRelocationDigest, matchesWorkbookRelocation, sameWorkbookPath, sessionAfterVerifiedRelocation, verifyRelocatedWorkbook } from './workbook-relocation'
+@@ -2015,8 +2021,41 @@
+   id: string; owner: WebContents; source: SheetsCloseSource; previous: SheetsCloseSource | null
+   open?: SheetsSourceOpen; publication?: SheetsSourceAdoption; afterAdopt?: () => Promise<void>
+   onAdopted?: () => void
++  publicationDecision?: WorkbookPublicationDecision
++  afterPublicationSettled?: () => void
+ }
+ const sourceOffers = new Map<string, SourceOffer>()
++const activeWorkbookRenames = new Map<WebContents, Promise<void>>()
++const ownerCleanupByContents = new WeakMap<WebContents, Promise<void>>()
++/** Actual destroyed-owner finalizer; absence is not proof of completion. */
++export function sheetsOwnerCleanup(owner: WebContents): Promise<void> | undefined { return ownerCleanupByContents.get(owner) }
++const mainPublicationLifecycles = new Map<WebContents, Set<WorkbookPublicationLifecycle>>()
++
++function runMainWorkbookPublication<T>(owner: WebContents, scope: FilePublicationScope,
++  actual: (lifecycle: WorkbookPublicationLifecycle) => Promise<T>, otherTargets: readonly string[] = []): Promise<T> {
++  if (!sheetsCloseRuntime) return Promise.reject(new Error('Main workbook publication requires its actual-settlement quit ledger.'))
++  const lifecycle = new WorkbookPublicationLifecycle()
++  const pending = mainPublicationLifecycles.get(owner) ?? new Set<WorkbookPublicationLifecycle>()
++  mainPublicationLifecycles.set(owner, pending); pending.add(lifecycle)
++  void lifecycle.actualSettled.then(() => {
++    pending.delete(lifecycle)
++    if (!pending.size && mainPublicationLifecycles.get(owner) === pending) mainPublicationLifecycles.delete(owner)
++  })
++  try {
++    sheetsCloseRuntime.holdNativeUntilSettled(owner, lifecycle.actualSettled)
++    const targets = [...new Set([scope.targetPath, ...otherTargets])]
++    const admit = (index: number): Promise<T> => withAttestedFilePublication({ ...scope, targetPath: targets[index]! }, () => {
++      let result: Promise<T>
++      try { result = index + 1 < targets.length ? admit(index + 1) : lifecycle.run(() => actual(lifecycle)) }
++      catch (error) { lifecycle.abandonBeforeStart(); result = Promise.reject(error) }
++      return { result, actualSettled: lifecycle.actualSettled }
++    })
++    return admit(0)
++  } catch (error) {
++    lifecycle.abandonBeforeStart()
++    return Promise.reject(error)
++  }
++}
+ const sourceOpenAdmissions = new Map<number, SheetsSourceOpen>()
+ let sheetsCloseCoordinator: SheetsCloseCoordinator<WebContents>
+ const sheetsSources = new SheetsSourceLineages<WebContents>((owner, reason) => sheetsCloseCoordinator?.invalidateSource(owner, reason))
+@@ -2024,11 +2063,35 @@
+   const tails = [...documentPublicationGates].filter(([key]) => key.startsWith(`${owner.id}:`)).map(([, tail]) => tail)
+   return Promise.all(tails).then(() => undefined)
+ }
++async function completeNativeCommand(client: XlsxSidecarClient,
++  command: Readonly<Record<string, unknown>>, timeoutMs?: number): Promise<unknown> {
++  const native = client.requestAttested(command, timeoutMs)
++  void native.result.catch(() => undefined)
++  return native.completion
++}
+ const sheetsCloseTransport = new SheetsCloseTransport<WebContents>({
+   send: (owner, request) => owner.send(IPC_CHANNELS.workbookPrepareClose, request),
+   alive: owner => !owner.isDestroyed(), publicationTail: ownerPublicationTail,
+   report: error => console.warn('[sheets] Close transport:', error),
+ })
++const sheetsRenameRefresh = new SheetsRenameRefreshTransport<WebContents>({
++  send: (owner, name, metadata) => owner.send(IPC_CHANNELS.workbookRenamed, name, metadata),
++  publicationTail: ownerPublicationTail,
++  validate: (owner, metadata, result) => {
++    const source = sheetsSources.current(owner), entry = sheetsTabs.get(owner.id), session = entry?.sessions.get(metadata.sessionId)
++    const ack = nativeDocumentAcks.get(documentOwnerKey(owner.id, metadata.sessionId))
++    return !owner.isDestroyed() && !!session && !!source && sameSheetsCloseSource(source, metadata.closeSource) &&
++      result.sessionId === metadata.sessionId && isSheetsCloseSource(result.source) && sameSheetsCloseSource(result.source, source) &&
++      !!ack && ack.documentId === result.documentId && ack.revision === result.revision && ack.payloadSha256 === result.payloadSha256 &&
++      ack.sourceFingerprint === session.nativeSourceFingerprint && documentRecoveryService?.isCurrentProducer(owner.id, metadata.sessionId, ack.documentId) === true
++  },
++})
++function priorNativeActualWork(): Promise<void> {
++  const pending: Promise<void>[] = []
++  const unsubscribe = subscribeNativeActualWork(actual => { pending.push(actual) })
++  unsubscribe()
++  return Promise.all(pending).then(() => undefined)
++}
+ const sheetsPromptWriteGate = new SheetsPromptWriteGate<WebContents>({
+   alive: owner => !owner.isDestroyed() && sheetsTabs.get(owner.id)?.webContents === owner,
+   currentClose: owner => sheetsCloseTransport.current(owner)?.ticket,
+@@ -2045,7 +2108,7 @@
+ sheetsCloseCoordinator = new SheetsCloseCoordinator<WebContents>({
+   alive: owner => !owner.isDestroyed() && sheetsTabs.get(owner.id)?.webContents === owner,
+   current: owner => sheetsSources.current(owner),
+-  sourceBusy: owner => sheetsSources.busy(owner) || [...sourceOffers.values()].some(offer => offer.owner === owner) ||
++  sourceBusy: owner => activeWorkbookRenames.has(owner) || sheetsSources.busy(owner) || [...sourceOffers.values()].some(offer => offer.owner === owner) ||
+     [...documentPublicationGates.keys()].some(key => key.startsWith(`${owner.id}:`)),
+   coverageComplete: owner => {
+     const report = reportedCloseStates.get(owner.id), source = sheetsSources.current(owner)
+@@ -2134,12 +2197,23 @@
+   sourceOffers.set(id, { id, owner, source, previous: sheetsSources.current(owner), open, ...(onAdopted ? { onAdopted } : {}) })
+   return { ...file, closeSource: source, ownedOpen: { id, source } }
+ }
+-function offerSavedSource(owner: WebContents, previous: SheetsCloseSource, file: WorkbookFile, afterAdopt: () => Promise<void>) {
++function offerSavedSource(owner: WebContents, previous: SheetsCloseSource, file: WorkbookFile,
++  afterAdopt: () => Promise<void>, lifecycle: WorkbookPublicationLifecycle, afterPublicationSettled?: () => void) {
+   const publication = sheetsSources.offerOwnedPublication(owner, previous, {
+     sessionId: file.sessionId, openedSha256: file.sha256, documentPath: sourceDocumentPath(owner, file),
+   })
+   const id = randomUUID(), source = { ...publication.next }
+-  sourceOffers.set(id, { id, owner, source, previous, publication, afterAdopt })
++  sourceOffers.set(id, { id, owner, source, previous, publication,
++    // Adoption arrives in a later IPC. Keep the original admitted W2 context
++    // for true finalizers, rather than borrowing a new publisher during a move.
++    afterAdopt: AsyncResource.bind(afterAdopt), publicationDecision: lifecycle.retainOffer(),
++    ...(afterPublicationSettled ? { afterPublicationSettled: () => {
++      void lifecycle.actualSettled.then(() => {
++        const current = sheetsSources.current(owner)
++        if (!owner.isDestroyed() && current && sameSheetsCloseSource(current, source) && !sheetsSources.busy(owner) &&
++          ![...sourceOffers.values()].some(offer => offer.owner === owner)) afterPublicationSettled()
++      }).catch(error => console.warn('[sheets] Settled publication host handoff failed:', error))
++    } } : {}) })
+   return { id, source }
+ }
+ function sourceDocumentPath(owner: WebContents, file: WorkbookFile): string | null {
+@@ -2155,7 +2229,7 @@
+   nativeDocumentAcks.delete(documentOwnerKey(owner.id, sessionId))
+   await cleanupSessionResources({ tempRoot: app.getPath('temp'), snapshotPath: session.snapshotPath,
+     importTempDir: session.importTempDir === preserveImportDir ? undefined : session.importTempDir,
+-    closeSidecar: () => entry.client.close(sessionId) })
++    closeSidecar: () => entry.client.closeSettled(sessionId) })
+   await releasePreparedDocumentRecovery(session.path)
+   if (entry.sessions.get(sessionId) === session) entry.sessions.delete(sessionId)
+   entry.saveTransfers.discardSession(sessionId)
+@@ -2186,7 +2260,7 @@
+     documentRecoveryClient = new XlsxSidecarClient(resolveSidecarPath())
+     documentRecoveryService = new WorkbookDocumentRecovery({
+       privateRoot: join(app.getPath('userData'), 'sheets-document-recovery'),
+-      nativeClient: documentRecoveryClient,
++      nativeClient: createSettledDocumentNativeClient(documentRecoveryClient),
+     })
+   }
+   return documentRecoveryService
+@@ -2534,7 +2608,8 @@
+     const actualTransport = sheetsCloseTransport.destroy(webContents)
+     sheetsTabs.delete(webContents.id)
+     reportedCloseStates.delete(webContents.id)
+-    for (const [id, offer] of sourceOffers) if (offer.owner === webContents) sourceOffers.delete(id)
++    const abandonedOffers = [...sourceOffers.values()].filter(offer => offer.owner === webContents)
++    for (const offer of abandonedOffers) sourceOffers.delete(offer.id)
+     sourceOpenAdmissions.delete(webContents.id)
+     // Destruction proves renderer termination; accepted native publications
+     // still settle before handles/resources close. It never means discard.
+@@ -2552,8 +2627,21 @@
+       await closeAllSessions(entry).finally(() => Promise.all(recoveryPaths.map(releasePreparedDocumentRecovery)))
+     }
+     })
+-    sheetsCloseRuntime?.holdNativeUntilSettled(webContents, actualCleanup)
+-    void actualCleanup.catch(error => console.warn('[sheets] Lost renderer session cleanup failed:', error))
++    const renameActual = activeWorkbookRenames.get(webContents)
++    // The rename's verified-destruction path below waits the BASE cleanup.
++    // Only the exported outer join waits rename continuation too; making the
++    // captured publication lifecycle wait this outer join would self-deadlock.
++    const fullOwnerCleanup = renameActual ? actualCleanup.then(async () => { await renameActual }) : actualCleanup
++    ownerCleanupByContents.set(webContents, fullOwnerCleanup)
++    // Include teardown even if adoption already removed its map entry while
++    // its finalizer was running. No offered lifecycle can escape on owner loss.
++    for (const lifecycle of mainPublicationLifecycles.get(webContents) ?? []) {
++      if (!lifecycle.isSettled()) lifecycle.hold(actualCleanup)
++    }
++    for (const offer of abandonedOffers) offer.publicationDecision?.finishAfter(actualCleanup)
++    sheetsRenameRefresh.destroy(webContents, actualCleanup)
++    sheetsCloseRuntime?.holdNativeUntilSettled(webContents, fullOwnerCleanup)
++    void fullOwnerCleanup.catch(error => console.warn('[sheets] Lost renderer session cleanup failed:', error))
+     if (activeSheetsWebContents === webContents) activeSheetsWebContents = null
+   })
+ }
+@@ -2576,7 +2664,8 @@
+  *  Home list) — sync the matching session's path in that tab (later saves write
+  *  the new file) and push the renderer to update the title-bar file name. */
+ export async function sheetsFileRenamed(wc: WebContents, oldPath: string, newPath: string,
+-  writeContext: WorkbookWriteContext = { origin: 'manual' }): Promise<void> {
++  writeContext: WorkbookWriteContext = { origin: 'manual' },
++  notifyRefresh?: (name: string, metadata: WorkbookRenamedMetadata) => void): Promise<void> {
+   const entry = sheetsTabs.get(wc.id)
+   if (!entry) return
+   if (!isAbsolute(oldPath) || !isAbsolute(newPath)) throw new Error('A workbook relocation requires absolute owned paths.')
+@@ -2624,9 +2713,11 @@
+     if (untitledWorkbookPaths.delete(oldPath) && stem(newPath) === stem(oldPath)) untitledWorkbookPaths.add(newPath)
+     if (active && nextSource) {
+       const moved = changes.find(item => item.id === active.id)!.next
+-      wc.send(IPC_CHANNELS.workbookRenamed, moved.readerDisplay?.name ?? basename(newPath), { sessionId: active.id,
++      const metadata: WorkbookRenamedMetadata = { sessionId: active.id,
+         ...(moved.readerDisplay?.path ? { path: moved.readerDisplay.path } : {}), ...(moved.csvSourcePath ? { csvPath: moved.csvSourcePath } : {}),
+-        closeSource: nextSource, requiresCheckpoint: true, writeContext })
++        closeSource: nextSource, requiresCheckpoint: true, writeContext }
++      if (notifyRefresh) notifyRefresh(moved.readerDisplay?.name ?? basename(newPath), metadata)
++      else wc.send(IPC_CHANNELS.workbookRenamed, moved.readerDisplay?.name ?? basename(newPath), metadata)
+     }
+   })
+ }
+@@ -3431,6 +3522,12 @@
+   coreIpcRegistered = true
+ 
+   const trustedCloseSender = (sender: WebContents): boolean => sheetsTabs.get(sender.id)?.webContents === sender && !sender.isDestroyed()
++  ipcMain.on(IPC_CHANNELS.workbookRenameRefreshResult, (event, id: unknown, result: unknown) => {
++    if (trustedCloseSender(event.sender)) sheetsRenameRefresh.receiveResult(event.sender, id, result)
++  })
++  ipcMain.on(IPC_CHANNELS.workbookRenameRefreshActualSettled, (event, id: unknown) => {
++    if (trustedCloseSender(event.sender)) sheetsRenameRefresh.receiveActualSettled(event.sender, id)
++  })
+   ipcMain.handle(IPC_CHANNELS.workbookCloseSource, (event, id: unknown) => {
+     sessionFor(event)
+     return typeof id === 'string' ? offeredSource(event.sender, id) : null
+@@ -3537,7 +3634,8 @@
+       !sameSheetsCloseSource(adoption.source, offer.source) || !/^[a-f0-9]{64}$/.test(adoption.payloadSha256)) return false
+     const ack = nativeDocumentAcks.get(documentOwnerKey(event.sender.id, offer.source.sessionId))
+     if (!ack || ack.payloadSha256 !== adoption.payloadSha256 || !documentRecovery().isCurrentProducer(event.sender.id, offer.source.sessionId, ack.documentId)) return false
+-    return runDocumentPublication(event.sender.id, offer.source.sessionId, async () => {
++    let actualAdoption!: Promise<boolean>
++    actualAdoption = runDocumentPublication(event.sender.id, offer.source.sessionId, async () => {
+       if (!canAdoptSourceOffer(event.sender, offer)) return false
+       const latest = nativeDocumentAcks.get(documentOwnerKey(event.sender.id, offer.source.sessionId))
+       if (!latest || latest.documentId !== ack.documentId || latest.revision !== ack.revision || latest.payloadSha256 !== adoption.payloadSha256 ||
+@@ -3547,6 +3645,8 @@
+         ? sheetsSources.commitOpen(event.sender, offer.open, offer.source)
+         : !!offer.publication && sheetsSources.adoptOwnedPublication(event.sender, offer.publication) !== null
+       if (!accepted) return false
++      // Bind before any source-map/metadata/finalizer continuation can fail.
++      offer.publicationDecision?.finishAfter(actualAdoption)
+       if (offer.open && sourceOpenAdmissions.get(event.sender.id) === offer.open) sourceOpenAdmissions.delete(event.sender.id)
+       sourceOffers.delete(offer.id)
+       const session = entry.sessions.get(offer.source.sessionId)!
+@@ -3559,20 +3659,32 @@
+           await releaseWorkbookReader(event.sender, offer.previous.sessionId, false, session.importTempDir)
+         offer.onAdopted?.()
+       } catch (error) { console.warn('[sheets] Adopted source previous-reader cleanup failed:', error) }
++      // Host callbacks may initiate a file move of this output. They run after
++      // the lifecycle releases; awaiting them inside it would wait on ourselves.
++      offer.afterPublicationSettled?.()
+       return true
+     })
++    return actualAdoption
+   })
+   ipcMain.handle(IPC_CHANNELS.workbookPublicationReject, async (event, id: unknown) => {
+-    sessionFor(event)
++    const entry = sessionFor(event)
+     const offer = typeof id === 'string' ? sourceOffers.get(id) : undefined
+     if (!offer || offer.owner !== event.sender) return
+-    sourceOffers.delete(offer.id)
+-    if (offer.open) {
+-      sheetsSources.cancelOpen(event.sender, offer.open)
+-      if (sourceOpenAdmissions.get(event.sender.id) === offer.open) sourceOpenAdmissions.delete(event.sender.id)
+-    }
+-    if (offer.publication) sheetsSources.rejectOwnedPublication(offer.publication)
+-    await runDocumentPublication(event.sender.id, offer.source.sessionId, () => releaseWorkbookReader(event.sender, offer.source.sessionId, false))
++    const actualRejection = runDocumentPublication(event.sender.id, offer.source.sessionId, async () => {
++      // A preceding queued adoption may already have consumed this exact offer.
++      // Its reader must never be closed by a later stale rejection.
++      if (sourceOffers.get(offer.id) !== offer) return
++      sourceOffers.delete(offer.id)
++      if (offer.open) {
++        sheetsSources.cancelOpen(event.sender, offer.open)
++        if (sourceOpenAdmissions.get(event.sender.id) === offer.open) sourceOpenAdmissions.delete(event.sender.id)
++      }
++      if (offer.publication) sheetsSources.rejectOwnedPublication(offer.publication)
++      await releaseWorkbookReader(event.sender, offer.source.sessionId, false,
++        offer.previous ? entry.sessions.get(offer.previous.sessionId)?.importTempDir : undefined)
++    })
++    offer.publicationDecision?.finishAfter(actualRejection)
++    await actualRejection
+   })
+ 
+   ipcMain.handle(IPC_CHANNELS.userDisplayName, (event): string => {
+@@ -3805,7 +3917,8 @@
+     await writeAdmission.ready
+     if (sheetsSources.busy(event.sender) || [...sourceOffers.values()].some(offer => offer.owner === event.sender))
+       throw new Error('A source replacement is already pending.')
+-    return runDocumentPublication(event.sender.id, sessionId, () => withAtomicSaveQueue(session.path, async () => {
++    return runDocumentPublication(event.sender.id, sessionId, () => runMainWorkbookPublication(event.sender,
++      { targetPath: session.path, sourcePaths: [session.snapshotPath] }, async () => withAtomicSaveQueue(session.path, async () => {
+     sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+     const stillCurrent = () => !event.sender.isDestroyed() && sheetsTabs.get(event.sender.id) === entry && entry.sessions.get(sessionId) === session &&
+       !!sheetsSources.current(event.sender) && sameSheetsCloseSource(sheetsSources.current(event.sender)!, source) && !sheetsSources.busy(event.sender)
+@@ -3841,7 +3954,7 @@
+     clearWorkbookRecovery(session.path)
+     return { sha256, fileBytes: encryptedBytes.byteLength, passwordProtected: true as const,
+       closeSource: source, ...(recoveryWarning ? { recoveryWarning } : {}) }
+-    }))
++    })))
+   })
+ 
+   ipcMain.handle(IPC_CHANNELS.reopenWorkbook, async (event, path: unknown) => {
+@@ -4279,6 +4392,7 @@
+       pickedPath = selection.filePath
+     }
+     const targetPath = pickedPath.toLowerCase().endsWith('.csv') ? pickedPath : `${pickedPath}.csv`
++    return runMainWorkbookPublication(event.sender, { targetPath }, async () => {
+     // UTF-8 BOM so Excel decodes the reopened file correctly. Written beside
+     // the destination and renamed into place: a plain writeFile creates the
+     // (empty) file before the data lands, and anything watching for the
+@@ -4295,6 +4409,7 @@
+     const writtenSha = await sha256File(targetPath).catch(() => undefined)
+     if (writtenSha !== undefined) refreshCsvDigest(entry.sessions, targetPath, writtenSha)
+     return { canceled: false, path: targetPath }
++    })
+     })
+   })
+ 
+@@ -4393,6 +4508,7 @@
+       // original .csv afterwards.
+       const csvInPlace = request.mode === 'save' && session.csvSourcePath !== undefined
+       let targetPath = session.path
++      let checkLoadedSource: (() => Promise<void>) | undefined
+       // MCP explicit-path save (planning/mcp-server.md): dialog-free Save As to
+       // an exact path with a clobber guard — docs:save-to parity. Only the xlsx
+       // pipeline is reachable this way (.xlsm/.csv need their interactive flows).
+@@ -4457,15 +4573,12 @@
+         // Restored crash-recovery copy: the restore prompt was the confirmation,
+         // so Save writes straight back to the original — unless someone else
+         // changed it since the restore.
+-        const currentSha = await sha256File(session.restoreTarget).catch(() => undefined)
+-        if (
+-          currentSha !== undefined &&
+-          currentSha !==
+-            expectedWorkbookDigest(session, session.restoreTarget, session.restoreTargetSha)
+-        ) {
+-          throw new Error(tm('errDiskChanged'))
++        targetPath = session.restoreTarget
++        checkLoadedSource = async () => {
++          const currentSha = await sha256File(session.restoreTarget!).catch(() => undefined)
++          if (currentSha !== undefined && currentSha !== expectedWorkbookDigest(session, session.restoreTarget!, session.restoreTargetSha))
++            throw new Error(tm('errDiskChanged'))
+         }
+-        targetPath = session.restoreTarget
+       } else {
+         // Plain in-place save: refuse to silently overwrite a file some other
+         // program changed after this session opened it. Save As (above) skips
+@@ -4473,14 +4586,22 @@
+         // file, and writes to a path the user just confirmed, so it stays
+         // usable as the escape hatch this error message points to. A file that
+         // was deleted on disk is fine: saving recreates it.
+-        const currentSha = await sha256File(session.path).catch(() => undefined)
+-        if (
+-          currentSha !== undefined &&
+-          currentSha !== expectedWorkbookDigest(session, session.path, session.sha256)
+-        ) {
+-          throw new Error(tm('errDiskChanged'))
++        checkLoadedSource = async () => {
++          const currentSha = await sha256File(session.path).catch(() => undefined)
++          if (currentSha !== undefined && currentSha !== expectedWorkbookDigest(session, session.path, session.sha256))
++            throw new Error(tm('errDiskChanged'))
+         }
+       }
++      const quietUnsavedNew = targetPath === session.path && session.unsavedNew === true
++      const otherPhysicalOutputs = [
++        ...(csvInPlace && session.csvSourcePath !== undefined && request.csvContent !== undefined ? [session.csvSourcePath] : []),
++        ...(quietUnsavedNew && session.suggestSaveAs !== undefined ? [recoveryPathFor(session.suggestSaveAs)] : []),
++      ]
++      return runMainWorkbookPublication(event.sender, { targetPath, sourcePaths: [session.snapshotPath,
++        ...(csvInPlace && session.csvSourcePath !== undefined ? [session.csvSourcePath] : []),
++        ...(materializedRecoveryDirectories.has(session.path) ? [session.path] : []),
++      ] }, async lifecycle => {
++      await checkLoadedSource?.()
+       // The CSV write-back gets the same external-change guard as restoreTarget;
+       // a deleted .csv is fine — the write recreates it.
+       if (csvInPlace && session.csvSourcePath !== undefined) {
+@@ -4503,11 +4624,11 @@
+         { closeTicket, writeAdmission },
+       )
+       const pinned = documentSnapshotResponseSchema.parse(
+-        await documentRecoveryClient!.documentSnapshot({
++        await completeNativeCommand(documentRecoveryClient!, { command: 'document_snapshot',
+           apiVersion: 1,
+           documentId: acknowledged.documentId,
+           revision: acknowledged.revision,
+-        }),
++        }, 180_000),
+       )
+       if (
+         pinned.documentId !== acknowledged.documentId ||
+@@ -4528,10 +4649,10 @@
+         if (!activeSource || sheetsSources.busy(event.sender) || !sameSheetsCloseSource(activeSource, previousSource))
+           throw new Error('A newer source-open operation superseded this publication.')
+         const latest = documentSnapshotResponseSchema.parse(
+-          await documentRecoveryClient!.documentSnapshot({
++          await completeNativeCommand(documentRecoveryClient!, { command: 'document_snapshot',
+             apiVersion: 1,
+             documentId: acknowledged.documentId,
+-          }),
++          }, 180_000),
+         )
+         if (
+           latest.documentId !== acknowledged.documentId ||
+@@ -4594,7 +4715,6 @@
+ 
+       // The sidecar session still streams the pre-save bytes; swap it for a
+       // fresh session over the saved file so future reads match the disk state.
+-      const quietUnsavedNew = targetPath === session.path && session.unsavedNew === true
+       const file = await openWorkbookSession(client, targetPath, entry.sessions, {
+         retainExistingBaseOnFailure: true,
+         ...(csvInPlace
+@@ -4641,14 +4761,6 @@
+         }
+         return
+       }
+-      // Notify shell (if running) so it can update the tab title and record the
+-      // saved path in recent files (mirrors the open hook; covers Save As + first
+-      // save after converting an .xls/.csv import). A CSV session's user-visible
+-      // file is the original .csv, not the temp copy the xlsx save landed on.
+-      workbookOpenedHook?.(
+-        event.sender,
+-        (csvInPlace ? session.csvSourcePath : undefined) ?? targetPath,
+-      )
+       // The file on disk now carries these edits
+       clearWorkbookRecovery(targetPath)
+       if (session.suggestSaveAs !== undefined) {
+@@ -4658,9 +4770,11 @@
+       // Restored session saved (possibly Save As elsewhere): the unsaved work is
+       // persisted, so the original's recovery copy must not re-offer it.
+       if (session.restoreTarget !== undefined) clearWorkbookRecovery(session.restoreTarget)
+-      })
++      }, lifecycle, quietUnsavedNew ? undefined : () => workbookOpenedHook?.(
++        event.sender, (csvInPlace ? session.csvSourcePath : undefined) ?? targetPath))
+       return { canceled: false, file: { ...file, closeSource: ownedPublication.source },
+         touchedEntries: mutation.touchedEntries, ownedPublication }
++      }, otherPhysicalOutputs)
+     })
+   })
+ 
+@@ -4813,62 +4927,96 @@
+       // never an implicit manual escape from a native close question.
+       const writeContext = parseWorkbookWriteContext(rawWriteContext) ?? { origin: 'automatic' as const }
+       const writeAdmission = sheetsPromptWriteGate.admit(event.sender, writeContext)
++      const expected = knownRelocationDigest(session, session.path)
++      const originalSuggestion = session.suggestSaveAs
+       await writeAdmission.ready
+-      let physicalTarget: string | undefined
+-      const result = await runDocumentPublication(event.sender.id, validatedSessionId, async () => {
+       sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+-      sheetsCloseTransport.assertWriter(event.sender)
+-      if (entry.sessions.get(validatedSessionId) !== session || sheetsSources.busy(event.sender) ||
+-        [...sourceOffers.values()].some(offer => offer.owner === event.sender) ||
+-        !sheetsSources.current(event.sender) || !sameSheetsCloseSource(sheetsSources.current(event.sender)!, source)) return { renamed: false }
++      if (activeWorkbookRenames.has(event.sender)) return { renamed: false }
++      if (!sheetsCloseRuntime) throw new Error('Automatic naming requires its actual-settlement quit ledger.')
++      const current = () => !event.sender.isDestroyed() && entry.sessions.get(validatedSessionId) === session &&
++        !sheetsSources.busy(event.sender) && ![...sourceOffers.values()].some(offer => offer.owner === event.sender) &&
++        !!sheetsSources.current(event.sender) && sameSheetsCloseSource(sheetsSources.current(event.sender)!, source)
++      const priorPublications = ownerPublicationTail(event.sender)
++      const priorNative = priorNativeActualWork()
++      sheetsCloseCoordinator.invalidateSource(event.sender, 'owned workbook naming admitted')
++      let target = session.suggestSaveAs === undefined ? join(dirname(session.path), `${base}.xlsx`) : join(dirname(session.suggestSaveAs), `${base}.xlsx`)
++      const taken = (path: string) => existsSync(path) || sheetsSuggestedPathTaken(path)
++      for (let i = 2; taken(target) && i < 100; i++) target = join(dirname(target), `${base}-${i}.xlsx`)
++      if (taken(target) || target === (session.suggestSaveAs ?? session.path)) return { renamed: false }
++      const mutation = session.suggestSaveAs === undefined
++        ? reserveFileMutation([{ path: session.path, kind: 'file' }, { path: target, kind: 'file' }]) : undefined
++      let moved = false, changed = false, ledgerHeld = false
++      let refreshedSource: SheetsCloseSource | undefined
++      const actual = Promise.resolve().then(async () => {
++      if (!ledgerHeld) throw new Error('The rename actual-work hold was not registered.')
++      const moveAndRefresh = async () => {
++      await Promise.all([priorPublications, priorNative])
++      sheetsPromptWriteGate.assert(event.sender, writeAdmission)
++      if (!current()) return { renamed: false }
++      let refresh: ReturnType<typeof sheetsRenameRefresh.begin> | undefined
+       // An unsaved new workbook has no user-visible file to rename — it sits in
+       // a temp directory that closing the tab discards. Retarget the suggested
+       // Save As name instead, so the AI-derived name is what the first save
+       // offers, and leave the mark in place for a later run. No rename on disk
+       // and no open hook: the temp path must not reach the title or recents.
+-      if (session.suggestSaveAs !== undefined) {
+-        const suggestDir = dirname(session.suggestSaveAs)
+-        let suggested = join(suggestDir, `${base}.xlsx`)
+-        const taken = (p: string) =>
+-          p !== session.suggestSaveAs && (existsSync(p) || sheetsSuggestedPathTaken(p))
+-        for (let i = 2; taken(suggested) && i < 100; i++) {
+-          suggested = join(suggestDir, `${base}-${i}.xlsx`)
+-        }
+-        if (suggested === session.suggestSaveAs || taken(suggested)) return { renamed: false }
++      if (originalSuggestion !== undefined) {
++        const suggested = target
++        await runDocumentPublication(event.sender.id, validatedSessionId, async () => {
++        if (!current() || taken(suggested)) throw new Error('The proposed workbook name changed before admission.')
+         // a failed move leaves the copy valid under the old name; a crash can still restore it
+-        if (session.unsavedNew && pendingUnsavedNewRecoveryFor(session.suggestSaveAs) && !retargetUnsavedNewRecovery(session.suggestSaveAs, suggested))
+-          return { renamed: false }
++        if (session.unsavedNew && pendingUnsavedNewRecoveryFor(originalSuggestion) && !retargetUnsavedNewRecovery(originalSuggestion, suggested))
++          throw new Error('The previous unsaved recovery name could not be retained safely.')
+         entry.sessions.set(validatedSessionId, { ...session, suggestSaveAs: suggested, relocationPending: false,
+           ...(!session.restoreTarget && !session.recoverySourcePath && !session.csvSourcePath ? { recoveryOriginalFingerprint: null } : {}),
+           readerDisplay: { ...(session.readerDisplay ?? { path: session.path, readOnly: false }), name: basename(suggested) } })
+         nativeDocumentAcks.delete(documentOwnerKey(event.sender.id, validatedSessionId)); documentCandidates.delete(documentOwnerKey(event.sender.id, validatedSessionId))
+         try { await documentRecoveryService?.releaseDocument(event.sender.id, validatedSessionId) }
+         catch (error) { console.warn('[sheets] Named workbook old recovery handle cleanup incomplete:', error) }
+-        event.sender.send(IPC_CHANNELS.workbookRenamed, basename(suggested), { sessionId: validatedSessionId,
++        changed = true
++        const metadata: WorkbookRenamedMetadata = { sessionId: validatedSessionId,
+           ...(session.readerDisplay?.path ? { path: session.readerDisplay.path } : {}),
+-          ...(session.csvSourcePath ? { csvPath: session.csvSourcePath } : {}), closeSource: source, requiresCheckpoint: true, writeContext })
+-        return { renamed: true, name: basename(suggested) }
++          ...(session.csvSourcePath ? { csvPath: session.csvSourcePath } : {}), closeSource: source, requiresCheckpoint: true, writeContext }
++        refreshedSource = metadata.closeSource
++        refresh = sheetsRenameRefresh.begin(event.sender, basename(suggested), metadata)
++        })
++      } else {
++        if (!expected) throw new Error('The loaded workbook has no trusted source version for a physical move.')
++        await moveWorkbookExclusively(session.path, target, expected)
++        moved = true
++        await sheetsFileRenamed(event.sender, session.path, target, writeContext, (name, metadata) => {
++          refreshedSource = metadata.closeSource
++          refresh = sheetsRenameRefresh.begin(event.sender, name, metadata)
++        })
++        changed = true
+       }
+-      const dir = dirname(session.path)
+-      let target = join(dir, `${base}.xlsx`)
+-      for (let i = 2; existsSync(target) && i < 100; i++) target = join(dir, `${base}-${i}.xlsx`)
+-      if (existsSync(target) || target === session.path) return { renamed: false }
+-      await verifyRelocatedWorkbook(session.path, knownRelocationDigest(session, session.path))
+-      sheetsPromptWriteGate.assert(event.sender, writeAdmission)
++      // This wait is OUTSIDE both metadata publication queues. The renderer's
++      // full checkpoint can therefore enter the same session queue and finish.
++      if (!refresh) throw new Error('The renamed workbook no longer has its original renderer owner.')
++      await refresh.completion
++      await refresh.actualSettled
++      return { renamed: true, name: basename(target), path: moved ? target : undefined, refreshComplete: true }
++      }
+       try {
+-        renameSync(session.path, target)
+-      } catch (err) {
+-        console.warn('[sheets] auto-rename failed:', err)
+-        return { renamed: false }
++        return mutation ? await mutation.run(moveAndRefresh) : await moveAndRefresh()
++      } catch (error) {
++        const currentSession = entry.sessions.get(validatedSessionId)
++        if ((moved || changed) && currentSession) entry.sessions.set(validatedSessionId, { ...currentSession, relocationPending: true })
++        return { renamed: moved || changed, ...(moved || changed ? { name: basename(target) } : {}), path: target,
++          refreshComplete: false, error: moved ? `The file was moved to "${target}", but its complete checkpoint refresh failed. The new path was retained; use Save As or reopen it.` : String(error) }
+       }
+-      physicalTarget = target
+-      return { renamed: true, name: basename(target) }
+       })
+-      // Do not nest the relocation's own publication/drain inside its prior tail.
+-      if (physicalTarget) {
+-        sheetsPromptWriteGate.assert(event.sender, writeAdmission)
+-        await sheetsFileRenamed(event.sender, session.path, physicalTarget, writeContext)
+-        workbookOpenedHook?.(event.sender, physicalTarget)
++      const actualSettled = actual.then(() => undefined, () => undefined)
++      activeWorkbookRenames.set(event.sender, actualSettled)
++      try { sheetsCloseRuntime.holdNativeUntilSettled(event.sender, actualSettled); ledgerHeld = true }
++      catch (error) { mutation?.cancelPending(); activeWorkbookRenames.delete(event.sender); throw error }
++      const finish = () => { if (activeWorkbookRenames.get(event.sender) === actualSettled) activeWorkbookRenames.delete(event.sender) }
++      void actualSettled.then(finish)
++      const result = await actual
++      await actualSettled
++      if (moved && 'refreshComplete' in result && result.refreshComplete && refreshedSource && !event.sender.isDestroyed() &&
++        !sheetsSources.busy(event.sender) && ![...sourceOffers.values()].some(offer => offer.owner === event.sender) &&
++        sheetsSources.current(event.sender) && sameSheetsCloseSource(sheetsSources.current(event.sender)!, refreshedSource)) {
++        workbookOpenedHook?.(event.sender, target)
+       }
+       return result
+     },
+@@ -5366,10 +5514,14 @@
+   beforePublish?: () => Promise<void>,
+ ): Promise<Awaited<ReturnType<typeof saveWorkbookViaSidecar>> & { publishedSha256: string }> {
+   type PhaseSession = DocumentWriteSession & { nativeSessionId?: string }
+-  return withAtomicSaveQueue(targetPath, async () => {
++  return withAtomicSaveQueue(targetPath, () => withFilePublication({ targetPath, sourcePaths: [session.snapshotPath] }, async () => {
+     const privateRoot = await getSessionSnapshotDirectory()
+     const readyDirectory = await mkdtemp(join(privateRoot, 'document-publish-'))
+     const readyPath = join(readyDirectory, 'complete.bin')
++    let readyStarted = false
++    try {
++    return await withFilePublication({ targetPath: readyPath, sourcePaths: [session.snapshotPath] }, async () => {
++    readyStarted = true
+     try {
+       const mutation = await writeDocumentSavePipeline<
+         PhaseSession,
+@@ -5404,7 +5556,7 @@
+         },
+         openPhase: async (path) => {
+           const opened = sidecarOpenResultSchema.parse(
+-            await client.open(path, getUiLang(), systemShortDate()),
++            await completeNativeCommand(client, { command: 'open', path, locale: getUiLang(), shortDateFormat: systemShortDate() }),
+           )
+           return {
+             snapshotPath: path,
+@@ -5413,7 +5565,7 @@
+           }
+         },
+         closePhase: async (phase) => {
+-          if (phase.nativeSessionId) await client.close(phase.nativeSessionId)
++          if (phase.nativeSessionId) await client.closeSettled(phase.nativeSessionId)
+         },
+         combineResults: (first, last) => ({
+           ...last,
+@@ -5422,7 +5574,7 @@
+           removedEntries: [...new Set([...first.removedEntries, ...last.removedEntries])],
+         }),
+       })
+-      const report = (await client.auditPreservation({
++      const report = (await completeNativeCommand(client, { command: 'audit_preservation',
+         sourcePath: session.snapshotPath,
+         targetPath: readyPath,
+         allowedChangedEntries: [
+@@ -5432,7 +5584,7 @@
+             ...mutation.removedEntries,
+           ]),
+         ],
+-      })) as { preserved?: unknown; violations?: readonly { message?: string }[] }
++      }, 180_000)) as { preserved?: unknown; violations?: readonly { message?: string }[] }
+       if (
+         report?.preserved !== true ||
+         !Array.isArray(report.violations) ||
+@@ -5455,17 +5607,27 @@
+           ? await sha256File(readyPath)
+           : createHash('sha256').update(encrypted).digest('hex')
+       await beforePublish?.()
+-      await withNativeSaveRecovery(targetPath, async () => {
++      // Reserve the physical output and actual copy input across the final
++      // version check, recovery wrapper and complete JS filesystem publisher.
++      // Shared atomic writers may nest under this same-target reservation.
++      await withFilePublication({ targetPath, sourcePaths: [readyPath] }, () => withNativeSaveRecovery(targetPath, async () => {
+         await beforePublish?.()
+         if (encrypted !== undefined) await atomicWriteFile(targetPath, encrypted)
+         else await atomicCopyFile(readyPath, targetPath)
+-      })
++      }))
+       return { ...mutation, publishedSha256 }
+     } finally {
+       await rm(readyPath, { force: true }).catch(() => undefined)
+       await rmdir(readyDirectory).catch(() => undefined)
+     }
+-  })
++    })
++    } catch (error) {
++      // No native/package body began if the private-output reservation refused.
++      // Remove only our still-empty new directory; never guess at file ownership.
++      if (!readyStarted) await rmdir(readyDirectory).catch(() => undefined)
++      throw error
++    }
++  }))
+ }
+ 
+ let sessionSnapshotDirectoryPromise: Promise<string> | undefined
+@@ -5636,7 +5798,7 @@
+           }),
+       snapshotDigest,
+     ])
+-    const rawOpened = await client.open(snapshotPath, getUiLang(), systemShortDate())
++    const rawOpened = await completeNativeCommand(client, { command: 'open', path: snapshotPath, locale: getUiLang(), shortDateFormat: systemShortDate() })
+     const openingIdentity = z.object({ sessionId: z.string().uuid() }).safeParse(rawOpened)
+     if (openingIdentity.success) openedSessionId = openingIdentity.data.sessionId
+     const opened = sidecarOpenResultSchema.parse(rawOpened)
+@@ -5693,7 +5855,7 @@
+   } catch (error) {
+     if (openedSessionId !== undefined && !conflictingReaderId) {
+       sessions.delete(openedSessionId)
+-      await client.close(openedSessionId).catch(() => undefined)
++      await client.closeSettled(openedSessionId).catch(() => undefined)
+     }
+     await rm(snapshotPath, { force: true }).catch(() => undefined)
+     if (!retainExistingBaseOnFailure) await releasePreparedDocumentRecovery(path)
+@@ -6151,7 +6313,7 @@
+         tempRoot: app.getPath('temp'),
+         snapshotPath: session.snapshotPath,
+         importTempDir: session.importTempDir,
+-        closeSidecar: () => entry.client.close(sessionId),
++        closeSidecar: () => entry.client.closeSettled(sessionId),
+       })
+     }),
+   )
+diff --git a/apps/sheets/src/main/sheets-rename-refresh.ts b/apps/sheets/src/main/sheets-rename-refresh.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/sheets-rename-refresh.ts
+@@ -0,0 +1,76 @@
++import { randomUUID } from 'node:crypto'
++import type { WorkbookRenamedMetadata, WorkbookRenameRefreshResult } from '../shared/desktop-api'
++
++interface Pending<Owner> {
++  owner: Owner; id: string; metadata: WorkbookRenamedMetadata
++  response?: WorkbookRenameRefreshResult; finalizing: boolean; destroyed: boolean
++  resolve(value: WorkbookRenameRefreshResult): void; reject(error: unknown): void; resolveActual(): void
++  completion: Promise<WorkbookRenameRefreshResult>; actualSettled: Promise<void>
++}
++
++/** A renderer deadline/delivery error never substitutes for its actual finalizer. */
++export class SheetsRenameRefreshTransport<Owner> {
++  private readonly pending = new Map<Owner, Pending<Owner>>()
++  constructor(private readonly options: {
++    send(owner: Owner, name: string, metadata: WorkbookRenamedMetadata): void
++    publicationTail(owner: Owner): Promise<void>
++    validate(owner: Owner, metadata: WorkbookRenamedMetadata, result: WorkbookRenameRefreshResult): boolean
++  }) {}
++
++  begin(owner: Owner, name: string, metadata: WorkbookRenamedMetadata) {
++    if (this.pending.has(owner)) throw new Error('A previous rename refresh is still actually settling.')
++    const id = randomUUID()
++    let resolve!: Pending<Owner>['resolve'], reject!: Pending<Owner>['reject'], resolveActual!: () => void
++    const completion = new Promise<WorkbookRenameRefreshResult>((yes, no) => { resolve = yes; reject = no })
++    const actualSettled = new Promise<void>(yes => { resolveActual = yes })
++    void completion.catch(() => undefined)
++    const request: Pending<Owner> = { owner, id, metadata: { ...metadata, refreshId: id }, finalizing: false, destroyed: false,
++      resolve, reject, resolveActual, completion, actualSettled }
++    this.pending.set(owner, request)
++    try { this.options.send(owner, name, request.metadata) }
++    catch { /* Delivery is uncertain: only a real finalizer or verified destruction can release it. */ }
++    return { completion, actualSettled }
++  }
++
++  receiveResult(owner: Owner, id: unknown, result: unknown): boolean {
++    const request = this.pending.get(owner)
++    if (!request || request.destroyed || request.finalizing || id !== request.id || request.response || !result || typeof result !== 'object') return false
++    const value = result as WorkbookRenameRefreshResult
++    if (typeof value.ok !== 'boolean' || value.error !== undefined && typeof value.error !== 'string') return false
++    request.response = value
++    return true
++  }
++
++  receiveActualSettled(owner: Owner, id: unknown): boolean {
++    const request = this.pending.get(owner)
++    if (!request || request.destroyed || request.finalizing || id !== request.id) return false
++    request.finalizing = true
++    let tail: Promise<void>
++    try { tail = this.options.publicationTail(owner) }
++    catch (error) { request.reject(error); return true }
++    void tail.then(() => this.finish(request), error => this.finish(request, error))
++    return true
++  }
++
++  /** The host calls only after actual owner destruction; cleanup itself is still awaited. */
++  destroy(owner: Owner, actualCleanup: Promise<void>): void {
++    const request = this.pending.get(owner)
++    if (!request) return
++    request.destroyed = true; request.finalizing = true
++    void actualCleanup.then(() => this.finish(request, new Error('The rename owner was destroyed before refresh completed.'), true),
++      error => this.finish(request, error, true))
++  }
++
++  private finish(request: Pending<Owner>, failure?: unknown, verifiedOwnerCleanup = false): void {
++    if (this.pending.get(request.owner) !== request) return
++    if (request.destroyed && !verifiedOwnerCleanup) return
++    this.pending.delete(request.owner)
++    try {
++      if (failure) throw failure
++      if (!request.response?.ok || !this.options.validate(request.owner, request.metadata, request.response))
++        throw new Error(request.response?.error || 'The renamed workbook did not acknowledge its complete current checkpoint.')
++      request.resolve(request.response)
++    } catch (error) { request.reject(error) }
++    request.resolveActual()
++  }
++}
+diff --git a/apps/sheets/src/main/workbook-exclusive-move.ts b/apps/sheets/src/main/workbook-exclusive-move.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/workbook-exclusive-move.ts
+@@ -0,0 +1,20 @@
++import { lstat, unlink } from 'node:fs/promises'
++import { publishExclusiveCopy } from '../../../../packages/electron-utils/src/publish-exclusive'
++import { verifyRelocatedWorkbook } from './workbook-relocation'
++
++/** W2 caller owns source+destination throughout; never overwrite or roll back a destination by pathname. */
++export async function moveWorkbookExclusively(source: string, destination: string, expectedSha256: string): Promise<void> {
++  await verifyRelocatedWorkbook(source, expectedSha256)
++  const before = await lstat(source)
++  if (!before.isFile() || before.isSymbolicLink()) throw new Error('The loaded workbook source is no longer a regular file.')
++  await publishExclusiveCopy(source, destination, { bytes: before.size, sha256: expectedSha256 })
++  await verifyRelocatedWorkbook(destination, expectedSha256)
++  // The expected hash is the one captured from the loaded/own-published state,
++  // never a new baseline read from a potentially changed source or destination.
++  await verifyRelocatedWorkbook(source, expectedSha256)
++  const current = await lstat(source)
++  if (current.isSymbolicLink() || !current.isFile() || current.ino !== before.ino || current.dev !== before.dev ||
++    current.size !== before.size || current.mtimeMs !== before.mtimeMs)
++    throw new Error('The source changed after exclusive copy; both paths were retained for review.')
++  await unlink(source)
++}
+diff --git a/apps/sheets/src/main/workbook-publication-lifecycle.ts b/apps/sheets/src/main/workbook-publication-lifecycle.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/workbook-publication-lifecycle.ts
+@@ -0,0 +1,67 @@
++/** Exact main-owned source offer decision; never serialized into a renderer receipt. */
++export interface WorkbookPublicationDecision {
++  finishAfter(actual: Promise<unknown>): void
++}
++
++/**
++ * Owns real main I/O and its source-offer finalizers independently of the IPC
++ * result. Only a genuine body task, exact adoption/rejection or owner teardown
++ * can release a hold. Caller cancellation/deadline is deliberately absent.
++ */
++export class WorkbookPublicationLifecycle {
++  readonly actualSettled: Promise<void>
++  private resolveActual!: () => void
++  private started = false
++  private bodyPending = true
++  private decisions = 0
++  private settled = false
++  private readonly work = new Set<Promise<unknown>>()
++
++  constructor() { this.actualSettled = new Promise<void>(resolve => { this.resolveActual = resolve }) }
++
++  isSettled(): boolean { return this.settled }
++
++  run<T>(actual: () => Promise<T>): Promise<T> {
++    if (this.started || !this.bodyPending) throw new Error('The main publication body has already been admitted.')
++    this.started = true
++    // Dispatch after the outer W2 and quit holds have been indexed.
++    const body = Promise.resolve().then(actual)
++    const finish = () => { this.bodyPending = false; this.finishIfSettled() }
++    void body.then(finish, finish)
++    return body
++  }
++
++  /** W2 rejected before start; no body/native dispatch was admitted. */
++  abandonBeforeStart(): void {
++    if (this.started) return
++    this.bodyPending = false
++    this.finishIfSettled()
++  }
++
++  hold(actual: Promise<unknown>): void {
++    if (this.settled) throw new Error('A settled main publication cannot acquire later work.')
++    if (this.work.has(actual)) return
++    this.work.add(actual)
++    const finish = () => { this.work.delete(actual); this.finishIfSettled() }
++    void actual.then(finish, finish)
++  }
++
++  retainOffer(): WorkbookPublicationDecision {
++    if (this.settled || !this.bodyPending) throw new Error('A source offer must be retained before its main body returns.')
++    this.decisions++
++    let decided = false
++    return Object.freeze({ finishAfter: (actual: Promise<unknown>) => {
++      if (decided) return
++      this.hold(actual)
++      decided = true
++      this.decisions--
++      this.finishIfSettled()
++    } })
++  }
++
++  private finishIfSettled(): void {
++    if (this.settled || this.bodyPending || this.decisions || this.work.size) return
++    this.settled = true
++    this.resolveActual()
++  }
++}
+diff --git a/apps/sheets/src/main/xlsx-sidecar-client.ts b/apps/sheets/src/main/xlsx-sidecar-client.ts
+--- a/apps/sheets/src/main/xlsx-sidecar-client.ts
++++ b/apps/sheets/src/main/xlsx-sidecar-client.ts
+@@ -19,10 +19,95 @@
+ const ARCHIVE_TIMEOUT_MS = 180_000
+ const MAX_STDERR_LENGTH = 8_192
+ 
++export interface NativeRequestAdmission {
++  /** Existing bounded caller result; rejecting this does not release native ownership. */
++  readonly result: Promise<unknown>
++  /** Matching reply, or definitive failure after confirmed process termination. */
++  readonly completion: Promise<unknown>
++  /** Always resolves, only when the request can no longer perform native work. */
++  readonly actualSettled: Promise<void>
++}
++
++export interface NativeRequestLimits {
++  readonly maxPendingRequests: number
++  readonly maxPendingBytes: number
++  readonly maxRequestBytes: number
++}
++export const NATIVE_REQUEST_LIMITS: Readonly<NativeRequestLimits> = Object.freeze({
++  maxPendingRequests: 128,
++  maxPendingBytes: 512 * 1024 * 1024,
++  maxRequestBytes: 257 * 1024 * 1024,
++})
++const MAX_ACTIVE_GENERATIONS = 8
++const MAX_NATIVE_ACTUAL_WORK = 4096
++const MAX_NATIVE_ACTUAL_SUBSCRIBERS = 32
++const MAX_NATIVE_PENDING_BYTES = 1024 * 1024 * 1024
++let nativePendingBytes = 0
++const nativeActualWork = new Set<Promise<void>>()
++const nativeActualSubscribers = new Set<(actualSettled: Promise<void>) => void>()
++
++function notifyNativeActualOwner(
++  listener: (actualSettled: Promise<void>) => void,
++  actual: Promise<void>,
++): void {
++  const returned: unknown = listener(actual)
++  if (
++    returned !== null &&
++    (typeof returned === 'object' || typeof returned === 'function') &&
++    typeof (returned as { then?: unknown }).then === 'function'
++  ) {
++    void Promise.resolve(returned).catch(() => undefined)
++    throw new Error(
++      'Native actual-work ownership must be registered synchronously before dispatch.',
++    )
++  }
++}
++
++/** Main-only ownership notifications contain no document, command, path or payload metadata. */
++export function subscribeNativeActualWork(
++  listener: (actualSettled: Promise<void>) => void,
++): () => void {
++  if (nativeActualSubscribers.has(listener))
++    throw new Error('The native actual-work subscriber is already installed.')
++  if (nativeActualSubscribers.size >= MAX_NATIVE_ACTUAL_SUBSCRIBERS)
++    throw new Error('The native actual-work subscriber quota is full.')
++  // Register first so a reentrant admission cannot escape the replay boundary.
++  nativeActualSubscribers.add(listener)
++  try {
++    for (const actual of [...nativeActualWork]) notifyNativeActualOwner(listener, actual)
++  } catch (error) {
++    nativeActualSubscribers.delete(listener)
++    throw error
++  }
++  return () => {
++    nativeActualSubscribers.delete(listener)
++  }
++}
++
++interface ProcessGeneration {
++  readonly id: number
++  readonly child: ChildProcessWithoutNullStreams
++  readonly lines: Interface
++  readonly requests: Set<string>
++  accepting: boolean
++  intentionalStop: boolean
++  finished: boolean
++  stderr: string
++}
++
+ interface PendingRequest {
+   readonly resolve: (value: unknown) => void
+   readonly reject: (error: Error) => void
+-  readonly timeout: NodeJS.Timeout
++  readonly complete: (value: unknown) => void
++  readonly failCompletion: (error: Error) => void
++  readonly resolveActual: () => void
++  readonly actualSettled: Promise<void>
++  readonly generation: ProcessGeneration
++  readonly bytes: number
++  timeout?: NodeJS.Timeout
++  callerSettled: boolean
++  dispatched: boolean
++  cancelSent: boolean
+   readonly command: string
+   /** Session-scoped commands record it so close() can sweep their queue slots. */
+   readonly sessionId?: string
+@@ -38,6 +123,16 @@
+   'find_cells',
+ ])
+ 
++// Persistence and retirement must not disappear from the native queue merely
++// because their bounded caller stopped waiting. Completion remains observable.
++const KEEP_NATIVE_MUTATIONS_AFTER_TIMEOUT = new Set([
++  'close',
++  'apply_transaction',
++  'close_edit_session',
++  'checkpoint_document',
++  'close_document',
++])
++
+ interface SidecarResponse {
+   readonly version: number
+   readonly requestId: string
+@@ -51,10 +146,12 @@
+ }
+ 
+ export class XlsxSidecarClient {
+-  private process: ChildProcessWithoutNullStreams | null = null
+-  private lines: Interface | null = null
++  private currentGeneration: ProcessGeneration | null = null
++  private readonly generations = new Set<ProcessGeneration>()
++  private generationSequence = 0
+   private readonly pending = new Map<string, PendingRequest>()
+-  private stderr = ''
++  private pendingBytes = 0
++  private readonly requestLimits: NativeRequestLimits
+   /// Notified when the sidecar process dies and the NEXT request will spawn a
+   /// replacement that has never heard of the session ids we are holding. This
+   /// is a positive crash signal, and deliberately NOT the same thing as a
+@@ -68,7 +165,19 @@
+   private readonly editBindings = new Map<string, { workbookId: string; storePath?: string }>()
+   private readonly editOwners = new Map<string, string>()
+ 
+-  constructor(private readonly binaryPath: string) {}
++  constructor(
++    private readonly binaryPath: string,
++    limits: Partial<NativeRequestLimits> = {},
++  ) {
++    this.requestLimits = { ...NATIVE_REQUEST_LIMITS, ...limits }
++    for (const key of ['maxPendingRequests', 'maxPendingBytes', 'maxRequestBytes'] as const) {
++      const value = this.requestLimits[key]
++      if (!Number.isSafeInteger(value) || value < 1 || value > NATIVE_REQUEST_LIMITS[key])
++        throw new Error('Invalid native request ownership quota.')
++    }
++    if (this.requestLimits.maxRequestBytes > this.requestLimits.maxPendingBytes)
++      throw new Error('A native request cannot exceed the total pending-byte quota.')
++  }
+ 
+   /** Subscribe to unexpected sidecar process death; returns an unsubscribe. */
+   onProcessExit(listener: () => void): () => void {
+@@ -77,7 +186,13 @@
+   }
+ 
+   private notifyExit(): void {
+-    for (const listener of this.exitListeners) listener()
++    for (const listener of this.exitListeners) {
++      try {
++        listener()
++      } catch {
++        /* An observer cannot undo confirmed termination. */
++      }
++    }
+   }
+ 
+   async open(path: string, locale = 'zh', shortDateFormat?: string): Promise<unknown> {
+@@ -123,6 +238,15 @@
+   }
+ 
+   async close(sessionId: string): Promise<void> {
++    return this.closeSession(sessionId, false)
++  }
++
++  /** Lifecycle teardown includes the definitive legacy and edit-session ACKs. */
++  async closeSettled(sessionId: string): Promise<void> {
++    return this.closeSession(sessionId, true)
++  }
++
++  private async closeSession(sessionId: string, definitive: boolean): Promise<void> {
+     const edit = this.editBindings.get(sessionId)
+     if (edit && this.editOwners.get(edit.workbookId) === sessionId) {
+       // Retire queued work immediately, before waiting for native cleanup.
+@@ -136,9 +260,10 @@
+       }
+     }
+     try {
+-      await this.request({ command: 'close', sessionId })
++      if (definitive) await this.completedRequest({ command: 'close', sessionId })
++      else await this.request({ command: 'close', sessionId })
+     } finally {
+-      await this.releaseEditBinding(sessionId)
++      await this.releaseEditBinding(sessionId, definitive)
+     }
+   }
+ 
+@@ -155,7 +280,7 @@
+     })
+   }
+ 
+-  private async releaseEditBinding(sessionId: string): Promise<void> {
++  private async releaseEditBinding(sessionId: string, definitive = false): Promise<void> {
+     const edit = this.editBindings.get(sessionId)
+     this.editBindings.delete(sessionId)
+     if (!edit || this.editOwners.get(edit.workbookId) !== sessionId) return
+@@ -163,7 +288,13 @@
+     this.editSessions.forget(edit.workbookId)
+     // Only a successful acknowledgement proves the SQLite connection is gone.
+     // A timeout or broken pipe can leave it live, so retain its database/WAL.
+-    await this.closeEditSession({ apiVersion: 1, workbookId: edit.workbookId })
++    if (definitive)
++      await this.completedRequest({
++        command: 'close_edit_session',
++        apiVersion: 1,
++        workbookId: edit.workbookId,
++      })
++    else await this.closeEditSession({ apiVersion: 1, workbookId: edit.workbookId })
+     if (edit.storePath) {
+       // These paths belong to this document authority, never to its workbook.
+       await Promise.all(
+@@ -363,15 +494,23 @@
+   }
+ 
+   getProcessId(): number | null {
+-    return this.process?.pid ?? null
++    return this.currentGeneration?.child.pid ?? null
+   }
+ 
+   stop(): void {
+-    this.lines?.close()
+-    this.lines = null
+-    this.process?.kill()
+-    this.process = null
+-    this.rejectPending(new Error('XLSX sidecar stopped.'))
++    this.currentGeneration = null
++    for (const generation of this.generations) {
++      generation.intentionalStop = true
++      generation.accepting = false
++      this.rejectCallers(generation, new Error('XLSX sidecar stopped.'))
++      // A kill request is not proof of termination. Keep replies and ownership
++      // live until this exact process confirms exit/close (or replies first).
++      try {
++        if (!generation.child.killed) generation.child.kill()
++      } catch (error) {
++        this.markBroken(generation, asError(error))
++      }
++    }
+   }
+ 
+   /**
+@@ -380,67 +519,168 @@
+    * reply matches no pending entry and is dropped.
+    */
+   private sendCancel(targetRequestId: string): void {
+-    const child = this.process
+-    if (!child || child.killed) return
+-    child.stdin.write(
+-      `${JSON.stringify({
+-        version: PROTOCOL_VERSION,
+-        requestId: crypto.randomUUID(),
+-        command: 'cancel',
+-        targetRequestId,
+-      })}\n`,
++    const pending = this.pending.get(targetRequestId),
++      generation = pending?.generation
++    if (
++      !pending ||
++      pending.cancelSent ||
++      !generation ||
++      generation.finished ||
++      generation.child.killed ||
++      !generation.accepting
+     )
++      return
++    pending.cancelSent = true
++    // The target's actual hold covers cancellation too. A cancel ACK does not
++    // stand in for the target's matching response or process termination.
++    try {
++      generation.child.stdin.write(
++        `${JSON.stringify({
++          version: PROTOCOL_VERSION,
++          requestId: crypto.randomUUID(),
++          command: 'cancel',
++          targetRequestId,
++        })}\n`,
++        (error) => {
++          if (error) this.markBroken(generation, error)
++        },
++      )
++    } catch (error) {
++      this.markBroken(generation, asError(error))
++    }
+   }
+ 
+   private request(
+     command: Readonly<Record<string, unknown>>,
+     timeoutMs: number = REQUEST_TIMEOUT_MS,
+   ): Promise<unknown> {
+-    const child = this.ensureStarted()
++    return this.requestAttested(command, timeoutMs).result
++  }
++
++  private completedRequest(command: Readonly<Record<string, unknown>>): Promise<unknown> {
++    const request = this.requestAttested(command)
++    void request.result.catch(() => undefined)
++    return request.completion
++  }
++
++  /** Trusted main-process command entry. Caller timeout never releases actual native work. */
++  requestAttested(
++    command: Readonly<Record<string, unknown>>,
++    timeoutMs: number = REQUEST_TIMEOUT_MS,
++  ): NativeRequestAdmission {
+     const requestId = crypto.randomUUID()
+-    const payload = JSON.stringify({
+-      version: PROTOCOL_VERSION,
+-      requestId,
+-      ...command,
+-    })
+-    const commandName = command.command
+-    const sessionId = typeof command.sessionId === 'string' ? command.sessionId : undefined
+-    return new Promise((resolve, reject) => {
+-      const timeout = setTimeout(() => {
+-        this.pending.delete(requestId)
+-        // Still queued sidecar-side, the request would execute for a reply
+-        // nobody consumes (a 100k-cell range serializes ~5MB of JSON). A
+-        // close is the exception: its side effect IS the cleanup, and no
+-        // caller retries a timed-out close — skipping it would leak the
+-        // session's index threads and cache for good.
+-        if (
+-          commandName !== 'close' &&
+-          commandName !== 'apply_transaction' &&
+-          commandName !== 'close_edit_session'
++    let payload: string, bytes: number, generation: ProcessGeneration
++    try {
++      if (
++        typeof command.command !== 'string' ||
++        !command.command ||
++        !Number.isSafeInteger(timeoutMs) ||
++        timeoutMs < 1 ||
++        timeoutMs > ARCHIVE_TIMEOUT_MS
++      )
++        throw new Error('Invalid native request command or bounded caller timeout.')
++      // Transport identity is main-owned even for the trusted generic entry.
++      payload = JSON.stringify({ ...command, version: PROTOCOL_VERSION, requestId })
++      bytes = Buffer.byteLength(payload, 'utf8') + 1
++      if (
++        bytes > this.requestLimits.maxRequestBytes ||
++        this.pending.size >= this.requestLimits.maxPendingRequests ||
++        this.pendingBytes + bytes > this.requestLimits.maxPendingBytes ||
++        nativePendingBytes + bytes > MAX_NATIVE_PENDING_BYTES ||
++        nativeActualWork.size >= MAX_NATIVE_ACTUAL_WORK
++      )
++        throw new Error(
++          'Native request ownership quota exceeded; earlier actual work must settle before dispatch.',
+         )
+-          this.sendCancel(requestId)
+-        reject(new Error('XLSX sidecar request timed out.'))
+-      }, timeoutMs)
+-      this.pending.set(requestId, {
+-        resolve,
+-        reject,
+-        timeout,
+-        command: String(commandName),
+-        ...(sessionId === undefined ? {} : { sessionId }),
++      generation = this.ensureStarted()
++    } catch (error) {
++      return rejectedNativeAdmission(asError(error))
++    }
++
++    let resolve!: (value: unknown) => void, reject!: (error: Error) => void
++    let complete!: (value: unknown) => void, failCompletion!: (error: Error) => void
++    let resolveActual!: () => void
++    const result = new Promise<unknown>((yes, no) => {
++      resolve = yes
++      reject = no
++    })
++    const completion = new Promise<unknown>((yes, no) => {
++      complete = yes
++      failCompletion = no
++    })
++    const actualSettled = new Promise<void>((yes) => {
++      resolveActual = yes
++    })
++    // Existing callers consume only result; preserve the separate rejecting
++    // completion for attested consumers without creating unhandled rejections.
++    void completion.catch(() => undefined)
++    const admission: NativeRequestAdmission = { result, completion, actualSettled }
++    const pending: PendingRequest = {
++      resolve,
++      reject,
++      complete,
++      failCompletion,
++      resolveActual,
++      actualSettled,
++      generation,
++      bytes,
++      callerSettled: false,
++      dispatched: false,
++      cancelSent: false,
++      command: String(command.command),
++      ...(typeof command.sessionId === 'string' ? { sessionId: command.sessionId } : {}),
++    }
++    this.pending.set(requestId, pending)
++    generation.requests.add(requestId)
++    this.pendingBytes += bytes
++    nativePendingBytes += bytes
++    nativeActualWork.add(actualSettled)
++    try {
++      // Every owner sees the real promise BEFORE stdin can accept any bytes.
++      for (const listener of [...nativeActualSubscribers])
++        notifyNativeActualOwner(listener, actualSettled)
++    } catch (error) {
++      this.finishRequest(requestId, pending, { error: asError(error) })
++      return admission
++    }
++    if (this.pending.get(requestId) !== pending) return admission
++    if (generation.finished || !generation.accepting || generation.child.killed) {
++      this.finishRequest(requestId, pending, {
++        error: new Error('The native process stopped before this request was dispatched.'),
+       })
+-      child.stdin.write(`${payload}\n`, (error) => {
+-        if (!error) return
+-        const pending = this.pending.get(requestId)
+-        if (!pending) return
+-        clearTimeout(pending.timeout)
+-        this.pending.delete(requestId)
+-        pending.reject(error)
++      return admission
++    }
++    pending.timeout = setTimeout(() => {
++      this.rejectCaller(pending, new Error('XLSX sidecar request timed out.'))
++      if (!KEEP_NATIVE_MUTATIONS_AFTER_TIMEOUT.has(pending.command)) this.sendCancel(requestId)
++    }, timeoutMs)
++    pending.dispatched = true
++    try {
++      generation.child.stdin.write(`${payload}\n`, (error) => {
++        // A failed write can follow partial dispatch. It is never exit proof.
++        if (error) this.markBroken(generation, error)
+       })
+-    })
+-  }
+-
+-  private ensureStarted(): ChildProcessWithoutNullStreams {
+-    if (this.process && !this.process.killed) return this.process
++    } catch (error) {
++      this.markBroken(generation, asError(error))
++    }
++    return admission
++  }
++
++  private ensureStarted(): ProcessGeneration {
++    const existing = this.currentGeneration
++    if (existing && !existing.finished && !existing.child.killed) {
++      if (!existing.accepting)
++        throw new Error(
++          'The XLSX sidecar pipe failed; actual process exit or an explicit stop is required before replacement.',
++        )
++      return existing
++    }
++    if (this.generations.size >= MAX_ACTIVE_GENERATIONS)
++      throw new Error(
++        'The native process-generation quota is full; previous actual processes must exit.',
++      )
++    if (this.generationSequence >= Number.MAX_SAFE_INTEGER)
++      throw new Error('The native process-generation identity was exhausted.')
+     let child: ChildProcessWithoutNullStreams
+     try {
+       child = spawn(this.binaryPath, [], {
+@@ -455,47 +695,60 @@
+         { cause: error },
+       )
+     }
+-    this.process = child
+-    this.stderr = ''
+-    this.lines = createInterface({ input: child.stdout })
+-    this.lines.on('line', (line) => this.handleLine(line))
++    const lines = createInterface({ input: child.stdout })
++    const generation: ProcessGeneration = {
++      id: ++this.generationSequence,
++      child,
++      lines,
++      requests: new Set(),
++      accepting: true,
++      intentionalStop: false,
++      finished: false,
++      stderr: '',
++    }
++    this.generations.add(generation)
++    this.currentGeneration = generation
++    lines.on('line', (line) => this.handleLine(generation, line))
++    lines.on('error', (error) => this.markBroken(generation, asError(error)))
+     child.stderr.setEncoding('utf8')
+     child.stderr.on('data', (chunk: string) => {
+-      this.stderr = `${this.stderr}${chunk}`.slice(-MAX_STDERR_LENGTH)
+-    })
+-    const teardown = (reason: Error): void => {
+-      if (this.process !== child) return
+-      this.process = null
+-      this.lines?.close()
+-      this.lines = null
+-      this.rejectPending(reason)
+-      // The process is gone, so every session id we hold is now unknown to
+-      // the next spawn. stop() (app quit) sets this.process to null first,
+-      // which makes the guard above return, so a deliberate shutdown never
+-      // reaches this and never reads as a crash.
+-      this.notifyExit()
+-    }
+-    child.once('error', teardown)
+-    // An externally killed child keeps `killed` false, so the next write emits
+-    // an async EPIPE that would otherwise be an uncaught exception.
++      generation.stderr = `${generation.stderr}${chunk}`.slice(-MAX_STDERR_LENGTH)
++    })
++    child.stderr.on('error', (error) => this.markBroken(generation, asError(error)))
++    child.stdout.on('error', (error) => this.markBroken(generation, asError(error)))
++    child.once('error', (error) => {
++      // Node documents an undefined pid when spawn itself failed: no native
++      // process ever existed. Errors from an existing pid are not exit proof.
++      if (child.pid === undefined) this.finishGeneration(generation, error)
++      else this.markBroken(generation, error)
++    })
+     child.stdin.on('error', () => {
+-      teardown(
++      this.markBroken(
++        generation,
+         new Error(
+-          `XLSX sidecar stdin failed (${this.stderr.trim() || 'broken pipe'}).`.slice(0, 200),
++          `XLSX sidecar stdin failed (${generation.stderr.trim() || 'broken pipe'}).`.slice(0, 200),
+         ),
+       )
+     })
+     child.once('exit', (code, signal) => {
+-      const detail = this.stderr.trim()
++      const detail = generation.stderr.trim()
+       const reason = detail
+         ? `XLSX sidecar exited: ${detail}`
+         : `XLSX sidecar exited with code ${String(code)} and signal ${String(signal)}.`
+-      teardown(new Error(reason))
+-    })
+-    return child
+-  }
+-
+-  private handleLine(line: string): void {
++      this.finishGeneration(generation, new Error(reason))
++    })
++    // close is also definitive, including a spawn failure with no exit event.
++    child.once('close', (code, signal) =>
++      this.finishGeneration(
++        generation,
++        new Error(`XLSX sidecar closed with code ${String(code)} and signal ${String(signal)}.`),
++      ),
++    )
++    return generation
++  }
++
++  private handleLine(generation: ProcessGeneration, line: string): void {
++    if (generation.finished) return
+     let response: SidecarResponse
+     try {
+       response = JSON.parse(line) as SidecarResponse
+@@ -506,7 +759,7 @@
+       // nuked all in-flight chunk loads whenever a recalc hit one of those
+       // workbooks. A genuinely garbled response surfaces as that one
+       // request's timeout instead.
+-      this.stderr = `${this.stderr}[stdout] ${line}\n`.slice(-MAX_STDERR_LENGTH)
++      generation.stderr = `${generation.stderr}[stdout] ${line}\n`.slice(-MAX_STDERR_LENGTH)
+       return
+     }
+     if (
+@@ -514,31 +767,91 @@
+       typeof response.requestId !== 'string' ||
+       typeof response.ok !== 'boolean'
+     ) {
+-      this.stderr = `${this.stderr}[stdout] ${line}\n`.slice(-MAX_STDERR_LENGTH)
++      generation.stderr = `${generation.stderr}[stdout] ${line}\n`.slice(-MAX_STDERR_LENGTH)
+       return
+     }
+     const pending = this.pending.get(response.requestId)
+-    if (!pending) return
+-    clearTimeout(pending.timeout)
+-    this.pending.delete(response.requestId)
++    if (!pending || pending.generation !== generation) return
+     if (response.ok) {
+-      pending.resolve(response.result)
++      this.finishRequest(response.requestId, pending, { value: response.result })
+       return
+     }
+-    pending.reject(
+-      new XlsxSidecarError(
++    this.finishRequest(response.requestId, pending, {
++      error: new XlsxSidecarError(
+         response.error?.code ?? 'unknown_error',
+         response.error?.message ?? 'XLSX sidecar request failed.',
+         response.error?.currentRevision,
+       ),
+-    )
+-  }
+-
+-  private rejectPending(error: Error): void {
+-    for (const pending of this.pending.values()) {
+-      clearTimeout(pending.timeout)
+-      pending.reject(error)
+-    }
+-    this.pending.clear()
+-  }
+-}
++    })
++  }
++
++  private rejectCaller(pending: PendingRequest, error: Error): void {
++    if (pending.callerSettled) return
++    pending.callerSettled = true
++    if (pending.timeout !== undefined) clearTimeout(pending.timeout)
++    pending.timeout = undefined
++    pending.reject(error)
++  }
++
++  private rejectCallers(generation: ProcessGeneration, error: Error): void {
++    for (const requestId of generation.requests) {
++      const pending = this.pending.get(requestId)
++      if (pending) this.rejectCaller(pending, error)
++    }
++  }
++
++  private markBroken(generation: ProcessGeneration, error: Error): void {
++    if (generation.finished) return
++    generation.accepting = false
++    this.rejectCallers(generation, error)
++  }
++
++  private finishRequest(
++    requestId: string,
++    pending: PendingRequest,
++    outcome: { value?: unknown; error?: Error },
++  ): void {
++    if (this.pending.get(requestId) !== pending) return
++    if (pending.timeout !== undefined) clearTimeout(pending.timeout)
++    if (outcome.error) {
++      this.rejectCaller(pending, outcome.error)
++      pending.failCompletion(outcome.error)
++    } else {
++      if (!pending.callerSettled) {
++        pending.callerSettled = true
++        pending.resolve(outcome.value)
++      }
++      pending.complete(outcome.value)
++    }
++    this.pending.delete(requestId)
++    pending.generation.requests.delete(requestId)
++    this.pendingBytes -= pending.bytes
++    nativePendingBytes -= pending.bytes
++    nativeActualWork.delete(pending.actualSettled)
++    pending.resolveActual()
++  }
++
++  private finishGeneration(generation: ProcessGeneration, error: Error): void {
++    if (generation.finished) return
++    generation.finished = true
++    generation.accepting = false
++    if (this.currentGeneration === generation) this.currentGeneration = null
++    for (const requestId of [...generation.requests]) {
++      const pending = this.pending.get(requestId)
++      if (pending?.generation === generation) this.finishRequest(requestId, pending, { error })
++    }
++    generation.lines.close()
++    this.generations.delete(generation)
++    if (!generation.intentionalStop) this.notifyExit()
++  }
++}
++
++function asError(value: unknown): Error {
++  return value instanceof Error ? value : new Error(String(value))
++}
++
++function rejectedNativeAdmission(error: Error): NativeRequestAdmission {
++  const failure = Promise.reject(error)
++  void failure.catch(() => undefined)
++  return { result: failure, completion: failure, actualSettled: Promise.resolve() }
++}
+diff --git a/apps/sheets/src/preload/index.ts b/apps/sheets/src/preload/index.ts
+--- a/apps/sheets/src/preload/index.ts
++++ b/apps/sheets/src/preload/index.ts
+@@ -640,12 +640,21 @@
+       if (typeof newName !== 'string' || !newName) return
+       if (metadata === undefined) { callback(newName); return }
+       if (!isRecord(metadata) || !isUuid(metadata.sessionId) || !isWorkbookCloseSource(metadata.closeSource) || metadata.requiresCheckpoint !== true ||
+-        metadata.path !== undefined && typeof metadata.path !== 'string' || metadata.csvPath !== undefined && typeof metadata.csvPath !== 'string') return
++        metadata.path !== undefined && typeof metadata.path !== 'string' || metadata.csvPath !== undefined && typeof metadata.csvPath !== 'string' ||
++        metadata.refreshId !== undefined && !isUuid(metadata.refreshId)) return
+       try { parseWorkbookWriteContext(metadata.writeContext) } catch { return }
+       callback(newName, metadata as unknown as import('../shared/desktop-api').WorkbookRenamedMetadata)
+     }
+     ipcRenderer.on(IPC_CHANNELS.workbookRenamed, listener)
+     return () => ipcRenderer.removeListener(IPC_CHANNELS.workbookRenamed, listener)
++  },
++  completeWorkbookRenameRefresh(requestId, result) {
++    if (!isUuid(requestId) || !isRecord(result) || typeof result.ok !== 'boolean') throw new Error('Invalid rename refresh result.')
++    ipcRenderer.send(IPC_CHANNELS.workbookRenameRefreshResult, requestId, result)
++  },
++  settleWorkbookRenameRefresh(requestId) {
++    if (!isUuid(requestId)) throw new Error('Invalid rename refresh finalizer.')
++    ipcRenderer.send(IPC_CHANNELS.workbookRenameRefreshActualSettled, requestId)
+   },
+   notifyPendingEdits(count) {
+     if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) return
+diff --git a/apps/sheets/src/renderer/App.tsx b/apps/sheets/src/renderer/App.tsx
+--- a/apps/sheets/src/renderer/App.tsx
++++ b/apps/sheets/src/renderer/App.tsx
+@@ -1334,17 +1334,35 @@
+     () =>
+       window.desktopApi?.onWorkbookRenamed?.((newName, metadata) => {
+         const state = lazyWorkbookRef.current
+-        if (!state || (metadata && metadata.sessionId !== state.file.sessionId)) return
+-        void runAuthoredUi(async () => {
++        if (!metadata?.refreshId && (!state || (metadata && metadata.sessionId !== state.file.sessionId))) return
++        void (async () => {
++        try {
++        const checkpoint = await runAuthoredUi(async () => {
++          if (!state) throw new Error('The renamed spreadsheet is no longer the active workbook.')
+           if (lazyWorkbookRef.current !== state ||
+-            (metadata && metadata.sessionId !== state.file.sessionId)) return
++            (metadata && metadata.sessionId !== state.file.sessionId)) throw new Error('The spreadsheet changed before its rename could be refreshed.')
+           state.file = { ...state.file, name: newName,
+             ...(metadata ? { path: metadata.path, csvPath: metadata.csvPath, closeSource: metadata.closeSource } : {}) }
+           closeSessionRef.current!.select(state.file)
+           setWorkbookFile(state.file)
+-          if (metadata?.requiresCheckpoint) await checkpointWorkbookForClose({ ...saveContext(), writeContext: metadata.writeContext ?? { origin: 'manual' } })
++          const checkpoint = metadata?.requiresCheckpoint ? await checkpointWorkbookForClose({ ...saveContext(), writeContext: metadata.writeContext ?? { origin: 'manual' } }) : undefined
+           closeSessionRef.current!.notify()
+-        }).catch((error: unknown) => setMessage(String(error)))
++          return checkpoint
++        })
++        if (metadata?.refreshId) {
++          if (!checkpoint) throw new Error('The rename did not produce a full native checkpoint.')
++          window.desktopApi.completeWorkbookRenameRefresh(metadata.refreshId, { ok: true, sessionId: metadata.sessionId,
++            source: metadata.closeSource, payloadSha256: checkpoint.payloadSha256,
++            documentId: checkpoint.receipt.documentId, revision: checkpoint.receipt.revision })
++        }
++        } catch (error) {
++          setMessage(String(error))
++          if (metadata?.refreshId) window.desktopApi.completeWorkbookRenameRefresh(metadata.refreshId, { ok: false, error: 'The renamed spreadsheet could not complete its checkpoint refresh. Keep it open and retry Save As.' })
++        } finally {
++          // This is a separate actual callback finalizer, never a timeout packet.
++          if (metadata?.refreshId) window.desktopApi.settleWorkbookRenameRefresh(metadata.refreshId)
++        }
++        })().catch((error: unknown) => setMessage(String(error)))
+       }) ?? (() => undefined),
+     [],
+   )
+@@ -4158,7 +4176,8 @@
+         .find((name) => name.length > 0 && !DEFAULT_SHEET_NAME_RE.test(name))
+       if (candidate) {
+         try {
+-          await window.desktopApi.autoRenameWorkbook(after.file.sessionId, candidate, AUTOMATIC_WORKBOOK_WRITE)
++          const renamed = await window.desktopApi.autoRenameWorkbook(after.file.sessionId, candidate, AUTOMATIC_WORKBOOK_WRITE)
++          if (renamed.error) setMessage(renamed.error)
+         } catch {
+           // naming is best-effort; the save itself already succeeded
+         }
+diff --git a/apps/sheets/src/shared/desktop-api.ts b/apps/sheets/src/shared/desktop-api.ts
+--- a/apps/sheets/src/shared/desktop-api.ts
++++ b/apps/sheets/src/shared/desktop-api.ts
+@@ -817,12 +817,23 @@
+ }
+ 
+ export interface WorkbookRenamedMetadata {
++  /** Main-owned refresh correlation; absent for legacy external rename notices. */
++  refreshId?: string
+   writeContext?: WorkbookWriteContext
+   sessionId: string
+   path?: string
+   csvPath?: string
+   closeSource: import('./sheets-close').SheetsCloseSource
+   requiresCheckpoint: true
++}
++export interface WorkbookRenameRefreshResult {
++  ok: boolean
++  error?: string
++  sessionId?: string
++  source?: import('./sheets-close').SheetsCloseSource
++  payloadSha256?: string
++  documentId?: string
++  revision?: number
+ }
+ 
+ export const workbookFileSchema = z
+@@ -3216,7 +3227,7 @@
+     sessionId: string,
+     baseName: string,
+     writeContext?: WorkbookWriteContext,
+-  ): Promise<{ renamed: boolean; name?: string }>
++  ): Promise<{ renamed: boolean; name?: string; path?: string; refreshComplete?: boolean; error?: string }>
+   exportPdf(request: WorkbookExportPdfRequest): Promise<WorkbookExportPdfResult>
+   printWorkbook(request: WorkbookExportPdfRequest): Promise<WorkbookPrintResult>
+   listPrinters(): Promise<PrinterInfo[]>
+@@ -3244,6 +3255,8 @@
+   /// The open workbook was renamed on disk (renamed in the shell Home list);
+   /// emits the new file name.
+   onWorkbookRenamed(callback: (newName: string, metadata?: WorkbookRenamedMetadata) => void): () => void
++  completeWorkbookRenameRefresh(requestId: string, result: WorkbookRenameRefreshResult): void
++  settleWorkbookRenameRefresh(requestId: string): void
+   /// Mirrors the pending-edit badge to the main process for the close guard.
+   notifyPendingEdits(count: number): void
+   /// Main asks the renderer to save before closing; reply via reportCloseSaveResult.
+diff --git a/apps/sheets/src/shared/ipc-channels.ts b/apps/sheets/src/shared/ipc-channels.ts
+--- a/apps/sheets/src/shared/ipc-channels.ts
++++ b/apps/sheets/src/shared/ipc-channels.ts
+@@ -99,6 +99,8 @@
+   recoveryPromptReply: 'workbook:recovery-prompt-reply',
+   autoRenameWorkbook: 'workbook:auto-rename',
+   workbookRenamed: 'workbook:renamed',
++  workbookRenameRefreshResult: 'workbook:rename-refresh-result',
++  workbookRenameRefreshActualSettled: 'workbook:rename-refresh-actual-settled',
+   pendingEditsChanged: 'workbook:pending-edits',
+   closeSaveRequest: 'workbook:close-save-request',
+   closeSaveResult: 'workbook:close-save-result',
+diff --git a/apps/sheets/tests/settled-document-native-client.test.ts b/apps/sheets/tests/settled-document-native-client.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/settled-document-native-client.test.ts
+@@ -0,0 +1,114 @@
++import { describe, expect, it, vi } from 'vitest'
++import { createSettledDocumentNativeClient, type AttestedDocumentRequestClient } from '../src/main/settled-document-native-client'
++import type { DocumentNativeClient } from '../src/main/document-native-contract'
++
++function deferred<T>() {
++  let resolve!: (value: T) => void, reject!: (error: unknown) => void
++  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
++  return { promise, resolve, reject }
++}
++async function flush() { for (let i = 0; i < 6; i++) await Promise.resolve() }
++function nativeOperation() {
++  const result = deferred<unknown>(), completion = deferred<unknown>(), actual = deferred<void>()
++  return { result, completion, actual,
++    admission: { result: result.promise, completion: completion.promise, actualSettled: actual.promise } }
++}
++const documentId = '10000000-0000-4000-8000-000000000001'
++const commandId = '20000000-0000-4000-8000-000000000001'
++const open = { apiVersion: 1 as const, documentId, sourcePath: 'C:/synthetic/pinned-base.xlsx',
++  storePath: 'C:/synthetic/journal.sqlite', sheets: [{ id: 'sheet-1', name: 'Résumé' }] }
++const checkpoint = { apiVersion: 1 as const, documentId, commandId, expectedRevision: 8, actor: 'desktop',
++  payload: { edits: [{ sheet: 'sheet-1', row: 0, col: 0, value: 'line one\nline two' }] } }
++
++describe('document authority definitive-native adapter', () => {
++  it.each([
++    { command: 'open_document', input: open, timeout: 180_000, invoke: (client: DocumentNativeClient) => client.openDocument(open) },
++    { command: 'checkpoint_document', input: checkpoint, timeout: 180_000, invoke: (client: DocumentNativeClient) => client.checkpointDocument(checkpoint) },
++    { command: 'document_snapshot', input: { apiVersion: 1, documentId, revision: 9 }, timeout: 180_000,
++      invoke: (client: DocumentNativeClient) => client.documentSnapshot({ apiVersion: 1, documentId, revision: 9 }) },
++    { command: 'document_command_result', input: { apiVersion: 1, documentId, commandId }, timeout: undefined,
++      invoke: (client: DocumentNativeClient) => client.documentCommandResult({ apiVersion: 1, documentId, commandId }) },
++    { command: 'close_document', input: { apiVersion: 1, documentId }, timeout: undefined,
++      invoke: (client: DocumentNativeClient) => client.closeDocument({ apiVersion: 1, documentId }) },
++  ])('uses the existing $command fields/deadline and returns its definitive raw response', async test => {
++    const operation = nativeOperation(), request = vi.fn(() => operation.admission)
++    const client = createSettledDocumentNativeClient({ requestAttested: request })
++    const pending = test.invoke(client), reply = { syntheticRawNativeResponse: test.command }
++    expect(request).toHaveBeenCalledWith({ command: test.command, ...test.input }, test.timeout)
++    operation.result.resolve(reply); operation.completion.resolve(reply); operation.actual.resolve()
++    expect(await pending).toBe(reply)
++  })
++
++  it('keeps a checkpoint pending after the bounded timeout and preserves a late matching acknowledgment', async () => {
++    const operation = nativeOperation(), client = createSettledDocumentNativeClient({ requestAttested: () => operation.admission })
++    let settled = false
++    const pending = client.checkpointDocument(checkpoint).then(value => { settled = true; return value })
++    operation.result.reject(new Error('bounded caller timed out'))
++    await flush(); expect(settled).toBe(false)
++    const receipt = { apiVersion: 1, documentId, commandId, revision: 9, durable: true }
++    operation.completion.resolve(receipt); operation.actual.resolve()
++    expect(await pending).toBe(receipt)
++  })
++
++  it('propagates the definitive native error rather than a previous caller timeout', async () => {
++    const operation = nativeOperation(), client = createSettledDocumentNativeClient({ requestAttested: () => operation.admission })
++    const pending = client.documentSnapshot({ apiVersion: 1, documentId, revision: 9 })
++    operation.result.reject(new Error('bounded caller timed out')); await flush()
++    const definitive = Object.assign(new Error('Native revision no longer exists.'), { code: 'stale_revision' })
++    operation.completion.reject(definitive); operation.actual.resolve()
++    await expect(pending).rejects.toBe(definitive)
++  })
++
++  it('rejects retirement on verified child exit and never manufactures a successful close acknowledgment', async () => {
++    const operation = nativeOperation(), client = createSettledDocumentNativeClient({ requestAttested: () => operation.admission })
++    let retired = false
++    const pending = client.closeDocument({ apiVersion: 1, documentId }).then(() => { retired = true })
++    operation.result.reject(new Error('stdin write failed; child still unconfirmed')); await flush()
++    expect(retired).toBe(false)
++    const exited = Object.assign(new Error('The exact child has now exited.'), { code: 'sidecar_exited' })
++    operation.completion.reject(exited); operation.actual.resolve()
++    await expect(pending).rejects.toBe(exited)
++    expect(retired).toBe(false)
++  })
++
++  it('does not use a void actual-settlement notification as a document result', async () => {
++    const operation = nativeOperation(), client = createSettledDocumentNativeClient({ requestAttested: () => operation.admission })
++    let acknowledged = false
++    const pending = client.openDocument(open).then(value => { acknowledged = true; return value })
++    operation.actual.resolve(); await flush()
++    expect(acknowledged).toBe(false)
++    const reply = { apiVersion: 1, documentId, revision: 0 }
++    operation.result.resolve(reply); operation.completion.resolve(reply)
++    expect(await pending).toBe(reply)
++  })
++
++  it('keeps the async method contract when dispatch itself rejects before an admission can be returned', async () => {
++    const failed = new Error('Definitive spawn failure')
++    const client = createSettledDocumentNativeClient({ requestAttested: () => { throw failed } })
++    await expect(client.openDocument(open)).rejects.toBe(failed)
++  })
++
++  it('a serialized authority tail cannot publish an ACK, start close, or retire on bounded-result rejection', async () => {
++    const checkpointOperation = nativeOperation(), closeOperation = nativeOperation()
++    const dispatched: string[] = [], events: string[] = []
++    const native: AttestedDocumentRequestClient = { requestAttested: command => {
++      dispatched.push(String(command.command))
++      return command.command === 'checkpoint_document' ? checkpointOperation.admission : closeOperation.admission
++    } }
++    const client = createSettledDocumentNativeClient(native)
++    const tail = (async () => {
++      await client.checkpointDocument(checkpoint); events.push('acknowledged')
++      await client.closeDocument({ apiVersion: 1, documentId }); events.push('retired-exact-authority')
++    })()
++    checkpointOperation.result.reject(new Error('checkpoint caller timeout')); await flush()
++    expect(events).toEqual([]); expect(dispatched).toEqual(['checkpoint_document'])
++    checkpointOperation.completion.resolve({ apiVersion: 1, documentId, commandId, revision: 9, durable: true })
++    checkpointOperation.actual.resolve(); await flush()
++    expect(events).toEqual(['acknowledged']); expect(dispatched).toEqual(['checkpoint_document', 'close_document'])
++    closeOperation.result.reject(new Error('close caller timeout')); await flush()
++    expect(events).toEqual(['acknowledged'])
++    closeOperation.completion.resolve({ closed: true }); closeOperation.actual.resolve()
++    await tail
++    expect(events).toEqual(['acknowledged', 'retired-exact-authority'])
++  })
++})
+diff --git a/apps/sheets/tests/sheets-rename-refresh.test.ts b/apps/sheets/tests/sheets-rename-refresh.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/sheets-rename-refresh.test.ts
+@@ -0,0 +1,87 @@
++import { describe, expect, it } from 'vitest'
++import { SheetsRenameRefreshTransport } from '../src/main/sheets-rename-refresh'
++import type { WorkbookRenamedMetadata, WorkbookRenameRefreshResult } from '../src/shared/desktop-api'
++
++function deferred<T>() { let resolve!: (value: T) => void
++  const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
++async function flush() { for (let i = 0; i < 8; i++) await Promise.resolve() }
++function fixture() {
++  const owner = {}, foreign = {}, tail = deferred<void>()
++  const source = { lineage: 'lineage', sessionId: '20000000-0000-4000-8000-000000000001', openedSha256: 'a'.repeat(64), documentPath: 'C:/synthetic/named.xlsx' }
++  const metadata: WorkbookRenamedMetadata = { sessionId: source.sessionId, path: source.documentPath, closeSource: source, requiresCheckpoint: true }
++  const sent: WorkbookRenamedMetadata[] = []
++  let current = true
++  const transport = new SheetsRenameRefreshTransport<object>({ send: (_owner, _name, value) => { sent.push(value) },
++    publicationTail: () => tail.promise, validate: (_owner, value, result) => current && result.ok &&
++      result.sessionId === value.sessionId && result.payloadSha256 === 'b'.repeat(64) && result.documentId === 'native-exact-producer' && result.revision === 4,
++  })
++  const admission = transport.begin(owner, 'named.xlsx', metadata), id = sent[0]!.refreshId!
++  const success: WorkbookRenameRefreshResult = { ok: true, sessionId: source.sessionId, source,
++    documentId: 'native-exact-producer', revision: 4, payloadSha256: 'b'.repeat(64) }
++  return { owner, foreign, tail, transport, admission, id, success, metadata, sent, changeSource: () => { current = false } }
++}
++
++describe('correlated actual rename refresh (private successor sources)', () => {
++  it('a full checkpoint result alone cannot release the distinct callback/native-publication finalizers', async () => {
++    const f = fixture(); let done = false
++    void f.admission.actualSettled.then(() => { done = true })
++    expect(f.transport.receiveResult(f.owner, f.id, f.success)).toBe(true)
++    await flush(); expect(done).toBe(false)
++    expect(f.transport.receiveActualSettled(f.owner, f.id)).toBe(true)
++    await flush(); expect(done).toBe(false)
++    f.tail.resolve(); expect(await f.admission.completion).toEqual(f.success)
++    await f.admission.actualSettled; expect(done).toBe(true)
++  })
++
++  it('wrong owners and stale request IDs cannot report a checkpoint or finalize another rename', async () => {
++    const f = fixture()
++    expect(f.transport.receiveResult(f.foreign, f.id, f.success)).toBe(false)
++    expect(f.transport.receiveResult(f.owner, 'old-request', f.success)).toBe(false)
++    expect(f.transport.receiveActualSettled(f.foreign, f.id)).toBe(false)
++    expect(f.transport.receiveActualSettled(f.owner, 'old-request')).toBe(false)
++    f.transport.receiveResult(f.owner, f.id, f.success); f.transport.receiveActualSettled(f.owner, f.id); f.tail.resolve()
++    await f.admission.completion
++  })
++
++  it('a changed current source or stale native receipt refuses success after actual callback settlement', async () => {
++    const f = fixture(); f.changeSource()
++    f.transport.receiveResult(f.owner, f.id, f.success); f.transport.receiveActualSettled(f.owner, f.id)
++    f.tail.resolve()
++    await expect(f.admission.completion).rejects.toThrow('complete current checkpoint')
++    await f.admission.actualSettled
++  })
++
++  it('an explicit callback failure still waits the real finalizer and leaves failure truthful', async () => {
++    const f = fixture(); let done = false
++    void f.admission.actualSettled.then(() => { done = true })
++    f.transport.receiveResult(f.owner, f.id, { ok: false, error: 'full checkpoint failed after the move' })
++    await flush(); expect(done).toBe(false)
++    f.transport.receiveActualSettled(f.owner, f.id); f.tail.resolve()
++    await expect(f.admission.completion).rejects.toThrow('after the move')
++    await f.admission.actualSettled
++  })
++
++  it('owner destruction cannot borrow an earlier pending finalizer instead of its actual teardown', async () => {
++    const f = fixture(), cleanup = deferred<void>(); let done = false
++    void f.admission.actualSettled.then(() => { done = true })
++    f.transport.receiveResult(f.owner, f.id, f.success); f.transport.receiveActualSettled(f.owner, f.id)
++    f.transport.destroy(f.owner, cleanup.promise)
++    f.tail.resolve(); await flush(); expect(done).toBe(false)
++    cleanup.resolve()
++    await expect(f.admission.completion).rejects.toThrow('destroyed')
++    await f.admission.actualSettled
++  })
++
++  it('delivery failure remains unsettled until verified owner teardown, without a timeout grant', async () => {
++    const owner = {}, cleanup = deferred<void>()
++    const transport = new SheetsRenameRefreshTransport<object>({ send: () => { throw new Error('uncertain delivery') },
++      publicationTail: async () => undefined, validate: () => true })
++    const metadata = fixture().metadata
++    const admission = transport.begin(owner, 'named.xlsx', metadata); let done = false
++    void admission.actualSettled.then(() => { done = true })
++    await flush(); expect(done).toBe(false)
++    transport.destroy(owner, cleanup.promise); await flush(); expect(done).toBe(false)
++    cleanup.resolve(); await expect(admission.completion).rejects.toThrow('destroyed')
++    await admission.actualSettled
++  })
++})
+diff --git a/apps/sheets/tests/workbook-exclusive-move.test.ts b/apps/sheets/tests/workbook-exclusive-move.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/workbook-exclusive-move.test.ts
+@@ -0,0 +1,91 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { createHash } from 'node:crypto'
++import { existsSync } from 'node:fs'
++import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { reserveFileMutation, withAttestedFilePublication, withFilePublication } from '../../../packages/electron-utils/src/file-publication-exclusion'
++
++const controls = vi.hoisted(() => ({ afterCopy: undefined as (() => Promise<void>) | undefined,
++  beforeVerify: undefined as ((path: string) => Promise<void>) | undefined }))
++vi.mock('../../../packages/electron-utils/src/publish-exclusive', async importOriginal => {
++  const actual = await importOriginal<typeof import('../../../packages/electron-utils/src/publish-exclusive')>()
++  return { ...actual, publishExclusiveCopy: async (...args: Parameters<typeof actual.publishExclusiveCopy>) => {
++    const result = await actual.publishExclusiveCopy(...args); await controls.afterCopy?.(); return result
++  } }
++})
++vi.mock('../src/main/workbook-relocation', async importOriginal => {
++  const actual = await importOriginal<typeof import('../src/main/workbook-relocation')>()
++  return { ...actual, verifyRelocatedWorkbook: async (...args: Parameters<typeof actual.verifyRelocatedWorkbook>) => {
++    await controls.beforeVerify?.(args[0]); return actual.verifyRelocatedWorkbook(...args)
++  } }
++})
++import { moveWorkbookExclusively } from '../src/main/workbook-exclusive-move'
++
++function deferred<T>() { let resolve!: (value: T) => void
++  const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
++async function flush() { for (let i = 0; i < 8; i++) await Promise.resolve() }
++let root: string, source: string, destination: string, expected: string
++beforeEach(async () => {
++  root = await mkdtemp(join(tmpdir(), 'vantage-exclusive-sheet-move-'))
++  source = join(root, 'untitled.xlsx'); destination = join(root, 'named.xlsx')
++  await writeFile(source, 'loaded workbook bytes')
++  expected = createHash('sha256').update('loaded workbook bytes').digest('hex')
++  controls.afterCopy = undefined
++  controls.beforeVerify = undefined
++})
++afterEach(async () => { controls.afterCopy = undefined; controls.beforeVerify = undefined; await rm(root, { recursive: true, force: true }) })
++
++describe('exclusive Sheets automatic move (private successor sources)', () => {
++  it('waits for prior actual publication and keeps the mutation through full checkpoint and renderer finalizer', async () => {
++    const publisher = deferred<void>(), moved = deferred<void>(), checkpoint = deferred<void>(), rendererActual = deferred<void>()
++    await expect(withAttestedFilePublication({ targetPath: source }, () => ({
++      result: Promise.reject(new Error('bounded publisher result timed out')), actualSettled: publisher.promise,
++    }))).rejects.toThrow('timed out')
++    const mutation = reserveFileMutation([{ path: source, kind: 'file' }, { path: destination, kind: 'file' }])
++    const actual = mutation.run(async () => {
++      await moveWorkbookExclusively(source, destination, expected); moved.resolve()
++      await checkpoint.promise; await rendererActual.promise
++    })
++    await flush(); expect(existsSync(source)).toBe(true); expect(existsSync(destination)).toBe(false)
++    publisher.resolve(); await moved.promise
++    expect(existsSync(source)).toBe(false)
++    expect(() => withFilePublication({ targetPath: destination }, async () => undefined)).toThrow('file move is pending')
++    checkpoint.resolve(); await flush()
++    expect(() => reserveFileMutation([{ path: destination, kind: 'file' }])).toThrow('file move is pending')
++    rendererActual.resolve(); await actual
++    const next = reserveFileMutation([{ path: destination, kind: 'file' }]); await next.ready; next.cancelPending()
++    expect(await readFile(destination, 'utf8')).toBe('loaded workbook bytes')
++  })
++
++  it('never adopts a fresh digest when the loaded source changed before moving', async () => {
++    await writeFile(source, 'external replacement')
++    await expect(moveWorkbookExclusively(source, destination, expected)).rejects.toThrow()
++    expect(await readFile(source, 'utf8')).toBe('external replacement')
++    expect(existsSync(destination)).toBe(false)
++  })
++
++  it('an exclusive destination collision preserves both the original and the unrelated destination', async () => {
++    await writeFile(destination, 'unrelated existing file')
++    await expect(moveWorkbookExclusively(source, destination, expected)).rejects.toMatchObject({ code: 'EEXIST' })
++    expect(await readFile(source, 'utf8')).toBe('loaded workbook bytes')
++    expect(await readFile(destination, 'utf8')).toBe('unrelated existing file')
++  })
++
++  it('source replacement after exclusive copy preserves both paths instead of unlinking or rolling back either', async () => {
++    controls.afterCopy = async () => { await rm(source); await writeFile(source, 'external replacement after copy') }
++    await expect(moveWorkbookExclusively(source, destination, expected)).rejects.toThrow()
++    expect(await readFile(source, 'utf8')).toBe('external replacement after copy')
++    expect(await readFile(destination, 'utf8')).toBe('loaded workbook bytes')
++  })
++
++  it('a source replacement during destination verification survives the final source recheck', async () => {
++    controls.beforeVerify = async path => {
++      if (path !== destination) return
++      await rm(source); await writeFile(source, 'replacement during destination hash')
++    }
++    await expect(moveWorkbookExclusively(source, destination, expected)).rejects.toThrow()
++    expect(await readFile(source, 'utf8')).toBe('replacement during destination hash')
++    expect(await readFile(destination, 'utf8')).toBe('loaded workbook bytes')
++  })
++})
+diff --git a/apps/sheets/tests/workbook-publication-lifecycle.test.ts b/apps/sheets/tests/workbook-publication-lifecycle.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/workbook-publication-lifecycle.test.ts
+@@ -0,0 +1,130 @@
++import { afterEach, beforeEach, describe, expect, it } from 'vitest'
++import { AsyncResource } from 'node:async_hooks'
++import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { withAttestedFilePublication, withFilePublication, reserveFileMutation } from '../../../packages/electron-utils/src/file-publication-exclusion'
++import { WorkbookPublicationLifecycle, type WorkbookPublicationDecision } from '../src/main/workbook-publication-lifecycle'
++
++function deferred<T>() {
++  let resolve!: (value: T) => void, reject!: (error: unknown) => void
++  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
++  return { promise, resolve, reject }
++}
++async function flush() { for (let i = 0; i < 8; i++) await Promise.resolve() }
++let root: string, target: string
++beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'vantage-publication-lifetime-test-')); target = join(root, 'saved.xlsx') })
++afterEach(async () => { await rm(root, { recursive: true, force: true }) })
++
++describe('main-owned workbook publication lifetime (private successor sources)', () => {
++  it('returns a saved offer while retaining output ownership through its exact adoption cleanup', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle(), cleanup = deferred<void>()
++    let decision!: WorkbookPublicationDecision
++    const result = withAttestedFilePublication({ targetPath: target }, () => ({
++      result: lifecycle.run(async () => { await writeFile(target, 'saved'); decision = lifecycle.retainOffer(); return { ownedOffer: 'main-owned-id' } }),
++      actualSettled: lifecycle.actualSettled,
++    }))
++    expect(await result).toEqual({ ownedOffer: 'main-owned-id' })
++    const move = reserveFileMutation([{ path: target, kind: 'file' }])
++    expect(move.isReady()).toBe(false); expect(lifecycle.isSettled()).toBe(false)
++    decision.finishAfter(cleanup.promise); await flush()
++    expect(move.isReady()).toBe(false)
++    cleanup.resolve(); await lifecycle.actualSettled; await move.ready
++    expect(move.isReady()).toBe(true); move.cancelPending()
++  })
++
++  it('a caller timeout cannot finish a still-running main body or authorize a file move', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle(), work = deferred<void>()
++    const result = withAttestedFilePublication({ targetPath: target }, () => ({
++      result: lifecycle.run(async () => { await work.promise; await writeFile(target, 'late completed output'); return true }),
++      actualSettled: lifecycle.actualSettled,
++    }))
++    await expect(Promise.race([result, Promise.reject(new Error('caller deadline'))])).rejects.toThrow('caller deadline')
++    const move = reserveFileMutation([{ path: target, kind: 'file' }])
++    await flush(); expect(lifecycle.isSettled()).toBe(false); expect(move.isReady()).toBe(false)
++    work.resolve(); expect(await result).toBe(true)
++    await lifecycle.actualSettled; await move.ready; move.cancelPending()
++    expect(await readFile(target, 'utf8')).toBe('late completed output')
++  })
++
++  it('owner loss joins teardown even after adoption has consumed the offer map entry', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle(), adoption = deferred<void>(), teardown = deferred<void>()
++    let decision!: WorkbookPublicationDecision
++    await withAttestedFilePublication({ targetPath: target }, () => ({
++      result: lifecycle.run(async () => { decision = lifecycle.retainOffer(); return true }), actualSettled: lifecycle.actualSettled,
++    }))
++    decision.finishAfter(adoption.promise)
++    // Mirrors destroyed(owner): every still-live lifecycle joins actual cleanup,
++    // including an offer already removed from the sourceOffers map.
++    lifecycle.hold(teardown.promise)
++    const move = reserveFileMutation([{ path: target, kind: 'file' }])
++    adoption.resolve(); await flush(); expect(lifecycle.isSettled()).toBe(false); expect(move.isReady()).toBe(false)
++    teardown.resolve(); await lifecycle.actualSettled; await move.ready; move.cancelPending()
++  })
++
++  it('a stale second decision cannot replace the real rejection cleanup with an already-resolved promise', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle(), cleanup = deferred<void>()
++    let decision!: WorkbookPublicationDecision
++    await lifecycle.run(async () => { decision = lifecycle.retainOffer() })
++    decision.finishAfter(cleanup.promise)
++    decision.finishAfter(Promise.resolve())
++    await flush(); expect(lifecycle.isSettled()).toBe(false)
++    cleanup.resolve(); await lifecycle.actualSettled; expect(lifecycle.isSettled()).toBe(true)
++  })
++
++  it('rejection waits for all real filesystem finalizers even when cleanup reports a failure', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle(), native = deferred<void>(), marker = join(root, 'cleanup-finished')
++    let decision!: WorkbookPublicationDecision
++    await lifecycle.run(async () => { decision = lifecycle.retainOffer() })
++    const failure = new Error('definitive native close failed')
++    const actualCleanup = (async () => { try { await native.promise } finally { await writeFile(marker, 'finished') } })()
++    decision.finishAfter(actualCleanup)
++    await flush(); expect(lifecycle.isSettled()).toBe(false)
++    native.reject(failure)
++    await expect(actualCleanup).rejects.toBe(failure)
++    await lifecycle.actualSettled
++    expect(await readFile(marker, 'utf8')).toBe('finished')
++  })
++
++  it('an ALS-bound adoption finalizer continues its exact admitted target while a move drains it', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle()
++    let decision!: WorkbookPublicationDecision, cleanup!: () => Promise<void>
++    await withAttestedFilePublication({ targetPath: target }, () => ({
++      result: lifecycle.run(async () => {
++        decision = lifecycle.retainOffer()
++        cleanup = AsyncResource.bind(async () => {
++          await withFilePublication({ targetPath: target }, async () => { await writeFile(target, 'same admitted target') })
++        })
++      }), actualSettled: lifecycle.actualSettled,
++    }))
++    const move = reserveFileMutation([{ path: target, kind: 'file' }])
++    expect(move.isReady()).toBe(false)
++    const actualCleanup = cleanup(); decision.finishAfter(actualCleanup)
++    await actualCleanup; await lifecycle.actualSettled; await move.ready
++    expect(await readFile(target, 'utf8')).toBe('same admitted target'); move.cancelPending()
++  })
++
++  it('a post-publication host move starts after settlement without waiting on its own writer', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle(), cleanup = deferred<void>(), destination = join(root, 'renamed.xlsx')
++    let decision!: WorkbookPublicationDecision
++    await withAttestedFilePublication({ targetPath: target }, () => ({
++      result: lifecycle.run(async () => { await writeFile(target, 'published'); decision = lifecycle.retainOffer() }),
++      actualSettled: lifecycle.actualSettled,
++    }))
++    const hostHandoff = lifecycle.actualSettled.then(async () => {
++      const move = reserveFileMutation([{ path: target, kind: 'file' }, { path: destination, kind: 'file' }])
++      await move.run(async () => { await rename(target, destination) })
++    })
++    decision.finishAfter(cleanup.promise)
++    cleanup.resolve(); await hostHandoff
++    expect(await readFile(destination, 'utf8')).toBe('published')
++  })
++
++  it('a pre-dispatch refusal can settle without running a body or inventing an offer decision', async () => {
++    const lifecycle = new WorkbookPublicationLifecycle()
++    lifecycle.abandonBeforeStart(); await lifecycle.actualSettled
++    expect(lifecycle.isSettled()).toBe(true)
++    expect(() => lifecycle.run(async () => true)).toThrow('already been admitted')
++    expect(() => lifecycle.retainOffer()).toThrow('before its main body returns')
++  })
++})
+diff --git a/apps/sheets/tests/xlsx-sidecar-settlement.test.ts b/apps/sheets/tests/xlsx-sidecar-settlement.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/xlsx-sidecar-settlement.test.ts
+@@ -0,0 +1,493 @@
++/** Real Node streams + mock ChildProcess only; this is not a native-binary acceptance test. */
++import { EventEmitter } from 'node:events'
++import { PassThrough, Writable } from 'node:stream'
++import type { ChildProcessWithoutNullStreams } from 'node:child_process'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import {
++  subscribeNativeActualWork,
++  XlsxSidecarClient,
++  type NativeRequestAdmission,
++} from '../src/main/xlsx-sidecar-client'
++
++const spawnMock = vi.hoisted(() => vi.fn())
++const removeMock = vi.hoisted(() =>
++  vi.fn(async (_path: string, _options?: { force?: boolean }) => {}),
++)
++vi.mock('node:child_process', () => ({ spawn: spawnMock }))
++vi.mock('node:fs/promises', () => ({ rm: removeMock }))
++
++interface WireCommand {
++  requestId: string
++  command: string
++  version: number
++  [key: string]: unknown
++}
++
++class Child extends EventEmitter {
++  pid: number | undefined = 100
++  killed = false
++  readonly stdout = new PassThrough()
++  readonly stderr = new PassThrough()
++  readonly commands: WireCommand[] = []
++  failWrite = false
++  beforeWrite?: () => void
++  readonly stdin = new Writable({
++    write: (chunk: Buffer, _encoding, callback) => {
++      this.beforeWrite?.()
++      this.commands.push(JSON.parse(chunk.toString('utf8')) as WireCommand)
++      callback(this.failWrite ? new Error('mock stdin write failed') : undefined)
++    },
++  })
++  kill() {
++    this.killed = true
++    return true
++  }
++  reply(requestId: string, result: unknown = { acknowledged: true }) {
++    this.stdout.write(`${JSON.stringify({ version: 1, requestId, ok: true, result })}\n`)
++  }
++  fail(requestId: string) {
++    this.stdout.write(
++      `${JSON.stringify({
++        version: 1,
++        requestId,
++        ok: false,
++        error: { code: 'cancelled', message: 'definitive native cancellation' },
++      })}\n`,
++    )
++  }
++  exited() {
++    this.emit('exit', 0, null)
++    this.stdout.end()
++    this.stderr.end()
++    this.emit('close', 0, null)
++  }
++}
++
++const children: Child[] = []
++const clients: XlsxSidecarClient[] = []
++const unsubscribers: (() => void)[] = []
++function client(limits?: ConstructorParameters<typeof XlsxSidecarClient>[1]) {
++  const value = new XlsxSidecarClient('/synthetic/xlsx-sidecar', limits)
++  clients.push(value)
++  return value
++}
++function observeWork() {
++  const work: Promise<void>[] = []
++  unsubscribers.push(subscribeNativeActualWork((actual) => work.push(actual)))
++  return work
++}
++function actualFlag(admission: NativeRequestAdmission) {
++  let settled = false
++  void admission.actualSettled.then(() => {
++    settled = true
++  })
++  return () => settled
++}
++function original(child = children[0]!) {
++  return child.commands.find((item) => item.command !== 'cancel')!
++}
++
++beforeEach(() => {
++  vi.useFakeTimers()
++  spawnMock.mockReset()
++  removeMock.mockClear()
++  spawnMock.mockImplementation(() => {
++    const value = new Child()
++    value.pid = 100 + children.length
++    children.push(value)
++    return value as unknown as ChildProcessWithoutNullStreams
++  })
++})
++afterEach(async () => {
++  for (const value of clients.splice(0)) value.stop()
++  for (const child of children.splice(0)) child.exited()
++  for (const unsubscribe of unsubscribers.splice(0)) unsubscribe()
++  await Promise.resolve()
++  vi.clearAllTimers()
++  vi.useRealTimers()
++})
++
++describe('native RPC result versus definitive actual settlement', () => {
++  it('announces the identical actual promise before stdin dispatch, including legacy methods', async () => {
++    const admitted: Promise<void>[] = []
++    unsubscribers.push(
++      subscribeNativeActualWork((actual) => {
++        expect(children[0]!.commands).toEqual([])
++        admitted.push(actual)
++      }),
++    )
++    const value = client()
++    const request = value.requestAttested({ command: 'document_snapshot', documentId: 'synthetic' })
++    expect(admitted).toEqual([request.actualSettled])
++    children[0]!.reply(original().requestId, { revision: 2 })
++    await expect(request.result).resolves.toEqual({ revision: 2 })
++    await expect(request.completion).resolves.toEqual({ revision: 2 })
++    await request.actualSettled
++  })
++
++  it('retains timeout ownership and accepts the late matching response instead of a cancel ACK', async () => {
++    const work = observeWork(),
++      value = client()
++    const request = value.requestAttested(
++      { command: 'save_archive', targetPath: '/synthetic/only' },
++      5,
++    )
++    const settled = actualFlag(request)
++    const rejected = expect(request.result).rejects.toThrow('timed out')
++    await vi.advanceTimersByTimeAsync(6)
++    await rejected
++    const cancel = children[0]!.commands.find((item) => item.command === 'cancel')!
++    expect(cancel.targetRequestId).toBe(original().requestId)
++    children[0]!.reply(cancel.requestId, { cancelled: true })
++    await Promise.resolve()
++    expect(settled()).toBe(false)
++    expect(work).toEqual([request.actualSettled])
++    children[0]!.reply(original().requestId, { bytesWritten: 42 })
++    await expect(request.completion).resolves.toEqual({ bytesWritten: 42 })
++    await request.actualSettled
++    expect(settled()).toBe(true)
++    await expect(request.result).rejects.toThrow('timed out')
++  })
++
++  it('replays bounded live actual ownership to a later main subscriber without metadata', async () => {
++    const value = client()
++    const request = value.requestAttested({
++      command: 'document_snapshot',
++      documentId: 'private-id',
++    })
++    const replayed = observeWork()
++    expect(replayed).toEqual([request.actualSettled])
++    children[0]!.reply(original().requestId)
++    await request.result
++    await request.actualSettled
++    const later = observeWork()
++    expect(later).toEqual([])
++  })
++
++  it.each(['checkpoint_document', 'close_document'])(
++    'keeps required %s work queued after caller timeout and consumes its late ACK',
++    async (command) => {
++      const value = client(),
++        request = value.requestAttested({ command, documentId: 'synthetic' }, 5)
++      const settled = actualFlag(request)
++      const rejected = expect(request.result).rejects.toThrow('timed out')
++      await vi.advanceTimersByTimeAsync(6)
++      await rejected
++      expect(children[0]!.commands.map((item) => item.command)).toEqual([command])
++      expect(settled()).toBe(false)
++      children[0]!.reply(original().requestId, { acknowledged: true })
++      await expect(request.completion).resolves.toEqual({ acknowledged: true })
++      await request.actualSettled
++      expect(settled()).toBe(true)
++      await expect(request.result).rejects.toThrow('timed out')
++    },
++  )
++
++  it('keeps actual work alive after a stdin failure and still consumes a late reply', async () => {
++    const value = client()
++    value.start()
++    children[0]!.failWrite = true
++    const request = value.requestAttested({
++      command: 'checkpoint_document',
++      documentId: 'synthetic',
++    })
++    const settled = actualFlag(request)
++    await expect(request.result).rejects.toThrow(/stdin/)
++    await Promise.resolve()
++    expect(settled()).toBe(false)
++    children[0]!.reply(original().requestId, { revision: 9 })
++    await expect(request.completion).resolves.toEqual({ revision: 9 })
++    await request.actualSettled
++    expect(settled()).toBe(true)
++    await expect(value.requestAttested({ command: 'document_snapshot' }).result).rejects.toThrow(
++      'pipe failed',
++    )
++  })
++
++  it('a kill request rejects callers but cannot settle actual ownership before confirmed exit', async () => {
++    const value = client(),
++      exit = vi.fn()
++    value.onProcessExit(exit)
++    const request = value.requestAttested({ command: 'save_archive' })
++    const settled = actualFlag(request)
++    value.stop()
++    await expect(request.result).rejects.toThrow('stopped')
++    await Promise.resolve()
++    expect(children[0]!.killed).toBe(true)
++    expect(settled()).toBe(false)
++    children[0]!.exited()
++    await expect(request.completion).rejects.toThrow(/exited|closed/)
++    await request.actualSettled
++    expect(settled()).toBe(true)
++    expect(exit).not.toHaveBeenCalled()
++  })
++
++  it('confirmed unexpected exit releases only that process and emits one crash notification', async () => {
++    const value = client(),
++      exit = vi.fn()
++    value.onProcessExit(exit)
++    const request = value.requestAttested({ command: 'save_archive' })
++    const rejected = expect(request.result).rejects.toThrow('exited')
++    children[0]!.exited()
++    await rejected
++    await expect(request.completion).rejects.toThrow('exited')
++    await request.actualSettled
++    expect(exit).toHaveBeenCalledOnce()
++  })
++
++  it('an existing-pid error is not termination, while a pid-undefined spawn failure is definitive', async () => {
++    const first = client(),
++      active = first.requestAttested({ command: 'save_archive' })
++    const settled = actualFlag(active)
++    children[0]!.emit('error', new Error('existing process failed'))
++    await expect(active.result).rejects.toThrow('existing process failed')
++    await Promise.resolve()
++    expect(settled()).toBe(false)
++    children[0]!.exited()
++    await active.actualSettled
++    const second = client(),
++      missing = second.requestAttested({ command: 'save_archive' })
++    children[1]!.pid = undefined
++    children[1]!.emit('error', new Error('spawn ENOENT'))
++    await expect(missing.result).rejects.toThrow('spawn ENOENT')
++    await expect(missing.completion).rejects.toThrow('spawn ENOENT')
++    await missing.actualSettled
++  })
++
++  it('rejects native failure on both channels while independently settling actual work', async () => {
++    const value = client(),
++      request = value.requestAttested({ command: 'document_snapshot' })
++    children[0]!.fail(original().requestId)
++    await expect(request.result).rejects.toMatchObject({ code: 'cancelled' })
++    await expect(request.completion).rejects.toMatchObject({ code: 'cancelled' })
++    await request.actualSettled
++  })
++
++  it('never lets an old process stdout response settle the new generation', async () => {
++    const value = client(),
++      old = value.requestAttested({ command: 'save_archive' })
++    const oldId = original().requestId
++    value.stop()
++    await expect(old.result).rejects.toThrow('stopped')
++    const next = value.requestAttested({ command: 'save_archive' })
++    const nextId = original(children[1]!).requestId,
++      settled = actualFlag(next)
++    children[0]!.reply(nextId, { forgedOldGeneration: true })
++    await Promise.resolve()
++    expect(settled()).toBe(false)
++    children[0]!.reply(oldId, { oldCompletion: true })
++    await expect(old.completion).resolves.toEqual({ oldCompletion: true })
++    children[0]!.exited()
++    expect(settled()).toBe(false)
++    children[1]!.reply(nextId, { newCompletion: true })
++    await expect(next.result).resolves.toEqual({ newCompletion: true })
++    await expect(next.completion).resolves.toEqual({ newCompletion: true })
++  })
++
++  it('retains the pending-count charge after timeout and frees it only on definitive reply', async () => {
++    const value = client({ maxPendingRequests: 1 })
++    const request = value.requestAttested({ command: 'document_snapshot' }, 5)
++    const rejected = expect(request.result).rejects.toThrow('timed out')
++    await vi.advanceTimersByTimeAsync(6)
++    await rejected
++    await expect(value.requestAttested({ command: 'document_snapshot' }).result).rejects.toThrow(
++      'quota',
++    )
++    expect(children[0]!.commands.filter((item) => item.command !== 'cancel')).toHaveLength(1)
++    children[0]!.reply(original().requestId)
++    await request.actualSettled
++    const next = value.requestAttested({ command: 'document_snapshot' })
++    children[0]!.reply(children[0]!.commands.at(-1)!.requestId)
++    await next.completion
++    await next.result
++  })
++
++  it('charges serialized pending bytes until reply and rejects an oversized request before spawn', async () => {
++    const value = client({ maxPendingBytes: 384, maxRequestBytes: 384 })
++    const first = value.requestAttested({ command: 'document_snapshot', data: 'x'.repeat(200) })
++    await expect(
++      value.requestAttested({ command: 'document_snapshot', data: 'x'.repeat(200) }).result,
++    ).rejects.toThrow('quota')
++    expect(children[0]!.commands).toHaveLength(1)
++    children[0]!.reply(original().requestId)
++    await first.result
++    await first.actualSettled
++    const before = spawnMock.mock.calls.length
++    const other = client({ maxPendingBytes: 128, maxRequestBytes: 128 })
++    const oversized = other.requestAttested({ command: 'save_archive', data: 'x'.repeat(1000) })
++    await expect(oversized.result).rejects.toThrow('quota')
++    await oversized.actualSettled
++    expect(spawnMock).toHaveBeenCalledTimes(before)
++  })
++
++  it('refuses dispatch when an actual-work owner cannot admit the request', async () => {
++    const refuse = subscribeNativeActualWork(() => {
++      throw new Error('owner quota refused')
++    })
++    unsubscribers.push(refuse)
++    const value = client(),
++      request = value.requestAttested({ command: 'save_archive' })
++    await expect(request.result).rejects.toThrow('owner quota refused')
++    await expect(request.completion).rejects.toThrow('owner quota refused')
++    await request.actualSettled
++    expect(children[0]!.commands).toEqual([])
++    refuse()
++    const next = value.requestAttested({ command: 'save_archive' })
++    children[0]!.reply(original().requestId)
++    await next.result
++  })
++
++  it('enforces aggregate serialized ownership across clients and releases it on definitive replies', async () => {
++    const realByteLength = Buffer.byteLength
++    // Model large serialized admission charges without allocating gigabytes;
++    // real streams still carry the exact small mock command and reply bytes.
++    const measured = vi
++      .spyOn(Buffer, 'byteLength')
++      .mockImplementation((input, encoding) =>
++        typeof input === 'string' && input.includes('"globalQuotaFixture":true')
++          ? 256 * 1024 * 1024
++          : realByteLength(input, encoding),
++      )
++    try {
++      const admissions = [client(), client(), client()].map((value) =>
++        value.requestAttested({ command: 'document_snapshot', globalQuotaFixture: true }),
++      )
++      const fourth = client()
++      const denied = fourth.requestAttested({
++        command: 'document_snapshot',
++        globalQuotaFixture: true,
++      })
++      await expect(denied.result).rejects.toThrow('quota')
++      expect(spawnMock).toHaveBeenCalledTimes(3)
++      children[0]!.reply(original(children[0]!).requestId)
++      await admissions[0]!.result
++      await admissions[0]!.actualSettled
++      const allowed = fourth.requestAttested({
++        command: 'document_snapshot',
++        globalQuotaFixture: true,
++      })
++      expect(spawnMock).toHaveBeenCalledTimes(4)
++      for (const [index, request] of [
++        [1, admissions[1]!],
++        [2, admissions[2]!],
++        [3, allowed],
++      ] as const) {
++        children[index]!.reply(original(children[index]!).requestId)
++        await request.result
++        await request.actualSettled
++      }
++    } finally {
++      measured.mockRestore()
++    }
++  })
++
++  it('closeSettled waits for both late native close ACKs before unlinking binding files', async () => {
++    const value = client()
++    await value.bindEditSession('session-1', {
++      apiVersion: 1,
++      workbookId: 'edit-1',
++      sourcePath: '/synthetic/source.xlsx',
++      sheets: [{ id: 'sheet-1', name: 'Budget' }],
++      storePath: '/synthetic/edit.sqlite',
++    })
++    const closing = value.closeSettled('session-1')
++    let settled = false
++    void closing.then(() => {
++      settled = true
++    })
++    await vi.advanceTimersByTimeAsync(30_001)
++    expect(settled).toBe(false)
++    expect(children[0]!.commands.map((item) => item.command)).toEqual(['close'])
++    children[0]!.reply(original().requestId, { closed: true })
++    await Promise.resolve()
++    await Promise.resolve()
++    const editClose = children[0]!.commands.find((item) => item.command === 'close_edit_session')!
++    expect(editClose.workbookId).toBe('edit-1')
++    expect(removeMock).not.toHaveBeenCalled()
++    await vi.advanceTimersByTimeAsync(30_001)
++    expect(settled).toBe(false)
++    expect(children[0]!.commands.map((item) => item.command)).toEqual([
++      'close',
++      'close_edit_session',
++    ])
++    children[0]!.reply(editClose.requestId, { closed: true })
++    await closing
++    expect(settled).toBe(true)
++    expect(removeMock.mock.calls.map((call) => call[0])).toEqual([
++      '/synthetic/edit.sqlite',
++      '/synthetic/edit.sqlite-wal',
++      '/synthetic/edit.sqlite-shm',
++    ])
++  })
++
++  it('closeSettled preserves binding files when the definitive edit close fails', async () => {
++    const value = client()
++    await value.bindEditSession('session-1', {
++      apiVersion: 1,
++      workbookId: 'edit-1',
++      sourcePath: '/synthetic/source.xlsx',
++      sheets: [],
++      storePath: '/synthetic/edit.sqlite',
++    })
++    const closing = value.closeSettled('session-1')
++    children[0]!.reply(original().requestId, { closed: true })
++    await Promise.resolve()
++    await Promise.resolve()
++    const editClose = children[0]!.commands.find((item) => item.command === 'close_edit_session')!
++    children[0]!.fail(editClose.requestId)
++    await expect(closing).rejects.toMatchObject({ code: 'cancelled' })
++    expect(removeMock).not.toHaveBeenCalled()
++  })
++
++  it('legacy close keeps its bounded result while the native work remains owned', async () => {
++    const value = client(),
++      owned = observeWork()
++    const closing = value.close('session-1')
++    const rejected = expect(closing).rejects.toThrow('timed out')
++    await vi.advanceTimersByTimeAsync(30_001)
++    await rejected
++    expect(owned).toHaveLength(1)
++    let settled = false
++    void owned[0]!.then(() => {
++      settled = true
++    })
++    await Promise.resolve()
++    expect(settled).toBe(false)
++    children[0]!.reply(original().requestId, { closed: true })
++    await owned[0]
++    expect(settled).toBe(true)
++  })
++
++  it('keeps existing result-returning document APIs on their bounded contract', async () => {
++    const value = client(),
++      work = observeWork()
++    const result = value.closeDocument({ apiVersion: 1, documentId: 'synthetic' })
++    expect(work).toHaveLength(1)
++    expect(original().command).toBe('close_document')
++    children[0]!.reply(original().requestId, { closed: true })
++    await expect(result).resolves.toEqual({ closed: true })
++    await work[0]
++  })
++
++  it('refuses an asynchronous ownership subscriber before any native dispatch', async () => {
++    unsubscribers.push(subscribeNativeActualWork(async () => {}))
++    const value = client(),
++      request = value.requestAttested({ command: 'save_archive' })
++    await expect(request.result).rejects.toThrow('registered synchronously')
++    await request.actualSettled
++    expect(children[0]!.commands).toEqual([])
++  })
++
++  it('owns transport identity instead of trusting overridden fields on the generic command', async () => {
++    const value = client(),
++      request = value.requestAttested({
++        command: 'save_archive',
++        version: 900,
++        requestId: 'caller-controlled',
++      })
++    expect(original().version).toBe(1)
++    expect(original().requestId).not.toBe('caller-controlled')
++    children[0]!.reply(original().requestId)
++    await request.result
++  })
++})
+diff --git a/apps/shell/src/main/sheets-close-runtime.ts b/apps/shell/src/main/sheets-close-runtime.ts
+--- a/apps/shell/src/main/sheets-close-runtime.ts
++++ b/apps/shell/src/main/sheets-close-runtime.ts
+@@ -10,6 +10,7 @@
+ import type { SheetsCloseState } from '../../../sheets/src/shared/sheets-close'
+ import type { SheetsCleanupAdmission } from '../../../sheets/src/main/sheets-close-coordinator'
+ import type { CapturedNativeCloseAuthority } from '../../../sheets/src/main/workbook-document-recovery'
++import { subscribeNativeActualWork } from '../../../sheets/src/main/xlsx-sidecar-client'
+ 
+ export interface SheetsRuntimeQuitLedger extends SheetsMemoryCloseLedger {
+   holdProtectedRetirement(work: Promise<void>, retry: () => Promise<void>): void
+@@ -30,6 +31,8 @@
+ }
+ 
+ export interface SheetsCloseRuntimeDependencies {
++  /** Promise-only observer, including active work admitted before installation. */
++  observeNativeWork?(listener: (actual: Promise<void>) => void): () => void
+   createProvider(): NativeCloseCustodyProvider
+   registerProvider(provider: CloseCustodyProvider): void
+   beginPersistent(task: CloseCleanupTask): CloseCleanupAdmission
+@@ -46,13 +49,26 @@
+   let registration: CloseCustodyProvider | undefined
+   let installed: SheetsCloseRuntimeInstallation | undefined
+   let installedOptions: SheetsCloseRuntimeInstallationOptions | undefined
++  let nativeObserver: { ledger: SheetsRuntimeQuitLedger; ready: boolean } | undefined
+ 
+   return (options: SheetsCloseRuntimeInstallationOptions): SheetsCloseRuntimeInstallation => {
++    if (nativeObserver && nativeObserver.ledger !== options.ledger)
++      throw new Error('Sheets native work already belongs to another quit ledger.')
+     if (installed) {
+       if (options.ledger !== installedOptions!.ledger || options.setRuntime !== installedOptions!.setRuntime || options.closeState !== installedOptions!.closeState)
+         throw new Error('Sheets close runtime already belongs to another main host or quit ledger.')
+       return installed
+     }
++    if (!nativeObserver && dependencies.observeNativeWork) {
++      const binding = { ledger: options.ledger, ready: false }
++      nativeObserver = binding
++      // Keep this process-lifetime observer across a setter failure. Retrying
++      // startup must neither replay work twice nor switch the owning ledger.
++      dependencies.observeNativeWork(actual => binding.ledger.holdUntilSettled(actual))
++      binding.ready = true
++    }
++    if (nativeObserver && !nativeObserver.ready)
++      throw new Error('Sheets native actual-work observation did not install completely.')
+     nativeProvider ??= dependencies.createProvider()
+     const provider = nativeProvider
+     if (!registration) {
+@@ -108,6 +124,7 @@
+ }
+ 
+ const productionInstaller = createSheetsCloseRuntimeInstaller({
++  observeNativeWork: subscribeNativeActualWork,
+   createProvider: createNativeCloseCustodyProvider,
+   registerProvider: registerCloseCustodyProvider,
+   beginPersistent: beginCloseCleanup,
+diff --git a/apps/shell/tests/sheets-close-runtime.test.ts b/apps/shell/tests/sheets-close-runtime.test.ts
+--- a/apps/shell/tests/sheets-close-runtime.test.ts
++++ b/apps/shell/tests/sheets-close-runtime.test.ts
+@@ -1,4 +1,8 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { webcrypto } from 'node:crypto'
++import { EventEmitter } from 'node:events'
++import { PassThrough, Writable } from 'node:stream'
++import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+ import type { WebContents } from 'electron'
+ import { CloseCleanupQueue, type CloseCleanupStatus, type CloseCleanupTask } from '../../../packages/electron-utils/src/close-cleanup'
+ import type { CloseCustodyProvider } from '../../../packages/electron-utils/src/close-custody-providers'
+@@ -7,8 +11,41 @@
+ import type { CapturedNativeCloseAuthority } from '../../sheets/src/main/workbook-document-recovery'
+ import type { SheetsCloseRuntime } from '../../sheets/src/main/sheets-main'
+ import type { SheetsCloseState } from '../../sheets/src/shared/sheets-close'
+-import { createSheetsCloseRuntimeInstaller } from '../src/main/sheets-close-runtime'
+-import { SheetsCloseQuitLedger } from '../src/main/sheets-close-quit-ledger'
++import { createSheetsCloseRuntimeInstaller, type SheetsCloseRuntimeDependencies } from '../src/main/sheets-close-runtime'
++import { installSheetsCloseQuitGuard, SheetsCloseQuitLedger, type SheetsBeforeQuitEvent } from '../src/main/sheets-close-quit-ledger'
++import { subscribeNativeActualWork, XlsxSidecarClient } from '../../sheets/src/main/xlsx-sidecar-client'
++
++const nativeSpawn = vi.hoisted(() => vi.fn())
++vi.mock('node:child_process', async importOriginal => ({
++  ...await importOriginal<typeof import('node:child_process')>(), spawn: nativeSpawn,
++}))
++
++// True primitive request bookkeeping, with only the child process replaced.
++// No native binary, document bytes, or protected metadata are inspected here.
++class ObservedNativeChild extends EventEmitter {
++  pid = 401
++  killed = false
++  readonly stdout = new PassThrough()
++  readonly stderr = new PassThrough()
++  readonly commands: { requestId: string }[] = []
++  readonly stdin = new Writable({ write: (chunk: Buffer, _encoding, callback) => {
++    this.commands.push(JSON.parse(chunk.toString('utf8')))
++    callback()
++  } })
++  kill(): boolean { this.killed = true; return true }
++  reply(): void {
++    this.stdout.write(`${JSON.stringify({ version: 1, requestId: this.commands[0]!.requestId,
++      ok: true, result: { acknowledged: true } })}\n`)
++  }
++  exited(): void {
++    this.emit('exit', 0, null)
++    this.stdout.end(); this.stderr.end()
++    this.emit('close', 0, null)
++  }
++}
++const observedClients: XlsxSidecarClient[] = []
++const observedChildren: ObservedNativeChild[] = []
++const stopObservers: (() => void)[] = []
+ 
+ function deferred<T>() {
+   let resolve!: (value: T) => void
+@@ -33,7 +70,7 @@
+   return { value, retire, snapshot }
+ }
+ 
+-function fixture() {
++function fixture(observeNativeWork?: SheetsCloseRuntimeDependencies['observeNativeWork'], installNow = true) {
+   const events: string[] = ['foundation']
+   const ledger = new SheetsCloseQuitLedger(), opaque = Object.freeze({})
+   let destroyed = false, unavailable = false, captureWork: Promise<Capture> | undefined
+@@ -65,9 +102,14 @@
+   const setRuntime = vi.fn((value: SheetsCloseRuntime) => { events.push('runtime-installed'); runtime = value })
+   const closeState = vi.fn(() => state)
+   const install = createSheetsCloseRuntimeInstaller({ createProvider: create, registerProvider: register,
+-    beginPersistent: begin, beginMemory: memory, requireRecovery, uuid: () => '30000000-0000-4000-8000-000000000001' })
++    beginPersistent: begin, beginMemory: memory, requireRecovery, uuid: () => '30000000-0000-4000-8000-000000000001',
++    ...(observeNativeWork ? { observeNativeWork: (listener: (actual: Promise<void>) => void) => {
++      events.push('native-observer')
++      return observeNativeWork(listener)
++    } } : {}),
++  })
+   const options = { ledger, setRuntime, closeState }
+-  const installed = install(options)
++  const installed = installNow ? install(options) : undefined
+   return { owner, ledger, provider, installed, install, options, events, input, nativeCapture, run, purge,
+     create, register, requireRecovery, begin, memory, tasks, statuses, closeState, setRuntime,
+     runtime: () => runtime, registration: () => registered!,
+@@ -75,10 +117,95 @@
+     setCapture: (promise: Promise<Capture>) => { captureWork = promise }, setRun: (promise: Promise<void>) => { runWork = promise } }
+ }
+ 
+-beforeEach(() => { vi.useFakeTimers() })
+-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
++beforeEach(() => { vi.useFakeTimers(); nativeSpawn.mockReset(); vi.stubGlobal('crypto', webcrypto) })
++afterEach(async () => {
++  for (const client of observedClients.splice(0)) client.stop()
++  for (const child of observedChildren.splice(0)) child.exited()
++  for (const stop of stopObservers.splice(0)) stop()
++  await Promise.resolve()
++  vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals()
++})
+ 
+ describe('actual Sheets close runtime installer (private successor sources)', () => {
++  it('binds a promise-only native observer before installing runtime/editor work, exactly once', async () => {
++    const observe = vi.fn((_listener: (actual: Promise<void>) => void) => () => {})
++    const f = fixture(observe)
++    f.events.push('editors')
++    expect(f.events).toEqual(['foundation', 'native-observer', 'provider-created', 'provider-registered', 'runtime-installed', 'editors'])
++    expect(observe).toHaveBeenCalledTimes(1)
++    expect(observe.mock.calls[0]).toHaveLength(1)
++    const held = deferred<void>(), hold = vi.spyOn(f.ledger, 'holdUntilSettled')
++    observe.mock.calls[0]![0](held.promise)
++    expect(hold).toHaveBeenCalledExactlyOnceWith(held.promise)
++    expect(f.ledger.hasPending()).toBe(true)
++    expect(f.install(f.options)).toBe(f.installed)
++    expect(observe).toHaveBeenCalledTimes(1)
++    expect(() => f.install({ ...f.options, ledger: new SheetsCloseQuitLedger() })).toThrow('another quit ledger')
++    held.resolve(undefined); await f.ledger.joinActual()
++  })
++
++  it('retains the exact observer ledger across a failed setter retry without registering twice', async () => {
++    const held = deferred<void>()
++    const observe = vi.fn((listener: (actual: Promise<void>) => void) => { listener(held.promise); return () => {} })
++    const f = fixture(observe, false)
++    const hold = vi.spyOn(f.ledger, 'holdUntilSettled')
++    f.setRuntime.mockImplementationOnce(() => { throw new Error('synthetic setter failure') })
++    expect(() => f.install(f.options)).toThrow('synthetic setter failure')
++    expect(f.ledger.hasPending()).toBe(true)
++    expect(hold).toHaveBeenCalledExactlyOnceWith(held.promise)
++    expect(() => f.install({ ...f.options, ledger: new SheetsCloseQuitLedger() })).toThrow('another quit ledger')
++    const installed = f.install(f.options)
++    expect(installed.runtime).toBe(f.runtime())
++    expect(observe).toHaveBeenCalledTimes(1)
++    expect(hold).toHaveBeenCalledTimes(1)
++    expect(f.setRuntime).toHaveBeenCalledTimes(2)
++    held.resolve(undefined); await f.ledger.joinActual()
++  })
++
++  it('replays a true unresolved primitive request into quit custody before runtime installation', async () => {
++    const child = new ObservedNativeChild()
++    observedChildren.push(child)
++    nativeSpawn.mockReturnValueOnce(child as unknown as ChildProcessWithoutNullStreams)
++    const client = new XlsxSidecarClient('/synthetic/xlsx-sidecar')
++    observedClients.push(client)
++    const request = client.requestAttested({ command: 'checkpoint_document', documentId: 'synthetic-memory-only-document' })
++    const notifications: Promise<void>[][] = []
++    const f = fixture(listener => {
++      const stop = subscribeNativeActualWork((...args: [Promise<void>]) => {
++        notifications.push(args)
++        listener(args[0])
++      })
++      stopObservers.push(stop)
++      return stop
++    })
++    expect(notifications).toEqual([[request.actualSettled]])
++    expect(f.events.indexOf('native-observer')).toBeLessThan(f.events.indexOf('runtime-installed'))
++    expect(f.ledger.hasPending()).toBe(true)
++    const listeners: ((event: SheetsBeforeQuitEvent) => void)[] = []
++    const events: { preventDefault: ReturnType<typeof vi.fn> }[] = []
++    const app = {
++      on: (_event: 'before-quit', listener: (event: SheetsBeforeQuitEvent) => void) => { listeners.push(listener) },
++      quit: vi.fn(() => {
++        const event = { preventDefault: vi.fn() }; events.push(event)
++        for (const listener of [...listeners]) listener(event)
++      }),
++    }
++    const guard = installSheetsCloseQuitGuard(app, f.ledger, {
++      epoch: () => 1, isCurrent: epoch => epoch === 1, subscribeCancel: () => () => {},
++    })
++    app.quit()
++    expect(events[0]!.preventDefault).toHaveBeenCalledTimes(1)
++    await flush()
++    expect(app.quit).toHaveBeenCalledTimes(1)
++    expect(f.ledger.hasPending()).toBe(true)
++    child.reply()
++    await request.result; await request.actualSettled; await f.ledger.joinActual(); await flush()
++    expect(app.quit).toHaveBeenCalledTimes(2)
++    expect(f.ledger.hasPending()).toBe(false)
++    expect(notifications).toHaveLength(1)
++    guard.dispose()
++  })
++
+   it('registers one provider and installs the actual setter between foundation and editor services', () => {
+     const f = fixture()
+     f.events.push('editors')
+diff --git a/packages/xlsx-gateway/src/gateway/xlsx-package-io.ts b/packages/xlsx-gateway/src/gateway/xlsx-package-io.ts
+--- a/packages/xlsx-gateway/src/gateway/xlsx-package-io.ts
++++ b/packages/xlsx-gateway/src/gateway/xlsx-package-io.ts
+@@ -6,6 +6,7 @@
+ 
+ import { z } from 'zod'
+ import { AtomicSaveError, publishCompletedFile, withAtomicSaveQueue } from '../../../electron-utils/src/atomic-write'
++import { withAttestedFilePublication } from '../../../electron-utils/src/file-publication-exclusion'
+ 
+ import { MAX_PATCH_ENTRY_BYTES } from '../shared/edit-schemas'
+ import type { WorkbookChartEdit, WorkbookVisualEdit } from '../shared/edit-schemas'
+@@ -59,9 +60,17 @@
+   afterEntries: z.array(archiveEntrySchema),
+ })
+ 
++export interface ArchiveNativeRequestAdmission {
++  readonly result: Promise<unknown>
++  readonly completion: Promise<unknown>
++  readonly actualSettled: Promise<void>
++}
++
+ /// The subset of XlsxSidecarClient the streaming save path needs; tests can
+ /// substitute a stub.
+ export interface ArchiveClient {
++  /** Optional for other consumers; the streaming/native I/O path requires it. */
++  requestAttested?(command: Readonly<Record<string, unknown>>, timeoutMs?: number): ArchiveNativeRequestAdmission
+   archiveManifest(path: string): Promise<unknown>
+   readEntries(input: {
+     readonly path: string
+@@ -80,6 +89,78 @@
+     readonly removals: readonly string[]
+     readonly additions: readonly { name: string; contentPath: string }[]
+   }): Promise<unknown>
++}
++
++const ARCHIVE_TIMEOUT_MS = 180_000
++type ArchiveRequest = NonNullable<ArchiveClient['requestAttested']>
++
++function requireArchiveAttestation(client: ArchiveClient): ArchiveRequest {
++  if (typeof client.requestAttested !== 'function')
++    throw new Error('Native archive I/O requires definitive request attestation; no legacy dispatch was started.')
++  return client.requestAttested.bind(client)
++}
++
++/** Owns real requests and extraction tasks, including siblings after a planner rejects early. */
++class ArchiveNativeWork {
++  readonly mainActualSettled: Promise<void>
++  private resolveMainActual!: () => void
++  private readonly actual = new Set<Promise<unknown>>()
++  private closed = false
++  private unattested = false
++  constructor(private readonly dispatch: ArchiveRequest) {
++    this.mainActualSettled = new Promise<void>(resolve => { this.resolveMainActual = resolve })
++  }
++
++  private hold<T>(work: Promise<T>): Promise<T> {
++    this.actual.add(work)
++    void work.then(() => this.actual.delete(work), () => this.actual.delete(work))
++    return work
++  }
++
++  track<T>(start: () => Promise<T>): Promise<T> {
++    if (this.closed) return Promise.reject(new Error('The archive operation is no longer admitting work.'))
++    return this.hold(start())
++  }
++
++  request(command: Readonly<Record<string, unknown>>): ArchiveNativeRequestAdmission {
++    if (this.closed) throw new Error('The archive operation is no longer admitting native work.')
++    let operation: ArchiveNativeRequestAdmission
++    try {
++      operation = this.dispatch(command, ARCHIVE_TIMEOUT_MS)
++      if (!operation || typeof operation.result?.catch !== 'function' ||
++        typeof operation.completion?.then !== 'function' || typeof operation.actualSettled?.then !== 'function' ||
++        typeof operation.actualSettled?.catch !== 'function')
++        throw new Error('The native archive dispatch did not return definitive settlement attestation.')
++      void operation.result.catch(() => undefined)
++      this.hold(operation.actualSettled)
++      void operation.actualSettled.catch(() => { this.unattested = true })
++      return operation
++    } catch (error) {
++      // Dispatch may have accepted bytes before throwing. No cleanup permission
++      // is inferred from its failure; retained staging is safer than deletion.
++      this.unattested = true
++      throw error
++    }
++  }
++
++  completed(command: Readonly<Record<string, unknown>>): Promise<unknown> {
++    return this.request(command).completion
++  }
++
++  async closeAndDrain(): Promise<boolean> {
++    this.closed = true
++    for (;;) {
++      const pending = [...this.actual]
++      if (pending.length) await Promise.allSettled(pending)
++      await Promise.resolve()
++      if (!this.actual.size) return !this.unattested
++    }
++  }
++
++  /** Called only after the owned JS pipeline's real filesystem finalizers finish. */
++  finishMainFinalizers(): void {
++    if (this.closed && !this.actual.size && !this.unattested) this.resolveMainActual()
++  }
+ }
+ 
+ export interface StreamingSaveRequest {
+@@ -132,16 +213,17 @@
+   sourcePath: string,
+   entryName: string,
+ ): Promise<string> {
++  const native = new ArchiveNativeWork(requireArchiveAttestation(client))
+   const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-read-'))
+   try {
+     const extracted = readEntriesResultSchema.parse(
+-      await client.readEntries({ path: sourcePath, entries: [entryName], outputDir: workDir }),
++      await native.completed({ command: 'read_entries', path: sourcePath, entries: [entryName], outputDir: workDir }),
+     )
+     const filePath = extracted.entries[0]?.path
+     if (!filePath) throw new Error(`Workbook is missing ${entryName}.`)
+     return normalizeOoxmlPartPrefix(readFileSync(filePath, 'utf8'))
+   } finally {
+-    await rm(workDir, { recursive: true, force: true })
++    if (await native.closeAndDrain()) await rm(workDir, { recursive: true, force: true })
+   }
+ }
+ 
+@@ -151,20 +233,42 @@
+ export async function saveWorkbookViaSidecar(
+   request: StreamingSaveRequest,
+ ): Promise<StreamingSaveResult> {
+-  return withAtomicSaveQueue(request.targetPath, () => saveWorkbookViaSidecarQueued(request))
+-}
+-
+-async function saveWorkbookViaSidecarQueued(request: StreamingSaveRequest): Promise<StreamingSaveResult> {
++  const native = new ArchiveNativeWork(requireArchiveAttestation(request.client))
++  const temporaryTarget = join(dirname(request.targetPath), `${basename(request.targetPath)}.${randomUUID()}.tmp`)
++  const start = () => {
++    const result = (async () => {
++      try { return await withAtomicSaveQueue(request.targetPath, () => saveWorkbookViaSidecarQueued(request, native, temporaryTarget)) }
++      finally {
++        if (await native.closeAndDrain()) native.finishMainFinalizers()
++      }
++    })()
++    return { result, actualSettled: native.mainActualSettled }
++  }
++  return withAttestedFilePublication({ targetPath: request.targetPath, sourcePaths: [request.sourcePath] }, () => {
++    // This is the genuine full JS pipeline, not a caller's bounded result. The
++    // native temporary target is admitted BEFORE the first pipeline await, so
++    // its later native publisher is a continuation during a source/target move.
++    try {
++      return { result: withAttestedFilePublication({ targetPath: temporaryTarget, sourcePaths: [request.sourcePath] }, start),
++        actualSettled: native.mainActualSettled }
++    } catch (error) {
++      const result = (async (): Promise<StreamingSaveResult> => {
++        if (await native.closeAndDrain()) native.finishMainFinalizers()
++        throw error
++      })()
++      return { result, actualSettled: native.mainActualSettled }
++    }
++  })
++}
++
++async function saveWorkbookViaSidecarQueued(request: StreamingSaveRequest, native: ArchiveNativeWork,
++  temporaryTarget: string): Promise<StreamingSaveResult> {
+   const workDir = await mkdtemp(join(tmpdir(), 'ai-excel-save-'))
+-  const temporaryTarget = join(
+-    dirname(request.targetPath),
+-    `${basename(request.targetPath)}.${randomUUID()}.tmp`,
+-  )
+   try {
+     const manifest = manifestResultSchema.parse(
+-      await request.client.archiveManifest(request.sourcePath),
++      await native.completed({ command: 'archive_manifest', path: request.sourcePath }),
+     ).entries
+-    const source = createSidecarEntrySource(request.client, request.sourcePath, manifest, workDir)
++    const source = createSidecarEntrySource(native, request.sourcePath, manifest, workDir)
+     const plan = await planCellEditsToXlsx(
+       source,
+       request.edits,
+@@ -203,12 +307,15 @@
+       ...(await writePlanContents(workDir, 'add-bin', plan.addedBinary)),
+     ]
+     const result = saveArchiveResultSchema.parse(
+-      await request.client.saveArchive({
+-        sourcePath: request.sourcePath,
+-        targetPath: temporaryTarget,
+-        replacements,
+-        removals: plan.removedEntries,
+-        additions,
++      await withAttestedFilePublication({ targetPath: temporaryTarget,
++        sourcePaths: [request.sourcePath, ...replacements.map(item => item.contentPath), ...additions.map(item => item.contentPath)] }, () => {
++        const operation = native.request({ command: 'save_archive', sourcePath: request.sourcePath,
++          targetPath: temporaryTarget, replacements, removals: plan.removedEntries, additions })
++        // The streaming writer intentionally waits for the definitive archive
++        // response. A bounded caller timeout cannot release its input files.
++        // Own validation, atomic promotion and all main cleanup as well as the
++        // native command. A move cannot start in the reply-to-promotion gap.
++        return { result: operation.completion, actualSettled: native.mainActualSettled }
+       }),
+     )
+ 
+@@ -228,15 +335,15 @@
+   } catch (error: unknown) {
+     // A completed rescue file belongs to the user after publication refusal.
+     // Only incomplete/invalid archive output is disposable here.
+-    if (!(error instanceof AtomicSaveError)) await rm(temporaryTarget, { force: true })
++    if (await native.closeAndDrain() && !(error instanceof AtomicSaveError)) await rm(temporaryTarget, { force: true })
+     throw error
+   } finally {
+-    await rm(workDir, { recursive: true, force: true })
++    if (await native.closeAndDrain()) await rm(workDir, { recursive: true, force: true })
+   }
+ }
+ 
+ function createSidecarEntrySource(
+-  client: ArchiveClient,
++  native: ArchiveNativeWork,
+   sourcePath: string,
+   manifest: readonly ArchiveEntry[],
+   workDir: string,
+@@ -251,14 +358,14 @@
+       (entryByName.get(path)?.uncompressedSize ?? 0) <= MAX_PATCH_ENTRY_BYTES,
+     containsText: async (path, needle) => {
+       const scanned = scanEntriesResultSchema.parse(
+-        await client.scanEntries({ path: sourcePath, entries: [path], needle }),
++        await native.completed({ command: 'scan_entries', path: sourcePath, entries: [path], needle }),
+       )
+       return scanned.matches.includes(path)
+     },
+     releaseText: (path) => {
+       cache.delete(path)
+     },
+-    readText: async (path) => {
++    readText: (path) => native.track(async () => {
+       const cached = cache.get(path)
+       if (cached !== undefined) return cached
+       const entry = entryByName.get(path)
+@@ -273,14 +380,14 @@
+       extractionCount += 1
+       await mkdir(extractDir, { recursive: true })
+       const extracted = readEntriesResultSchema.parse(
+-        await client.readEntries({ path: sourcePath, entries: [path], outputDir: extractDir }),
++        await native.completed({ command: 'read_entries', path: sourcePath, entries: [path], outputDir: extractDir }),
+       )
+       const filePath = extracted.entries[0]?.path
+       if (!filePath) throw new Error(`Sidecar did not extract ${path}.`)
+       const content = normalizeOoxmlPartPrefix(readFileSync(filePath, 'utf8'))
+       cache.set(path, content)
+       return content
+-    },
++    }),
+   }
+ }
+ 
+diff --git a/packages/xlsx-gateway/tests/xlsx-package-io-attested.test.ts b/packages/xlsx-gateway/tests/xlsx-package-io-attested.test.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/xlsx-gateway/tests/xlsx-package-io-attested.test.ts
+@@ -0,0 +1,186 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
++import { existsSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { dirname, join } from 'node:path'
++import type { EntrySource, MutationPlan } from '../src/gateway/xlsx-gateway'
++import type { ArchiveClient, ArchiveNativeRequestAdmission } from '../src/gateway/xlsx-package-io'
++import { reserveFileMutation } from '../../electron-utils/src/file-publication-exclusion'
++
++const planning = vi.hoisted(() => ({ run: vi.fn() }))
++vi.mock('../src/gateway/xlsx-gateway', () => ({ planCellEditsToXlsx: (...args: unknown[]) => planning.run(...args), syncFileBestEffort: async () => undefined }))
++import { readArchiveEntryText, saveWorkbookViaSidecar } from '../src/gateway/xlsx-package-io'
++
++function deferred<T>() {
++  let resolve!: (value: T) => void, reject!: (error: unknown) => void
++  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
++  return { promise, resolve, reject }
++}
++async function flush() { for (let i = 0; i < 10; i++) await Promise.resolve() }
++function operation() {
++  const result = deferred<unknown>(), completion = deferred<unknown>(), actual = deferred<void>()
++  return { result, completion, actual,
++    admission: { result: result.promise, completion: completion.promise, actualSettled: actual.promise } }
++}
++const entry = (name: string, crc32 = 1) => ({ name, crc32, compressedSize: 1, uncompressedSize: 1 })
++function plan() {
++  return { replaced: new Map([['sheet.xml', '<patched/>']]), added: new Map([['added.xml', '<added/>']]),
++    addedBinary: new Map(), removedEntries: [], touchedEntries: ['sheet.xml'], addedEntries: ['added.xml'] } as unknown as MutationPlan
++}
++function nativeClient(dispatch: (command: Readonly<Record<string, unknown>>, timeoutMs?: number) => ArchiveNativeRequestAdmission) {
++  const legacy = { archiveManifest: vi.fn(async () => { throw new Error('legacy manifest dispatch forbidden') }),
++    readEntries: vi.fn(async () => { throw new Error('legacy extraction dispatch forbidden') }),
++    scanEntries: vi.fn(async () => { throw new Error('legacy scanning dispatch forbidden') }),
++    saveArchive: vi.fn(async () => { throw new Error('legacy save dispatch forbidden') }) }
++  return { client: { ...legacy, requestAttested: vi.fn(dispatch) } satisfies ArchiveClient, legacy }
++}
++/** Test worker action owns all its actual writes; no timer/race is used as attestation. */
++function finished(action: () => Promise<unknown>): ArchiveNativeRequestAdmission {
++  const completion = action()
++  return { result: completion, completion, actualSettled: completion.then(() => undefined, () => undefined) }
++}
++let root: string, sourcePath: string, targetPath: string
++beforeEach(async () => {
++  root = await mkdtemp(join(tmpdir(), 'vantage-attested-gateway-test-'))
++  sourcePath = join(root, 'source.xlsx'); targetPath = join(root, 'saved.xlsx')
++  await writeFile(sourcePath, 'synthetic source')
++  planning.run.mockReset(); planning.run.mockImplementation(async () => plan())
++})
++afterEach(async () => { await rm(root, { recursive: true, force: true }) })
++
++describe('attested native archive I/O (private successor sources)', () => {
++  it('refuses an unattested legacy client before dispatch or publication', async () => {
++    const f = nativeClient(() => { throw new Error('must not dispatch') })
++    const { requestAttested: _omitted, ...legacy } = f.client
++    await expect(saveWorkbookViaSidecar({ client: legacy, sourcePath, targetPath, edits: [] })).rejects.toThrow('requires definitive request attestation')
++    await expect(readArchiveEntryText(legacy, sourcePath, 'sheet.xml')).rejects.toThrow('requires definitive request attestation')
++    for (const method of Object.values(f.legacy)) expect(method).not.toHaveBeenCalled()
++    expect(existsSync(targetPath)).toBe(false)
++    expect(await readFile(sourcePath, 'utf8')).toBe('synthetic source')
++  })
++
++  it('preserves archive commands, payloads and180s budgets and protects exact native source/content files', async () => {
++    const saving = operation(), dispatched = deferred<Readonly<Record<string, unknown>>>()
++    const f = nativeClient(command => {
++      if (command.command === 'archive_manifest') return finished(async () => ({ entries: [entry('sheet.xml')] }))
++      if (command.command === 'scan_entries') return finished(async () => ({ matches: ['sheet.xml'] }))
++      if (command.command === 'read_entries') return finished(async () => {
++        const path = join(String(command.outputDir), 'entry.xml'); await writeFile(path, '<original/>')
++        return { entries: [{ name: 'sheet.xml', path }] }
++      })
++      if (command.command === 'save_archive') { dispatched.resolve(command); return saving.admission }
++      throw new Error('unexpected command')
++    })
++    planning.run.mockImplementation(async (source: EntrySource) => {
++      expect(await source.containsText!('sheet.xml', 'needle')).toBe(true)
++      expect(await source.readText('sheet.xml')).toBe('<original/>')
++      return plan()
++    })
++    const pending = saveWorkbookViaSidecar({ client: f.client, sourcePath, targetPath, edits: [] })
++    const command = await dispatched.promise
++    expect(f.client.requestAttested.mock.calls.map(([input]) => input.command)).toEqual(['archive_manifest', 'scan_entries', 'read_entries', 'save_archive'])
++    for (const [, timeout] of f.client.requestAttested.mock.calls) expect(timeout).toBe(180_000)
++    expect(command.sourcePath).toBe(sourcePath)
++    expect(command.targetPath).not.toBe(targetPath)
++    expect(dirname(String(command.targetPath))).toBe(dirname(targetPath))
++    const replacements = command.replacements as { name: string; contentPath: string }[]
++    const additions = command.additions as { name: string; contentPath: string }[]
++    expect(await readFile(replacements[0]!.contentPath, 'utf8')).toBe('<patched/>')
++    expect(await readFile(additions[0]!.contentPath, 'utf8')).toBe('<added/>')
++    const moves = [sourcePath, replacements[0]!.contentPath, additions[0]!.contentPath].map(path => reserveFileMutation([{ path, kind: 'file' }]))
++    for (const move of moves) expect(move.isReady()).toBe(false)
++    saving.result.reject(new Error('bounded archive caller timed out')); await flush()
++    for (const move of moves) expect(move.isReady()).toBe(false)
++    expect(existsSync(replacements[0]!.contentPath)).toBe(true)
++    expect(existsSync(targetPath)).toBe(false)
++    await writeFile(String(command.targetPath), 'completed native archive')
++    saving.completion.resolve({ beforeEntries: [entry('sheet.xml')], afterEntries: [entry('sheet.xml', 2), entry('added.xml', 3)] })
++    saving.actual.resolve()
++    // Full gateway ownership outlives the native reply through promotion and cleanup.
++    for (const move of moves) { await move.ready; expect(move.cancelPending()).toBe(true) }
++    expect(await pending).toMatchObject({ touchedEntries: ['sheet.xml'], addedEntries: ['added.xml'] })
++    expect(await readFile(targetPath, 'utf8')).toBe('completed native archive')
++    expect(existsSync(replacements[0]!.contentPath)).toBe(false)
++    for (const method of Object.values(f.legacy)) expect(method).not.toHaveBeenCalled()
++  })
++
++  it('native save failure cannot remove its temporary archive or staging inputs before actual settlement', async () => {
++    const saving = operation(), dispatched = deferred<Readonly<Record<string, unknown>>>()
++    const f = nativeClient(command => {
++      if (command.command === 'archive_manifest') return finished(async () => ({ entries: [entry('sheet.xml')] }))
++      dispatched.resolve(command); return saving.admission
++    })
++    const pending = saveWorkbookViaSidecar({ client: f.client, sourcePath, targetPath, edits: [] })
++    const command = await dispatched.promise
++    const staging = dirname((command.replacements as { contentPath: string }[])[0]!.contentPath)
++    const temporaryTarget = String(command.targetPath)
++    await writeFile(temporaryTarget, 'partial native archive')
++    saving.result.reject(new Error('bounded timeout'))
++    const failure = new Error('definitive native archive failure')
++    saving.completion.reject(failure); await flush()
++    expect(existsSync(staging)).toBe(true); expect(existsSync(temporaryTarget)).toBe(true)
++    expect(existsSync(targetPath)).toBe(false)
++    saving.actual.resolve()
++    await expect(pending).rejects.toBe(failure)
++    expect(existsSync(staging)).toBe(false); expect(existsSync(temporaryTarget)).toBe(false)
++  })
++
++  it('an admitted save continues its exact native temporary target when a source move begins during planning', async () => {
++    const entered = deferred<void>(), resume = deferred<void>()
++    const f = nativeClient(command => {
++      if (command.command === 'archive_manifest') return finished(async () => ({ entries: [entry('sheet.xml')] }))
++      if (command.command === 'save_archive') return finished(async () => {
++        await writeFile(String(command.targetPath), 'completed while move drains')
++        return { beforeEntries: [entry('sheet.xml')], afterEntries: [entry('sheet.xml', 2), entry('added.xml', 3)] }
++      })
++      throw new Error('unexpected command')
++    })
++    planning.run.mockImplementation(async () => { entered.resolve(); await resume.promise; return plan() })
++    const pending = saveWorkbookViaSidecar({ client: f.client, sourcePath, targetPath, edits: [] })
++    await entered.promise
++    const move = reserveFileMutation([{ path: sourcePath, kind: 'file' }])
++    expect(move.isReady()).toBe(false)
++    resume.resolve()
++    await expect(pending).resolves.toMatchObject({ touchedEntries: ['sheet.xml'] })
++    await move.ready; expect(move.cancelPending()).toBe(true)
++    expect(await readFile(targetPath, 'utf8')).toBe('completed while move drains')
++  })
++
++  it('one-shot entry read waits for late extraction and its actual finalizer before removing the output directory', async () => {
++    const reading = operation(), dispatched = deferred<Readonly<Record<string, unknown>>>()
++    const f = nativeClient(command => { dispatched.resolve(command); return reading.admission })
++    let complete = false
++    const pending = readArchiveEntryText(f.client, sourcePath, 'sheet.xml').then(value => { complete = true; return value })
++    const command = await dispatched.promise, directory = String(command.outputDir)
++    reading.result.reject(new Error('bounded timeout')); await flush()
++    expect(existsSync(directory)).toBe(true); expect(complete).toBe(false)
++    const path = join(directory, 'late.xml'); await writeFile(path, '<worksheet/>')
++    reading.completion.resolve({ entries: [{ name: 'sheet.xml', path }] }); await flush()
++    expect(existsSync(directory)).toBe(true); expect(complete).toBe(false)
++    reading.actual.resolve()
++    expect(await pending).toBe('<worksheet/>'); expect(existsSync(directory)).toBe(false)
++  })
++
++  it('a rejected parallel planner read drains the sibling extraction and its JS file read before cleanup', async () => {
++    const bad = operation(), slow = operation(), both = deferred<void>(), commands: Readonly<Record<string, unknown>>[] = []
++    const f = nativeClient(command => {
++      if (command.command === 'archive_manifest') return finished(async () => ({ entries: [entry('bad.xml'), entry('slow.xml')] }))
++      commands.push(command); if (commands.length === 2) both.resolve()
++      return (command.entries as string[])[0] === 'bad.xml' ? bad.admission : slow.admission
++    })
++    planning.run.mockImplementation(async (source: EntrySource) => {
++      await Promise.all([source.readText('bad.xml'), source.readText('slow.xml')]); return plan()
++    })
++    const pending = saveWorkbookViaSidecar({ client: f.client, sourcePath, targetPath, edits: [] })
++    await both.promise
++    const slowCommand = commands.find(command => (command.entries as string[])[0] === 'slow.xml')!
++    const staging = dirname(String(slowCommand.outputDir)), failure = new Error('bad entry failed')
++    bad.result.reject(failure); bad.completion.reject(failure); bad.actual.resolve(); await flush()
++    expect(existsSync(staging)).toBe(true)
++    const path = join(String(slowCommand.outputDir), 'entry.xml'); await writeFile(path, '<late-but-valid/>')
++    slow.result.resolve({ entries: [{ name: 'slow.xml', path }] })
++    slow.completion.resolve({ entries: [{ name: 'slow.xml', path }] }); slow.actual.resolve()
++    await expect(pending).rejects.toBe(failure)
++    expect(existsSync(staging)).toBe(false); expect(existsSync(targetPath)).toBe(false)
++  })
++})

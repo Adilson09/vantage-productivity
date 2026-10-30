@@ -519,7 +519,16 @@ const kitchenSinkTable = `<?xml version="1.0" encoding="UTF-8"?>
 const kitchenSinkComments = `<?xml version="1.0" encoding="UTF-8"?>
 <comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><authors><author>fixture</author></authors><commentList><comment ref="B1" authorId="0"><text><t>note</t></text></comment></commentList></comments>`
 
-const kitchenSinkVml = `<xml xmlns:v="urn:schemas-microsoft-com:vml"><v:shape id="_x0000_s1025" type="#_x0000_t202" style="visibility:hidden"/></xml>`
+// This is the note accompanying comments1.xml!B1, rather than an anonymous
+// VML shape. Unknown shapes deliberately remain protected by the macro guard.
+const kitchenSinkVml = `<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+  <o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="1"/></o:shapelayout>
+  <v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe"><v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype>
+  <v:shape id="_x0000_s1025" type="#_x0000_t202" style="position:absolute;width:108pt;height:60pt;visibility:hidden">
+    <v:path o:connecttype="none"/><v:textbox><div style="text-align:left"/></v:textbox>
+    <x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/><x:Anchor>1,15,0,2,3,15,4,2</x:Anchor><x:AutoFill>False</x:AutoFill><x:Row>0</x:Row><x:Column>1</x:Column></x:ClientData>
+  </v:shape>
+</xml>`
 
 const kitchenSinkPng = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,

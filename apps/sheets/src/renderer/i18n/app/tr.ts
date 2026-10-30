@@ -327,7 +327,7 @@ export const tr = {
   appPivotSheetNoStructural:
     'Bu sayfa bir PivotTable içeriyor — yapısal değişiklikler henüz desteklenmiyor.',
   appDeleteSpanFormulas:
-    'Bir formül yalnızca silinen satırlara/sütunlara başvuruyor — önce güncelleyin veya kaldırın.',
+    'Bu silme işleminden sonra bir formül güvenli biçimde güncellenemiyor. Önce bu formülü değiştirin veya kaldırın.',
   appIconSetUnsupported:
     'Bu simge bileşimi xlsx’e kaydedilemez — lütfen farklı bir simge kümesi seçin.',
   appFullLoadFilterTitle: 'Bu işlem için tüm çalışma kitabı gerekir',

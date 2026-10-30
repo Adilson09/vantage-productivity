@@ -1,0 +1,29 @@
+PRIVATE SOURCE SUCCESSOR — APPLY AFTER FROZEN NATIVE19, NOT APPLIED HERE
+
+This layer starts standalone GUI recovery/close protection only after the GUI mode and
+instance lock are confirmed, before editor services. It reuses Runtime6 and the actual
+native observer rather than starting the full office shell. Cancellation stops the old
+quit intention while genuine native and protected cleanup holds remain live.
+
+Headless recovery uses explicit volatile storage; encryption still describes actual
+password protection. Volatile mode allocates no recovery store, manifest or candidate,
+does not probe the private recovery root, validates real native acknowledgements and
+source hashes, and does not grant GUI close cleanup authority.
+The adjacent legacy Main recovery writer, reader/list/index/clear paths and quiet
+recovery-copy path also refuse disabled/headless mode before private-root I/O.
+
+The headless export path retains genuine owner cleanup, initial workbook-open work,
+and PDF/staging JavaScript work through renderer timeout and failure, closes new
+export admission during teardown,
+and waits native work plus verified child exit before returning to Root. A grace timer
+only requests termination. It never manufactures a finalizer. Terminal stop refuses
+new native admissions; close/shutdown races still await confirmed exit before cleanup.
+
+Main and client before files must match frozen Native19 after bytes. Recovery class
+before bytes originate from the held candidate. New helper and regression sources are
+absent there. Exact permitted origins, after-byte hashes, dependency hashes and unrun
+scope are recorded in the receipt. No candidate, primary, shared W2, prior frozen layer
+or sealed Rust RC source was changed by this successor.
+
+Root must compose and validate this layer with Native19 before claiming final headless
+acceptance. Regression case counts here are proposed sources, never pass counts.

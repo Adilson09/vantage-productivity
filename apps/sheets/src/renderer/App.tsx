@@ -33,10 +33,7 @@ import {
   noteSidecarCrash,
 } from './univer-sync'
 import { installGridGrowth } from './grid-growth'
-import {
-  pollUntilReady,
-  runHeadlessRendererExport,
-} from '@vantage/electron-utils/headless-export'
+import { pollUntilReady, runHeadlessRendererExport } from '@vantage/electron-utils/headless-export'
 import {
   commitActiveCellEditor,
   installJournalSuppressionUndoFilter,
@@ -459,6 +456,8 @@ import { handleExportCsv as handleExportCsvImpl, type CsvExportContext } from '.
 import { effectivePageBreaks, installPageBreakPreview } from './page-break-preview'
 import { mapProtectedRanges } from './protected-ranges'
 import { handleSave as handleSaveImpl, type SaveContext, type SaveOutcome } from './save-actions'
+import { DocumentCheckpointLoop } from './document-checkpoint-loop'
+import { enqueueWorkbookMutation, workbookMutationsPending } from './workbook-mutation-queue'
 import {
   applyChartEdit as applyChartEditImpl,
   applyShapeEdit as applyShapeEditImpl,
@@ -679,7 +678,13 @@ export function App({
   const [preview, setPreview] = useState<ChangePlan | null>(null)
   const [_revision, setRevision] = useState(0)
   const [workbookFile, setWorkbookFile] = useState<WorkbookFile | null>(null)
-  const [pendingEdits, setPendingEdits] = useState(0)
+  const [pendingEdits, setPendingEditsState] = useState(0)
+  const documentEditGenerationRef = useRef(0)
+  const setPendingEdits = useCallback((count: number) => {
+    // Same-cell re-edits keep the badge count but still require persistence.
+    documentEditGenerationRef.current += 1
+    setPendingEditsState(count)
+  }, [])
   /// Whether any cell in the workbook has content — the ribbon's one-click AI
   /// action buttons are greyed out on a fully empty sheet.
   const [sheetHasContent, setSheetHasContent] = useState(false)
@@ -709,14 +714,20 @@ export function App({
   // The close guard lives in the main process; keep it fed with the badge count.
   useEffect(() => {
     window.desktopApi?.notifyPendingEdits?.(
-      pendingEditsForClose(pendingEdits, editingCellRef.current),
+      pendingEditsForClose(
+        pendingEdits +
+          (redactionsPendingSave() ? 1 : 0) +
+          (lazyWorkbookRef.current?.file.restoredFromRecovery ? 1 : 0),
+        editingCellRef.current,
+      ),
     )
-  }, [pendingEdits])
+  }, [pendingEdits, _revision, workbookFile?.sessionId])
   const [autoSave, setAutoSave] = useAutoSavePref('ai-sheets-auto-save', window.desktopApi)
   // Ref mirror for callbacks captured when an AI run starts
   const autoSaveRef = useRef(autoSave)
   autoSaveRef.current = autoSave
   const saveGateRef = useRef(createSaveGate())
+  const documentPublicationInFlightRef = useRef(false)
   // AutoSave tick (docs/slides parity): every 30 s and on window blur, flush
   // pending edits of the open workbook. The journal is read at tick time so
   // the interval stays stable; demo mode has no backing file and is skipped.
@@ -732,7 +743,7 @@ export function App({
       if (
         !state ||
         !shouldRunSaveTick({
-          saveInFlight: saveGateRef.current.busy,
+          saveInFlight: saveGateRef.current.busy || workbookMutationsPending(),
           hasWorkbook: true,
           journalEmpty: journalSize(state.editJournal) === 0,
           redactionsPendingSave: redactionsPendingSave(),
@@ -768,7 +779,7 @@ export function App({
       if (
         !state ||
         !shouldRunSaveTick({
-          saveInFlight: saveGateRef.current.busy,
+          saveInFlight: saveGateRef.current.busy || workbookMutationsPending(),
           hasWorkbook: true,
           journalEmpty: journalSize(state.editJournal) === 0,
           redactionsPendingSave: redactionsPendingSave(),
@@ -787,6 +798,39 @@ export function App({
     return () => window.clearInterval(id)
   }, [])
   const [recoveryPrompt, setRecoveryPrompt] = useState<RecoveryPromptPayload | null>(null)
+  useEffect(() => {
+    const loop = new DocumentCheckpointLoop({
+      observe: () => {
+        const state = lazyWorkbookRef.current
+        return state
+          ? {
+              sessionId: state.file.sessionId,
+              generation: documentEditGenerationRef.current,
+              pending:
+                journalSize(state.editJournal) > 0 ||
+                redactionsPendingSave() ||
+                state.file.restoredFromRecovery === true,
+              paused:
+                editingCellRef.current ||
+                workbookMutationsPending() ||
+                saveGateRef.current.busy ||
+                typeof window.desktopApi?.checkpointWorkbookDocument !== 'function',
+            }
+          : null
+      },
+      checkpoint: () => handleSaveRef.current('checkpoint'),
+    })
+    const tick = () => {
+      void loop.poll()
+    }
+    const timer = window.setInterval(tick, 400)
+    window.addEventListener('blur', tick)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('blur', tick)
+      loop.dispose()
+    }
+  }, [])
   useEffect(
     () => window.desktopApi?.onRecoveryPrompt?.((prompt) => setRecoveryPrompt(prompt)) ?? undefined,
     [],
@@ -932,7 +976,7 @@ export function App({
   /// menuActionRef, so the interval closure never goes stale).
   const handleSaveRef = useRef<
     (
-      mode: 'save' | 'save-as' | 'recovery',
+      mode: 'save' | 'save-as' | 'recovery' | 'checkpoint',
       quiet?: boolean,
       explicitTarget?: { path: string; overwrite: boolean },
     ) => Promise<SaveOutcome>
@@ -1107,6 +1151,13 @@ export function App({
       // null until the part was read: a save in that window must not clear it
       redactionStates: () =>
         loadedRedactionStatesRef.current === null ? null : redactionStatesRef.current,
+      documentDirty: () =>
+        Boolean(
+          lazyWorkbookRef.current &&
+          (journalSize(lazyWorkbookRef.current.editJournal) > 0 ||
+            redactionsPendingSave() ||
+            lazyWorkbookRef.current.file.restoredFromRecovery === true),
+        ),
       stashViewRestore: (view) => {
         viewRestoreRef.current = view
       },
@@ -1918,6 +1969,7 @@ export function App({
               endColumn: clearEndCol,
             })
       redactionStatesRef.current = next
+      documentEditGenerationRef.current += 1
       rebuildRedactionIndex()
       // The tint is the only thing the mark ever did to the reader's own
       // formatting, so clearing has to take it back off.
@@ -2009,6 +2061,7 @@ export function App({
     }
     const next = addMark(redactionStatesRef.current, pending.sheetName, mark)
     redactionStatesRef.current = next
+    documentEditGenerationRef.current += 1
     // Not `indexFor(next, …)`: the states are in file coordinates now, and the
     // index the grid reads has to be the screen ones. The same replay the
     // loaded marks go through covers this one.
@@ -2511,7 +2564,12 @@ export function App({
     const syncCellEditorPending = (): void => {
       const state = lazyWorkbookRef.current
       window.desktopApi?.notifyPendingEdits?.(
-        pendingEditsForClose(state ? journalSize(state.editJournal) : 0, editingCellRef.current),
+        pendingEditsForClose(
+          (state ? journalSize(state.editJournal) : 0) +
+            (redactionsPendingSave() ? 1 : 0) +
+            (state?.file.restoredFromRecovery ? 1 : 0),
+          editingCellRef.current,
+        ),
       )
     }
     const editStartDisposable = runtime.univerAPI.addEvent(
@@ -3209,6 +3267,20 @@ export function App({
       (event) => {
         const state = lazyWorkbookRef.current
         if (journalSuppression.active || !state) return
+        // Publication installs a clean replacement workbook. Block new input
+        // mutations until that replacement exists so structural/metadata edits
+        // cannot be lost while the old journal is being retired. Calculated
+        // results and the suppressed installation remain derived work.
+        if (
+          documentPublicationInFlightRef.current &&
+          !(event.options as { fromFormula?: boolean } | undefined)?.fromFormula &&
+          (/^(?:sheet|drawing)\.(?:command|mutation)\./.test(event.id) ||
+            event.id === 'univer.command.undo' ||
+            event.id === 'univer.command.redo')
+        ) {
+          event.cancel = true
+          return
+        }
         if (event.id === SET_RANGE_VALUES_COMMAND || event.id === SET_RANGE_VALUES_MUTATION) {
           // Quadratic array-criteria formulas (distinct-count COUNTIF idioms
           // over 80k+ rows) freeze the main-thread formula engine for
@@ -3282,9 +3354,9 @@ export function App({
             setMessage(t('appPivotSheetNoStructural'))
             return
           }
-          // The save aborts when a formula references only the deleted span;
-          // reject the removal up front like the AI path does (#1134). The
-          // remove commands act on the selection unless a range is given.
+          // Reject reference forms the preserving writer cannot update safely.
+          // Ordinary deleted references become #REF!. Remove commands act on
+          // the selection unless a range is given.
           if (sheet && /^sheet\.command\.remove-(row|col)/.test(event.id)) {
             const uiWorkbook = runtime.univerAPI.getActiveWorkbook()
             const range =
@@ -5127,7 +5199,7 @@ export function App({
   }
 
   async function handleSave(
-    mode: 'save' | 'save-as' | 'recovery',
+    mode: 'save' | 'save-as' | 'recovery' | 'checkpoint',
     quiet = false,
     explicitTarget?: { path: string; overwrite: boolean },
     defaultName?: string,
@@ -5135,11 +5207,35 @@ export function App({
     // Manual and AI saves take the same gate as the timers: a recovery copy
     // written beside a real save would outlive it as a phantom Restore prompt.
     const gate = saveGateRef.current
-    if (mode === 'recovery' && gate.busy) return { ok: false }
+    if ((mode === 'recovery' || mode === 'checkpoint') && (gate.busy || workbookMutationsPending()))
+      return { ok: false }
+    if (mode === 'checkpoint' && editingCellRef.current) return { ok: false }
     return gate.run(async () => {
-      if (!(await commitActiveEditor())) return { ok: false }
-      return handleSaveImpl(saveContext(), mode, quiet, explicitTarget, defaultName)
+      if (mode !== 'checkpoint' && !(await commitActiveEditor())) return { ok: false }
+      const save = () => handleSaveImpl(saveContext(), mode, quiet, explicitTarget, defaultName)
+      return mode === 'save' || mode === 'save-as' ? withWorkbookPublication(save) : save()
     })
+  }
+  async function withWorkbookPublication<T>(write: () => Promise<T>): Promise<T> {
+    const inertBefore = document.body.inert
+    document.body.inert = true
+    try {
+      // Earlier batches may still be awaiting indexed state or image data.
+      // Let them finish before capturing the full document. Later batches
+      // remain queued and revalidate their workbook after the replacement.
+      return await enqueueWorkbookMutation(async () => {
+        documentPublicationInFlightRef.current = true
+        try {
+          return await write()
+        } finally {
+          documentPublicationInFlightRef.current = false
+        }
+      })
+    } finally {
+      document.body.inert = inertBefore
+      documentPublicationInFlightRef.current = false
+      if (!inertBefore) requestAnimationFrame(() => focusSheetGrid())
+    }
   }
   async function updateWorkbookPassword(newPassword: string): Promise<string | null> {
     try {
@@ -5153,7 +5249,9 @@ export function App({
         // Commit all current sheet edits before changing the package password.
         // The sidecar snapshot stays plaintext for this session, while the
         // main process updates the encrypted file atomically on disk.
-        const saved = await handleSaveImpl(saveContext(), 'save', true)
+        const saved = await withWorkbookPublication(() =>
+          handleSaveImpl(saveContext(), 'save', true),
+        )
         const current = lazyWorkbookRef.current
         if (!current) return t('appWorkbookNotReady')
         if (!saved.ok && journalSize(current.editJournal) > 0) {
@@ -5199,16 +5297,25 @@ export function App({
       return
     }
     const state = lazyWorkbookRef.current
-    if (!state || journalSize(state.editJournal) === 0) {
+    if (
+      !state ||
+      (journalSize(state.editJournal) === 0 &&
+        !redactionsPendingSave() &&
+        !state.file.restoredFromRecovery)
+    ) {
       window.desktopApi?.reportCloseSaveResult?.(true)
       return
     }
-    await handleSave('save')
+    const outcome = await handleSave('save')
     // handleSave swallows errors into the status bar; a drained journal
     // (fresh state after openLazyWorkbook) is the success signal.
     const after = lazyWorkbookRef.current
     window.desktopApi?.reportCloseSaveResult?.(
-      after === null || journalSize(after.editJournal) === 0,
+      outcome.ok &&
+        (after === null ||
+          (journalSize(after.editJournal) === 0 &&
+            !redactionsPendingSave() &&
+            !after.file.restoredFromRecovery)),
     )
   }
   function sortColumnOptions(): { label: string; colIndex: number }[] {

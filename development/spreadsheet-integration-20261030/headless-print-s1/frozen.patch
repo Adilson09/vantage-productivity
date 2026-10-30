@@ -1,0 +1,104 @@
+diff --git a/apps/sheets/src/main/interactive-sheets-print.ts b/apps/sheets/src/main/interactive-sheets-print.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/src/main/interactive-sheets-print.ts
+@@ -0,0 +1,13 @@
++/** Printing is an interactive operation, outside the headless export lifetime. */
++export interface SheetsPrintMode {
++  recoveryDisabled: boolean
++  headlessOwner: boolean
++}
++
++/** Gate the complete handler so refusal precedes even session/request effects. */
++export function runInteractiveSheetsPrint<T>(mode: SheetsPrintMode, print: () => T): T {
++  if (mode.recoveryDisabled || mode.headlessOwner) {
++    throw new Error('Printing is unavailable during headless spreadsheet export.')
++  }
++  return print()
++}
+diff --git a/apps/sheets/src/main/sheets-main.ts b/apps/sheets/src/main/sheets-main.ts
+--- a/apps/sheets/src/main/sheets-main.ts
++++ b/apps/sheets/src/main/sheets-main.ts
+@@ -2,6 +2,7 @@
+ import { initializeStandaloneSheetsCloseRuntime, type StandaloneSheetsCloseRuntime } from './standalone-close-runtime'
+ import { settleHeadlessSheetsCleanup } from './headless-sheets-cleanup'
+ import { HeadlessSheetsOwnerWork } from './headless-sheets-owner-work'
++import { runInteractiveSheetsPrint } from './interactive-sheets-print'
+ import { createHash, randomUUID } from 'node:crypto'
+ import { AsyncResource } from 'node:async_hooks'
+ import { assertWorkbookTargetUnchanged } from './workbook-source-expectation'
+@@ -4442,8 +4443,13 @@
+   })
+ 
+   ipcMain.handle(IPC_CHANNELS.printWorkbook, async (event, input: unknown) => {
+-    sessionFor(event)
+-    return printWorkbook(event, workbookExportPdfRequestSchema.parse(input))
++    return runInteractiveSheetsPrint({
++      recoveryDisabled: recoveryRuntimeState().phase === 'disabled',
++      headlessOwner: headlessOwnerWork.has(event.sender),
++    }, () => {
++      sessionFor(event)
++      return printWorkbook(event, workbookExportPdfRequestSchema.parse(input))
++    })
+   })
+ 
+   ipcMain.handle(IPC_CHANNELS.listPrinters, async (event) => {
+diff --git a/apps/sheets/tests/interactive-sheets-print.test.ts b/apps/sheets/tests/interactive-sheets-print.test.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/sheets/tests/interactive-sheets-print.test.ts
+@@ -0,0 +1,54 @@
++import { describe, expect, it, vi } from 'vitest'
++import { runInteractiveSheetsPrint } from '../src/main/interactive-sheets-print'
++
++describe('interactive spreadsheet print admission', () => {
++  it.each([
++    { recoveryDisabled: true, headlessOwner: false },
++    { recoveryDisabled: false, headlessOwner: true },
++    { recoveryDisabled: true, headlessOwner: true },
++  ])('refuses $recoveryDisabled/$headlessOwner before session, parsing or printing', mode => {
++    const sessionFor = vi.fn(() => { throw new Error('The destroyed owner has no session.') })
++    const parseRequest = vi.fn(() => { throw new Error('The queued request is invalid.') })
++    const print = vi.fn(async (_session: unknown, _request: unknown) => ({ canceled: false }))
++    expect(() => runInteractiveSheetsPrint(mode, () => {
++      const session = sessionFor()
++      const request = parseRequest()
++      return print(session, request)
++    })).toThrow('Printing is unavailable during headless spreadsheet export.')
++    expect(sessionFor).not.toHaveBeenCalled()
++    expect(parseRequest).not.toHaveBeenCalled()
++    expect(print).not.toHaveBeenCalled()
++  })
++
++  it('preserves the GUI print promise and invokes its effects exactly once', async () => {
++    const order: string[] = []
++    const session = { owner: 'interactive' }, request = { pages: [1] }
++    const result = { canceled: false }
++    const actual = Promise.resolve(result)
++    const sessionFor = vi.fn(() => { order.push('session'); return session })
++    const parseRequest = vi.fn(() => { order.push('parse'); return request })
++    const print = vi.fn((owned: typeof session, parsed: typeof request) => {
++      order.push('print')
++      expect(owned).toBe(session)
++      expect(parsed).toBe(request)
++      return actual
++    })
++    const returned = runInteractiveSheetsPrint({ recoveryDisabled: false, headlessOwner: false }, () => {
++      const owned = sessionFor()
++      const parsed = parseRequest()
++      return print(owned, parsed)
++    })
++    expect(returned).toBe(actual)
++    expect(await returned).toBe(result)
++    expect(order).toEqual(['session', 'parse', 'print'])
++    expect(print).toHaveBeenCalledTimes(1)
++  })
++
++  it('preserves ordinary GUI print rejection without treating it as headless refusal', async () => {
++    const failure = new Error('The interactive printer rejected the request.')
++    const actual = Promise.reject(failure)
++    const returned = runInteractiveSheetsPrint({ recoveryDisabled: false, headlessOwner: false }, () => actual)
++    expect(returned).toBe(actual)
++    await expect(returned).rejects.toBe(failure)
++  })
++})

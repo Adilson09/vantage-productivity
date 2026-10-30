@@ -2639,7 +2639,10 @@ export function toRecalcUserInput(entry: JournalEntry): string {
   if (value === null) return ''
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
   if (typeof value === 'number') return String(value)
-  return value.startsWith('=') || value.startsWith("'") ? `'${value}` : value
+  // Every journal string is already typed text. IronCalc's user-input
+  // parser otherwise turns numeric/boolean/date/error-looking strings into
+  // different values, and an empty string means clear on this transport.
+  return `'${value}`
 }
 
 export function toSaveEdits(journal: EditJournal): WorkbookCellEdit[] {

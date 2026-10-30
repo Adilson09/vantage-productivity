@@ -1,0 +1,24 @@
+PRIVATE SOURCE SUCCESSOR — NOT APPLIED, NO CHECKS RUN
+
+Apply only through Root's authorized composition. The held candidate, primary source,
+shared W2 layer, prior frozen layers and sealed Rust RC were not modified.
+The after-file byte inventory is authoritative; frozen.patch is a normalized review diff.
+
+This layer retains native request ownership through exact same-generation reply or
+verified child exit, independently of caller timeout. It registers actual work before
+dispatch, carries native document checkpoint/close completion into recovery, and binds
+the real native observer into the GUI quit ledger. Save/archive/output reservations
+cover real physical targets and input paths, native output, main adoption, validation,
+all extraction tasks, and staging cleanup. A source offer retains its genuine finalizer
+until adoption/rejection/actual owner teardown.
+
+Automatic rename now reserves source and destination outside its own document queue,
+waits earlier genuine publishers, checks the loaded/owned-published source digest,
+publishes exclusively without overwriting a destination, and retains mutation ownership
+through the exact renderer full-checkpoint result and separate actual finalizer.
+Moved-then-refresh failure retains the new path and reports the pending refresh truthfully.
+Owner teardown exposes its actual cleanup join for the separate headless successor.
+
+Known boundaries and unrun source case scopes are in freeze-input.json and receipt.
+Do not combine this proposal's test-source counts with historical Rust RC pass counts.
+The generic Root external file-move refresh contract remains separately owned by Root.

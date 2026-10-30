@@ -345,7 +345,7 @@ export const it = {
   appPivotSheetNoStructural:
     'Questo foglio contiene una tabella pivot — le modifiche strutturali non sono ancora supportate.',
   appDeleteSpanFormulas:
-    'Una formula fa riferimento solo alle righe/colonne eliminate — aggiornala o rimuovila prima.',
+    'Una formula non può essere aggiornata in modo sicuro dopo questa eliminazione. Modifica o rimuovi prima la formula.',
   appIconSetUnsupported:
     'Questa combinazione di icone non può essere salvata in xlsx — scegli un altro set di icone.',
   appFullLoadFilterTitle: 'Questa azione richiede la cartella di lavoro completa',

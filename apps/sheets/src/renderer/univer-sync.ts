@@ -1,4 +1,5 @@
 import { keepActiveSheet } from './sheet-focus'
+import { nativeCalculationValue } from './native-calculation-value'
 /**
  * Univer runtime synchronization helpers for the sheets renderer.
  *
@@ -2732,7 +2733,8 @@ async function runFormulaRecalc(
     // A newer run superseded this one while the sidecar was evaluating.
     if (lazyWorkbookRef.current !== state || state.recalc.generation !== generation) return
     const overlay = new Map<string, PinnedClosureCell>()
-    let unsupported = 0
+    const nativeUnverified = result.cacheWritebackAllowed === false
+    let unsupported = nativeUnverified ? 1 : 0
     const journalCells = state.editJournal.cells.get(sheetId)
     const formulaTextBySheet = state.formulaText.get(sheetId)
     const sharedBySheet = state.sharedFormulaGroups.get(sheetId)
@@ -2746,6 +2748,10 @@ async function runFormulaRecalc(
       const formulaText =
         formulaTextBySheet?.get(key) ?? sharedBySheet?.textAt(cell.row, cell.column)
       const cached = cachedBySheet?.get(key)
+      if (nativeUnverified && hasUsableCachedValue(cached)) {
+        unsupported += 1
+        continue
+      }
       if (recalcResultKeepsCache(cell.formatted, formulaText, cached, edits.length > 0)) {
         unsupported += 1
         continue
@@ -2753,7 +2759,7 @@ async function runFormulaRecalc(
       candidates.push({
         key,
         cell: {
-          v: cell.number ?? cell.formatted,
+          v: nativeCalculationValue(cell),
           ...(cell.isError ? { isError: true } : {}),
         },
         cached,

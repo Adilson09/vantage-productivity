@@ -85,6 +85,18 @@ export const editRecalcResultSchema = z
           row: z.number().int().nonnegative(),
           column: z.number().int().nonnegative(),
           formatted: z.string(),
+          // Additive for older sidecars; current native results always send
+          // this field. Derived caches must require it rather than infer a
+          // boolean or text value from its formatted display.
+          value: z
+            .union([
+              z.number(),
+              z.boolean(),
+              z.string(),
+              z.null(),
+              z.object({ error: z.string().max(32) }).strict(),
+            ])
+            .optional(),
           number: z.number().optional(),
           isError: z.boolean().optional(),
           isFormula: z.boolean(),
@@ -92,6 +104,9 @@ export const editRecalcResultSchema = z
         .strict(),
     ),
     cached: z.boolean().optional(),
+    cacheWritebackAllowed: z.boolean().optional(),
+    calculationCompleteness: z.enum(['complete', 'unverified']).optional(),
+    cacheWritebackReasons: z.array(z.string().min(1).max(64)).max(32).optional(),
   })
   .strict()
 

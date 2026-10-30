@@ -284,7 +284,7 @@ export const zhTW = {
   appFormulaTooExpensive:
     '該公式要對大範圍做逐元素統計，計算量過大會導致介面卡死——已取消。請縮小引用範圍後重試。',
   appPivotSheetNoStructural: '該工作表含樞紐分析表——暫不支援結構變更。',
-  appDeleteSpanFormulas: '有公式僅引用被刪除的列/欄——請先更新或刪除這些公式。',
+  appDeleteSpanFormulas: '此刪除操作後，有公式無法安全更新。請先修改或刪除該公式。',
   appIconSetUnsupported: '該圖示組合無法儲存為 xlsx 檔案，請改用其他圖示集。',
   appFullLoadFilterTitle: '此操作需要完整載入',
   appFullLoadFilterBody:

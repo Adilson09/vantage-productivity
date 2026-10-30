@@ -1274,6 +1274,9 @@ export const workbookRecalcRequestSchema = z
 
 export const workbookRecalcResultSchema = z
   .object({
+    cacheWritebackAllowed: z.boolean().optional(),
+    calculationCompleteness: z.enum(['complete', 'unverified']).optional(),
+    cacheWritebackReasons: z.array(z.string().min(1).max(64)).max(100).optional(),
     cells: z
       .array(
         z
@@ -1282,6 +1285,15 @@ export const workbookRecalcResultSchema = z
             row: z.number().int().nonnegative(),
             column: z.number().int().nonnegative(),
             formatted: z.string(),
+            value: z
+              .union([
+                z.number().finite(),
+                z.boolean(),
+                z.string(),
+                z.null(),
+                z.object({ error: z.string().min(1).max(32) }).strict(),
+              ])
+              .optional(),
             number: z.number().optional(),
             isError: z.boolean().optional(),
             isFormula: z.boolean(),
@@ -3162,6 +3174,10 @@ export interface DesktopApi {
   /// Crash-recovery copy of the pending edits, written under userData.
   /// Best-effort: never prompts, never touches the opened file.
   writeWorkbookRecovery(request: WorkbookSaveRequest): Promise<{ ok: boolean }>
+  checkpointWorkbookDocument(
+    request: WorkbookSaveRequest,
+    dirty?: boolean,
+  ): Promise<import('./document-checkpoint').DocumentCheckpointReceipt>
   /// Rename a still-untitled workbook after AI-generated content (no-op unless
   /// the file still carries the shell's auto-created untitled name).
   autoRenameWorkbook(

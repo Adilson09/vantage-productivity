@@ -7267,7 +7267,7 @@ app.whenReady().then(async () => {
   }
   openLaunchPaths(launchPaths)
   pendingLaunchPaths = []
-  for (const recoverAs of pendingUnsavedNewRecoveries()) void newSheetTab(recoverAs)
+  for (const recoverAs of await pendingUnsavedNewRecoveries()) void newSheetTab(recoverAs)
 
   startControlServer(
     app.getPath('userData'),

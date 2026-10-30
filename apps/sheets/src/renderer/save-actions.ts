@@ -73,6 +73,8 @@ export interface SaveContext {
    * claiming nothing is hidden.
    */
   redactionStates?: () => readonly SheetRedactionState[] | null
+  /** Includes non-journal document state such as changed redaction marks. */
+  documentDirty?: () => boolean
   /** Saving swaps the session and reinstalls the workbook, which resets the
       view to the first sheet's A1 — stash where the user was so the
       reinstall lands there instead. `viewRow`/`viewColumn` is the viewport's
@@ -113,11 +115,12 @@ export interface SaveOutcome {
  */
 export async function handleSave(
   ctx: SaveContext,
-  mode: 'save' | 'save-as' | 'recovery',
+  mode: 'save' | 'save-as' | 'recovery' | 'checkpoint',
   quiet = false,
   explicitTarget?: { path: string; overwrite: boolean },
   defaultName?: string,
 ): Promise<SaveOutcome> {
+  const background = mode === 'recovery' || mode === 'checkpoint'
   const state = ctx.lazyWorkbookRef.current
   // Captured at save start (the Ctrl+S moment): the post-save session swap
   // reinstalls the workbook and would otherwise bounce the view to A1.
@@ -151,10 +154,13 @@ export async function handleSave(
     }
   })()
   if (!state) {
-    if (mode !== 'recovery') ctx.setMessage(t('appDemoNoSave'))
+    if (!background) ctx.setMessage(t('appDemoNoSave'))
     return { ok: false }
   }
   const edits = toSaveEdits(state.editJournal)
+  const dirtyAtSnapshot =
+    ctx.documentDirty?.() ??
+    (journalSize(state.editJournal) > 0 || state.file.restoredFromRecovery === true)
   const cellsAtSave = snapshotJournalCells(state.editJournal)
   const bulkConstantFills = toSaveBulkConstantFills(state.editJournal)
   const structuralOps = toSaveStructuralOps(state.editJournal)
@@ -173,8 +179,8 @@ export async function handleSave(
     filterStates = collectFilterStates(ctx.univerRef.current, state)
   } catch (error: unknown) {
     const failed = error instanceof Error ? error.message : t('appFilterSnapshotFailed')
-    ctx.setMessage(failed)
-    if (mode !== 'recovery' && !quiet) showToast(failed, 'error')
+    if (!background) ctx.setMessage(failed)
+    if (!background && !quiet) showToast(failed, 'error')
     return { ok: false }
   }
   const cfStates = collectCfStates(ctx.univerRef.current, state)
@@ -278,12 +284,14 @@ export async function handleSave(
     structuralOps.length > 0 ? tableEdits.filter((edit) => edit.area !== undefined) : []
   const phaseOneTableEdits = tableEdits.filter((edit) => !heldTableEdits.includes(edit))
   const heldNames = hasShifts ? definedNamesState : null
+  const nativeDocumentSave = typeof window.desktopApi?.checkpointWorkbookDocument === 'function'
   const splitSave =
-    heldPivots.length > 0 ||
-    heldTables.length > 0 ||
-    heldTableEdits.length > 0 ||
-    heldNames !== null
-  if (splitSave) {
+    !nativeDocumentSave &&
+    (heldPivots.length > 0 ||
+      heldTables.length > 0 ||
+      heldTableEdits.length > 0 ||
+      heldNames !== null)
+  if (splitSave && mode !== 'checkpoint') {
     const addedSheetIds = state.editJournal.sheets.added
     const strandedHeld = [
       ...heldPivots.flatMap((pivot) => [pivot.sheetId, pivot.sourceSheetId]),
@@ -333,7 +341,13 @@ export async function handleSave(
   // An unsaved new workbook's Save is its first Save As, journal or not: a
   // quiet AutoSave may already have moved the work into the backing file.
   const firstSaveAs = mode === 'save' && state.file.unsavedNew === true && !quiet
-  if (total === 0 && mode !== 'save-as' && !restoreWriteBack && !firstSaveAs) {
+  if (
+    total === 0 &&
+    mode !== 'save-as' &&
+    mode !== 'checkpoint' &&
+    !restoreWriteBack &&
+    !firstSaveAs
+  ) {
     if (mode !== 'recovery') ctx.setMessage(t('appNoEditsToSave'))
     return { ok: false }
   }
@@ -405,16 +419,21 @@ export async function handleSave(
   try {
     staged = await stageEditsForSave(window.desktopApi, state.file.sessionId, edits)
   } catch (error: unknown) {
-    if (mode === 'recovery') return { ok: false }
+    if (background) return { ok: false }
     const message = stripIpcErrorWrapper(error instanceof Error ? error.message : '')
     const failed = message || t('appSaveFailed')
     ctx.setMessage(failed)
     if (!quiet) showToast(failed, 'error')
     return { ok: false }
   }
+  if (ctx.lazyWorkbookRef.current !== state) {
+    await abortStagedEditsTransfer(window.desktopApi, state.file.sessionId, staged.editsTransferId)
+    return { ok: false }
+  }
   const payload = {
     sessionId: state.file.sessionId,
-    mode: mode === 'recovery' ? ('save' as const) : mode,
+    mode:
+      mode === 'checkpoint' ? ('save-as' as const) : mode === 'recovery' ? ('save' as const) : mode,
     // MCP explicit-path save: main skips the Save-As dialog and enforces the
     // overwrite policy from these two fields
     ...(explicitTarget
@@ -449,6 +468,19 @@ export async function handleSave(
     workbookProtectionState,
     protectedRangeStates,
     redactionStates,
+  }
+  if (mode === 'checkpoint') {
+    try {
+      await window.desktopApi.checkpointWorkbookDocument(payload, dirtyAtSnapshot)
+      return { ok: ctx.lazyWorkbookRef.current === state }
+    } catch {
+      await abortStagedEditsTransfer(
+        window.desktopApi,
+        state.file.sessionId,
+        staged.editsTransferId,
+      )
+      return { ok: false }
+    }
   }
   if (mode === 'recovery') {
     // Best-effort; a failure only means this tick's copy is skipped — but an
@@ -486,7 +518,7 @@ export async function handleSave(
       visualAdditions,
       cellImageAdditions,
       tableAdditions: splitSave && heldTables.length > 0 ? [] : tableAdditions,
-      tableEdits: phaseOneTableEdits,
+      tableEdits: nativeDocumentSave ? tableEdits : phaseOneTableEdits,
       pivotAdditions: splitSave && heldPivots.length > 0 ? [] : pivotAdditions,
       sheetOps,
       sheetOrder,

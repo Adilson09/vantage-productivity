@@ -1,0 +1,79 @@
+{
+  "status": "PRIVATE_SOURCE_ONLY_UNRUN_NOT_APPLIED",
+  "date": "2026-10-30",
+  "heldCandidate": "C:\\Users\\Adilson Candundo\\Documents\\Codex\\2026-10-28\\comp\\work\\vantage-next-composed-20261030",
+  "heldCandidateManifestSha256": "003f136afa7d067fe7d41970984fe83f496b93adab7a0730599deb1f61e4c9e7",
+  "dependencies": [
+    {
+      "name": "Root W2 file publication exclusion",
+      "sourceCheckpointSha256": "33078d59cf313c583d10775a1dd1c4ac1d226d086d8bcc7bf2956f2b3ebfdb40",
+      "patchSha256": "46f967b24d2ca8340fa3ad6314b84e1adf92910fab4dbac997e37b91f425d5af"
+    },
+    {
+      "name": "Sheets Runtime6",
+      "receiptSha256": "989bf542c4267ed2eb92b8fa763bceb72b9eb203fbd7d97d46df753e027b6e03",
+      "patchSha256": "2465340a34dc8c0657fad4a8715dff6a80d4244c32bbd49c72c8cab083bbb05e"
+    }
+  ],
+  "afterFiles": 19,
+  "changedOrNewFiles": 19,
+  "allBeforeOriginsVerified": true,
+  "candidateWrites": false,
+  "primaryWrites": false,
+  "sealedReleaseWrites": false,
+  "testsRun": false,
+  "typeChecksRun": false,
+  "buildsRun": false,
+  "guiRun": false,
+  "sourceSyntaxChecksRunForThisFreeze": false,
+  "validationScope": "Source reads and cryptographic packaging only; no source parsing, application import, tests, types, build, or GUI execution.",
+  "testSources": [
+    {
+      "file": "apps/sheets/tests/xlsx-sidecar-settlement.test.ts",
+      "proposedExpandedCases": 21,
+      "scope": "Real Node streams with mock ChildProcess; no OS subprocess or Rust binary acceptance"
+    },
+    {
+      "file": "apps/sheets/tests/settled-document-native-client.test.ts",
+      "proposedExpandedCases": 11
+    },
+    {
+      "file": "apps/sheets/tests/workbook-publication-lifecycle.test.ts",
+      "proposedCases": 8
+    },
+    {
+      "file": "packages/xlsx-gateway/tests/xlsx-package-io-attested.test.ts",
+      "proposedCases": 6
+    },
+    {
+      "file": "apps/shell/tests/sheets-close-runtime.test.ts",
+      "newProposedCases": 3,
+      "scope": "Runtime6 baseline plus actual-native observer/replay binding"
+    },
+    {
+      "file": "apps/sheets/tests/sheets-rename-refresh.test.ts",
+      "proposedCases": 6
+    },
+    {
+      "file": "apps/sheets/tests/workbook-exclusive-move.test.ts",
+      "proposedCases": 5
+    }
+  ],
+  "knownLimits": [
+    "All listed regression cases are source only and unrun in this successor. Matching Root-owned validation is required.",
+    "W2 coordinates in-process publishers and mutations; Node pathname unlink cannot provide an OS-atomic conditional unlink against external writers.",
+    "Alive unresponsive renderer rename refresh retains mutation and quit ownership until its actual finalizer or verified owner teardown.",
+    "Generic external sheetsFileRenamed notice remains the separately tracked Root-owned physical-move refresh seam; autoRename uses the new correlated result and actual-finalizer protocol.",
+    "Standalone and headless initialization, volatile recovery policy, and verified child shutdown belong to a separate successor applied after this one.",
+    "No new Rust binary, wire protocol version, package, GUI, or release acceptance is claimed."
+  ],
+  "patch": {
+    "path": "frozen.patch",
+    "sha256": "599b88bd9615d6b38bf0a8e2a1cf18fa8b5ebcc8da30902a8b99903bbc0d69fd",
+    "bytes": 172361,
+    "format": "LF normalized review diff; after byte hashes authoritative"
+  },
+  "inventorySha256": "9addb8384f29f0c0fde0996cf93a43d8ea3599024736383deb1203ec5802be07",
+  "baselineCheckSha256": "0cbbda70e2eafcfca8832c18a33a862f057e8126a66ac8ee0b1d224161c23e47",
+  "freezeInputSha256": "7b916154b5f723783a47cd7dd56052b5a14254e41449803ac481c0b38278560f"
+}

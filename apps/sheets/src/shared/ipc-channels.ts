@@ -80,6 +80,8 @@ export const IPC_CHANNELS = {
   saveEditsAbort: 'workbook:save-edits-abort',
   /** Crash-recovery copy of a dirty workbook, written under userData */
   writeWorkbookRecovery: 'workbook:write-recovery',
+  /** Complete typed edit state committed by the Rust document authority. */
+  checkpointWorkbookDocument: 'workbook:checkpoint-document',
   /** Main found a newer recovery copy while opening; renderer shows the styled prompt */
   recoveryPrompt: 'workbook:recovery-prompt',
   recoveryPromptReply: 'workbook:recovery-prompt-reply',

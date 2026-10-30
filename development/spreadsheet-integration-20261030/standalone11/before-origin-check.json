@@ -1,0 +1,103 @@
+[
+  {
+    "path": "apps/sheets/src/main/headless-sheets-cleanup.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/src/main/headless-sheets-owner-work.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/src/main/sheets-main.ts",
+    "beforeSha256": "556e57c115466b54dfb1de73026042cfd7f0dd44c9d4ced2507727ce22a4b41d",
+    "heldCandidateSha256": "556e57c115466b54dfb1de73026042cfd7f0dd44c9d4ced2507727ce22a4b41d",
+    "permittedBeforeOrigins": [
+      "held-candidate",
+      "immutable-native19"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/src/main/standalone-close-runtime.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/src/main/workbook-document-recovery.ts",
+    "beforeSha256": "8b9c403e5eb5853425ab5abc0213af0045e0055d9b720c5736be8aa58bdd50e4",
+    "heldCandidateSha256": "8b9c403e5eb5853425ab5abc0213af0045e0055d9b720c5736be8aa58bdd50e4",
+    "permittedBeforeOrigins": [
+      "held-candidate"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/src/main/xlsx-sidecar-client.ts",
+    "beforeSha256": "ecf1374af898633b14cd71ba53a2d1a841108542093acdfd40380a2f86714c8c",
+    "heldCandidateSha256": "ecf1374af898633b14cd71ba53a2d1a841108542093acdfd40380a2f86714c8c",
+    "permittedBeforeOrigins": [
+      "held-candidate",
+      "immutable-native19"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/tests/fixtures/native-lifecycle-child.cjs",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/tests/headless-sheets-cleanup.test.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/tests/standalone-close-runtime.test.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/tests/workbook-document-volatile.test.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/tests/xlsx-sidecar-process-settlement.test.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  }
+]

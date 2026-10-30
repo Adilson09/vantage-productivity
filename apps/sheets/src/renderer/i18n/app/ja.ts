@@ -337,7 +337,7 @@ export const ja = {
   appPivotSheetNoStructural:
     'このシートにはピボットテーブルが含まれています — 構造の変更には未対応です。',
   appDeleteSpanFormulas:
-    '削除対象の行/列のみを参照する数式があります — 先にその数式を更新または削除してください。',
+    'この削除後に安全に更新できない数式があります。先にその数式を変更または削除してください。',
   appIconSetUnsupported:
     'このアイコンの組み合わせは xlsx に保存できません。別のアイコンセットを選択してください。',
   appFullLoadFilterTitle: 'この操作には完全読み込みが必要です',

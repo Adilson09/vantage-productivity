@@ -1206,7 +1206,7 @@ describe('toRecalcUserInput', () => {
     expect(toRecalcUserInput({ ...base, value: true })).toBe('TRUE')
     expect(toRecalcUserInput({ ...base, value: false })).toBe('FALSE')
     expect(toRecalcUserInput({ ...base, value: null })).toBe('')
-    expect(toRecalcUserInput({ ...base, value: 'plain' })).toBe('plain')
+    expect(toRecalcUserInput({ ...base, value: 'plain' })).toBe("'plain")
   })
 
   it('escapes text that the engine would reinterpret as a formula', () => {
@@ -1214,6 +1214,15 @@ describe('toRecalcUserInput', () => {
     expect(toRecalcUserInput({ ...base, value: '=not a formula' })).toBe("'=not a formula")
     expect(toRecalcUserInput({ ...base, value: "'quoted" })).toBe("''quoted")
   })
+
+  it.each(['12', '0012', 'TRUE', 'FALSE', '', '#DIV/0!', '25%', '2026-10-29', ' 12 '])(
+    'keeps the literal text %j distinct from parsed user input',
+    (value) => {
+      const entry = { row: 0, column: 0, hasValue: true, value }
+      expect(toRecalcUserInput(entry)).toBe(`'${value}`)
+      expect(entry.value).toBe(value)
+    },
+  )
 })
 
 describe('recordStructuralOp move-rows', () => {

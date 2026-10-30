@@ -1,0 +1,15 @@
+S1 — PRIVATE SOURCE-ONLY HEADLESS PRINT REFUSAL
+
+Baseline: frozen Standalone11 after Main, SHA-256
+f13a80393ee5248e3bb15f47a98f2794dca9dab533b4e45a395b6fd8a54ecf4a.
+
+The printWorkbook IPC handler previously entered session lookup and interactive
+printing outside HeadlessSheetsOwnerWork. A queued headless print could display
+a dialog or outlive isolated export teardown. This successor refuses disabled
+recovery or known headless owners before session lookup, request parsing or print
+effects. Interactive GUI print retains its existing actual promise and errors.
+
+Three source files: narrow Main import/handler hunk, production callback gate,
+and regression source (three refusal modes plus GUI success/rejection).
+No execution, tests, types, builds, parsing checks or GUI checks were run.
+Frozen parents, primary, held candidate and sealed RC remain unchanged.

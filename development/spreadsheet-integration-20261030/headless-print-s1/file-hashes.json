@@ -1,0 +1,26 @@
+[
+  {
+    "path": "apps/sheets/src/main/interactive-sheets-print.ts",
+    "beforeSha256": null,
+    "afterSha256": "d434a2fb9f9024b5b88c18892385ac65da45e52a7abffda88d226fde3161fdbc",
+    "bytes": 505,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/sheets-main.ts",
+    "beforeSha256": "f13a80393ee5248e3bb15f47a98f2794dca9dab533b4e45a395b6fd8a54ecf4a",
+    "afterSha256": "a270a7c04118fee44a9aecadb91ba2da592a08432900c3df6ff5da2648d9356f",
+    "bytes": 327274,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/tests/interactive-sheets-print.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "a0cd3e114929cc896d54be09b9c3c8d8564fbe70745588a6f1b7b721423d878b",
+    "bytes": 2580,
+    "changed": true,
+    "newFile": true
+  }
+]

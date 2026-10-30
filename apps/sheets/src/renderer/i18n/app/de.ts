@@ -344,7 +344,7 @@ export const de = {
   appPivotSheetNoStructural:
     'Dieses Blatt enthält eine PivotTable — Strukturänderungen werden noch nicht unterstützt.',
   appDeleteSpanFormulas:
-    'Eine Formel verweist nur auf die gelöschten Zeilen/Spalten — aktualisieren oder entfernen Sie sie zuerst.',
+    'Eine Formel kann nach dieser Löschung nicht sicher angepasst werden. Ändern oder entfernen Sie die Formel zuerst.',
   appIconSetUnsupported:
     'Diese Symbolkombination kann nicht als xlsx gespeichert werden — bitte wählen Sie einen anderen Symbolsatz.',
   appFullLoadFilterTitle: 'Diese Aktion erfordert die vollständige Arbeitsmappe',

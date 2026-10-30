@@ -9,7 +9,7 @@
 //! problem (including panics from IronCalc's strict importer) surfaces as a
 //! normal sidecar error and the renderer keeps showing cached values.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::{CellRange, SidecarError};
 
 pub const MAX_RECALC_EDITS: usize = 10_000;
+pub const MAX_SUPPORTED_RECALC_EDITS: usize = 1_000_000;
 pub const MAX_RECALC_READ_CELLS: usize = 20_000;
 /// Resident models are large (the whole workbook's cell graph); the sidecar
 /// serves one document, so two covers the active file plus one recently
@@ -57,6 +58,9 @@ pub struct RecalcCell {
     pub column: u32,
     /// Display string after evaluation (number formats applied).
     pub formatted: String,
+    /// Unformatted engine value. Text, booleans, numbers and blank retain
+    /// their types; spreadsheet errors use {"error":"#DIV/0!"}.
+    pub value: serde_json::Value,
     /// Raw numeric value when the cell evaluates to a number.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number: Option<f64>,
@@ -72,6 +76,11 @@ pub struct RecalcResult {
     pub cells: Vec<RecalcCell>,
     /// True when a resident model served this request (no file re-import).
     pub cached: bool,
+    /// Whole-model provenance, independent of the requested viewport. A
+    /// computed preview is not permission to overwrite imported caches.
+    pub cache_writeback_allowed: bool,
+    pub calculation_completeness: &'static str,
+    pub cache_writeback_reasons: Vec<&'static str>,
 }
 
 type EditKey = (String, u32, u32);
@@ -85,6 +94,9 @@ struct ResidentModel {
     /// original content of a reverted cell).
     applied: HashMap<EditKey, String>,
     last_used: u64,
+    /// Sticky for the resident source: pinning replaces formula AST nodes
+    /// with cached constants, so later viewports cannot rediscover that gap.
+    cache_writeback_reasons: BTreeSet<&'static str>,
 }
 
 #[derive(Default)]
@@ -152,27 +164,42 @@ pub fn recalc_cells(
     edits: &[RecalcEdit],
     reads: &[RecalcRead],
 ) -> Result<RecalcResult, SidecarError> {
-    if edits.len() > MAX_RECALC_EDITS {
+    recalc_cells_with_limit(cache, path, edits, reads, MAX_RECALC_EDITS)
+}
+
+/// Explicit authority budget; legacy callers retain their 10k edit ceiling.
+pub fn recalc_cells_with_limit(
+    cache: &mut RecalcCache,
+    path: &Path,
+    edits: &[RecalcEdit],
+    reads: &[RecalcRead],
+    max_edits: usize,
+) -> Result<RecalcResult, SidecarError> {
+    if max_edits > MAX_SUPPORTED_RECALC_EDITS {
+        return Err(SidecarError::InvalidRequest(format!("Recalc edit budget exceeds {MAX_SUPPORTED_RECALC_EDITS}.")));
+    }
+    if edits.len() > max_edits {
         return Err(SidecarError::InvalidRequest(format!(
-            "Too many recalc edits (limit {MAX_RECALC_EDITS})."
+            "Too many recalc edits (limit {max_edits})."
         )));
     }
-    let read_cells: usize = reads
-        .iter()
-        .map(|read| {
-            let rows = read.range.end_row.saturating_sub(read.range.start_row) + 1;
-            let columns = read
-                .range
-                .end_column
-                .saturating_sub(read.range.start_column)
-                + 1;
-            rows.saturating_mul(columns)
-        })
-        .sum();
-    if read_cells > MAX_RECALC_READ_CELLS {
-        return Err(SidecarError::InvalidRequest(format!(
-            "Recalc read exceeds {MAX_RECALC_READ_CELLS} cells."
-        )));
+    if edits.iter().any(|edit| edit.row >= crate::snapshot::MAX_SHEET_ROWS || edit.column >= crate::snapshot::MAX_SHEET_COLUMNS) {
+        return Err(SidecarError::InvalidRequest("Recalc edit coordinates are outside the worksheet.".into()));
+    }
+    let mut read_cells = 0usize;
+    for read in reads {
+        let range = &read.range;
+        if range.start_row > range.end_row || range.start_column > range.end_column
+            || range.end_row >= crate::snapshot::MAX_SHEET_ROWS as usize
+            || range.end_column >= crate::snapshot::MAX_SHEET_COLUMNS as usize
+        {
+            return Err(SidecarError::InvalidRequest("Recalc range is reversed or outside the worksheet.".into()));
+        }
+        let cells = (range.end_row - range.start_row + 1)
+            .checked_mul(range.end_column - range.start_column + 1);
+        read_cells = cells.and_then(|cells| read_cells.checked_add(cells))
+            .filter(|cells| *cells <= MAX_RECALC_READ_CELLS)
+            .ok_or_else(|| SidecarError::InvalidRequest(format!("Recalc read exceeds {MAX_RECALC_READ_CELLS} cells.")))?;
     }
 
     let metadata = std::fs::metadata(path).map_err(|error| SidecarError::Io(error.to_string()))?;
@@ -182,17 +209,15 @@ pub fn recalc_cells(
     let size = metadata.len();
 
     let key = cache_key(path);
+    let edit_keys: HashSet<(&str, u32, u32)> = edits.iter()
+        .map(|edit| (edit.sheet.as_str(), edit.row, edit.column)).collect();
     // Take the entry out while working on it: a panic or error mid-apply
     // leaves the model in an unknown state, and a removed entry can never be
     // reused by the next request.
     let resident = cache.entries.remove(&key).filter(|entry| {
         entry.mtime == mtime
             && entry.size == size
-            && entry.applied.keys().all(|key| {
-                edits
-                    .iter()
-                    .any(|edit| edit.sheet == key.0 && edit.row == key.1 && edit.column == key.2)
-            })
+            && entry.applied.keys().all(|key| edit_keys.contains(&(key.0.as_str(), key.1, key.2)))
     });
     let cached = resident.is_some();
 
@@ -208,10 +233,167 @@ pub fn recalc_cells(
     cache.tick += 1;
     let mut entry = entry;
     entry.last_used = cache.tick;
+    let cache_writeback_reasons: Vec<_> = entry.cache_writeback_reasons.iter().copied().collect();
+    let cache_writeback_allowed = cache_writeback_reasons.is_empty();
     cache.entries.insert(key, entry);
     cache.evict_beyond_cap();
 
-    Ok(RecalcResult { cells, cached })
+    Ok(RecalcResult { cells, cached, cache_writeback_allowed,
+        calculation_completeness: if cache_writeback_allowed { "complete" } else { "unverified" },
+        cache_writeback_reasons })
+}
+
+/// IronCalc 0.7.1 counts all XML children in several structural lists. Valid
+/// indentation/comments otherwise become phantom rows/styles or missing-r
+/// errors. Normalize a private import package, never the document/save source.
+fn load_calculation_model(path: &Path) -> Result<Model<'static>, SidecarError> {
+    use std::fs::File;
+    use zip::write::SimpleFileOptions;
+
+    let filename = path.file_name().ok_or_else(|| SidecarError::InvalidRequest("Workbook path has no filename.".into()))?;
+    let directory = crate::CacheDirectory::create(crate::temp_dir().join(format!("vantage-calc-import-{}", uuid::Uuid::new_v4())))?;
+    let normalized = directory.path().join(filename);
+    let mut source = zip::ZipArchive::new(File::open(path)?)?;
+    crate::archive::validate_entries(&mut source)?;
+    let mut output = zip::ZipWriter::new(File::create(&normalized)?);
+    let mut remaining = 8 * 1024 * 1024 * 1024u64;
+    for index in 0..source.len() {
+        let raw = source.by_index_raw(index)?;
+        let name = raw.name().to_owned();
+        let compressed = raw.compressed_size();
+        let canonical = crate::archive::canonical_entry_name(&name).unwrap_or_default().to_ascii_lowercase();
+        let is_xml = !raw.is_dir() && (canonical.ends_with(".rels")
+            || canonical == "xl/workbook.xml" || canonical == "xl/styles.xml"
+            || canonical == "xl/sharedstrings.xml"
+            || (canonical.starts_with("xl/worksheets/") && canonical.ends_with(".xml"))
+            || (canonical.starts_with("xl/tables/") && canonical.ends_with(".xml"))
+            || (canonical.starts_with("xl/comments") && canonical.ends_with(".xml")));
+        drop(raw);
+        if !is_xml {
+            if compressed > remaining {
+                return Err(SidecarError::Workbook("Formula import package exceeds its bounded copy budget.".into()));
+            }
+            output.raw_copy_file(source.by_index_raw(index)?)?;
+            remaining -= compressed;
+            continue;
+        }
+        let entry = source.by_index(index)?;
+        let cap = if canonical.starts_with("xl/worksheets/") { crate::archive::MAX_EXTRACTED_ENTRY_BYTES }
+            else { crate::xml_util::MAX_METADATA_PART_BYTES };
+        let declared = entry.size();
+        if declared > cap || declared > remaining {
+            return Err(SidecarError::Workbook("Formula import XML exceeds its bounded processing budget.".into()));
+        }
+        output.start_file(&name, SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored))?;
+        let consumed = normalize_calculation_xml(entry, &mut output, declared.min(cap).min(remaining))?;
+        remaining -= consumed;
+    }
+    drop(output.finish()?);
+    let path_text = normalized.to_str().ok_or_else(|| SidecarError::InvalidRequest("Workbook path is not valid UTF-8.".into()))?;
+    let model = load_from_xlsx(path_text, "en", "UTC", "en").map_err(|error| {
+        SidecarError::Workbook(format!("Formula engine import failed: {error}"))
+    })?;
+    // The directory guard also removes the private import on error or unwind.
+    Ok(model)
+}
+
+#[derive(Clone)]
+struct ImportXmlFrame {
+    name: Vec<u8>,
+    structural: bool,
+    preserve: bool,
+}
+
+fn import_structural_child(parent: &[u8], child: &[u8]) -> bool {
+    match parent {
+        b"worksheet" => matches!(child, b"sheetPr" | b"sheetViews" | b"cols" | b"sheetData" | b"mergeCells" | b"hyperlinks" | b"tableParts" | b"rowBreaks" | b"colBreaks"),
+        b"sheetData" => child == b"row",
+        b"row" => child == b"c",
+        b"c" => child == b"is",
+        b"is" | b"si" | b"text" => child == b"r",
+        b"r" => child == b"rPr",
+        b"sst" => child == b"si",
+        b"sheetViews" => child == b"sheetView",
+        b"workbook" => matches!(child, b"sheets" | b"bookViews" | b"definedNames" | b"externalReferences" | b"pivotCaches"),
+        b"styleSheet" => matches!(child, b"numFmts" | b"fonts" | b"fills" | b"borders" | b"cellStyleXfs" | b"cellXfs" | b"cellStyles" | b"dxfs" | b"colors" | b"tableStyles"),
+        b"fonts" => child == b"font",
+        b"fills" => child == b"fill",
+        b"fill" => matches!(child, b"patternFill" | b"gradientFill"),
+        b"borders" => child == b"border",
+        b"cellStyleXfs" | b"cellXfs" => child == b"xf",
+        b"dxfs" => child == b"dxf",
+        b"comments" => matches!(child, b"authors" | b"commentList"),
+        b"commentList" => child == b"comment",
+        b"comment" => child == b"text",
+        b"table" => matches!(child, b"autoFilter" | b"sortState" | b"tableColumns"),
+        b"tableColumns" => child == b"tableColumn",
+        b"autoFilter" => child == b"filterColumn",
+        b"filterColumn" => matches!(child, b"filters" | b"customFilters"),
+        _ => false,
+    }
+}
+
+/// Strip only non-data children of schema-known structural containers. The
+/// writer forwards every retained event verbatim: entities, CDATA, formula/value
+/// text, whitespace-only strings and unknown extension subtrees are untouched.
+fn normalize_calculation_xml<R: std::io::Read, W: std::io::Write>(
+    input: R,
+    output: W,
+    limit: u64,
+) -> Result<u64, SidecarError> {
+    use quick_xml::events::Event;
+    use quick_xml::name::ResolveResult;
+    use std::io::BufReader;
+
+    let mut reader = quick_xml::NsReader::from_reader(BufReader::new(input.take(limit.saturating_add(1))));
+    reader.config_mut().trim_text(false);
+    let mut writer = quick_xml::Writer::new(output);
+    let mut buffer = Vec::new();
+    let mut stack: Vec<ImportXmlFrame> = Vec::new();
+    loop {
+        let event = reader.read_event_into(&mut buffer)?;
+        if reader.buffer_position() > limit {
+            return Err(SidecarError::Workbook("Formula import XML inflates past its declared or allowed size.".into()));
+        }
+        let strip_nondata = stack.last().is_none_or(|frame| frame.structural && !frame.preserve);
+        match &event {
+            Event::Start(element) | Event::Empty(element) => {
+                if stack.len() >= 128 { return Err(SidecarError::Workbook("Formula import XML is nested too deeply.".into())); }
+                let name = element.local_name().as_ref().to_vec();
+                let (namespace, _) = reader.resolve_element(element.name());
+                let spreadsheet = matches!(&namespace, ResolveResult::Bound(namespace) if namespace.as_ref() == b"http://schemas.openxmlformats.org/spreadsheetml/2006/main" || namespace.as_ref() == b"http://purl.oclc.org/ooxml/spreadsheetml/main");
+                let relationships = matches!(&namespace, ResolveResult::Bound(namespace) if namespace.as_ref() == b"http://schemas.openxmlformats.org/package/2006/relationships");
+                let structural = if let Some(parent) = stack.last() {
+                    spreadsheet && parent.structural && import_structural_child(&parent.name, &name)
+                } else {
+                    (spreadsheet && matches!(name.as_slice(), b"worksheet" | b"workbook" | b"styleSheet" | b"sst" | b"comments" | b"table"))
+                        || (relationships && name == b"Relationships")
+                };
+                let mut preserve = stack.last().is_some_and(|frame| frame.preserve);
+                for attribute in element.attributes() {
+                    let attribute = attribute.map_err(|error| SidecarError::Workbook(error.to_string()))?;
+                    if attribute.key.as_ref() == b"xml:space" {
+                        match attribute.decode_and_unescape_value(reader.decoder())?.as_ref() {
+                            "preserve" => preserve = true,
+                            "default" => preserve = false,
+                            _ => {},
+                        }
+                    }
+                }
+                if matches!(&event, Event::Start(_)) { stack.push(ImportXmlFrame { name, structural, preserve }); }
+                writer.write_event(event)?;
+            }
+            Event::End(_) => { stack.pop(); writer.write_event(event)?; },
+            Event::Text(text) if strip_nondata && text.iter().all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n')) => {},
+            Event::Comment(_) | Event::PI(_) if strip_nondata => {},
+            Event::Eof => {
+                if !stack.is_empty() { return Err(SidecarError::Workbook("Formula import XML ends inside an element.".into())); }
+                return Ok(reader.buffer_position());
+            },
+            _ => writer.write_event(event)?,
+        }
+        buffer.clear();
+    }
 }
 
 fn run(
@@ -225,20 +407,20 @@ fn run(
     let mut entry = match resident {
         Some(entry) => entry,
         None => {
-            let path_text = path.to_str().ok_or_else(|| {
-                SidecarError::InvalidRequest("Workbook path is not valid UTF-8.".into())
-            })?;
-            let mut model = load_from_xlsx(path_text, "en", "UTC", "en").map_err(|error| {
-                SidecarError::Workbook(format!("Formula engine import failed: {error}"))
-            })?;
+            let mut model = load_calculation_model(path)?;
             requote_bare_sheet_names(&mut model);
-            pin_unparsable_formulas(&mut model);
+            let mut cache_writeback_reasons = source_cache_provenance(path);
+            inspect_model_provenance(&model, &mut cache_writeback_reasons);
+            if pin_unparsable_formulas(&mut model) > 0 {
+                cache_writeback_reasons.insert("cached_formula_precedents_pinned");
+            }
             ResidentModel {
                 model,
                 mtime,
                 size,
                 applied: HashMap::new(),
                 last_used: 0,
+                cache_writeback_reasons,
             }
         }
     };
@@ -250,23 +432,28 @@ fn run(
             continue;
         }
         let sheet = sheet_index(&entry.model, &edit.sheet)?;
-        entry
-            .model
-            .set_user_input(
-                sheet,
-                edit.row as i32 + 1,
-                edit.column as i32 + 1,
-                edit.input.clone(),
-            )
-            .map_err(|error| {
+        // IronCalc treats set_user_input("") as an empty text value, not a
+        // blank cell. The wire uses empty input to clear and a single leading
+        // apostrophe for literal empty text; preserve that distinction and
+        // retain the source cell's formatting when clearing its contents.
+        let applied = if edit.input.is_empty() {
+            entry.model.cell_clear_contents(sheet, edit.row as i32 + 1, edit.column as i32 + 1)
+        } else {
+            entry.model.set_user_input(sheet, edit.row as i32 + 1, edit.column as i32 + 1, edit.input.clone())
+        };
+        applied.map_err(|error| {
                 SidecarError::Workbook(format!("Formula engine rejected an edit: {error}"))
             })?;
         entry.applied.insert(key, edit.input.clone());
         dirty = true;
     }
+    // Inspect every active formula after edits, not just cells requested by
+    // this read. IFERROR can hide a failed precedent outside the viewport.
+    inspect_model_provenance(&entry.model, &mut entry.cache_writeback_reasons);
     if dirty || entry.last_used == 0 {
         entry.model.evaluate();
     }
+    inspect_engine_errors(&entry.model, &mut entry.cache_writeback_reasons);
 
     let mut cells = Vec::new();
     for read in reads {
@@ -302,16 +489,18 @@ fn run(
                         }
                     }
                 }
-                let number = raw_number(&entry.model, sheet, row_1, column_1);
                 let is_error = matches!(
                     entry.model.get_cell_type(sheet, row_1, column_1),
                     Ok(CellType::ErrorValue)
                 );
+                let value = raw_value(&entry.model, sheet, row_1, column_1, is_error)?;
+                let number = value.as_f64();
                 cells.push(RecalcCell {
                     sheet: read.sheet.clone(),
                     row: row as u32,
                     column: column as u32,
                     formatted,
+                    value,
                     number,
                     is_error,
                     is_formula,
@@ -457,7 +646,7 @@ enum PinnedValue {
 /// cached values (openpyxl writes an empty `<v/>`) imports as zero, which
 /// would pin a number nobody computed. Those cells keep their #ERROR!,
 /// which the renderer already declines to display.
-fn pin_unparsable_formulas(model: &mut Model) {
+fn pin_unparsable_formulas(model: &mut Model) -> usize {
     use ironcalc::base::expressions::parser::Node;
     use ironcalc::base::types::Cell;
     let names: Vec<String> = model
@@ -497,6 +686,7 @@ fn pin_unparsable_formulas(model: &mut Model) {
             }
         }
     }
+    let count = pins.len();
     for (sheet, row, column, value) in pins {
         // A pin that fails leaves the cell as it was: #ERROR! on that cell,
         // which the renderer already declines to display.
@@ -508,6 +698,7 @@ fn pin_unparsable_formulas(model: &mut Model) {
             PinnedValue::Bool(flag) => model.update_cell_with_bool(sheet, row, column, flag),
         };
     }
+    count
 }
 
 /// True when the formula text carries a bare `Name!` reference to one of the
@@ -563,12 +754,176 @@ fn sheet_index(model: &Model, name: &str) -> Result<u32, SidecarError> {
         .ok_or_else(|| SidecarError::InvalidRequest(format!("Unknown sheet: {name}")))
 }
 
-fn raw_number(model: &Model, sheet: u32, row: i32, column: i32) -> Option<f64> {
+fn raw_value(model: &Model, sheet: u32, row: i32, column: i32, is_error: bool) -> Result<serde_json::Value, SidecarError> {
     use ironcalc::base::cell::CellValue;
-    match model.get_cell_value_by_index(sheet, row, column) {
-        Ok(CellValue::Number(value)) => Some(value),
-        _ => None,
+    let value = model.get_cell_value_by_index(sheet, row, column)
+        .map_err(|error| SidecarError::Workbook(format!("Formula engine could not read a result: {error}")))?;
+    if is_error {
+        return match value {
+            CellValue::String(error) if error.len() <= 32 => Ok(serde_json::json!({"error":error})),
+            _ => Err(SidecarError::Workbook("Formula engine returned an invalid spreadsheet error.".into())),
+        };
     }
+    Ok(match value {
+        CellValue::None => serde_json::Value::Null,
+        CellValue::String(value) => serde_json::Value::String(value),
+        CellValue::Boolean(value) => serde_json::Value::Bool(value),
+        CellValue::Number(value) => serde_json::Value::Number(serde_json::Number::from_f64(value)
+            .ok_or_else(|| SidecarError::Workbook("Formula engine returned a non-finite number.".into()))?),
+    })
+}
+
+/// Cache certification deliberately covers a smaller set than IronCalc's
+/// registered functions. Registration alone does not prove scalar/array,
+/// locale or named-reference compatibility. Uncertified models still return
+/// typed previews, with an explicit prohibition on derived-cache writeback.
+fn inspect_model_provenance(model: &Model, reasons: &mut BTreeSet<&'static str>) {
+    let mut remaining = 1_000_000usize;
+    for (sheet, worksheet) in model.workbook.worksheets.iter().enumerate() {
+        let mut inspected = HashSet::new();
+        for columns in worksheet.sheet_data.values() {
+            for cell in columns.values() {
+                let Some(index) = cell.get_formula() else { continue; };
+                if !inspected.insert(index) { continue; }
+                let node = usize::try_from(index).ok().and_then(|index| model.parsed_formulas.get(sheet)?.get(index));
+                match node {
+                    Some(node) => inspect_formula_node(node, false, 0, &mut remaining, reasons),
+                    None => { reasons.insert("unparsed_formula"); },
+                }
+                if remaining == 0 { reasons.insert("provenance_analysis_budget"); return; }
+            }
+        }
+    }
+}
+
+fn inspect_formula_node(
+    node: &ironcalc::base::expressions::parser::Node,
+    range_argument: bool,
+    depth: usize,
+    remaining: &mut usize,
+    reasons: &mut BTreeSet<&'static str>,
+) {
+    use ironcalc::base::expressions::parser::Node;
+    use ironcalc::base::expressions::token::Error;
+    if *remaining == 0 || depth > 128 { reasons.insert("provenance_analysis_budget"); *remaining = 0; return; }
+    *remaining -= 1;
+    let scalar_children = |left: &Node, right: &Node, remaining: &mut usize, reasons: &mut BTreeSet<&'static str>| {
+        inspect_formula_node(left, false, depth + 1, remaining, reasons);
+        inspect_formula_node(right, false, depth + 1, remaining, reasons);
+    };
+    match node {
+        Node::NumberKind(value) => { if !value.is_finite() { reasons.insert("nonfinite_formula_literal"); } },
+        Node::BooleanKind(_) | Node::StringKind(_) | Node::ReferenceKind { .. } | Node::EmptyArgKind => {},
+        Node::ErrorKind(error) => {
+            if matches!(error, Error::ERROR | Error::NIMPL | Error::CIRC | Error::NAME) { reasons.insert("unverified_error_literal"); }
+        },
+        Node::RangeKind { .. } => { if !range_argument { reasons.insert("uncertified_range_context"); } },
+        Node::OpSumKind { left, right, .. } | Node::OpProductKind { left, right, .. }
+        | Node::OpPowerKind { left, right } | Node::OpConcatenateKind { left, right }
+        | Node::CompareKind { left, right, .. } => scalar_children(left, right, remaining, reasons),
+        Node::UnaryKind { right, .. } => inspect_formula_node(right, false, depth + 1, remaining, reasons),
+        Node::FunctionKind { kind, args } => {
+            let name = kind.to_xlsx_string().trim_start_matches("_xlfn.").to_uppercase();
+            let ranges = name == "SUM";
+            match name.as_str() {
+                "SUM" | "IF" | "IFERROR" | "IFNA" | "AND" | "OR" | "NOT" | "XOR"
+                | "TRUE" | "FALSE" | "ISBLANK" | "ISNUMBER" | "ISTEXT" | "ISLOGICAL"
+                | "ISERROR" | "ISERR" | "ISNA" => {},
+                "CELL" | "INFO" | "RATE" => { reasons.insert("known_engine_gap"); },
+                "DOLLAR" | "NUMBERSTRING" => { reasons.insert("locale_dependent_function"); },
+                "INDIRECT" | "OFFSET" => { reasons.insert("dynamic_reference"); },
+                _ => { reasons.insert("uncertified_function"); },
+            }
+            for argument in args { inspect_formula_node(argument, ranges, depth + 1, remaining, reasons); }
+        },
+        Node::InvalidFunctionKind { args, .. } => {
+            reasons.insert("unsupported_function");
+            for argument in args { inspect_formula_node(argument, false, depth + 1, remaining, reasons); }
+        },
+        Node::ParseErrorKind { .. } => { reasons.insert("formula_parse_failure"); },
+        Node::DefinedNameKind(_) | Node::WrongVariableKind(_) => { reasons.insert("unresolved_name"); },
+        Node::TableNameKind(_) => { reasons.insert("uncertified_table_reference"); },
+        Node::ArrayKind(_) | Node::ImplicitIntersection { .. } => { reasons.insert("array_or_intersection_context"); },
+        Node::WrongReferenceKind { .. } | Node::WrongRangeKind { .. } => { reasons.insert("unresolved_reference"); },
+        Node::OpRangeKind { .. } => { reasons.insert("uncertified_range_expression"); },
+    }
+}
+
+fn inspect_engine_errors(model: &Model, reasons: &mut BTreeSet<&'static str>) {
+    use ironcalc::base::expressions::token::Error;
+    use ironcalc::base::types::Cell;
+    for worksheet in &model.workbook.worksheets {
+        for columns in worksheet.sheet_data.values() {
+            for cell in columns.values() {
+                if let Cell::CellFormulaError { ei, .. } = cell
+                    && matches!(ei, Error::ERROR | Error::NIMPL | Error::CIRC | Error::NAME)
+                {
+                    reasons.insert("internal_or_unresolved_engine_error");
+                }
+            }
+        }
+    }
+}
+
+fn source_cache_provenance(path: &Path) -> BTreeSet<&'static str> {
+    inspect_source_formula_metadata(path).unwrap_or_else(|_| BTreeSet::from(["source_metadata_unverified"]))
+}
+
+/// IronCalc's imported Worksheet does not retain CSE/dynamic-array flags.
+/// Inspect the original XML before those distinctions disappear. Only a
+/// bounded amount is read; an incomplete audit withholds cache permission.
+fn inspect_source_formula_metadata(path: &Path) -> Result<BTreeSet<&'static str>, SidecarError> {
+    use std::fs::File;
+    use std::io::{BufReader, Read};
+    use quick_xml::events::Event;
+    use zip::ZipArchive;
+    const MAX_XML_AUDIT_BYTES: u64 = 64 * 1024 * 1024;
+    let mut archive = ZipArchive::new(File::open(path)?)?;
+    crate::archive::validate_entries(&mut archive)?;
+    let mut remaining = MAX_XML_AUDIT_BYTES;
+    let mut reasons = BTreeSet::new();
+    let mut seen = HashSet::new();
+    for index in 0..archive.len() {
+        let name = archive.name_for_index(index).and_then(crate::archive::canonical_entry_name)
+            .ok_or_else(|| SidecarError::Workbook("Invalid formula provenance package path.".into()))?;
+        if !seen.insert(name.clone()) { reasons.insert("ambiguous_package_entries"); }
+        if !name.to_lowercase().ends_with(".xml") { continue; }
+        let entry = archive.by_index(index)?;
+        if entry.size() > remaining { reasons.insert("source_metadata_budget"); return Ok(reasons); }
+        let mut reader = quick_xml::Reader::from_reader(BufReader::new(entry.take(remaining + 1)));
+        let mut buffer = Vec::new();
+        loop {
+            let event = reader.read_event_into(&mut buffer)
+                .map_err(|error| SidecarError::Workbook(error.to_string()))?;
+            if reader.buffer_position() > remaining { reasons.insert("source_metadata_budget"); return Ok(reasons); }
+            match event {
+                Event::Start(element) | Event::Empty(element) => {
+                    let local_name = element.local_name();
+                    let local = local_name.as_ref();
+                    if local == b"dynamicArrayProperties" { reasons.insert("array_formula_metadata"); }
+                    if local == b"f" || local == b"c" {
+                        for attribute in element.attributes() {
+                            let attribute = attribute.map_err(|error| SidecarError::Workbook(error.to_string()))?;
+                            let key = attribute.key.as_ref().rsplit(|byte| *byte == b':').next().unwrap_or_default();
+                            let value = attribute.decode_and_unescape_value(reader.decoder())
+                                .map_err(|error| SidecarError::Workbook(error.to_string()))?;
+                            if local == b"f" && key == b"t" && value != "normal" && value != "shared" {
+                                reasons.insert("array_or_special_formula_metadata");
+                            }
+                            if local == b"c" && (key == b"cm" || key == b"vm") && value != "0" {
+                                reasons.insert("cell_value_metadata");
+                            }
+                        }
+                    }
+                },
+                Event::DocType(_) => { reasons.insert("source_metadata_unverified"); },
+                Event::Eof => { remaining -= reader.buffer_position(); break; },
+                _ => {},
+            }
+            buffer.clear();
+        }
+    }
+    Ok(reasons)
 }
 
 #[cfg(test)]
@@ -594,6 +949,35 @@ mod tests {
             std::fs::remove_file(path).unwrap();
         }
         save_to_xlsx(&model, path.to_str().unwrap()).unwrap();
+    }
+
+    fn replace_fixture_a1_xml(path: &Path, replacement: &str) {
+        use std::io::{Read, Write};
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+        let mut entries = Vec::new();
+        let mut replaced = false;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).unwrap();
+            if entry.is_dir() { continue; }
+            let name = entry.name().to_owned();
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data).unwrap();
+            if name == "xl/worksheets/sheet1.xml" {
+                let mut xml = String::from_utf8(data).unwrap();
+                let start = xml.find("<c r=\"A1\"").unwrap();
+                let end = start + xml[start..].find("</c>").unwrap() + "</c>".len();
+                xml.replace_range(start..end, replacement);
+                data = xml.into_bytes();
+                replaced = true;
+            }
+            entries.push((name, data));
+        }
+        drop(archive);
+        assert!(replaced);
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, data) in entries { writer.start_file(name, options).unwrap(); writer.write_all(&data).unwrap(); }
+        writer.finish().unwrap();
     }
 
     fn edit(address: &str, input: &str) -> RecalcEdit {
@@ -644,6 +1028,7 @@ mod tests {
                     size,
                     applied: HashMap::new(),
                     last_used: cache.tick,
+                    cache_writeback_reasons: BTreeSet::new(),
                 },
             );
             cache.evict_beyond_cap();
@@ -669,6 +1054,228 @@ mod tests {
     }
 
     #[test]
+    fn imports_pretty_ooxml_without_losing_inline_shared_or_whitespace_only_text() {
+        use std::io::{Read, Write};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pretty-calculation.xlsx");
+        write_fixture(&path, &[("A1", "10"), ("B1", "=A1*2"), ("G1", "'shared \n text")]);
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
+        let mut entries = Vec::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).unwrap();
+            let name = entry.name().to_owned();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            if name == "xl/worksheets/sheet1.xml" {
+                bytes = br#"<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:G1"/>
+  <sheetViews><sheetView workbookViewId="0"/></sheetViews>
+  <sheetFormatPr defaultRowHeight="15"/>
+  <sheetData>
+    <!-- A legal non-row child that the importer must ignore. -->
+    <row r="1">
+      <c r="A1"><v>10</v></c>
+      <!-- A legal non-cell child. -->
+      <c r="B1"><f>A1*2</f><v>20</v></c>
+      <c r="C1" t="inlineStr"><is><t xml:space="preserve"> &#9;
+ </t></is></c>
+      <c r="D1" t="inlineStr"><is><t xml:space="preserve"> premi&#232;re
+&#31532;&#20108;&#34892;&#9;&amp; </t></is></c>
+      <c r="E1" t="inlineStr"><is><t>12</t></is></c>
+      <c r="F1" t="b"><f>ISTEXT(E1)</f><v>1</v></c>
+      <c r="G1" t="s"><v>0</v></c>
+    </row>
+  </sheetData>
+</worksheet>"#.to_vec();
+            } else if name.ends_with(".xml") || name.ends_with(".rels") {
+                // The generated fixture has no empty literal-text elements.
+                // Indent all structural parts, including every style list.
+                bytes = String::from_utf8(bytes).unwrap().replace("><", ">\n  <").into_bytes();
+            }
+            entries.push((name, bytes));
+        }
+        drop(archive);
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for (name, bytes) in entries {
+            writer.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            writer.write_all(&bytes).unwrap();
+        }
+        writer.start_file("customXml/opaque.bin", zip::write::SimpleFileOptions::default()).unwrap();
+        writer.write_all(&[0, 255, 10, 13, 128]).unwrap();
+        writer.finish().unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let reads = [RecalcRead { sheet: "Sheet1".into(), range: CellRange {
+            start_row: 0, end_row: 0, start_column: 0, end_column: 6,
+        }}];
+        let mut cache = RecalcCache::new();
+        let result = recalc_cells(&mut cache, &path, &[edit("A1", "21")], &reads).unwrap();
+        let at = |column| &result.cells.iter().find(|cell| cell.column == column).unwrap().value;
+        assert_eq!(at(1), &serde_json::json!(42.0));
+        assert_eq!(at(2), &serde_json::json!(" \t\n "));
+        assert_eq!(at(3), &serde_json::json!(" première\n第二行\t& "));
+        assert_eq!(at(4), &serde_json::json!("12"));
+        assert_eq!(at(5), &serde_json::json!(true));
+        assert_eq!(at(6), &serde_json::json!("shared \n text"));
+        assert!(result.cache_writeback_allowed, "{:?}", result.cache_writeback_reasons);
+        let cached = recalc_cells(&mut cache, &path, &[edit("A1", "22")], &reads).unwrap();
+        assert!(cached.cached);
+        assert_eq!(cached.cells.iter().find(|cell| cell.column == 1).unwrap().value, serde_json::json!(44.0));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn import_xml_normalization_preserves_literal_unknown_cdata_and_xml_space_scopes() {
+        let xml = br#"<?xml version="1.0"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:x="urn:unknown">
+ <sheetData>
+  <!-- ignorable --><?ignore value?>
+  <row r="1">
+   <c r="A1"><is><t xml:space="preserve"> &#32;
+ </t></is><f> "  " &amp; "x" </f><v> 12 </v></c>
+   <c r="B1"><is><t><![CDATA[ 
+ <literal>&amp; ]]></t></is></c>
+  </row>
+ </sheetData>
+ <sheetData xml:space="preserve">
+  <!-- preserve this scope -->
+  <row r="2"> 
+  </row>
+ </sheetData>
+ <x:sheetData>
+  <!-- retain unknown namespace -->
+  <x:row> 
+  </x:row>
+ </x:sheetData>
+ <extension><row> 
+ </row></extension>
+</worksheet>"#;
+        let mut output = Vec::new();
+        normalize_calculation_xml(&xml[..], &mut output, xml.len() as u64).unwrap();
+        let text = String::from_utf8(output).unwrap();
+        assert!(!text.contains("<!-- ignorable -->"));
+        assert!(!text.contains("<?ignore value?>"));
+        assert!(text.contains("<sheetData><row r=\"1\"><c"));
+        for literal in [
+            "<t xml:space=\"preserve\"> &#32;\n </t>",
+            "<f> \"  \" &amp; \"x\" </f><v> 12 </v>",
+            "<![CDATA[ \n <literal>&amp; ]]>",
+            "<sheetData xml:space=\"preserve\">\n  <!-- preserve this scope -->\n  <row r=\"2\"> \n  </row>\n </sheetData>",
+            "<x:sheetData>\n  <!-- retain unknown namespace -->\n  <x:row> \n  </x:row>\n </x:sheetData>",
+            "<extension><row> \n </row></extension>",
+        ] { assert!(text.contains(literal), "Missing literal {literal:?} in {text}"); }
+        assert!(normalize_calculation_xml(&xml[..], Vec::new(), 20).is_err());
+    }
+
+    #[test]
+    fn cache_provenance_certifies_basic_scalar_and_static_sum_formulas() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("certified.xlsx");
+        fixture(&path);
+        let result = recalc_cells(&mut RecalcCache::new(), &path, &[edit("A1", "21")], &[read_a1_a3()]).unwrap();
+        assert_eq!(sum_value(&result), "41");
+        assert!(result.cache_writeback_allowed);
+        assert_eq!(result.calculation_completeness, "complete");
+        assert!(result.cache_writeback_reasons.is_empty());
+        let serialized = serde_json::to_value(&result).unwrap();
+        assert_eq!(serialized["cacheWritebackAllowed"], true);
+        assert_eq!(serialized["calculationCompleteness"], "complete");
+    }
+
+    #[test]
+    fn unsupported_precedent_outside_viewport_blocks_hidden_iferror_fallback_writeback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unsupported-precedent.xlsx");
+        write_fixture(&path, &[("A1", "=UNSUPPORTED_NATIVE_FUNCTION(1)"), ("B1", "=IFERROR(A1,0)")]);
+        let reads = [RecalcRead { sheet: "Sheet1".into(), range: CellRange {
+            start_row: 0, end_row: 0, start_column: 1, end_column: 1,
+        } }];
+        let result = recalc_cells(&mut RecalcCache::new(), &path, &[], &reads).unwrap();
+        assert_eq!(result.cells.len(), 1);
+        assert_eq!(result.cells[0].value.as_f64(), Some(0.0));
+        assert!(!result.cells[0].is_error);
+        assert!(result.cells[0].is_formula);
+        assert!(!result.cache_writeback_allowed);
+        assert_eq!(result.calculation_completeness, "unverified");
+        assert!(result.cache_writeback_reasons.contains(&"unsupported_function"));
+    }
+
+    #[test]
+    fn unsupported_edits_taint_the_resident_source_before_evaluation_and_remain_sticky() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("edited-precedent.xlsx");
+        write_fixture(&path, &[("A1", "10"), ("B1", "=IFERROR(A1,0)")]);
+        let reads = [RecalcRead { sheet: "Sheet1".into(), range: CellRange {
+            start_row: 0, end_row: 0, start_column: 1, end_column: 1,
+        } }];
+        let mut cache = RecalcCache::new();
+        assert!(recalc_cells(&mut cache, &path, &[], &reads).unwrap().cache_writeback_allowed);
+        let unsafe_result = recalc_cells(&mut cache, &path, &[edit("A1", "=UNSUPPORTED_NATIVE_FUNCTION(1)")], &reads).unwrap();
+        assert!(unsafe_result.cached);
+        assert_eq!(unsafe_result.cells[0].value.as_f64(), Some(0.0));
+        assert!(!unsafe_result.cache_writeback_allowed);
+        let later = recalc_cells(&mut cache, &path, &[edit("A1", "21")], &reads).unwrap();
+        assert!(later.cached);
+        assert_eq!(later.cells[0].value.as_f64(), Some(21.0));
+        assert!(!later.cache_writeback_allowed);
+        assert!(later.cache_writeback_reasons.contains(&"unsupported_function"));
+        // A fresh model can independently certify the now-safe overlay.
+        assert!(recalc_cells(&mut RecalcCache::new(), &path, &[edit("A1", "21")], &reads).unwrap().cache_writeback_allowed);
+    }
+
+    #[test]
+    fn cached_external_formula_pins_keep_provenance_when_the_formula_disappears_from_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pinned-precedent.xlsx");
+        write_fixture(&path, &[("A1", "7"), ("B1", "=IFERROR(A1,0)")]);
+        replace_fixture_a1_xml(&path, "<c r=\"A1\"><f>[1]Remote!A1</f><v>7</v></c>");
+        let reads = [RecalcRead { sheet: "Sheet1".into(), range: CellRange {
+            start_row: 0, end_row: 0, start_column: 1, end_column: 1,
+        } }];
+        let mut cache = RecalcCache::new();
+        let result = recalc_cells(&mut cache, &path, &[], &reads).unwrap();
+        assert_eq!(result.cells[0].value.as_f64(), Some(7.0));
+        assert!(!result.cache_writeback_allowed);
+        assert!(result.cache_writeback_reasons.contains(&"cached_formula_precedents_pinned"));
+        let later = recalc_cells(&mut cache, &path, &[], &reads).unwrap();
+        assert!(later.cached);
+        assert!(!later.cache_writeback_allowed);
+        assert!(later.cache_writeback_reasons.contains(&"cached_formula_precedents_pinned"));
+    }
+
+    #[test]
+    fn original_dynamic_array_metadata_blocks_writeback_even_for_a_scalar_looking_ast() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("array-metadata.xlsx");
+        write_fixture(&path, &[("A1", "21")]);
+        replace_fixture_a1_xml(&path, "<c r=\"A1\" cm=\"1\"><f t=\"array\" ref=\"A1:A1\">21</f><v>21</v></c>");
+        let result = recalc_cells(&mut RecalcCache::new(), &path, &[], &[RecalcRead {
+            sheet: "Sheet1".into(), range: CellRange { start_row: 0, end_row: 0, start_column: 0, end_column: 0 },
+        }]).unwrap();
+        assert_eq!(result.cells[0].value.as_f64(), Some(21.0));
+        assert!(!result.cache_writeback_allowed);
+        assert!(result.cache_writeback_reasons.contains(&"array_or_special_formula_metadata"));
+        assert!(result.cache_writeback_reasons.contains(&"cell_value_metadata"));
+    }
+
+    #[test]
+    fn recognized_functions_and_clean_results_are_not_automatically_cache_certification() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, formula, reason) in [
+            ("round", "=ROUND(1.234,2)", "uncertified_function"),
+            ("cell", "=IFERROR(CELL(\"filename\"),0)", "known_engine_gap"),
+        ] {
+            let path = dir.path().join(format!("{name}.xlsx"));
+            write_fixture(&path, &[("A1", formula)]);
+            let result = recalc_cells(&mut RecalcCache::new(), &path, &[], &[RecalcRead {
+                sheet: "Sheet1".into(), range: CellRange { start_row: 0, end_row: 0, start_column: 0, end_column: 0 },
+            }]).unwrap();
+            assert!(!result.cache_writeback_allowed);
+            assert!(result.cache_writeback_reasons.contains(&reason));
+        }
+    }
+
+    #[test]
     fn types_error_results_but_not_error_looking_text() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("recalc.xlsx");
@@ -686,6 +1293,71 @@ mod tests {
         assert!(at(0).is_error);
         assert_eq!(at(1).formatted, "#N/A");
         assert!(!at(1).is_error);
+    }
+
+    #[test]
+    fn exposes_unformatted_values_without_coercing_boolean_numeric_or_error_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("typed-results.xlsx");
+        write_fixture(&path, &[
+            ("B1", "25%"), ("A1", "=12"), ("A2", "=\"12\""), ("A3", "=TRUE"),
+            ("A4", "=\"TRUE\""), ("A5", "=\"\""), ("A6", "=1/0"),
+            ("A7", "=\"#DIV/0!\""), ("A8", "=B1"),
+        ]);
+        let reads = [RecalcRead { sheet: "Sheet1".into(), range: CellRange {
+            start_row: 0, end_row: 7, start_column: 0, end_column: 0,
+        } }];
+        let result = recalc_cells(&mut RecalcCache::new(), &path, &[], &reads).unwrap();
+        let values: Vec<_> = result.cells.iter().map(|cell| cell.value.clone()).collect();
+        assert_eq!(values, vec![
+            serde_json::json!(12.0), serde_json::json!("12"), serde_json::json!(true),
+            serde_json::json!("TRUE"), serde_json::json!(""), serde_json::json!({"error":"#DIV/0!"}),
+            serde_json::json!("#DIV/0!"), serde_json::json!(0.25),
+        ]);
+        assert!(result.cells.iter().all(|cell| cell.is_formula));
+        assert!(result.cells[5].is_error);
+        assert!(!result.cells[6].is_error);
+        assert_eq!(result.cells[7].formatted, "25%");
+        assert_eq!(result.cells[7].number, Some(0.25));
+        let encoded = serde_json::to_value(&result).unwrap();
+        assert_eq!(encoded["cells"][2]["value"], serde_json::json!(true));
+        assert_eq!(encoded["cells"][3]["value"], serde_json::json!("TRUE"));
+        let mut model = Model::new_empty("blank", "en", "UTC", "en").unwrap();
+        assert_eq!(raw_value(&model, 0, 1, 1, false).unwrap(), serde_json::Value::Null);
+        model.set_user_input(0, 1, 1, "'".into()).unwrap();
+        assert_eq!(raw_value(&model, 0, 1, 1, false).unwrap(), serde_json::json!(""));
+    }
+
+    #[test]
+    fn clear_and_empty_text_remain_distinct_in_a_resident_model_and_keep_style() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("clear.xlsx");
+        write_fixture(&path, &[("A1", "$100"), ("A2", "=ISBLANK(A1)"), ("A3", "=ISTEXT(A1)")]);
+        let mut cache = RecalcCache::new();
+        let cleared = recalc_cells(&mut cache, &path, &[edit("A1", "")], &[read_a1_a3()]).unwrap();
+        assert_eq!(cleared.cells.iter().find(|cell| cell.row == 1).unwrap().formatted, "TRUE");
+        assert_eq!(sum_value(&cleared), "FALSE");
+        let model = &cache.entries.get(&cache_key(&path)).unwrap().model;
+        let original_style = model.get_cell_style_index(0, 1, 1).unwrap();
+        assert!(model.is_empty_cell(0, 1, 1).unwrap());
+        assert_eq!(model.get_cell_formula(0, 1, 1).unwrap(), None);
+
+        let empty_text = recalc_cells(&mut cache, &path, &[edit("A1", "'")], &[read_a1_a3()]).unwrap();
+        assert!(empty_text.cached);
+        assert_eq!(empty_text.cells.iter().find(|cell| cell.row == 1).unwrap().formatted, "FALSE");
+        assert_eq!(sum_value(&empty_text), "TRUE");
+        assert_eq!(cache.entries.get(&cache_key(&path)).unwrap().model.get_cell_formula(0, 1, 1).unwrap(), None);
+
+        let cleared_again = recalc_cells(&mut cache, &path, &[edit("A1", "")], &[read_a1_a3()]).unwrap();
+        assert!(cleared_again.cached);
+        assert_eq!(cleared_again.cells.iter().find(|cell| cell.row == 1).unwrap().formatted, "TRUE");
+        assert_eq!(sum_value(&cleared_again), "FALSE");
+        let model = &cache.entries.get(&cache_key(&path)).unwrap().model;
+        assert!(model.is_empty_cell(0, 1, 1).unwrap());
+        assert_eq!(model.get_cell_style_index(0, 1, 1).unwrap(), original_style);
+        // Restore a number after the clear: the currency format must remain.
+        let restored = recalc_cells(&mut cache, &path, &[edit("A1", "25")], &[read_a1_a3()]).unwrap();
+        assert_eq!(restored.cells.iter().find(|cell| cell.row == 0).unwrap().formatted, "$25");
     }
 
     #[test]

@@ -1,0 +1,154 @@
+[
+  {
+    "path": "apps/sheets/src/main/settled-document-native-client.ts",
+    "beforeSha256": null,
+    "afterSha256": "16db166e9e44be832fb3f33a73a83b384d98bc6927110d0d72949f44bf87e2d8",
+    "bytes": 1878,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/sheets-main.ts",
+    "beforeSha256": "e5fb2fae5ab6c264755b92dd932b97d9a29dcdab4c5c018c11741510312acd39",
+    "afterSha256": "556e57c115466b54dfb1de73026042cfd7f0dd44c9d4ced2507727ce22a4b41d",
+    "bytes": 318382,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/src/main/sheets-rename-refresh.ts",
+    "beforeSha256": null,
+    "afterSha256": "3b14bc92656abd860028450452053ae8713689482a15b8c6a40636aac55e672c",
+    "bytes": 4066,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/workbook-exclusive-move.ts",
+    "beforeSha256": null,
+    "afterSha256": "1c55ae127f8ddf7116f0c4fabd19ebd230049bc50d9bad8be1ae77693aa11a0b",
+    "bytes": 1390,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/workbook-publication-lifecycle.ts",
+    "beforeSha256": null,
+    "afterSha256": "8e42631273d0610c4e99bb936748173702655c4b54e1b6ec0c4712ada6d84cc3",
+    "bytes": 2416,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/src/main/xlsx-sidecar-client.ts",
+    "beforeSha256": "65cfd4a8e2cd241a0fd1162186194dfb63645c94e02275f7f13b348e7fc6953e",
+    "afterSha256": "ecf1374af898633b14cd71ba53a2d1a841108542093acdfd40380a2f86714c8c",
+    "bytes": 30852,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/src/preload/index.ts",
+    "beforeSha256": "756f7f2949b522e42c8d6793be77e04d3b89f55a3fc402bdfa7573522771ca79",
+    "afterSha256": "8662d4565da0068e5d6e9698dfb7589f21596be04db5cf63e2a2db9a2e132026",
+    "bytes": 170090,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/src/renderer/App.tsx",
+    "beforeSha256": "864ba59653f058b3a98a97fdae37ff781f67ad890535658f53d50725ca9cc893",
+    "afterSha256": "d93a73e1ccd088c044887669723eddb91e51327121837e72aabe9ba124dcf410",
+    "bytes": 281795,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/src/shared/desktop-api.ts",
+    "beforeSha256": "b53fcc26c24d861de65d6e44e958b7df6594d26e903c3c14626b98c9d4287dcf",
+    "afterSha256": "7722126b49e37df10cb96d1fc4ab5f63a2309a4da5e549ebd2c84db2353456d1",
+    "bytes": 136497,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/src/shared/ipc-channels.ts",
+    "beforeSha256": "0bfc2b26424a3b20d3742f21dbf46b40776660d7627cb5e464fff68d6f64dcae",
+    "afterSha256": "559f98bdda54e6db9e71d159c54fa54d31bc9313cf3709569b89725b44e11c49",
+    "bytes": 7610,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/sheets/tests/settled-document-native-client.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "cd6db56c0e7f42d8ab8c423838cd3cfdfbf09563b9b773a65b52954bbe2cc729",
+    "bytes": 7625,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/sheets-rename-refresh.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "cb389c31f0751eeeb0b357af67d4c7fae9df2bfb9acefbd28a84616437569794",
+    "bytes": 5374,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/workbook-exclusive-move.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "29a3e17f7e60a6493b41f7e86252904badd84cde7c7f84e6f97853eab9de75fa",
+    "bytes": 5774,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/workbook-publication-lifecycle.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "1c486dfb0f3b85f0bfaffef5c6a5b97d53ce32e9de20c531cf681709cf9768c4",
+    "bytes": 7892,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/sheets/tests/xlsx-sidecar-settlement.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "126f4a7c6598122741df7062a3d614c50fc0b1aeda78d5295bc5cf3a7dfd5163",
+    "bytes": 19174,
+    "changed": true,
+    "newFile": true
+  },
+  {
+    "path": "apps/shell/src/main/sheets-close-runtime.ts",
+    "beforeSha256": "3264a59f536624e6b2135446430c6460212339f0a5ecea5018716bcb330e9504",
+    "afterSha256": "dd066cc6726fe72c335dfe1ea98de4030effcfab1a192c0f814d4b5ae931599f",
+    "bytes": 7875,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "apps/shell/tests/sheets-close-runtime.test.ts",
+    "beforeSha256": "1d60cc412e8a841e0713189a6c634b870908c05dff6fa4a7258370deae27b0df",
+    "afterSha256": "de0e068d8287c313871682eb3f13ec26843dd7d9d957d3e99b0d7d02eddd2977",
+    "bytes": 20750,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "packages/xlsx-gateway/src/gateway/xlsx-package-io.ts",
+    "beforeSha256": "6d99333b685889a434e9e08f5bd1a819222013400ab35b3c61cc337a622b4d47",
+    "afterSha256": "e429b5785347ece942d7bbf8a994c09c25c5c45a757419c4a733465fbd6f5968",
+    "bytes": 21955,
+    "changed": true,
+    "newFile": false
+  },
+  {
+    "path": "packages/xlsx-gateway/tests/xlsx-package-io-attested.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "ae1fdca9fd354ee3136eadb3fc96380a92da65087587f101019275b11b9dda19",
+    "bytes": 12497,
+    "changed": true,
+    "newFile": true
+  }
+]

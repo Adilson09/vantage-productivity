@@ -72,7 +72,8 @@ describe('XLSX Rust sidecar', () => {
     }
   })
 
-  // six agile-encryption key derivations (100k SHA-512 rounds each) in pure JS
+  // Six crypto calls perform sixteen 100k-round SHA-512 derivations. Allow
+  // slow build hosts to finish the security checks without weakening the KDF.
   it('rejects encrypted OOXML and preserves workbook data through host-side password rotation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'xlsx-password-rotation-test-'))
     const firstEncryptedPath = join(directory, 'first-password.xlsx')
@@ -124,7 +125,7 @@ describe('XLSX Rust sidecar', () => {
       client.stop()
       await rm(directory, { recursive: true, force: true })
     }
-  }, 60_000)
+  }, 180_000)
 
   it('skips a queued request whose out-of-band cancel arrived first', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'xlsx-cancel-test-'))

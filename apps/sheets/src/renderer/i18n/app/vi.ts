@@ -318,7 +318,7 @@ export const vi = {
     'Công thức này đánh giá một vùng lớn cho từng phần tử — phép tính sẽ làm đơ ứng dụng nên đã bị hủy. Hãy thu hẹp phạm vi tham chiếu và thử lại.',
   appPivotSheetNoStructural: 'Trang tính này chứa PivotTable — chưa hỗ trợ thay đổi cấu trúc.',
   appDeleteSpanFormulas:
-    'Một công thức chỉ tham chiếu đến các hàng/cột bị xóa — trước tiên hãy cập nhật hoặc xóa công thức đó.',
+    'Không thể cập nhật an toàn một công thức sau thao tác xóa này. Hãy sửa hoặc xóa công thức đó trước.',
   appIconSetUnsupported:
     'Tổ hợp biểu tượng này không thể lưu vào xlsx — vui lòng chọn bộ biểu tượng khác.',
   appFullLoadFilterTitle: 'Thao tác này cần toàn bộ sổ làm việc',

@@ -6,9 +6,19 @@ license = "Apache-2.0"
 publish = false
 
 [features]
+backend-acceptance = []
 # Run indexing and recalc inline instead of on threads, as WebAssembly builds
 # without threads must; lets that path be tested on any machine.
 single-thread = []
+# Optional C ABI; desktop application builds keep their normal binary output.
+native-ffi = []
+
+[[bin]]
+name = "xlsx-sidecar-acceptance"
+path = "src/acceptance_main.rs"
+required-features = ["backend-acceptance"]
+test = false
+bench = false
 
 [dependencies]
 base64 = "0.22.1"

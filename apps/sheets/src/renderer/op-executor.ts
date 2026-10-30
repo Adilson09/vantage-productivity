@@ -5,6 +5,7 @@
  * AI proposes; every function receives its App-scope context explicitly.
  */
 import { IUndoRedoService } from '@univerjs/core'
+import { enqueueWorkbookMutation } from './workbook-mutation-queue'
 import type { CellBounds } from '@vantage/xlsx-gateway/domain/chart-visual'
 import {
   columnIndex,
@@ -358,8 +359,6 @@ function planTargetSheets(plan: ChangePlan): Set<string> {
  * range/structural ops first (so inserts establish the final coordinate
  * space), then cell, format and rename changes.
  */
-let applyQueue: Promise<void> = Promise.resolve()
-
 export function applyChangePlan(
   plan: ChangePlan,
   ctx: OpExecutorContext,
@@ -368,12 +367,7 @@ export function applyChangePlan(
   // One apply at a time: the undo batch and aiBulkUndoGate are not reentrant,
   // and the async prechecks yield — a ribbon click landing during an AI apply
   // (or a second click during a delete precheck) must wait its turn.
-  const run = applyQueue.then(() => applyChangePlanNow(plan, ctx, options))
-  applyQueue = run.then(
-    () => undefined,
-    () => undefined,
-  )
-  return run
+  return enqueueWorkbookMutation(() => applyChangePlanNow(plan, ctx, options))
 }
 
 async function applyChangePlanNow(

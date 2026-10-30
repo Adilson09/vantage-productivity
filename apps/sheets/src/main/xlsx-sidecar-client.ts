@@ -218,6 +218,68 @@ export class XlsxSidecarClient {
     return this.editSessions.recalculate(open, edits, reads)
   }
 
+  async auditPreservation(input: {
+    readonly sourcePath: string
+    readonly targetPath: string
+    readonly allowedChangedEntries: readonly string[]
+  }): Promise<unknown> {
+    return this.request({ command: 'audit_preservation', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async recalcDocument(input: {
+    readonly apiVersion: 1
+    readonly documentId: string
+    readonly revision: number
+    readonly reads: readonly EditRecalcRead[]
+    readonly materializedPath?: string
+  }): Promise<unknown> {
+    return this.request({ command: 'recalc_document', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async openDocument(input: {
+    readonly apiVersion: 1
+    readonly documentId: string
+    readonly sourcePath: string
+    readonly sheets: readonly { readonly id: string; readonly name: string }[]
+    readonly storePath?: string
+  }): Promise<unknown> {
+    return this.request({ command: 'open_document', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async checkpointDocument(input: {
+    readonly apiVersion: 1
+    readonly documentId: string
+    readonly commandId: string
+    readonly expectedRevision: number
+    readonly actor: string
+    readonly payload: Record<string, unknown>
+  }): Promise<unknown> {
+    return this.request({ command: 'checkpoint_document', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async documentSnapshot(input: {
+    readonly apiVersion: 1
+    readonly documentId: string
+    readonly revision?: number
+  }): Promise<unknown> {
+    return this.request({ command: 'document_snapshot', ...input }, ARCHIVE_TIMEOUT_MS)
+  }
+
+  async documentCommandResult(input: {
+    readonly apiVersion: 1
+    readonly documentId: string
+    readonly commandId: string
+  }): Promise<unknown> {
+    return this.request({ command: 'document_command_result', ...input })
+  }
+
+  async closeDocument(input: {
+    readonly apiVersion: 1
+    readonly documentId: string
+  }): Promise<unknown> {
+    return this.request({ command: 'close_document', ...input })
+  }
+
   async readMedia(input: {
     readonly sessionId: string
     readonly visualId: string

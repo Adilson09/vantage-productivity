@@ -1,0 +1,18 @@
+{
+  "heldCandidate": "C:/Users/Adilson Candundo/Documents/Codex/2026-10-28/comp/work/vantage-next-composed-20261030",
+  "heldCandidateManifestSha256": "003f136afa7d067fe7d41970984fe83f496b93adab7a0730599deb1f61e4c9e7",
+  "allowedBeforeLayers": [
+    { "name": "immutable-standalone11", "after": "D:/Codex-builds/vantage-next-validation/sheets-standalone-runtime-followup-20261030/after" }
+  ],
+  "dependencies": [
+    { "name": "Sheets Standalone11", "receiptSha256": "de59f16fcd4bccdd62dcfe233d79631551ae21e4e97d11870959234eb3053186", "mainBeforeSha256": "f13a80393ee5248e3bb15f47a98f2794dca9dab533b4e45a395b6fd8a54ecf4a" }
+  ],
+  "testSources": [
+    { "file": "apps/sheets/tests/interactive-sheets-print.test.ts", "proposedExpandedCases": 5, "scope": "Production callback admission gate refuses before session lookup, parsing, or print effects; preserves actual GUI promise and rejection" }
+  ],
+  "knownLimits": [
+    "This is a new unapplied source-only successor. No tests, typechecks, builds, parsing checks or GUI runs were performed.",
+    "Headless and disabled recovery modes refuse interactive printing before side effects. Ordinary GUI print remains on its existing path.",
+    "The change is not applied to Standalone11, Native19, the sealed RC, primary or held candidate, and does not inherit their validation."
+  ]
+}

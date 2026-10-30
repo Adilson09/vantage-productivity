@@ -1,5 +1,6 @@
 import type { AiPanelPrefs } from '@vantage/ui'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { parseRecalcResult } from './recalc-contract'
 
 import type {
   AiChatResponse,
@@ -38,7 +39,6 @@ import type {
   WorkbookRangeRequest,
   WorkbookRangeResult,
   WorkbookRecalcRequest,
-  WorkbookRecalcResult,
   WorkbookRedactionsResult,
   WorkbookRichRun,
   WorkbookSaveRequest,
@@ -369,6 +369,37 @@ const desktopApi: DesktopApi = {
       validatedRequest,
     )
     return { ok: (result as { ok?: unknown } | null)?.ok === true }
+  },
+  async checkpointWorkbookDocument(request, dirty = true) {
+    if (typeof dirty !== 'boolean') throw new Error('Invalid document checkpoint state.')
+    const validatedRequest = parseSaveRequest(request)
+    const result: unknown = await ipcRenderer.invoke(
+      IPC_CHANNELS.checkpointWorkbookDocument,
+      validatedRequest,
+      dirty,
+    )
+    if (
+      !isRecord(result) ||
+      result.apiVersion !== 1 ||
+      !isUuid(result.documentId) ||
+      typeof result.commandId !== 'string' ||
+      !result.commandId ||
+      typeof result.revision !== 'number' ||
+      !Number.isSafeInteger(result.revision) ||
+      result.revision < 0 ||
+      typeof result.durable !== 'boolean' ||
+      (result.candidateId !== null && !isUuid(result.candidateId))
+    ) {
+      throw new Error('Invalid document checkpoint receipt.')
+    }
+    return {
+      apiVersion: 1,
+      documentId: result.documentId,
+      commandId: result.commandId,
+      revision: result.revision,
+      durable: result.durable,
+      candidateId: result.candidateId,
+    }
   },
   async autoRenameWorkbook(sessionId, baseName) {
     if (!isUuid(sessionId)) throw new Error('Invalid workbook session.')
@@ -1523,38 +1554,6 @@ function parseRecalcRequest(input: unknown): WorkbookRecalcRequest {
     return { sheetId: edit.sheetId, row: edit.row, column: edit.column, input: edit.input }
   })
   return { sessionId: input.sessionId, edits, reads }
-}
-
-function parseRecalcResult(input: unknown): WorkbookRecalcResult {
-  if (!isRecord(input) || !Array.isArray(input.cells) || input.cells.length > 20_000) {
-    throw new Error('Invalid workbook recalc response.')
-  }
-  const cells = input.cells.map((cell) => {
-    if (
-      !isRecord(cell) ||
-      typeof cell.sheetId !== 'string' ||
-      cell.sheetId.length === 0 ||
-      !isNonnegativeInteger(cell.row) ||
-      !isNonnegativeInteger(cell.column) ||
-      typeof cell.formatted !== 'string' ||
-      (cell.number !== undefined &&
-        (typeof cell.number !== 'number' || !Number.isFinite(cell.number))) ||
-      (cell.isError !== undefined && typeof cell.isError !== 'boolean') ||
-      typeof cell.isFormula !== 'boolean'
-    ) {
-      throw new Error('Invalid workbook recalc response.')
-    }
-    return {
-      sheetId: cell.sheetId,
-      row: cell.row,
-      column: cell.column,
-      formatted: cell.formatted,
-      ...(cell.number === undefined ? {} : { number: cell.number }),
-      ...(cell.isError ? { isError: true } : {}),
-      isFormula: cell.isFormula,
-    }
-  })
-  return { cells }
 }
 
 function parseRangeResult(input: unknown): WorkbookRangeResult {

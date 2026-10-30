@@ -145,6 +145,14 @@ directly to a legacy read without translating its ends.
   immutable command receipt. A conditional prior-revision check fences stale
   writers. The commit completes before the Rust session publishes its revision
   or acknowledges `durable: true`. This relies on the OS/storage honoring flushes.
+- The session indexes command IDs for replay and outcome lookup. The SQLite
+  and memory stores append one new receipt without cloning or scanning prior
+  receipts on each edit. SQLite recovery still reads and validates the full
+  receipt sequence once when reopening a workbook; receipt history remains in
+  session memory. Each commit also validates and writes the complete current
+  input overlay, so this is not a constant-cost edit or a measured latency claim.
+  Custom stores that implement only `load` and `commit` retain the compatible
+  full-candidate fallback until they implement the optional append path.
 - Recovery binds a workbook ID to the source SHA-256 and sheet descriptors.
   Identical source bytes can move to a different cache path. Changed source or
   sheet identity is rejected rather than silently merging unrelated inputs.

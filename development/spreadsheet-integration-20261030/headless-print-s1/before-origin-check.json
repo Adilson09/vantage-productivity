@@ -1,0 +1,29 @@
+[
+  {
+    "path": "apps/sheets/src/main/interactive-sheets-print.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/src/main/sheets-main.ts",
+    "beforeSha256": "f13a80393ee5248e3bb15f47a98f2794dca9dab533b4e45a395b6fd8a54ecf4a",
+    "heldCandidateSha256": "556e57c115466b54dfb1de73026042cfd7f0dd44c9d4ced2507727ce22a4b41d",
+    "permittedBeforeOrigins": [
+      "immutable-standalone11"
+    ],
+    "beforeOriginVerified": true
+  },
+  {
+    "path": "apps/sheets/tests/interactive-sheets-print.test.ts",
+    "beforeSha256": null,
+    "heldCandidateSha256": null,
+    "permittedBeforeOrigins": [
+      "absent-from-held-and-declared-parents"
+    ],
+    "beforeOriginVerified": true
+  }
+]
