@@ -124,6 +124,12 @@ Reserved Font Names include "Nanum" and "NanumGothic"; subsetting is a
 modification). The exact NHN copyright/Reserved Font Name notice and the full
 OFL 1.1 text are in `LICENSE-OFL.txt`.
 
+`tools/repair-gothic-kr-metadata.py` aligns an existing subset's internal names
+with the generator without rebuilding its outlines. It refuses publication if
+any decoded table other than `name` or the `head` checksum changes, or if style,
+copyright, license, glyph mapping or advance data changes. Pass `--report` to
+record the before/after hashes and verification details.
+
 ### Vantage UI Kana JP
 
 | Font                                    | Role                                                |
