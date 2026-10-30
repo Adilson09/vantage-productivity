@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-10-30T04:22:37.402Z",
-  "status": "IMPLEMENTED SOURCE; native build, allocator acceptance, tests and packaged runtime acceptance NOT RUN",
-  "scope": "Isolated CI worktree only; no primary edits, no release artifacts, no commit/push",
+  "recordedAt": "2026-10-30T05:03:22.497Z",
+  "status": "Linux allocation enforcement verified; complete native and packaged acceptance pending",
+  "scope": "Isolated CI branch; no primary integration or release artifacts. Publication and current runs recorded separately.",
   "problem": {
     "receipt": "D:/Codex-builds/vantage-next-validation/sqlite-allocation-cap-probe.cjs",
     "observedBy": "root",
@@ -91,16 +91,16 @@
     "scopedPrettier": "exit0",
     "javascriptSyntax": "node --check exit0: build-query-worker.mjs, gen-third-party-notices.mjs, build-sidecar-universal.mjs, electron-builder.cjs",
     "rustfmt": "UNAVAILABLE: configured portable toolchain has no rustfmt.exe; no download performed",
-    "nativeCompile": "NOT RUN; backend validation lease held",
-    "nativeTests": "NOT RUN",
-    "nodeTests": "NOT RUN",
-    "types": "NOT RUN",
+    "nativeCompile": "Passed in GitHub application builds on 6c4617c3 and preceding 81ab99fc, Linux.",
+    "nativeTests": "On 6c4617c3, nine of ten native tests passed. The 100 MB randomblob returned QUERY_MEMORY_LIMIT with SQLite code 7. Large-file paging, cancellation and SQL/source guards passed. The sole failure assumed 100 MB zeroblob stayed lazy; SQLite instead materialized/refused it safely. A 16 MiB output-budget case is prepared and awaits rerun. Production source is unchanged.",
+    "nodeTests": "The GitHub 6c4617c3 editor group passed, including all 166 Productivity tests and strict native allocation-error/protocol cases. The relocated CLI/core-docs group is still running.",
+    "types": "All workspace typechecks passed on GitHub 6c4617c3.",
     "gui": "NOT RUN",
     "package": "NOT RUN",
     "cargoMetadata": "cargo metadata --offline --locked --no-deps exit0: library + original sidecar + native helper + separate query_worker integration target recognized; no compile."
   },
   "authoredAcceptance": {
-    "nativeBlackbox": "apps/sheets/native/xlsx-engine/tests/query_worker.rs: real SQL/params, read-only/multiple-statement refusal, actual randomblob(100000000) must yield QUERY_MEMORY_LIMIT/sqliteCode7 with 30s deadline, >64MiB paged source, lazy cell/output cap, extension/DQS refusal, format refusal, native progress deadline, parent EOF while stdout blocked.",
+    "nativeBlackbox": "apps/sheets/native/xlsx-engine/tests/query_worker.rs: real SQL/params, read-only/multiple-statement refusal, actual randomblob(100000000) must yield QUERY_MEMORY_LIMIT/sqliteCode7 with 30s deadline, >64MiB paged source, oversized cell/output cap, extension/DQS refusal, format refusal, native progress deadline, parent EOF while stdout blocked.",
     "nodeProtocol": "database-query-protocol.test.ts: literal argv, nonce/schema/UTF8/exit/row refusal, exact framing limit, mandatory native error7, pipe failures, output cap, cancel, retained cleanup slots, missing provider.",
     "locator": "database-query-locator.test.ts: real fixed resolver uses simulated Electron resources and configured Cargo triple; fixtures are not executable runtime proof.",
     "relocatedCli": "packages/cli/tests/query-worker-package.test.ts: bundle actual client with existing esbuild dependency, copy exact real compiled helper bytes with hash match, invoke plain Node without process.resourcesPath from unrelated cwd and paths with spaces, real saved DB SQL and source hash unchanged.",

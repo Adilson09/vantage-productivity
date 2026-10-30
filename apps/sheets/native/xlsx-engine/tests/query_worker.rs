@@ -106,12 +106,13 @@ fn actually_refuses_a_100mb_sqlite_allocation_with_nomem_not_a_deadline() {
 }
 
 #[test]
-fn detects_a_lazy_100mb_cell_before_copying_or_base64_encoding_it() {
+fn truncates_a_cell_over_the_output_budget_before_rust_copy_or_base64() {
     let (_directory, path) = fixture();
-    let (output, result) = run(&path, "SELECT zeroblob(100000000) AS huge", json!([]), 10);
+    // This value fits the SQLite heap but cannot fit the two-MiB JSON output.
+    let (output, result) = run(&path, "SELECT zeroblob(16777216) AS huge", json!([]), 10);
     assert!(output.status.success(), "{result}");
     assert_eq!(result["result"], json!({"columns":["huge"],"rows":[],"truncated":true}));
-    assert!(result["limits"]["sqliteHighwaterBytes"].as_u64().unwrap() < 16 * 1024 * 1024);
+    assert!(result["limits"]["sqliteHighwaterBytes"].as_u64().unwrap() <= 67_108_864);
 }
 
 #[test]
