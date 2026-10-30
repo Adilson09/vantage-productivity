@@ -36,6 +36,7 @@ for (const target of TARGETS) {
     [
       'build',
       '--release',
+      '--locked',
       '--manifest-path',
       'native/xlsx-engine/Cargo.toml',
       '--config',
@@ -49,20 +50,21 @@ for (const target of TARGETS) {
 
 const outDir = join(sheetsDir, 'native/xlsx-engine/target/release')
 mkdirSync(outDir, { recursive: true })
-const out = join(outDir, 'xlsx-sidecar')
-execFileSync(
-  'lipo',
-  [
-    '-create',
-    ...TARGETS.map((t) => join(sheetsDir, 'native/xlsx-engine/target', t, 'release/xlsx-sidecar')),
-    '-output',
-    out,
-  ],
-  { stdio: 'inherit' },
-)
-
-const archs = execFileSync('lipo', ['-archs', out], { encoding: 'utf8' }).trim()
-if (!archs.includes('x86_64') || !archs.includes('arm64')) {
-  fatal(`merge produced "${archs}" — expected x86_64 + arm64`)
+for (const binary of ['xlsx-sidecar', 'vantage-query-worker']) {
+  const out = join(outDir, binary)
+  execFileSync(
+    'lipo',
+    [
+      '-create',
+      ...TARGETS.map((t) => join(sheetsDir, 'native/xlsx-engine/target', t, 'release', binary)),
+      '-output',
+      out,
+    ],
+    { stdio: 'inherit' },
+  )
+  const archs = execFileSync('lipo', ['-archs', out], { encoding: 'utf8' }).trim()
+  if (!archs.includes('x86_64') || !archs.includes('arm64')) {
+    fatal(`${binary} merge produced "${archs}" — expected x86_64 + arm64`)
+  }
+  console.log(`[sidecar-universal] ${out} (${archs})`)
 }
-console.log(`[sidecar-universal] ${out} (${archs})`)

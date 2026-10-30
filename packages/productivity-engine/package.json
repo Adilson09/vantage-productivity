@@ -14,6 +14,7 @@
     "./providers": "./src/providers.ts"
   },
   "scripts": {
+    "pretest": "node ../../tools/build-query-worker.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "cli": "tsx src/cli.ts"

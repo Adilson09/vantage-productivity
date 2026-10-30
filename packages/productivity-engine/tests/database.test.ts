@@ -215,8 +215,36 @@ describe('isolated read-only query process', () => {
 
   it('rejects SQLite allocations above its independent memory cap', async () => {
     make()
+    const before = readFileSync(path)
     await expect(
-      queryDatabaseIsolated(path, 'SELECT randomblob(100000000) AS huge'),
-    ).rejects.toThrow(/memory|valid result/i)
+      queryDatabaseIsolated(path, 'SELECT randomblob(100000000) AS huge', { timeoutMs: 30000 }),
+    ).rejects.toMatchObject({
+      code: 'QUERY_MEMORY_LIMIT',
+      details: { sqliteCode: 7, sqliteHeapBytes: 67108864 },
+    })
+    expect(readFileSync(path)).toEqual(before)
+  }, 35000)
+
+  it('rejects a second SQL statement before it can modify the source', async () => {
+    make()
+    const before = readFileSync(path)
+    await expect(queryDatabaseIsolated(path, 'SELECT 1; DELETE FROM Sales')).rejects.toMatchObject({
+      code: 'QUERY_MULTIPLE_STATEMENTS',
+    })
+    expect(readFileSync(path)).toEqual(before)
+  })
+
+  it('cancels an active recursive query through its owned native pipe', async () => {
+    make()
+    const before = readFileSync(path)
+    const controller = new AbortController()
+    const query = queryDatabaseIsolated(
+      path,
+      'WITH RECURSIVE forever(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM forever) SELECT SUM(x) FROM forever',
+      { timeoutMs: 30000, signal: controller.signal },
+    )
+    setTimeout(() => controller.abort(), 100)
+    await expect(query).rejects.toMatchObject({ code: 'QUERY_CANCELLED' })
+    expect(readFileSync(path)).toEqual(before)
   })
 })

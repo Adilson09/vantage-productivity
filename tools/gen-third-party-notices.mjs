@@ -258,7 +258,7 @@ for (const [name, { dir, pkg }] of resolved) {
 }
 
 const crates = rustCrates()
-out += hr(`2. Rust crates (xlsx-sidecar native component, statically linked)`)
+out += hr(`2. Rust crates (xlsx-sidecar and native query worker, statically linked)`)
 if (crates === null) {
   out += '\ncargo metadata unavailable at generation time; see'
   out += ' apps/sheets/native/xlsx-engine/Cargo.lock for the full crate list.\n'

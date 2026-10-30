@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
+default-run = "xlsx-sidecar"
+
+[[bin]]
+name = "vantage-query-worker"
+path = "src/bin/vantage-query-worker.rs"
+test = false
 
 [features]
 # Run indexing and recalc inline instead of on threads, as WebAssembly builds
