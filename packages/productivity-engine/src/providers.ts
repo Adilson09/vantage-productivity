@@ -224,14 +224,17 @@ class Reader {
             this.options.signal?.aborted
               ? 'Provider sync cancelled.'
               : 'Provider request timed out.',
+            { cause: error },
           )
         if (
           error instanceof ProviderHttpError ||
           (error instanceof Error && /^(Provider |The provider)/.test(error.message))
         )
           throw error
-        // Fetch errors can include sensitive URL query tokens. Do not echo them.
-        throw new Error('Provider request failed before a complete response was received.')
+        // Keep the public message free of URL query tokens; retain the cause for diagnostics.
+        throw new Error('Provider request failed before a complete response was received.', {
+          cause: error,
+        })
       } finally {
         clearTimeout(timer)
         this.options.signal?.removeEventListener('abort', abort)

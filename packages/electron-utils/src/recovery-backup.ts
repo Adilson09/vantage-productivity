@@ -6,7 +6,7 @@ import {
   randomUUID,
   scrypt,
 } from 'node:crypto'
-import { link, open, unlink } from 'node:fs/promises'
+import { open, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { listRecoveryEntries, readRecoveryEntry, type RecoveryEntry } from './recovery-vault'

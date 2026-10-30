@@ -162,6 +162,31 @@ jobs:
           npm run fixtures -w @vantage/sheets
           npm run compat -w @vantage/sheets
 
+  mail-frontend:
+    name: Mail frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: companions/depesha
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: companions/depesha/package-lock.json
+      - name: Install Mail frontend dependencies
+        run: npm ci
+      - name: Mail frontend types
+        run: npm run check
+      - name: Mail frontend lint
+        run: npm run lint
+      - name: Mail frontend unit tests
+        run: npm test
+
   e2e:
     # 22.04, not -latest: 24.04's AppArmor hardening blocks Electron renderer
     # spawn under xvfb even with --no-sandbox and the userns sysctl lifted

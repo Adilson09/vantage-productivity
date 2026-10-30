@@ -154,3 +154,19 @@ test('portable manifest resolves relative executables and enforces pinned bytes 
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('an invalid manifest retains the parser failure as its diagnostic cause', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'vantage-bridge-test-'))
+  try {
+    const manifestPath = join(dir, 'engines.json')
+    await writeFile(manifestPath, '{invalid JSON')
+    await assert.rejects(discoverEngines({ env: { PATH: '' }, manifestPath }), (error) => {
+      assert.match(error.message, /^Cannot load local engine configuration:/)
+      assert.ok(error.cause instanceof SyntaxError)
+      assert.ok(error.message.includes(error.cause.message))
+      return true
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto'
-import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs'
-import { rename, rm } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { closeSync, fsyncSync, openSync, readFileSync } from 'node:fs'
 
 import JSZip from 'jszip'
 import { atomicWriteFile, withAtomicSaveQueue } from '../../../electron-utils/src/atomic-write'

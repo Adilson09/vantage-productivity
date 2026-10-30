@@ -1,6 +1,6 @@
 // Vantage Productivity addition: bounded, local, previous-version snapshots and copy-only recovery.
 import { createHash, randomUUID } from 'node:crypto'
-import { link, mkdir, open, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
   assertRecoveryFreeSpace,

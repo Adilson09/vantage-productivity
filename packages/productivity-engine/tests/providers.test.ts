@@ -136,15 +136,35 @@ describe('bounded, explicitly enabled read-only provider adapters (mock transpor
       'cancelled',
     )
     expect(calls).toHaveLength(0)
+    const transportCause = new Error('private-test-token secret query value')
     const failing: ProviderFetch = async () => {
-      throw new Error('private-test-token secret query value')
+      throw transportCause
     }
-    await expect(syncGraphMail({ ...options, fetch: failing })).rejects.toThrow(
-      'before a complete response',
-    )
+    const failed = syncGraphMail({ ...options, fetch: failing })
+    await expect(failed).rejects.toThrow('before a complete response')
+    await expect(failed).rejects.toHaveProperty('cause', transportCause)
+    await expect(failed).rejects.not.toThrow('private-test-token')
     await expect(syncGraphMail({ ...options, enabled: false as true })).rejects.toThrow(
       'explicitly',
     )
+  })
+
+  it('retains the transport cause when an active sync is cancelled', async () => {
+    const controller = new AbortController()
+    const transportCause = new Error('Transport stopped after cancellation')
+    const { options } = mock([])
+    const cancelled = syncGraphMail({
+      ...options,
+      signal: controller.signal,
+      fetch: async () => {
+        controller.abort()
+        throw transportCause
+      },
+    })
+    await expect(cancelled).rejects.toMatchObject({
+      message: 'Provider sync cancelled.',
+      cause: transportCause,
+    })
   })
 
   it('reports expired Graph checkpoints without resetting or mutating local data', async () => {

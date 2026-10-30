@@ -4,11 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExtensions } from '../src/renderer/editor/extensions'
-import {
-  parseDocText,
-  stripLegacyFencedDivs,
-  type DocEnvelope,
-} from '../src/renderer/markdown/docText'
+import { parseDocText, stripLegacyFencedDivs } from '../src/renderer/markdown/docText'
 import { buildSourceMap, spliceMarkdown } from '../src/renderer/markdown/sourceSplice'
 import {
   captureMarkdownSource,

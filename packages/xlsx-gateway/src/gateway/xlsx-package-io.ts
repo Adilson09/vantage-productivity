@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, rename, rm, stat, unlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { z } from 'zod'
 import {
@@ -39,7 +39,7 @@ import type {
   SheetFormulaValues,
   SheetCellImageAddition,
 } from './xlsx-gateway'
-import { planCellEditsToXlsx, syncFileBestEffort } from './xlsx-gateway'
+import { planCellEditsToXlsx } from './xlsx-gateway'
 import { normalizeOoxmlPartPrefix } from './xlsx-namespace'
 import type { WorkbookThemeState } from './xlsx-theme'
 import type { SheetEditPlan } from './xlsx-sheets'

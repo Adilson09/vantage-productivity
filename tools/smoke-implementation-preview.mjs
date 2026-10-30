@@ -1,3 +1,4 @@
+/* global window: readonly, document: readonly, location: readonly */
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -59,7 +60,9 @@ await fs.writeFile(
   JSON.stringify({ onboardingSeen: true, defaultSaveDir: path.join(scratch, 'documents') }),
 )
 await fs.mkdir(path.join(scratch, 'documents'))
-const { ELECTRON_RUN_AS_NODE, VANTAGE_ENGINE_MANIFEST, ...hostEnv } = process.env
+const hostEnv = { ...process.env }
+delete hostEnv.ELECTRON_RUN_AS_NODE
+delete hostEnv.VANTAGE_ENGINE_MANIFEST
 const env = {
   ...hostEnv,
   TEMP: scratch,
@@ -100,9 +103,8 @@ async function runNode(args) {
     })
     child.once('close', (code) => {
       clearTimeout(timer)
-      code === 0
-        ? resolve({ stdout, stderr })
-        : reject(new Error(`Exit ${code}: ${stderr.slice(-4000)} ${stdout.slice(-1000)}`))
+      if (code === 0) resolve({ stdout, stderr })
+      else reject(new Error(`Exit ${code}: ${stderr.slice(-4000)} ${stdout.slice(-1000)}`))
     })
   })
 }

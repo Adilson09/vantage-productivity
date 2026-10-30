@@ -3,11 +3,9 @@ import { registerVantageIpc } from './vantage-ipc'
 import { currentNetworkPolicy, installPrivacyRuntime } from './privacy-runtime'
 import { execSync, spawn } from 'node:child_process'
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   statSync,

@@ -126,6 +126,8 @@ describe('local workspace inspection', () => {
     '%ZZ',
     'C:/file.xml',
     'media\\file.png',
+    'media/%00image.png',
+    'media/%1fimage.png',
     '',
     '%2e%2e/%2e%2e/file.xml',
   ])('reports broken or unsafe internal relationship %s', async (target) => {

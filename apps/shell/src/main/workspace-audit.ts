@@ -38,6 +38,13 @@ const unescapeXml = (value: string) =>
     (entity) => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" })[entity]!,
   )
 
+function hasAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) <= 0x1f) return true
+  }
+  return false
+}
+
 function add(
   checks: WorkspaceAuditCheck[],
   id: string,
@@ -215,7 +222,7 @@ async function officeChecks(
           if (
             !decoded ||
             decoded.includes('\\') ||
-            /[\x00-\x1f]/.test(decoded) ||
+            hasAsciiControlCharacter(decoded) ||
             /^[a-z][a-z0-9+.-]*:/i.test(decoded)
           )
             throw new Error('Invalid internal target')
@@ -317,7 +324,7 @@ async function officeChecks(
     const duplicates =
       sheets.length - new Set(sheets.map((name) => name.toLocaleLowerCase('en-US'))).size
     const invalid = sheets.filter(
-      (name) => !name || name.length > 31 || /[\\/*?:\[\]]/.test(name),
+      (name) => !name || name.length > 31 || /[\\/*?:[\]]/.test(name),
     ).length
     add(
       checks,

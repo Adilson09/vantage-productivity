@@ -10,6 +10,8 @@ import { launchShell, closeAndSaveVideo, waitForPageWithUrl, type LaunchedApp } 
 test('an unnamed Markdown draft survives a process crash and restores exact bytes to a new copy', async () => {
   test.setTimeout(240_000)
   const scratch = await mkdtemp(join(tmpdir(), 'vantage-draft-recovery-e2e-'))
+  if (!resolve(scratch).startsWith(resolve(join(tmpdir(), 'vantage-draft-recovery-e2e-'))))
+    throw new Error('Unexpected test directory')
   const text = 'Crash recovery keeps this unnamed note.'
   const original = await launchShell({
     onboardingSeen: true,
@@ -17,6 +19,7 @@ test('an unnamed Markdown draft survives a process crash and restores exact byte
   })
   let originalCrashed = false
   let restarted: LaunchedApp | undefined
+  const failures: unknown[] = []
   try {
     await original.page.getByRole('button', { name: 'Create Markdown', exact: true }).click()
     const editorPage = await waitForPageWithUrl(original.app, '://markdown/')
@@ -93,11 +96,28 @@ test('an unnamed Markdown draft survives a process crash and restores exact byte
       ),
     ).toBe(false)
     expect(await readFile(recovered)).toEqual(journalBytes)
+  } catch (error) {
+    failures.push(error)
   } finally {
-    if (!originalCrashed) await closeAndSaveVideo(original, 'unnamed-draft-before-crash')
-    if (restarted) await closeAndSaveVideo(restarted, 'unnamed-draft-after-crash')
-    if (!scratch.startsWith(join(tmpdir(), 'vantage-draft-recovery-e2e-')))
-      throw new Error('Unexpected test directory')
-    await rm(scratch, { recursive: true, force: true })
+    for (const cleanup of [
+      async () => {
+        if (!originalCrashed) await closeAndSaveVideo(original, 'unnamed-draft-before-crash')
+      },
+      async () => {
+        if (restarted) await closeAndSaveVideo(restarted, 'unnamed-draft-after-crash')
+      },
+      () => rm(scratch, { recursive: true, force: true }),
+    ]) {
+      try {
+        await cleanup()
+      } catch (error) {
+        failures.push(error)
+      }
+    }
   }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1)
+    throw new AggregateError(failures, 'Draft recovery workflow or cleanup failed.', {
+      cause: failures[0],
+    })
 })

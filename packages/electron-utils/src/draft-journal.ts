@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { link, mkdir, open, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import { mkdir, open, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { recoveryCipherFor } from './recovery-encryption'
 import { assertRecoveryFreeSpace, getRecoveryPolicy } from './recovery-policy'
 import { publishExclusiveCopy } from './publish-exclusive'

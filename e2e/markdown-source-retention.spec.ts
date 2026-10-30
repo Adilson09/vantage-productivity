@@ -1,12 +1,14 @@
 import { test, expect } from '@playwright/test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { launchShell, closeAndSaveVideo, waitForPageWithUrl } from './helpers'
 
 test('default Markdown SaveAs retains unchanged raw bytes, then saves and reopens an actual edit', async () => {
   test.setTimeout(180_000)
   const root = await mkdtemp(join(tmpdir(), 'vantage-default-source-e2e-'))
+  if (!resolve(root).startsWith(resolve(join(tmpdir(), 'vantage-default-source-e2e-'))))
+    throw new Error('Unexpected test folder')
   const sourcePath = join(root, 'original.md'),
     copyPath = join(root, 'copy.md')
   const source =
@@ -17,6 +19,7 @@ test('default Markdown SaveAs retains unchanged raw bytes, then saves and reopen
     openFile: sourcePath,
     videoDir: 'markdown-default-source',
   })
+  const failures: unknown[] = []
   try {
     const page = await waitForPageWithUrl(launched.app, '://markdown/')
     const editor = page.locator('.doc-editor')
@@ -61,10 +64,23 @@ test('default Markdown SaveAs retains unchanged raw bytes, then saves and reopen
     expect(await page.evaluate(() => localStorage.getItem('mdapp.experimentalRoundTrip'))).not.toBe(
       '1',
     )
+  } catch (error) {
+    failures.push(error)
   } finally {
-    await closeAndSaveVideo(launched, 'markdown-default-source')
-    if (!root.startsWith(join(tmpdir(), 'vantage-default-source-e2e-')))
-      throw new Error('Unexpected test folder')
-    await rm(root, { recursive: true, force: true })
+    for (const cleanup of [
+      () => closeAndSaveVideo(launched, 'markdown-default-source'),
+      () => rm(root, { recursive: true, force: true }),
+    ]) {
+      try {
+        await cleanup()
+      } catch (error) {
+        failures.push(error)
+      }
+    }
   }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1)
+    throw new AggregateError(failures, 'Source retention workflow or cleanup failed.', {
+      cause: failures[0],
+    })
 })

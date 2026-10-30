@@ -195,8 +195,8 @@ async function publishCompletedTemp(
   filePath: string,
   options: AtomicSaveOptions = {},
 ): Promise<void> {
-  let firstPublication = false
-  let previousVersion = false
+  let firstPublication: boolean
+  let previousVersion: boolean
   let completedDigest: string | undefined
   try {
     const expected =

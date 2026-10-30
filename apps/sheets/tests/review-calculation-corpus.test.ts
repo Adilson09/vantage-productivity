@@ -93,9 +93,12 @@ describe.skipIf(!existsSync(binary))('1,200 deterministic live native calculatio
   it('evaluates fresh formulas with independent mathematical, typed and financial display expectations', async () => {
     const cases = corpus()
     const directory = await mkdtemp(join(tmpdir(), 'vantage-live-calculation-'))
+    if (!resolve(directory).startsWith(resolve(join(tmpdir(), 'vantage-live-calculation-'))))
+      throw new Error('Unsafe fixture cleanup path.')
     const path = join(directory, 'live.xlsx')
     await writeFile(path, await blankWorkbook(cases))
     const client = new XlsxSidecarClient(binary)
+    const failures: unknown[] = []
     try {
       const edits = cases.flatMap((c, row) => [
         { sheet: 'Data', row, column: 0, input: String(c.a) },
@@ -179,11 +182,25 @@ describe.skipIf(!existsSync(binary))('1,200 deterministic live native calculatio
             2,
           ),
         )
+    } catch (error) {
+      failures.push(error)
     } finally {
-      client.stop()
-      if (!resolve(directory).startsWith(resolve(tmpdir())))
-        throw new Error('Unsafe fixture cleanup path.')
-      await rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+      // Always attempt both cleanups, preserving any earlier assertion failure.
+      for (const cleanup of [
+        () => client.stop(),
+        () => rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
+      ]) {
+        try {
+          await cleanup()
+        } catch (error) {
+          failures.push(error)
+        }
+      }
     }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1)
+      throw new AggregateError(failures, 'Calculation corpus or cleanup failed.', {
+        cause: failures[0],
+      })
   }, 60000)
 })
