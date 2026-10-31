@@ -1,31 +1,40 @@
 name: Feature request
-description: Suggest a new capability or an improvement
-labels: [enhancement]
+description: Explain a workflow Vantage Productivity should make easier
+title: "[Feature] "
 body:
-  - type: dropdown
-    id: app
+  - type: markdown
     attributes:
-      label: App
-      options:
-        - Vantage Docs (docs)
-        - Vantage Sheets (sheets)
-        - Vantage Slides (slides)
-        - Vantage PDF (pdf)
-        - Vantage Markdown (markdown)
-        - Shell / home screen
-        - AI panel / providers
-        - Whole suite
+      value: |
+        Tell us the task and the outcome you want. Concrete examples help prioritize useful work.
+        Search existing issues and add your comment if the same request is already open.
+  - type: input
+    id: tool
+    attributes:
+      label: Affected tool or workflow
+      placeholder: "For example, Sheets pivot refresh or local calendar import"
     validations:
       required: true
   - type: textarea
-    id: problem
+    id: task
     attributes:
-      label: Problem
-      description: What are you trying to do that is currently hard or impossible?
+      label: What are you trying to accomplish?
     validations:
       required: true
   - type: textarea
-    id: proposal
+    id: workaround
     attributes:
-      label: Proposed solution
-      description: How would you like it to work? Alternatives you considered are welcome too.
+      label: What do you do today, and where does it fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would a successful result look like?
+      description: Describe the behavior you need, with a small example if possible.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or relevant examples
+      description: Optional. Do not attach confidential documents or account credentials.

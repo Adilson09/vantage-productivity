@@ -1,70 +1,39 @@
-# Vantage Privacy
+# Vantage Productivity privacy
 
-Last updated: August 26, 2026
+This policy describes the independently maintained Vantage Productivity 0.15.0-dev.1 preview and this repository's packaging configuration.
 
-Vantage opens, edits, and saves documents locally. Document editing does not
-upload files to Vantage. AI features require a network connection and send
-requests only when you use them.
+## Local document work
 
-## Usage analytics
+Documents, local search indexes, SQLite records, calendar/contact files, saved history and draft journals are stored on the computer. Document editing does not require a cloud upload. Files and indexes may contain sensitive information; their storage locations remain subject to operating-system and folder permissions.
 
-Usage analytics is enabled by default in packaged official builds, including
-the initial app launch before the onboarding notice is shown. Onboarding
-explains what is collected and where to turn it off.
+## Network controls
 
-You can disable reporting at any time under **Settings → General → Send
-anonymous usage statistics**. An explicit opt-out is remembered and stops all
-subsequent analytics events.
+Local mode is enabled by default. Remote feature switches are disabled by default and approved remote-origin lists start empty. The policy permits loopback services.
 
-### Events and parameters
+The policy covers Electron HTTP(S)/WebSocket requests and main-process fetch requests. Remote requests through these paths require an enabled feature and approved HTTPS origin. Redirect destinations are checked. These are application controls, not an operating-system firewall: native companions, raw sockets and external command providers require separate controls and network acceptance.
 
-When enabled, the app sends these events:
+Settings are in the home workspace's Tools and privacy controls. Saving a remote feature choice changes the application's persisted policy.
 
-- `install_first_launch` — marks the first analytics-enabled use of a newly
-  assigned anonymous `client_id`; used for retention cohorts
-- `app_launch` — no event-specific parameter
-- `file_open` — `ext`, the file extension such as `docx` or `xlsx`
-- `file_new` — `kind`, one of `docx`, `xlsx`, `pptx`, `md`, or `pdf`
-- `login_click` — no event-specific parameter
-- `login_success` — no event-specific parameter
+## AI and connected services
 
-Every event includes:
+Using a cloud AI provider sends the requested prompt, selected context and other request data to that provider. Review the configured provider and the content being shared before use. A user-configured loopback service is possible; the preview bundles no local model, weights or inference runtime.
 
-- `app_version`
-- `platform`
-- `os_version`
-- `ui_lang`
-- a per-process `session_id` derived from the process start time
-- `engagement_time_msec` with the fixed value `100`
+Vantage Mail runs as a separate native companion. Its launch is blocked while Local mode is enabled or the Mail companion feature is disabled. Once launched, account connections are made by the companion; the Electron request filter is not a firewall around that process. Provider-hosted consent screens and account configuration have their own requirements.
 
-When available, the payload also includes `country_id`, the two-letter country
-code from the operating system's regional locale. This can differ from the
-user's physical location.
+The read-only Microsoft Graph, Gmail and Google Calendar adapters require explicit enablement and a consented environment token. Live account validation, complete consent/refresh workflows and whole-process traffic acceptance remain incomplete.
 
-The Google Analytics 4 payload also uses a random install UUID as `client_id`.
-The country code is sent through GA4's country-only `user_location` field; the
-app does not send a city or region. Neither identifier is a Genspark account or
-email address.
+## Analytics and updates
 
-## Network information
+The repository packaging configuration hard-disables analytics credential injection. This preview does not claim the inherited upstream default-analytics policy. The source still contains analytics implementation code; different independently modified packages need their own disclosure.
 
-Events are sent to Google Analytics 4 using the Measurement Protocol over
-HTTPS. As the HTTPS recipient, Google necessarily sees the connection's public
-IP address and transport metadata, and may use them for coarse geolocation and
-security or spam-abuse processing. Vantage does not add an IP address to the
-event payload.
+Automatic update publishing requires an explicitly configured update endpoint. A repository or release download does not by itself configure automatic updates. Approved connected services can receive ordinary connection metadata such as the public IP address.
 
-## Data not collected by analytics
+## History, recovery and encryption
 
-Vantage analytics never sends:
+Saved-version history is bounded by configured storage and entry budgets and may be pruned or skipped. Optional encryption protects new history and draft payloads using an OS-protected key. It does not silently migrate existing plaintext. Markdown draft journaling covers text, not a complete bundle of pasted assets. Recovery is not a complete backup.
 
-- document content
-- file names
-- file paths
-- Genspark account identity
-- email addresses
+## Feedback and reports
 
-The analytics metadata is injected only into packaged official builds and is
-not part of this repository. Source builds and forks without that packaged
-metadata install a no-op tracker and send no usage analytics; all features work
-the same.
+GitHub issues and comments on the public repository are public. Do not attach private documents, credentials, tokens, account identifiers or unredacted logs. Use a minimal sanitized sample. Follow [SECURITY.md](SECURITY.md) for sensitive vulnerability reports.
+
+See [the preview guide](docs/VANTAGE_PREVIEW.md), [network policy](packages/electron-utils/src/network-policy.ts), [runtime controls](apps/shell/src/main/privacy-runtime.ts) and [packaging configuration](apps/shell/electron-builder.cjs) for implementation details.

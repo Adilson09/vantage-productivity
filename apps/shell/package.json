@@ -3,7 +3,7 @@
   "productName": "Vantage Productivity",
   "version": "0.15.0-dev.1",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/Adilson09/aster-office",
+  "homepage": "https://github.com/Adilson09/vantage-productivity",
   "private": true,
   "description": "Vantage Productivity with six document editors, local inspection and recovery, plus the isolated Vantage Mail companion",
   "main": "out/main/index.js",

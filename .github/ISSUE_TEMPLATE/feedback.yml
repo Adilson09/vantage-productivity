@@ -1,0 +1,36 @@
+name: Share your experience
+description: Tell us what worked, what frustrated you and what you would use again
+title: "[Feedback] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Your experience can help shape Vantage Productivity.
+        Successes, rough edges and first impressions are all useful.
+        This conversation is public; leave out private documents, personal details and credentials.
+  - type: input
+    id: version
+    attributes:
+      label: Vantage version and operating system
+      placeholder: "0.15.0-dev.1 on Windows 11 x64"
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: What task did you try?
+      description: Tell us the tool, file type and result you wanted.
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: How did it go?
+      description: What worked well? What slowed you down? Would you use it again for this task?
+    validations:
+      required: true
+  - type: textarea
+    id: priority
+    attributes:
+      label: What single change would help you most?
+      description: Optional. A concrete example is welcome.

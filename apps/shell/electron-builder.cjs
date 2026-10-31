@@ -14,12 +14,9 @@
  * the publish config is omitted: electron-builder then bakes no
  * app-update.yml into the app and in-app auto-update stays disabled.
  *
- * VANTAGE_GA4_MEASUREMENT_ID / VANTAGE_GA4_API_SECRET — GA4 Measurement
- * Protocol credentials for anonymous usage analytics, injected the same way
- * (CI secrets, or apps/shell/electron-builder.env locally). They are written
- * into the packaged app's package.json via extraMetadata and read back by
- * src/main/analytics.ts. When either is unset — every source/fork build —
- * nothing is injected and the app runs with analytics fully disabled.
+ * Analytics credential injection is disabled in this independently maintained
+ * fork. The inherited analytics implementation remains in source; the two
+ * values below are intentionally undefined.
  *
  * VANTAGE_FONT_CDN_URL — base URL for the curated downloadable-font catalog.
  * Official release jobs inject it through extraMetadata so the endpoint stays

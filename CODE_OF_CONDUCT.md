@@ -57,11 +57,9 @@ an individual is officially representing the community in public spaces.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement through
-GitHub's
-[private vulnerability reporting](https://github.com/Adilson09/vantage-productivity/security/advisories/new)
-channel on this repository (used here as the private contact channel for
-conduct reports as well). All complaints will be reviewed and investigated
-promptly and fairly.
+a minimal GitHub issue requesting private follow-up from @Adilson09. Do not
+include personal information or sensitive allegations in that public request.
+The maintainer must provide a suitable private channel before details are shared.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.

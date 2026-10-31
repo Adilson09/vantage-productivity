@@ -2,7 +2,7 @@
   "name": "vantage-productivity",
   "version": "0.1.0",
   "private": true,
-  "description": "Vantage Productivity: six desktop document editors and Vantage Mail",
+  "description": "Vantage Productivity: Windows desktop editors for DOCX, XLSX, PPTX, PDF, Markdown and HTML, with local productivity tools and optional AI",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=24.0.0",
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Adilson09/aster-office.git"
+    "url": "git+https://github.com/Adilson09/vantage-productivity.git"
   },
   "workspaces": [
     "apps/*",
@@ -71,5 +71,9 @@
     "pngjs": "^7.0.0",
     "prettier": "^3.9.6",
     "typescript-eslint": "^8.65.0"
+  },
+  "homepage": "https://github.com/Adilson09/vantage-productivity",
+  "bugs": {
+    "url": "https://github.com/Adilson09/vantage-productivity/issues"
   }
 }

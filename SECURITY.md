@@ -1,96 +1,19 @@
-# Security Policy
+# Vantage Productivity security reporting
 
-## Reporting a Vulnerability
+Vantage Productivity is a development preview. No independent security certification or complete hostile-file acceptance is claimed.
 
-Please report suspected vulnerabilities privately via GitHub's
-[private vulnerability reporting](https://github.com/Adilson09/vantage-productivity/security/advisories/new)
-on this repository. Do not open public issues for security reports. We aim to
-acknowledge reports within 72 hours.
+## Report a suspected vulnerability privately
 
-## Process Security Posture
+Use the repository's **Security → Report a vulnerability** option if GitHub makes it available. Do not put exploit details, private documents, tokens or passwords into a public issue.
 
-All application windows run with the full Electron renderer lockdown:
+If private reporting is unavailable, open a minimal issue requesting a private reporting channel from @Adilson09, without vulnerability details or sensitive attachments. Wait for a private channel before sharing those details. No response-time guarantee is made.
 
-- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` for every
-  document window and tab view (docs, sheets, slides, pdf, markdown, shell, updater).
-- Renderers reach the main process only through typed, validated IPC channels
-  (payloads are schema-checked in the main process; sheets uses zod end to end).
-- Every `shell.openExternal` call goes through a single shared gate
-  (`@vantage/electron-utils` → `safeExternalUrl`) that parses the URL and
-  enforces a protocol allowlist (http/https; pdf link annotations additionally
-  allow mailto). `file:`, `javascript:`, and custom schemes are always rejected.
-- No API keys are hardcoded. AI requests are proxied through the signed-in
-  account by default; user-supplied keys stay in the OS-level settings store.
+A useful private report identifies the version or commit, operating system, affected component, reproduction steps, impact and a minimal sanitized example.
 
-## Threat Model: AI-Generated Layout Scripts (slides)
+## Scope and limits
 
-The slides AI can adjust slide layouts by emitting a small script that is
-parsed with Acorn and evaluated by a constrained AST interpreter
-(`apps/slides/src/renderer/ai/layout-script-interpreter.ts`). The source looks
-like a small, synchronous subset of JavaScript for model compatibility, but it
-is not passed to `eval`, `Function`, a VM context, a worker, or the JavaScript
-engine as executable source.
+The preview processes complex document formats, renders HTML, launches native helper processes and can use optional connected providers. Each path needs its own review. The application-level local-mode controls do not form an operating-system firewall around external commands or native Mail.
 
-**What the script can do by design:** read prototype-free JSON copies of
-`els`/`canvas`, perform bounded arithmetic/control flow, use explicitly
-implemented string/array/regular-expression/Math helpers, and call
-`setBox/moveBy/resizeBy/setText/setStyle/setFill/setStroke/log`. Every edit
-primitive validates its arguments (element existence, read-only flags, finite
-numbers, hex colors) and writes only into an op buffer that is applied through
-the same command pipeline as manual edits.
+Cloud service operations and provider-hosted consent are separately operated. Report service-specific problems through the provider's reporting process.
 
-**Interpreter boundary:**
-
-1. Identifiers resolve only in interpreter-owned lexical scopes seeded with the
-   documented data and callables. There are no ambient globals, module loader,
-   DOM, network, IPC bridge, timers, process APIs, or dynamic code primitives.
-2. Property reads are dispatched by value type. Data objects expose own JSON
-   fields only; arrays, strings, and regexes expose a small method allowlist.
-   Host prototypes and function properties are never traversed, including
-   through computed property names.
-3. Calls accept only interpreter-created functions or explicit builtins. A host
-   function obtained through a constructor/prototype chain cannot be
-   represented.
-4. Inputs and values crossing into edit primitives are recursively copied as
-   JSON-like, prototype-free data. Errors discard all buffered operations;
-   logs are capped.
-5. Execution has statement/expression and call-depth limits to bound runaway
-   loops or recursion. Regular expressions run on an interpreter-owned matcher
-   with its own step budget (a supported subset; no native backtracking), so a
-   catastrophic pattern cannot stall the renderer past those limits.
-
-The Electron renderer sandbox remains defense in depth, but it is not the
-layout-script security boundary. The interpreter is designed so a layout
-script cannot obtain renderer capabilities in the first place.
-
-If you find a way for a layout script to reach anything beyond the injected
-primitives (network, storage, IPC channels not reachable by design, or the
-main process), that is a vulnerability — please report it.
-
-## Threat Model: Rendering AI-Generated HTML
-
-Three pipelines render AI-generated or untrusted HTML in a hidden
-`BrowserWindow`. Every window is treated as hostile content: full renderer
-lockdown (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`),
-no preload script, no IPC surface. The slides hidden windows only load the
-app's own renderer and print HTML (PDF export, print, headless export); the
-AI-HTML-to-pptx conversion runs inside the slides renderer, never in a hidden
-window. The HTML app's DOCX export and the docs altChunk conversion drive their
-windows exclusively through `executeJavaScript` under a watchdog timeout
-(`Promise.race` against a fixed timeout, then `destroy()`), so a page whose
-scripts never yield cannot strand the hidden window. HTML→DOCX
-conversion renders the page with scripts enabled and does not sanitize the
-markup before conversion — the output is a document, not a sandbox escape;
-report it as a vulnerability if you find a way from the converted page into
-the main process.
-
-## Out of Scope
-
-- The cloud AI services this client talks to are operated separately and are
-  not part of this repository; issues with them should be reported through the
-  service provider's channels.
-- Vulnerabilities that require an already-compromised machine or a modified
-  binary. This includes the deliberate environment-variable override points
-  for local development (`GSK_CLI_PATH`, `XLSX_SIDECAR_PATH`): setting them
-  requires control of the process environment, which is equivalent to code
-  execution on the machine.
+See [PRIVACY.md](PRIVACY.md) for data/network behavior and [the preview guide](docs/VANTAGE_PREVIEW.md) for current acceptance gaps. Please report a boundary bypass; do not treat the existence of a setting or a selected test as a security guarantee.

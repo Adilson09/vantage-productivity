@@ -1,45 +1,73 @@
 name: Bug report
-description: Something is broken or behaves unexpectedly
-labels: [bug]
+description: Report a reproducible problem in Vantage Productivity
+title: "[Bug] "
 body:
-  - type: dropdown
-    id: app
+  - type: markdown
     attributes:
-      label: App
-      description: Which part of the suite is affected?
+      value: |
+        Thanks for helping improve Vantage Productivity. Search existing issues first.
+        Reports are public. Remove confidential content, credentials and personal details.
+        For vulnerabilities, follow SECURITY.md instead of posting details here.
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Affected tool
       options:
-        - Vantage Docs (docs)
-        - Vantage Sheets (sheets)
-        - Vantage Slides (slides)
-        - Vantage PDF (pdf)
-        - Vantage Markdown (markdown)
-        - Shell / home screen
-        - AI panel / providers
-        - Build / packaging
+        - Documents / DOCX
+        - Spreadsheets / XLSX or XLSM
+        - Presentations / PPTX
+        - PDF
+        - Markdown
+        - HTML
+        - Calendar / contacts
+        - Local records / SQLite
+        - Search / inspection / recovery
+        - Mail companion
+        - AI / connected provider / privacy
+        - Home / command line / build / packaging
         - Other
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version and OS
-      description: App version (or commit) and operating system
-      placeholder: '0.1.0 on macOS 15.3 / Windows 11'
+      label: Vantage version or source commit
+      placeholder: "0.15.0-dev.1 Windows ZIP, or full source commit"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Operating system and architecture
+      placeholder: "Windows 11 version/build, x64"
     validations:
       required: true
   - type: textarea
-    id: what-happened
+    id: steps
     attributes:
-      label: What happened?
-      description: >
-        What did you do, what did you expect, and what happened instead?
-        If a document triggers the bug, attach a minimal sample file if
-        possible (please remove anything confidential first).
-      placeholder: Steps to reproduce, expected behavior, actual behavior.
+      label: Steps to reproduce
+      description: Include file type and the exact sequence of actions.
+      placeholder: |
+        1. Open a sanitized copy of...
+        2. Change...
+        3. Save and reopen...
     validations:
       required: true
   - type: textarea
-    id: logs
+    id: expected
     attributes:
-      label: Logs / screenshots
-      description: Console output, stack traces, or screenshots, if any.
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include the error text and whether it happens consistently.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized sample, screenshot or log
+      description: Optional. Share the smallest example. Remove credentials, document secrets and personal details.

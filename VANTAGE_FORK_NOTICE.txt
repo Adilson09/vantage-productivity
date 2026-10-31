@@ -3,4 +3,4 @@ Vantage Productivity — independent development preview
 Renamed and modified 2026-10-29. The suite includes independently maintained workspace, inspection, recovery, and mail integrations.
 Original engine attribution, source provenance, and license notices are retained in legal/UPSTREAM-PROVENANCE.txt, NOTICE, LICENSE, and bundled third-party notices. Those names are credits, not product branding.
 Mail retains its established profile and credential namespace for account continuity; its product name is Vantage Mail.
-The separately licensed ee directory is excluded from distributable source and application.
+The ee directory in repository history contains original separately licensed documents only, with no enterprise module implementation. It is excluded from the separately packaged source and application.
