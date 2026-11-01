@@ -1,0 +1,3062 @@
+{
+  "schemaVersion": 1,
+  "product": "Vantage Productivity",
+  "version": "0.15.0-brand.1",
+  "recordedAt": "2026-11-01T09:35:12.888Z",
+  "verificationRuntime": {
+    "node": "v24.22.1",
+    "platform": "win32",
+    "architecture": "x64"
+  },
+  "baseline": {
+    "commit": "cfbfc6b356d828086c3ab01380150a7b40625dc8",
+    "featureRelease": "v0.15.0-dev.1",
+    "excludedWork": [
+      "Unmerged recovery/output integration pull request",
+      "Concurrent 0.15.0-dev.2 development"
+    ]
+  },
+  "status": "passed within the explicitly listed branding scope",
+  "scope": "New saddle identity, shared interface palette, platform icon preparation, portable-updater activation guard, and selected Windows packaged loading paths. Earlier feature-validation counts are not a new full acceptance run.",
+  "sourceInputs": [
+    {
+      "path": "apps/shell/package.json",
+      "sha256": "d9fa576db396f2fb3e69cbe80bf4bb35e91cb51bd30d25b623cc25458e7cfa13"
+    },
+    {
+      "path": "apps/shell/src/main/updater.ts",
+      "sha256": "11d21c7cf2bc9cfbc5a1de9ce4e706c75e73dee78261c671f2a6874e333c1e92"
+    },
+    {
+      "path": "apps/shell/src/main/window-background.ts",
+      "sha256": "0fb48144af56f10e1c30d177b75458a750c66c08da87ab51b868188ea29690e7"
+    },
+    {
+      "path": "packages/ui/src/tokens.css",
+      "sha256": "e7d1d2018b92dd5673ef449c1e169f229eda017e1c967f556f82c0b3de54c74e"
+    },
+    {
+      "path": "apps/markdown/src/renderer/styles.css",
+      "sha256": "04886efb5d772676f45b9f11fe0671be0f2a6883f037020dd669a4574fac22ce"
+    },
+    {
+      "path": "apps/shell/src/renderer/src/Home.tsx",
+      "sha256": "e396302b80726e20aa8949421f49e9c9fb8241ebdb9afc41752698dbf2f31517"
+    },
+    {
+      "path": "apps/shell/src/renderer/src/home.css",
+      "sha256": "afc0d8645c3e04f7267a7719cd8f6d2aa4e20b02b6d97387a6236a0a5a15121f"
+    },
+    {
+      "path": "apps/shell/src/renderer/src/VantageWorkspace.css",
+      "sha256": "7cf59af11f34e313e09dd1104b8d22947f024b68e909bec76b9065e5a5a2485b"
+    },
+    {
+      "path": "apps/shell/src/renderer/src/onboarding.css",
+      "sha256": "b16da98b0ff7c87ed7a2dbe3f1de31f405e79a272343f618994485c01db15e55"
+    },
+    {
+      "path": "apps/shell/tests/updater.test.ts",
+      "sha256": "5a158df4964c3c14a8708e3c16575673ff44ed8935a201bb47b0842b2b4c5a1e"
+    },
+    {
+      "path": "tools/build-brand-assets.mjs",
+      "sha256": "dbb5a252eb4e9dd7469cb85f53c291833ae2323fc669d8104e02c23c9f6c1243"
+    }
+  ],
+  "artwork": {
+    "originalSha256": "f5768a1d47e0871e6108aea0006f441427fdf3fff21d6df4209ec722f5480a61",
+    "originalIdentical": true,
+    "masterDimensions": [1536, 1024],
+    "iconDerivative": "Built-in image-generation edit followed by deterministic Sharp preparation; original remains canonical.",
+    "provenance": "../brand/ARTWORK-PROVENANCE.md",
+    "manifest": "../brand/asset-manifest.json",
+    "windowsIcoFrames": [16, 20, 24, 32, 48, 64, 128, 256]
+  },
+  "markdownPaperIsolation": {
+    "version": "0.15.0-brand.1",
+    "baseCommit": "cfbfc6b356d828086c3ab01380150a7b40625dc8",
+    "scope": "Computed screen-paper colors compared against the dev.1 feature baseline. Isolated Chromium fixture; packaged runtime verification is separate.",
+    "source": "apps/markdown/src/renderer/styles.css",
+    "sourceSha256": "04886efb5d772676f45b9f11fe0671be0f2a6883f037020dd669a4574fac22ce",
+    "cases": 84,
+    "passed": 84,
+    "failed": 0,
+    "namedThemeStylesUnchanged": true,
+    "unchangedExports": [
+      {
+        "path": "apps/markdown/src/renderer/export/printHtml.ts",
+        "sha256": "93e6e8aa3951df2a7242868ee4d899e892332ed431b00fc83d2ed46ab9698150",
+        "unchangedFromBaseIgnoringCheckoutLineEndings": true
+      },
+      {
+        "path": "apps/markdown/src/renderer/export/imageExport.ts",
+        "sha256": "b2ef8747882026846606c6cc8b04a25ad1c92c877cdd97653fdf2c8515367b4d",
+        "unchangedFromBaseIgnoringCheckoutLineEndings": true
+      },
+      {
+        "path": "apps/markdown/src/renderer/export/docxExport.ts",
+        "sha256": "a7f6045fb16837f7cfd02cdeb161326910f5bf243fe115da10d37c028e233afb",
+        "unchangedFromBaseIgnoringCheckoutLineEndings": true
+      },
+      {
+        "path": "apps/markdown/src/renderer/editor/markdownEscape.ts",
+        "sha256": "7353d11a5bd64b52098e4625187e0e7234d34f77acdb494af151b44961278cda",
+        "unchangedFromBaseIgnoringCheckoutLineEndings": true
+      }
+    ],
+    "results": [
+      {
+        "ui": "light",
+        "documentPage": "follow",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "follow",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "follow",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "follow",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "follow",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "follow",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "follow",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "light",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "light",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "light",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "light",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "light",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "light",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "light",
+        "documentPage": "light",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "follow",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "follow",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "follow",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "follow",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "follow",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "follow",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "follow",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "light",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "light",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "light",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "light",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "light",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "light",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "light-over-dark-system",
+        "documentPage": "light",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "follow",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(228, 228, 228)",
+          "backgroundColor": "rgb(30, 30, 30)",
+          "borderTopColor": "rgb(228, 228, 228)",
+          "borderLeftColor": "rgb(228, 228, 228)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "follow",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "follow",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "follow",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "follow",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "follow",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "follow",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "light",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "light",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "light",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "light",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "light",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "light",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "dark",
+        "documentPage": "light",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "follow",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "follow",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "follow",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "follow",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "follow",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "follow",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "follow",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "light",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "light",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "light",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "light",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "light",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "light",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "system-light",
+        "documentPage": "light",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(228, 228, 228)",
+          "backgroundColor": "rgb(30, 30, 30)",
+          "borderTopColor": "rgb(228, 228, 228)",
+          "borderLeftColor": "rgb(228, 228, 228)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "light",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "light",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "light",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "light",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "light",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "light",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "system-dark",
+        "documentPage": "light",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(228, 228, 228)",
+          "backgroundColor": "rgb(30, 30, 30)",
+          "borderTopColor": "rgb(228, 228, 228)",
+          "borderLeftColor": "rgb(228, 228, 228)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "follow",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "light",
+        "markdownTheme": "default",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 36, 36)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 36, 36)",
+          "borderLeftColor": "rgb(36, 36, 36)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "light",
+        "markdownTheme": "notion-light",
+        "pass": true,
+        "paper": {
+          "color": "rgb(55, 53, 47)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(55, 53, 47)",
+          "borderLeftColor": "rgb(55, 53, 47)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "light",
+        "markdownTheme": "notion-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(235, 235, 235)",
+          "backgroundColor": "rgb(47, 52, 55)",
+          "borderTopColor": "rgb(235, 235, 235)",
+          "borderLeftColor": "rgb(235, 235, 235)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "light",
+        "markdownTheme": "drake-dark",
+        "pass": true,
+        "paper": {
+          "color": "rgb(172, 183, 196)",
+          "backgroundColor": "rgb(43, 43, 43)",
+          "borderTopColor": "rgb(172, 183, 196)",
+          "borderLeftColor": "rgb(172, 183, 196)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "light",
+        "markdownTheme": "blubook",
+        "pass": true,
+        "paper": {
+          "color": "rgb(36, 42, 49)",
+          "backgroundColor": "rgb(255, 255, 255)",
+          "borderTopColor": "rgb(36, 42, 49)",
+          "borderLeftColor": "rgb(36, 42, 49)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "light",
+        "markdownTheme": "nord",
+        "pass": true,
+        "paper": {
+          "color": "rgb(236, 239, 244)",
+          "backgroundColor": "rgb(46, 52, 64)",
+          "borderTopColor": "rgb(236, 239, 244)",
+          "borderLeftColor": "rgb(236, 239, 244)"
+        }
+      },
+      {
+        "ui": "implicit-system-dark",
+        "documentPage": "light",
+        "markdownTheme": "newsprint",
+        "pass": true,
+        "paper": {
+          "color": "rgb(31, 9, 9)",
+          "backgroundColor": "rgb(243, 242, 238)",
+          "borderTopColor": "rgb(31, 9, 9)",
+          "borderLeftColor": "rgb(31, 9, 9)"
+        }
+      }
+    ]
+  },
+  "palette": {
+    "name": "Saddle Blue and Navy",
+    "specification": "../brand/palette.json",
+    "calculatedPairs": 35,
+    "applicablePairs": 34,
+    "allApplicablePairsPass": true,
+    "logoReferenceExempt": true,
+    "actualSourceTokenPairs": 24,
+    "allSourceTokenPairsPass": true,
+    "lightDarkSystemTokenAgreement": true,
+    "cssFilesParsed": 4,
+    "fileBadgeAndDocumentMarkerColorsPreserved": true,
+    "lightActionTextRatio": 5.49,
+    "darkActionTextRatio": 7.19,
+    "limitation": "Individual pair calculations and selected layouts do not certify app-wide accessibility, keyboard, screen-reader, high-contrast or focus-area acceptance."
+  },
+  "targetedChecks": {
+    "updater": {
+      "passed": 45,
+      "failed": 0,
+      "pending": 0,
+      "missingOrInvalidFeedGuard": true,
+      "configuredFeedPathsIncluded": true,
+      "manualDownloadUrl": "https://github.com/Adilson09/vantage-productivity/releases"
+    },
+    "windowBackground": {
+      "passed": 2,
+      "evidence": "Existing targeted test runner reported 2 passed; no separate raw log was retained."
+    },
+    "shellTypecheck": {
+      "exitCode": 0,
+      "subsequentChange": "Only the manual-download URL string and matching test expectations changed after this typecheck; no repeat was required for that string-only update."
+    },
+    "preview": {
+      "desktopWidth": 1440,
+      "mobileWidth": 390,
+      "noHorizontalOverflow": true,
+      "consoleAndPageErrors": 0
+    },
+    "sourceFormat": {
+      "command": "node tools/format-changed.mjs --check",
+      "exitCode": 0,
+      "result": "All matched files use Prettier code style",
+      "scope": "Changed source files before this evidence JSON was added; the evidence JSON is separately parsed and formatted at final staging."
+    },
+    "documentationLinks": {
+      "checked": 25,
+      "allResolve": true
+    }
+  },
+  "build": {
+    "editorRenderers": ["docs", "sheets", "slides", "pdf", "markdown", "html"],
+    "method": "Docs main/preload/renderer built in full. The other five production renderers used installed electron-vite resolveConfig and Vite build APIs; their unchanged main/preload outputs were copied from dev.1 and hash-verified. Shell main/preload completed before an interrupted renderer step; the shell renderer was resumed with the same production API. CLI was freshly bundled and its dependencies collected.",
+    "retainedResources": {
+      "scope": "Native spreadsheet helper, separate Mail companion, qpdf/OCR and associated redistribution material retained from published dev.1 distribution with hash checks. No fresh native compilation or live Mail/OCR acceptance is claimed.",
+      "filesVerified": 301,
+      "bytesVerified": 137684660,
+      "sha256Inventory": [
+        {
+          "path": "engines/qpdf-12.4.2/LICENSE.txt",
+          "bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/NOTICE.md",
+          "bytes": 2729,
+          "sha256": "b207f65a9e5491195ded63b2941199b19a4d30148871f2742c88eae7bfc513a6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/concrt140.dll",
+          "bytes": 374200,
+          "sha256": "54716f0738af891f283d213b5c8d11b25896bb8ee3097d301eae718560cf974e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/fix-qdf.exe",
+          "bytes": 121344,
+          "sha256": "110741af48048dcdea7d9b14da685b855be71617f5d76aad42036a2304616656"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/msvcp140.dll",
+          "bytes": 643512,
+          "sha256": "7c26614e1d733892c2deac7e245ce115504b1d80592dd0a01b08e3e5a55f89ca"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/msvcp140_1.dll",
+          "bytes": 35768,
+          "sha256": "206c931bf90fdad8816de3b5e2ef80b2bcaa9406c89ecc05fe6fddffe251e982"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/msvcp140_2.dll",
+          "bytes": 274872,
+          "sha256": "d50d7883f20d1dc6191768d3746f52dd9cac89c346ffaed5be1f110c2f34a838"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/msvcp140_atomic_wait.dll",
+          "bytes": 57792,
+          "sha256": "3d0cbfaa1bf3eecf5a3f4491d2960ee803cb994f30292c6adc4a07c498f60e2b"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/msvcp140_codecvt_ids.dll",
+          "bytes": 31160,
+          "sha256": "8a65c7596ef2e6938731f5a1058e7e40145b6d97967cc649231a076b9a608d78"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/qpdf.exe",
+          "bytes": 19456,
+          "sha256": "1bdaf878f37eaffea1ea3c30591214c77636a0f2fc7432427516b6e22e36c0ff"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/qpdf30.dll",
+          "bytes": 7448064,
+          "sha256": "8812952678de93e0750308a113aa650e9161af466f9770679ea9673adeb61041"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/vcruntime140.dll",
+          "bytes": 178616,
+          "sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/vcruntime140_1.dll",
+          "bytes": 50112,
+          "sha256": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/bin/zlib-flate.exe",
+          "bytes": 21504,
+          "sha256": "dbe9a8e3ef6f9a2ab4850630c13c18a1e8e29fe15abf0c1c86c98a92ed174ebb"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Buffer.hh",
+          "bytes": 2863,
+          "sha256": "ec2a9ee18aa352aee6dad002f2ce1590e1a44f22bd5f8019532952f5a6c889d7"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/BufferInputSource.hh",
+          "bytes": 2266,
+          "sha256": "42e52c983144142247944729b8e819e891cfd2c5d2c4d59f1475c3b18b0b1686"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/ClosedFileInputSource.hh",
+          "bytes": 2692,
+          "sha256": "9cd69d69765dbd3db0f3745386d6f0aba69951ea12ccf0b16398653d37eb7b54"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Constants.h",
+          "bytes": 10768,
+          "sha256": "04b3907ac1abd016e3d1bbbd82be317fd6362ad13672a9972567fb0c1bf7f406"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/DLL.h",
+          "bytes": 4748,
+          "sha256": "91a41bd530d100e89d1f50d5c3c51a5fa5388155e5d8cf9e7af3fb44a4b948b6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/FileInputSource.hh",
+          "bytes": 2124,
+          "sha256": "2ad4ce78f9787360e3e61dd56625aa812c3fd280ec450b87f4f52eb41579557e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/InputSource.hh",
+          "bytes": 3778,
+          "sha256": "235596a597b5d56ff64eadce8f118ef27d3cb010dfd3c0397c58d463f063d4ab"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/JSON.hh",
+          "bytes": 16517,
+          "sha256": "75f4f3c8ec9b93914195b204cf288b2f778481225d26e489abfc7c2a145bc8d0"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/ObjectHandle.hh",
+          "bytes": 5721,
+          "sha256": "5659a3f483e0b4df9d5381f0fda9397c2cd89ec25c2c569a8e04c1033ffc83ba"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/PDFVersion.hh",
+          "bytes": 2187,
+          "sha256": "d413f4a9a2e5b28d1a5b44d11758d806d2116e845461bc2b34402b0ac1dc46b8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pipeline.hh",
+          "bytes": 4266,
+          "sha256": "72162887d2c339e3aed6cb2f91f49cdc2d8aa762c0e7c985197f970839e99bbb"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_Buffer.hh",
+          "bytes": 2958,
+          "sha256": "50abbae1e7bd31176f898333cddfa2e9ad9f28922dc9f214aecca7ece5e638fa"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_Concatenate.hh",
+          "bytes": 2071,
+          "sha256": "e15a5886ad8534f098fa9c6c8cad82a4a2f2bdbaefe83bfc122a896550c3b6e4"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_Count.hh",
+          "bytes": 1758,
+          "sha256": "8fe22c357420a834ebe3b6036aaf567b30fa790ed8c6aa42097adf6d38f68653"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_DCT.hh",
+          "bytes": 3156,
+          "sha256": "2a29229d05dbc74f5d80ab1d199b2f7e0d733c50602d9ef9d00ec081f45c7b3c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_Discard.hh",
+          "bytes": 1458,
+          "sha256": "bc48d0223cd0b03a3c770f7acd88627a82c42f7b6467c4756764ebef14436231"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_Flate.hh",
+          "bytes": 3901,
+          "sha256": "c765e118f67dd06ab5c6bf18cd77d3ac96eb80d5cc9820dcc9e0a4bd3f4a3a5f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_Function.hh",
+          "bytes": 2615,
+          "sha256": "d66601d7441b033270d9a7c19cfe9b7cc3fc63e3fa5de26a5fd14f790be3aa88"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_OStream.hh",
+          "bytes": 1628,
+          "sha256": "ef3d42a32df30b767a96ead9a043413d7d5469ed17b0610eb9fc260bb3b9ea1e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_QPDFTokenizer.hh",
+          "bytes": 2232,
+          "sha256": "07d80d6bdfd886dcd8608ebc062c4d0f669100cb1bf4545588b04d38c60ad4e4"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_RunLength.hh",
+          "bytes": 1892,
+          "sha256": "4e0b2037b64b69effe6bd4e72589a6429d02bd8c153b4f2a0df753121e41a068"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_StdioFile.hh",
+          "bytes": 1631,
+          "sha256": "86ae4ec57868dbabf7a36563b69005e8da40641ebe91ea82514517ccb9c2f33e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Pl_String.hh",
+          "bytes": 2115,
+          "sha256": "2479e920d448ed8c6ef07f0d85717ee0c9ac4c573ca5b930aebe962a83c956b5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/PointerHolder.hh",
+          "bytes": 8556,
+          "sha256": "7638df03176cda3a47f7e7eb64bd271f3ceb2f6750838198078512244168ccd3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QIntC.hh",
+          "bytes": 9222,
+          "sha256": "2f4f8a160203b0ab8d12512be4af9dc7f19adb12c523f01806b6b9abb8c41465"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDF.hh",
+          "bytes": 39213,
+          "sha256": "91823bbfed23e610523e12cab92153c673f0b2b93462cab7bc746f01cfcdc690"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFAcroFormDocumentHelper.hh",
+          "bytes": 12334,
+          "sha256": "5fdf36ac5b4fbc713869519a8f07757c315c95753f5958feadeda8bb8a6c1956"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFAnnotationObjectHelper.hh",
+          "bytes": 4297,
+          "sha256": "52aa6d5a1370d9fe27983ef441adc6288ad045e03815ad422f892cd970a5825c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFCryptoImpl.hh",
+          "bytes": 3027,
+          "sha256": "0a950ff01edddddd4b2f429bc59a2ebc676231e15637812b694017e6c2e27acf"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFCryptoProvider.hh",
+          "bytes": 3829,
+          "sha256": "fc63b344658703b1a3be915f6ef31a6b9e4c68baadcef172b37645d8394f25eb"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFDocumentHelper.hh",
+          "bytes": 2066,
+          "sha256": "ba9e6c5b93fda9d261a1c5724ee5fe33339f267556fb7eb7bb296d23d90de517"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFEFStreamObjectHelper.hh",
+          "bytes": 4177,
+          "sha256": "a9bc391294b61ad460a8226d68a4989bef434f27f0aaaaa6349e8e5def672555"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFEmbeddedFileDocumentHelper.hh",
+          "bytes": 3512,
+          "sha256": "878098d1b6bd61696e16dc198ecd2995a6c2768b4d94aca9020e22add24c8580"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFExc.hh",
+          "bytes": 2934,
+          "sha256": "7a9b5b43ac4d052475910bc4d31a0a9bd1b978ad30cb978c9051991867e24134"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFFileSpecObjectHelper.hh",
+          "bytes": 3906,
+          "sha256": "5376e700dd2574bfa42eabc122465f0c9207d6311ef7565f362a59702cc5d11f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFFormFieldObjectHelper.hh",
+          "bytes": 8271,
+          "sha256": "fb9d1f12c4c74b0fb733196616cb94537fcabeace73d52a7afd5424de542e944"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFJob.hh",
+          "bytes": 19139,
+          "sha256": "19b3a731e794463b43a8f07f8716d519307b2cb4b1c9f50d73fb680df4448f65"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFLogger.hh",
+          "bytes": 6570,
+          "sha256": "d10266ffdf970fa17cc5e17368feb2df182f8a5f6c33fe35f905fca7277b3d45"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFMatrix.hh",
+          "bytes": 2938,
+          "sha256": "e5427ef340c5794027b919747df6bd44fd36f33fd5ed810f357da32895b8cb61"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFNameTreeObjectHelper.hh",
+          "bytes": 6475,
+          "sha256": "954ee4c1a024f59a53182f2a9cf8e266d16af96269f4b98fb25a8fb0ed23a3cd"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFNumberTreeObjectHelper.hh",
+          "bytes": 7257,
+          "sha256": "2ffbad677b89582cabe425a42e4da6237055fcf41e1aa43732a3c5cb6de3153d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFObjGen.hh",
+          "bytes": 3785,
+          "sha256": "796fef284b3ddb931cef74a09dfef8307effc8526369e6817cd45c87fb479227"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFObject.hh",
+          "bytes": 1591,
+          "sha256": "5a243a70a88f0cb03af81fe1ecc745018b9981def1523d97babec644a5f46eff"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFObjectHandle.hh",
+          "bytes": 69631,
+          "sha256": "49be64aa5dc4da94ec24c893619908a8add317fe292072fdf2f213acb54ef999"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFObjectHelper.hh",
+          "bytes": 2355,
+          "sha256": "f2dba00d2a792459e23fa695bf792e86caacf62310387cbe3715c900a6943c8d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFOutlineDocumentHelper.hh",
+          "bytes": 3250,
+          "sha256": "2bf70658b6fbfb955e249a0193cc1fd3adec3bea88857cbcc92e788f6aa5b60b"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFOutlineObjectHelper.hh",
+          "bytes": 3744,
+          "sha256": "51b93e351b6cb33819a0c137f109fb34184ea91a4bc71d69d9b75d631a80c876"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFPageDocumentHelper.hh",
+          "bytes": 6161,
+          "sha256": "24b4e82f2d44194c40dc04c4ab1ba7cd503ec1b9ff5bcb9d255b69caa215402e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFPageLabelDocumentHelper.hh",
+          "bytes": 4210,
+          "sha256": "cc8bfe710ef54dafbe71dc5a705bf79489d264f0db581abac97cf1fccb7d4307"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFPageObjectHelper.hh",
+          "bytes": 22159,
+          "sha256": "2f0df4b47a37be932f8f77b6169b891511a6c7bfb1aa72e55c811767234110eb"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFStreamFilter.hh",
+          "bytes": 3044,
+          "sha256": "d7ba1fdfdfa1e1a8c6d9404557dbeb8aa208a7c93931d4ed98f763658a3e8525"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFSystemError.hh",
+          "bytes": 1914,
+          "sha256": "a9562e21bacc5a09ef4913283614a9c6596438d5627737ab3d676f44bf734395"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFTokenizer.hh",
+          "bytes": 6931,
+          "sha256": "1382ad74e399f2ff7cf81590013f6c77bf50f564e3c0decbed1c6e220e0f2ccc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFUsage.hh",
+          "bytes": 1240,
+          "sha256": "ec6414cb4cfb22f6a43ba07dce973e3c959a6160f073f197fb359ccfa8fa50bf"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFWriter.hh",
+          "bytes": 21734,
+          "sha256": "ce8a04877793641929aa0c472f12dd3320ecd17b57aed395dba9c40ed0497ccd"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QPDFXRefEntry.hh",
+          "bytes": 2380,
+          "sha256": "fc89c061f0832fa1448f838bd484883fdaae89dbff13e88f54e983e11092d2c4"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QTC.hh",
+          "bytes": 1612,
+          "sha256": "f3920033e23bbd8e98444c5220846975d1a2aa8614252adcbb971476a6be1036"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/QUtil.hh",
+          "bytes": 22492,
+          "sha256": "e831197756fcce4a060b04ed1a07b27ecab67076094533b581bd98490f2029d1"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/RandomDataProvider.hh",
+          "bytes": 1485,
+          "sha256": "0b6f8f9231688913b16d6a55f9b078424f41feb5bff1599ac0ed4c7655b40e34"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/Types.h",
+          "bytes": 1269,
+          "sha256": "7dcecc58966e093c40ac81c0e45025af0de234b6a8f839369d27f8c02bbfad88"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_att.hh",
+          "bytes": 569,
+          "sha256": "4c2b171ea00531db54720bf49a43f8b34481586ae7fb6cbf225099ee42bc5bb4"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_copy_att.hh",
+          "bytes": 303,
+          "sha256": "50609012bff14fd82f0649185940d617d05d530cdc522185c7f3920a561ccb42"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_enc.hh",
+          "bytes": 853,
+          "sha256": "28446f3c32153a52afa239ea40503e6cc8ac2c026813526a349e0cd4ae17ddd5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_global.hh",
+          "bytes": 592,
+          "sha256": "7df0ff87d18d7fa6d57437960377509420b6b6eb9527b534996f86d3bd7a0ddc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_limits.hh",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_main.hh",
+          "bytes": 4289,
+          "sha256": "7a50de4a051fe68bafdc1111af346e19f84589d9d5436a266e88872f4ebd6791"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_pages.hh",
+          "bytes": 356,
+          "sha256": "9f628e24f11c78775c0bb605045a10cb109acb2105b89deaffd1c0435c0a23be"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_set_page_labels.hh",
+          "bytes": 177,
+          "sha256": "b3cc0f21029f6d89efa043dcdbfa183cb59325b6506001c18911614fe8e568ec"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/auto_job_c_uo.hh",
+          "bytes": 456,
+          "sha256": "3084b3e2e2d62941674fc8cc56987fc8bde40e3763e759faa58459c2ada4baf3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/global.hh",
+          "bytes": 20779,
+          "sha256": "ab11aed1b58a8ab34d0d993fd3b3c7600cfe768f9bef01f351ce38f0cde93535"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/qpdf-c.h",
+          "bytes": 45350,
+          "sha256": "b6e4ffb5f81e471e4f494ea86935eb1a679c87da1dd0520e762abce34bdb142f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/qpdfjob-c.h",
+          "bytes": 6697,
+          "sha256": "cb34bc12244e046840b0c836e773ce27ef9ad4f3e0b97ea596a3598551206075"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/include/qpdf/qpdflogger-c.h",
+          "bytes": 3637,
+          "sha256": "f98a8982e3e6ebc3e7ef6c01c7f24218b280acea2a2a4697a1e53c6019443879"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/lib/qpdf.lib",
+          "bytes": 576156,
+          "sha256": "d5869b5cc7c0804376b7eac10c8f0044f9572152a23194ab718694cb04ea74ec"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/lib/qpdf_static.lib",
+          "bytes": 53542850,
+          "sha256": "8e922c323b62538f046c0e935d6a05b7fba1c504bf7cd2fc8ff01533644f85c2"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/lib/cmake/qpdf/libqpdfTargets-release.cmake",
+          "bytes": 1412,
+          "sha256": "f13ffc9fb4fe02f54352ed98b3704fd94c97ecb7bb9e9355694f755b074d8d7b"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/lib/cmake/qpdf/libqpdfTargets.cmake",
+          "bytes": 4576,
+          "sha256": "aea615fa9563081f26a47c927d6117c777a22f2e65e7769217987a37794725ad"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/lib/cmake/qpdf/qpdfConfig.cmake",
+          "bytes": 961,
+          "sha256": "ef6e3b2d60c99f836a41ba253c7112d1cb735f06d3992e327ed41171ff1ec188"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/lib/cmake/qpdf/qpdfConfigVersion.cmake",
+          "bytes": 2830,
+          "sha256": "ed29da4762dc59d03b08e01839973d8ef42b456a3eb93907111a92592c09e4a0"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/lib/pkgconfig/libqpdf.pc",
+          "bytes": 306,
+          "sha256": "268b75f7f50794c5a62d41f0582a2e15f32930702ee0d3bb3d07e8995c370d11"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/qpdf-manual.pdf",
+          "bytes": 758685,
+          "sha256": "4b5c1dc13b95976a0c46e3f8c1344de358c909c67541d0ccaf9e60615a4738ba"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/extend-c-api-impl.cc",
+          "bytes": 1157,
+          "sha256": "293760704155d14e43f35f7dfadb059315b7d793534b96bfadcb26e19f804f58"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/extend-c-api.c",
+          "bytes": 1472,
+          "sha256": "aee72e889cde637595cf77a26bba465effd42534f71f54faf3188b69b26f7590"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/extend-c-api.h",
+          "bytes": 736,
+          "sha256": "2a1a65e1d217cc3e7798f562d249c473c4cdc8ef01c4d7be317fdbce1229b8d2"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-attach-file.cc",
+          "bytes": 6810,
+          "sha256": "a4785dd66212aefa1f9c8a23a7846175b1364e6c24975dd4d37b5a57e5aff44f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-bookmarks.cc",
+          "bytes": 5137,
+          "sha256": "15d3bd5aff312a4cdf046e867855e9efbae5835379916b97d8aff54514f5d1a5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-c-objects.c",
+          "bytes": 2457,
+          "sha256": "2f9129b228498372eb1b7394a3e55f4d73019b8ce3c192732a4ed1afdd436989"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-count-strings.cc",
+          "bytes": 2769,
+          "sha256": "f731ffb51369fd65cbeab62f0610d4a8bcdf96cf2f36007cceb2379a7f180ab7"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-create.cc",
+          "bytes": 12969,
+          "sha256": "b595891fa09ea13c3de93333864f352ec6834c79bed3948fd015d0e3e40bb913"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-custom-filter.cc",
+          "bytes": 18446,
+          "sha256": "f1c5295145a01cbff00701f6281dd5df32e4f302b2cd46470d3183fe6abad42c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-double-page-size.cc",
+          "bytes": 2960,
+          "sha256": "8c90d33f9dc76acd472c3c3e9b1acadd5d7b38c0cc66641533323dc99480b5ec"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-filter-tokens.cc",
+          "bytes": 7131,
+          "sha256": "38a72e6bf45106546011f31625e726783f82164edcae0292590ca338c60a97d5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-invert-images.cc",
+          "bytes": 5906,
+          "sha256": "e28ab79bae83e0bd5d393c2447d7beb8c7633d2a8e04489c259e14a9ec72b463"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-linearize.c",
+          "bytes": 1865,
+          "sha256": "b0a679d88d7872e4c5b973c3027a9efccdcb40c1b98242d2ceff9cb22af7b5f3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-mod-info.cc",
+          "bytes": 5120,
+          "sha256": "7d67d62bde68d9fe2c05216c4e6c909ef84f571252fbab92a0a1803df6df66c5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-name-number-tree.cc",
+          "bytes": 6626,
+          "sha256": "ae8ddf5034dc0cf5780447744d57dec197f5c8bbc20d545ca4bb130bfa8b3b95"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-npages.cc",
+          "bytes": 989,
+          "sha256": "9da09ccae054106e4a6dacce81bfafa06aafa46f9ea37e492cd3982e426634d7"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-overlay-page.cc",
+          "bytes": 3106,
+          "sha256": "a394254c4deaf22d805aa2377b592d2e5b88219314327f244ffd76b12e8b8cfe"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-parse-content.cc",
+          "bytes": 2024,
+          "sha256": "e7382bb3ef8fda74be37b1f38ac5fb8ca13ecd71dd5abae417bb0f4e758edcaf"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-set-form-values.cc",
+          "bytes": 2946,
+          "sha256": "4758754b3269625f3abfc54545f57dd370d243ee5721b16cc9ef66f969eb8402"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/pdf-split-pages.cc",
+          "bytes": 1873,
+          "sha256": "37a9a8e65ee97e119916dad6336e29ac20796c2315db0182cb51ad44e264397f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/qpdf-job.cc",
+          "bytes": 2722,
+          "sha256": "8fc4d337d0a351b17395012cd7e39b5a633b781d4b82003f6633202e0062ecce"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/qpdfjob-c-save-attachment.c",
+          "bytes": 2623,
+          "sha256": "9325abc346eaad0e241ccaa5c880b99159eb93c3c2d784325e16d1d379b75fef"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/qpdfjob-c.c",
+          "bytes": 1455,
+          "sha256": "744fa12894898833f1c41173dc8ed12ecb4a8e68c7a7ece5fc80a4a8ff3b9866"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/qpdfjob-remove-annotations.cc",
+          "bytes": 1879,
+          "sha256": "23aade8601bcd5adfd95318e6492702f9b9e4845622c5aedc1b2e7f7dfea99f3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/examples/qpdfjob-save-attachment.cc",
+          "bytes": 1365,
+          "sha256": "272948b6b41dbdc45d084a301a031c8a8dac1b26e2317236dd6190a09c4a34af"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/.buildinfo",
+          "bytes": 231,
+          "sha256": "3a74454d892b3c19821ec58fa898a5d7989e91606ce9c2513c84b5f8dfae6618"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/acknowledgement.html",
+          "bytes": 7273,
+          "sha256": "1d41dfa7101d449516334b430e7a14f4de8b9c05d58ea2c1e3f91fb18dfcd907"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/cli.html",
+          "bytes": 250810,
+          "sha256": "3ceb9945a82398d7bfdbe0e3048e5d31db186faac16709dda7449d43a59d59dc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/contributing.html",
+          "bytes": 18123,
+          "sha256": "96eff6c543fedd37905182f6515cf3fb968115daf6462414aac227f88d2d0ee7"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/design.html",
+          "bytes": 111311,
+          "sha256": "eac938d23b8beb4622c0502083566deca20c04235579f6f534199e7cb33dd5f6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/download.html",
+          "bytes": 6942,
+          "sha256": "7aa7d0caf1b6e658f38603802190623dab1bd5f56b13c2ea2f6575dcfab6729f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/encryption.html",
+          "bytes": 30976,
+          "sha256": "d7ef066a0acda03c8847feec4fb7b48ea78739505ee2d9b318b2c65bfced355e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/genindex.html",
+          "bytes": 5499,
+          "sha256": "b25fd2310c48258d7d7fb6394721364a80aaf3916619225683a4cc028d3b9099"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/index.html",
+          "bytes": 18991,
+          "sha256": "ee4a27bed2c8c52b78972ab51c2083bf481d2f68de26f5f826ab00f5b13a99ed"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/inspection.html",
+          "bytes": 10684,
+          "sha256": "c9b9d552611acafd72502c712cd0642a8e004ab50d48af3b2a85eb1900ad2460"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/installation.html",
+          "bytes": 61526,
+          "sha256": "acf186995b076afe6055d03b64ad6c1da3a2d23e3dda53a872d4eb86ad754fb8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/json.html",
+          "bytes": 79321,
+          "sha256": "c3a58e513c7ee5ea3db3f1dae4c084e9ef1999f2f3fbe3e0afd22aae1e89657e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/library.html",
+          "bytes": 15054,
+          "sha256": "dbecc596731d3ac1eb5846ae94a380ddba184f90115a085a5b630aed07f49ef5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/license.html",
+          "bytes": 6852,
+          "sha256": "7557cb076b6ef80c0b19a13beabf38a32ff441deea01af49709e8e6422acf484"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/linearization.html",
+          "bytes": 19491,
+          "sha256": "e1cf51b68a6380f6a70e28ba73741e1a817a25d73b77479edaff808bee3bfa09"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/object-streams.html",
+          "bytes": 18988,
+          "sha256": "6d33fab9b96fea5a191957c8868a9330954a4ba071bf3407220cf3ef41fd4f79"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/objects.inv",
+          "bytes": 4417,
+          "sha256": "15190c1630a82d942e8e2a9a94955d016f8f9d9d00ad7524bdcb1b10f382174d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/overview.html",
+          "bytes": 8631,
+          "sha256": "8f02dbe1db3bdc0f4a78597b6efb34bc2f03e6d2e74455664e098738738a6022"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/packaging.html",
+          "bytes": 16362,
+          "sha256": "4e34e4f34647c4f7534ebb0f694d0f354704b1369071473d2b6f1fea41eab7e1"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/qdf.html",
+          "bytes": 12703,
+          "sha256": "4fd3c90b83f559d47bfbd8169b63d09a49909fb2696e30d2f99f54ddf279473a"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/qpdf-job.html",
+          "bytes": 28458,
+          "sha256": "1e5b48d5f9711d9e2c48cc87246ef096f236661389c8ba9ffe56c04dc78bb803"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/qpdf-options.html",
+          "bytes": 33959,
+          "sha256": "94186590b950a73e84c79b3c23724f10902c77406283cfa416c15d15c2dbc569"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/release-notes.html",
+          "bytes": 296262,
+          "sha256": "1cbe99310426400179d1b6d271a15095dc09afb5de7f9b43beb3c6a6f03dba05"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/search.html",
+          "bytes": 5898,
+          "sha256": "640e9882f683c5bfa323d181b66d4aa8054ceb3c5023d6875c2b020e18bc74de"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/searchindex.js",
+          "bytes": 73048,
+          "sha256": "200524cbb8ca90757572316260c2d71c9887a104fe9c5ce7b17dfca7a55f6ae9"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/weak-crypto.html",
+          "bytes": 19550,
+          "sha256": "ae62d3e5ded744c9a0a5d984709eac053d8007d68fbdba67aa9ae32d25fabec1"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/acknowledgement.rst.txt",
+          "bytes": 790,
+          "sha256": "0a7f64e1807ad70dd583525df6ec58631544d078d03b0fa5fce35ca3281adf7f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/cli.rst.txt",
+          "bytes": 167873,
+          "sha256": "02792f51d72029eea5a67f12770a8f46c36e15f8a774e67c85954be16dc7e77f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/contributing.rst.txt",
+          "bytes": 6447,
+          "sha256": "b23830770a1a1335c05aa0cde5f399f3bf5a34b0a90c0e508fdc94c64ede7f00"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/design.rst.txt",
+          "bytes": 58030,
+          "sha256": "e361894a0d59c6f7e2ae49447bb56958b0c03ebdbe2fa193fce9b80073263b8c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/download.rst.txt",
+          "bytes": 366,
+          "sha256": "e045480873b6204ac93adb3ad8c24c1f86d437f90919600833a50f51a6259bd5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/encryption.rst.txt",
+          "bytes": 15153,
+          "sha256": "c616b4d5b94ebd547e0af9e5374bc322ee59f642ce19b1ad7a905bf59678e87f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/index.rst.txt",
+          "bytes": 882,
+          "sha256": "20f153b815e2de2f053804e9793386e172f25f38d70d42a56e51fdeb3c70d0b8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/inspection.rst.txt",
+          "bytes": 2339,
+          "sha256": "34ca9a9a62082172a2c01b4d10597b1aafb8d46aae3fe46a3ddc62273c4feb15"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/installation.rst.txt",
+          "bytes": 33961,
+          "sha256": "a84342a0f1b98952b98e17f91698468fa72139c70af61f1e90dd23fb470199cf"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/json.rst.txt",
+          "bytes": 39404,
+          "sha256": "c1dd6c9733e2be54ea03cd46dc40eb599eb1aeecc16ed16ca650850f92ef79c3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/library.rst.txt",
+          "bytes": 4913,
+          "sha256": "290450e9e065fd8c03ef9822905dfab15bdc048a7188214502414b4f414611f5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/license.rst.txt",
+          "bytes": 458,
+          "sha256": "6bd81aa03c651c1a88b50ec99dc060d458a4c6439f46bf109afa6a7178538a90"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/linearization.rst.txt",
+          "bytes": 8388,
+          "sha256": "0984616b57d0abb2da2a350e9d790b2b4a28c5c82a4f6cd7a25fdc01aa142715"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/object-streams.rst.txt",
+          "bytes": 7419,
+          "sha256": "831f30b0a2ce016ef6094bc394363b0ae2f7d48d482ec5bcd60d22e2ae5562a6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/overview.rst.txt",
+          "bytes": 1996,
+          "sha256": "c7e8e9c3a6827e5bcfef12943d2b6c88e48617d00c4389cc6ea51fcf8dcd6475"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/packaging.rst.txt",
+          "bytes": 6888,
+          "sha256": "f3a41868f1ec6f1b2f7709f387d1aba7e64e770599b9f943de9b359fb5958add"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/qdf.rst.txt",
+          "bytes": 5131,
+          "sha256": "fcadec62f894a10b96887ee2383093744b762c13d10c62b342e8aab47927e2bf"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/qpdf-job.rst.txt",
+          "bytes": 9019,
+          "sha256": "bf0508287058e5df2a8b8745edc3e7e418accfa0931c0e2201a948bdf64baaed"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/release-notes.rst.txt",
+          "bytes": 185928,
+          "sha256": "8f275c20ff9bfecb759780552da35f25ef771b39fe5ef8659c455944b92c3a0d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_sources/weak-crypto.rst.txt",
+          "bytes": 9240,
+          "sha256": "338a58a4e328c2e9e75c13879e22726e6c24b334eeff932d641dc488707c8e22"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/_sphinx_javascript_frameworks_compat.js",
+          "bytes": 4289,
+          "sha256": "480a2c7377252c14a11bca4d3a49dfa16ea540a998fa637fae0189aee1b89113"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/base-stemmer.js",
+          "bytes": 12250,
+          "sha256": "eb67bedbfa264bd8a2201ebe07c861abbcbc56d7eaa28c53ff8b84f65ccd450f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/basic.css",
+          "bytes": 14687,
+          "sha256": "32be6d1c8f99e8328dc360f8319b9aceae201281d5a337d2233a51b3e713fe79"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/doctools.js",
+          "bytes": 4332,
+          "sha256": "6b2524c2723cc6e06cbf056e0b2861d50ba8fdd082ece13378bfb45d7a090528"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/documentation_options.js",
+          "bytes": 329,
+          "sha256": "20eb2eaf8aa3de50f376cf5c63d56597db42762219920202f79fd390455d33af"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/english-stemmer.js",
+          "bytes": 30599,
+          "sha256": "1f995807fde5a820390fb9046e4813a7eb8f20a4684650f14fbdeb4c2ad7ffc5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/file.png",
+          "bytes": 286,
+          "sha256": "5c4bc9a16aebf38c4b950f59b8e501ca36495328cb9eb622218bce9064a35e3e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/jquery.js",
+          "bytes": 89501,
+          "sha256": "ff1523fb7389539c84c65aba19260648793bb4f5e29329d2ee8804bc37a3fe6e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/language_data.js",
+          "bytes": 13589,
+          "sha256": "af1c48fc5b0e0e9423cac068d55cdf22f541648709ae4b9190ee8aa9c2b08150"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/minus.png",
+          "bytes": 90,
+          "sha256": "47e7fc50db3699f1ca41ce9a2ffa202c00c5d1d5180c55f62ba859b1bd6cc008"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/plus.png",
+          "bytes": 90,
+          "sha256": "54115199b96a130cba02147c47c0deb43dcc9b9f08b5162bba8642b34980ac63"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/pygments.css",
+          "bytes": 4902,
+          "sha256": "316dc87150077b0ab61a35963b169f935e873e2ce1a32f0fd7d2ccc34978fd5d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/qpdf.svg",
+          "bytes": 1963,
+          "sha256": "83ad32dea3d103c6952bf72f419f030286371bfbf822909d6c4222d89452730c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/searchtools.js",
+          "bytes": 22464,
+          "sha256": "954625d140412a9d3d954d67e2e3aec8f8bd18018cf7600b894298fb157c7780"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/sphinx_highlight.js",
+          "bytes": 5325,
+          "sha256": "c551409f6bae30d602d5b47676696803554e7ceaa458c1c6eb8367b9d2c4dd31"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/badge_only.css",
+          "bytes": 3329,
+          "sha256": "f1399e4fc48c3ff17b5037d3512fcc451fb0abc2c95b4b8d12aab50cdd9d1d6f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/theme.css",
+          "bytes": 137285,
+          "sha256": "17c556bc5f2b93a5fb4aa22a2706da52076f6d73f8ef4a6e1673dd4132a2ad68"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/wraptable.css",
+          "bytes": 128,
+          "sha256": "d7161d28b4f54a9ce25b4d4daff97d1d459e2859187ecf40377ea9de089d7f2e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/Roboto-Slab-Bold.woff",
+          "bytes": 87624,
+          "sha256": "9fec87cadbe2413b255f1ec577573a83f1ca2e1c37aa023dbebcd3a7b864636a"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/Roboto-Slab-Bold.woff2",
+          "bytes": 67312,
+          "sha256": "1a0c024dd1a267c52d5575469ffe8570d1e84164de7d393cf3414bafd17d7a0c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/Roboto-Slab-Regular.woff",
+          "bytes": 86288,
+          "sha256": "9f32630e2c0c5135bf1e86e36cb65b3932e4410644235bc2bd995e9c7f6ff117"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/Roboto-Slab-Regular.woff2",
+          "bytes": 66444,
+          "sha256": "874e42222856d7af03b3f438d21d923a4280d47fe67c48510e2174a1579795ef"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/fontawesome-webfont.eot",
+          "bytes": 165742,
+          "sha256": "7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/fontawesome-webfont.svg",
+          "bytes": 444379,
+          "sha256": "ad6157926c1622ba4e1d03d478f1541368524bfc46f51e42fe0d945f7ef323e4"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/fontawesome-webfont.ttf",
+          "bytes": 165548,
+          "sha256": "aa58f33f239a0fb02f5c7a6c45c043d7a9ac9a093335806694ecd6d4edc0d6a8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/fontawesome-webfont.woff",
+          "bytes": 98024,
+          "sha256": "ba0c59deb5450f5cb41b3f93609ee2d0d995415877ddfa223e8a8a7533474f07"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/fontawesome-webfont.woff2",
+          "bytes": 77160,
+          "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-bold-italic.woff",
+          "bytes": 323344,
+          "sha256": "980c8592e5488df256192c999e92db8fd302db8cd8909b7fa266a684e37e45f8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-bold-italic.woff2",
+          "bytes": 193308,
+          "sha256": "c0916a33340d063f7b05679e08031e729d1888444706f04804705da5966d895d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-bold.woff",
+          "bytes": 309728,
+          "sha256": "0e56b17d142eb366c8007031d14e34da48c70b4a9d9a0ca492e696a7bae45e1e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-bold.woff2",
+          "bytes": 184912,
+          "sha256": "ae88fc0d7a961832f809527d30bd3983a6866d42f66a56ade23f543681594db6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-normal-italic.woff",
+          "bytes": 328412,
+          "sha256": "26318a1467a5e5caf10b04cfa942d079632560cd7a29cec565fd1dc9f7ec5081"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-normal-italic.woff2",
+          "bytes": 195704,
+          "sha256": "4465765f2f6eddcdad34ffd7cab559e56bc0e75e45e192f85e9562b0771481dc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-normal.woff",
+          "bytes": 309192,
+          "sha256": "5b9025dda4d7688e3311b0c17eddc501133b807def33effaef6593843cf5416e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/css/fonts/lato-normal.woff2",
+          "bytes": 182708,
+          "sha256": "983b0caf336e8542214fc17019a4fc5e0360864b92806ca14d55c1fc1c2c5a0f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bold.eot",
+          "bytes": 256056,
+          "sha256": "b91fc1ca55df440dc11354b32a39b45db663d24bb17b16dcb2e706330955b0d1"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bold.ttf",
+          "bytes": 600856,
+          "sha256": "f71f833c099f450606f8107b83ef208ae918c0ea00779466d45e9be96b0bc7cc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bold.woff",
+          "bytes": 309728,
+          "sha256": "0e56b17d142eb366c8007031d14e34da48c70b4a9d9a0ca492e696a7bae45e1e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bold.woff2",
+          "bytes": 184912,
+          "sha256": "ae88fc0d7a961832f809527d30bd3983a6866d42f66a56ade23f543681594db6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bolditalic.eot",
+          "bytes": 266158,
+          "sha256": "b3d585879a02f48c5d43d8f91d06b167e367a31934bb3b8147c0a90b5ca32bfc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bolditalic.ttf",
+          "bytes": 622572,
+          "sha256": "f98d040631714eabffd0ffb747576674fa78c2910f6d9e3dc0c58481d03c1898"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bolditalic.woff",
+          "bytes": 323344,
+          "sha256": "980c8592e5488df256192c999e92db8fd302db8cd8909b7fa266a684e37e45f8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-bolditalic.woff2",
+          "bytes": 193308,
+          "sha256": "c0916a33340d063f7b05679e08031e729d1888444706f04804705da5966d895d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-italic.eot",
+          "bytes": 268604,
+          "sha256": "bc24dbe04f5b2415678f978e7e2f630cc6610670d684e088e73ad29c439eafe3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-italic.ttf",
+          "bytes": 639388,
+          "sha256": "12d825af88eafea1ce3aa469f83c03acaecd0d03f690f409c8643529f1205b4f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-italic.woff",
+          "bytes": 328412,
+          "sha256": "26318a1467a5e5caf10b04cfa942d079632560cd7a29cec565fd1dc9f7ec5081"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-italic.woff2",
+          "bytes": 195704,
+          "sha256": "4465765f2f6eddcdad34ffd7cab559e56bc0e75e45e192f85e9562b0771481dc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-regular.eot",
+          "bytes": 253461,
+          "sha256": "e735410675eacc363b257112f39eb819a854b03077d7b1f0caa6e7660ffbd8b3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-regular.ttf",
+          "bytes": 607720,
+          "sha256": "089ab6d4a57e0e6c4dd3b681b6fd50a5184f1b902429d35e1227e52d6ccad1bd"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-regular.woff",
+          "bytes": 309192,
+          "sha256": "5b9025dda4d7688e3311b0c17eddc501133b807def33effaef6593843cf5416e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/Lato/lato-regular.woff2",
+          "bytes": 182708,
+          "sha256": "983b0caf336e8542214fc17019a4fc5e0360864b92806ca14d55c1fc1c2c5a0f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.eot",
+          "bytes": 79520,
+          "sha256": "4438991a12ff951cc8d0e83348ec06d9f910591b1b014c476e9595d4da099e48"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.ttf",
+          "bytes": 170616,
+          "sha256": "ba12d2eab1fa765b6b05398fa7e047dd76293f0c051ce57a8f7b0c591c14d42b"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.woff",
+          "bytes": 87624,
+          "sha256": "9fec87cadbe2413b255f1ec577573a83f1ca2e1c37aa023dbebcd3a7b864636a"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.woff2",
+          "bytes": 67312,
+          "sha256": "1a0c024dd1a267c52d5575469ffe8570d1e84164de7d393cf3414bafd17d7a0c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.eot",
+          "bytes": 78331,
+          "sha256": "b3809b71d417c6c225e77a55880aa7915b4e4b4f77a5e2d243f3563731e7f55c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.ttf",
+          "bytes": 169064,
+          "sha256": "13aa5f54c6f2fa2e388fe0e675cdbcc6a81f6270a8bf9c03a5df8af9cb022810"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.woff",
+          "bytes": 86288,
+          "sha256": "9f32630e2c0c5135bf1e86e36cb65b3932e4410644235bc2bd995e9c7f6ff117"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.woff2",
+          "bytes": 66444,
+          "sha256": "874e42222856d7af03b3f438d21d923a4280d47fe67c48510e2174a1579795ef"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/js/badge_only.js",
+          "bytes": 934,
+          "sha256": "f0a4808d04c4d55378751ac096a8376b64b1a704c82584b0ee590212cf413013"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/js/theme.js",
+          "bytes": 5023,
+          "sha256": "536ad2d746e944c5570cc15badaeccc3c0582a1b66e45511fe4edce32b6da510"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-html/_static/js/versions.js",
+          "bytes": 6978,
+          "sha256": "0998cc5239113cb6009ab1730e24ede85673759810ee8fb1e2f912305282a4aa"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/.buildinfo",
+          "bytes": 231,
+          "sha256": "792a4152b5957af98ec20e19089ee74deb967b885c5eaeecd64a2e94b0267a84"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/index.html",
+          "bytes": 891849,
+          "sha256": "0cb8d8c519850b1ef486ea639c281ccbbc99d81a424c76e98b9c55a307676a8e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/objects.inv",
+          "bytes": 4429,
+          "sha256": "648b1860b929a91381f737b03849b387930812ada46f8afdf711cf0623598779"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/_sphinx_javascript_frameworks_compat.js",
+          "bytes": 4289,
+          "sha256": "480a2c7377252c14a11bca4d3a49dfa16ea540a998fa637fae0189aee1b89113"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/base-stemmer.js",
+          "bytes": 12250,
+          "sha256": "eb67bedbfa264bd8a2201ebe07c861abbcbc56d7eaa28c53ff8b84f65ccd450f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/basic.css",
+          "bytes": 14687,
+          "sha256": "32be6d1c8f99e8328dc360f8319b9aceae201281d5a337d2233a51b3e713fe79"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/doctools.js",
+          "bytes": 4332,
+          "sha256": "6b2524c2723cc6e06cbf056e0b2861d50ba8fdd082ece13378bfb45d7a090528"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/documentation_options.js",
+          "bytes": 335,
+          "sha256": "c314fef0c5690ce1d85aad7ac5bf01d9830acd4d9a09bf36bc76b44a56af7f94"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/english-stemmer.js",
+          "bytes": 30599,
+          "sha256": "1f995807fde5a820390fb9046e4813a7eb8f20a4684650f14fbdeb4c2ad7ffc5"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/file.png",
+          "bytes": 286,
+          "sha256": "5c4bc9a16aebf38c4b950f59b8e501ca36495328cb9eb622218bce9064a35e3e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/jquery.js",
+          "bytes": 89501,
+          "sha256": "ff1523fb7389539c84c65aba19260648793bb4f5e29329d2ee8804bc37a3fe6e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/language_data.js",
+          "bytes": 13589,
+          "sha256": "af1c48fc5b0e0e9423cac068d55cdf22f541648709ae4b9190ee8aa9c2b08150"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/minus.png",
+          "bytes": 90,
+          "sha256": "47e7fc50db3699f1ca41ce9a2ffa202c00c5d1d5180c55f62ba859b1bd6cc008"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/plus.png",
+          "bytes": 90,
+          "sha256": "54115199b96a130cba02147c47c0deb43dcc9b9f08b5162bba8642b34980ac63"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/pygments.css",
+          "bytes": 4902,
+          "sha256": "316dc87150077b0ab61a35963b169f935e873e2ce1a32f0fd7d2ccc34978fd5d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/qpdf.svg",
+          "bytes": 1963,
+          "sha256": "83ad32dea3d103c6952bf72f419f030286371bfbf822909d6c4222d89452730c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/searchtools.js",
+          "bytes": 22464,
+          "sha256": "954625d140412a9d3d954d67e2e3aec8f8bd18018cf7600b894298fb157c7780"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/sphinx_highlight.js",
+          "bytes": 5325,
+          "sha256": "c551409f6bae30d602d5b47676696803554e7ceaa458c1c6eb8367b9d2c4dd31"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/badge_only.css",
+          "bytes": 3329,
+          "sha256": "f1399e4fc48c3ff17b5037d3512fcc451fb0abc2c95b4b8d12aab50cdd9d1d6f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/theme.css",
+          "bytes": 137285,
+          "sha256": "17c556bc5f2b93a5fb4aa22a2706da52076f6d73f8ef4a6e1673dd4132a2ad68"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/wraptable.css",
+          "bytes": 128,
+          "sha256": "d7161d28b4f54a9ce25b4d4daff97d1d459e2859187ecf40377ea9de089d7f2e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/Roboto-Slab-Bold.woff",
+          "bytes": 87624,
+          "sha256": "9fec87cadbe2413b255f1ec577573a83f1ca2e1c37aa023dbebcd3a7b864636a"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/Roboto-Slab-Bold.woff2",
+          "bytes": 67312,
+          "sha256": "1a0c024dd1a267c52d5575469ffe8570d1e84164de7d393cf3414bafd17d7a0c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/Roboto-Slab-Regular.woff",
+          "bytes": 86288,
+          "sha256": "9f32630e2c0c5135bf1e86e36cb65b3932e4410644235bc2bd995e9c7f6ff117"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/Roboto-Slab-Regular.woff2",
+          "bytes": 66444,
+          "sha256": "874e42222856d7af03b3f438d21d923a4280d47fe67c48510e2174a1579795ef"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/fontawesome-webfont.eot",
+          "bytes": 165742,
+          "sha256": "7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/fontawesome-webfont.svg",
+          "bytes": 444379,
+          "sha256": "ad6157926c1622ba4e1d03d478f1541368524bfc46f51e42fe0d945f7ef323e4"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/fontawesome-webfont.ttf",
+          "bytes": 165548,
+          "sha256": "aa58f33f239a0fb02f5c7a6c45c043d7a9ac9a093335806694ecd6d4edc0d6a8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/fontawesome-webfont.woff",
+          "bytes": 98024,
+          "sha256": "ba0c59deb5450f5cb41b3f93609ee2d0d995415877ddfa223e8a8a7533474f07"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/fontawesome-webfont.woff2",
+          "bytes": 77160,
+          "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-bold-italic.woff",
+          "bytes": 323344,
+          "sha256": "980c8592e5488df256192c999e92db8fd302db8cd8909b7fa266a684e37e45f8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-bold-italic.woff2",
+          "bytes": 193308,
+          "sha256": "c0916a33340d063f7b05679e08031e729d1888444706f04804705da5966d895d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-bold.woff",
+          "bytes": 309728,
+          "sha256": "0e56b17d142eb366c8007031d14e34da48c70b4a9d9a0ca492e696a7bae45e1e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-bold.woff2",
+          "bytes": 184912,
+          "sha256": "ae88fc0d7a961832f809527d30bd3983a6866d42f66a56ade23f543681594db6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-normal-italic.woff",
+          "bytes": 328412,
+          "sha256": "26318a1467a5e5caf10b04cfa942d079632560cd7a29cec565fd1dc9f7ec5081"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-normal-italic.woff2",
+          "bytes": 195704,
+          "sha256": "4465765f2f6eddcdad34ffd7cab559e56bc0e75e45e192f85e9562b0771481dc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-normal.woff",
+          "bytes": 309192,
+          "sha256": "5b9025dda4d7688e3311b0c17eddc501133b807def33effaef6593843cf5416e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/css/fonts/lato-normal.woff2",
+          "bytes": 182708,
+          "sha256": "983b0caf336e8542214fc17019a4fc5e0360864b92806ca14d55c1fc1c2c5a0f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bold.eot",
+          "bytes": 256056,
+          "sha256": "b91fc1ca55df440dc11354b32a39b45db663d24bb17b16dcb2e706330955b0d1"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bold.ttf",
+          "bytes": 600856,
+          "sha256": "f71f833c099f450606f8107b83ef208ae918c0ea00779466d45e9be96b0bc7cc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bold.woff",
+          "bytes": 309728,
+          "sha256": "0e56b17d142eb366c8007031d14e34da48c70b4a9d9a0ca492e696a7bae45e1e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bold.woff2",
+          "bytes": 184912,
+          "sha256": "ae88fc0d7a961832f809527d30bd3983a6866d42f66a56ade23f543681594db6"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bolditalic.eot",
+          "bytes": 266158,
+          "sha256": "b3d585879a02f48c5d43d8f91d06b167e367a31934bb3b8147c0a90b5ca32bfc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bolditalic.ttf",
+          "bytes": 622572,
+          "sha256": "f98d040631714eabffd0ffb747576674fa78c2910f6d9e3dc0c58481d03c1898"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bolditalic.woff",
+          "bytes": 323344,
+          "sha256": "980c8592e5488df256192c999e92db8fd302db8cd8909b7fa266a684e37e45f8"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-bolditalic.woff2",
+          "bytes": 193308,
+          "sha256": "c0916a33340d063f7b05679e08031e729d1888444706f04804705da5966d895d"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-italic.eot",
+          "bytes": 268604,
+          "sha256": "bc24dbe04f5b2415678f978e7e2f630cc6610670d684e088e73ad29c439eafe3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-italic.ttf",
+          "bytes": 639388,
+          "sha256": "12d825af88eafea1ce3aa469f83c03acaecd0d03f690f409c8643529f1205b4f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-italic.woff",
+          "bytes": 328412,
+          "sha256": "26318a1467a5e5caf10b04cfa942d079632560cd7a29cec565fd1dc9f7ec5081"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-italic.woff2",
+          "bytes": 195704,
+          "sha256": "4465765f2f6eddcdad34ffd7cab559e56bc0e75e45e192f85e9562b0771481dc"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-regular.eot",
+          "bytes": 253461,
+          "sha256": "e735410675eacc363b257112f39eb819a854b03077d7b1f0caa6e7660ffbd8b3"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-regular.ttf",
+          "bytes": 607720,
+          "sha256": "089ab6d4a57e0e6c4dd3b681b6fd50a5184f1b902429d35e1227e52d6ccad1bd"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-regular.woff",
+          "bytes": 309192,
+          "sha256": "5b9025dda4d7688e3311b0c17eddc501133b807def33effaef6593843cf5416e"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/Lato/lato-regular.woff2",
+          "bytes": 182708,
+          "sha256": "983b0caf336e8542214fc17019a4fc5e0360864b92806ca14d55c1fc1c2c5a0f"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.eot",
+          "bytes": 79520,
+          "sha256": "4438991a12ff951cc8d0e83348ec06d9f910591b1b014c476e9595d4da099e48"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.ttf",
+          "bytes": 170616,
+          "sha256": "ba12d2eab1fa765b6b05398fa7e047dd76293f0c051ce57a8f7b0c591c14d42b"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.woff",
+          "bytes": 87624,
+          "sha256": "9fec87cadbe2413b255f1ec577573a83f1ca2e1c37aa023dbebcd3a7b864636a"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-bold.woff2",
+          "bytes": 67312,
+          "sha256": "1a0c024dd1a267c52d5575469ffe8570d1e84164de7d393cf3414bafd17d7a0c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.eot",
+          "bytes": 78331,
+          "sha256": "b3809b71d417c6c225e77a55880aa7915b4e4b4f77a5e2d243f3563731e7f55c"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.ttf",
+          "bytes": 169064,
+          "sha256": "13aa5f54c6f2fa2e388fe0e675cdbcc6a81f6270a8bf9c03a5df8af9cb022810"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.woff",
+          "bytes": 86288,
+          "sha256": "9f32630e2c0c5135bf1e86e36cb65b3932e4410644235bc2bd995e9c7f6ff117"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/fonts/RobotoSlab/roboto-slab-v7-regular.woff2",
+          "bytes": 66444,
+          "sha256": "874e42222856d7af03b3f438d21d923a4280d47fe67c48510e2174a1579795ef"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/js/badge_only.js",
+          "bytes": 934,
+          "sha256": "f0a4808d04c4d55378751ac096a8376b64b1a704c82584b0ee590212cf413013"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/js/theme.js",
+          "bytes": 5023,
+          "sha256": "536ad2d746e944c5570cc15badaeccc3c0582a1b66e45511fe4edce32b6da510"
+        },
+        {
+          "path": "engines/qpdf-12.4.2/qpdf-12.4.2-msvc64/share/doc/qpdf/manual-single-page-html/_static/js/versions.js",
+          "bytes": 6978,
+          "sha256": "0998cc5239113cb6009ab1730e24ede85673759810ee8fb1e2f912305282a4aa"
+        },
+        {
+          "path": "engines/engines.json",
+          "bytes": 691,
+          "sha256": "41dadf8336b7023b7e25fbf70c4db775b08df1f2a80584a5c9f5a5c14defd22d"
+        },
+        {
+          "path": "engines/THIRD-PARTY-NOTICES.txt",
+          "bytes": 577,
+          "sha256": "e64daeb961c679864a799dbab7414260e5294a43396529652088ed98a1983827"
+        },
+        {
+          "path": "source-notices/ical.js-2.2.1.tgz",
+          "bytes": 282478,
+          "sha256": "36482280d62cc50f0adddb0587612cff32b96df18eb9e2071ec9929c2e7b3107"
+        },
+        {
+          "path": "source-notices/ICAL.js-2.2.1-MPL-2.0.txt",
+          "bytes": 16725,
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        },
+        {
+          "path": "source-notices/open-source-components.json",
+          "bytes": 1930,
+          "sha256": "20072a0c4e1e43549d3915b49866ad6cf338aea6c457087b24421fcc86fe6fa4"
+        },
+        {
+          "path": "native/xlsx-sidecar.exe",
+          "bytes": 11300352,
+          "sha256": "66b9fd9d7a0ffe9eb316f84e38cc3b2c71f9bea097b63d6ceb440f5a01b77bcd"
+        },
+        {
+          "path": "mail/vantage-mail.exe",
+          "bytes": 38707200,
+          "sha256": "1c046d71d0dbc0c5da86eb5274428cb1d9b68548debf60af83349cd852971b2a"
+        },
+        {
+          "path": "ocr/win-ocr.exe",
+          "bytes": 10240,
+          "sha256": "5ebae45981625ea724a8b1339e5765c551af51f2be53b40fd35edfc2f418907a"
+        }
+      ]
+    },
+    "retainedMainAndPreload": [
+      {
+        "app": "sheets",
+        "area": "main",
+        "path": "index.js",
+        "bytes": 3782673,
+        "sha256": "d07b375b9c1adc5c0e2649008464b7f75ed939608a08288355f1a059d400a8ec"
+      },
+      {
+        "app": "sheets",
+        "area": "main",
+        "path": "pdf-B6l8FRA5.js",
+        "bytes": 1013761,
+        "sha256": "18a34e30a003b8283dcd7925150961a5b79d3388fe4a2e9c01c57964114547a6"
+      },
+      {
+        "app": "sheets",
+        "area": "main",
+        "path": "pdf.worker-NB1PBVQH.js",
+        "bytes": 2340463,
+        "sha256": "271e4eb1bcf8a25e32579ecd92f4e7203d31b3c099a6fdee83e54b77e9c842ef"
+      },
+      {
+        "app": "sheets",
+        "area": "main",
+        "path": "ppt-BHIGZr4q.js",
+        "bytes": 42289,
+        "sha256": "6f98b44e7389cf6685920d196fee0f51410a777b88d9e4017f2ba6437a8a5b7a"
+      },
+      {
+        "app": "sheets",
+        "area": "preload",
+        "path": "index.js",
+        "bytes": 145329,
+        "sha256": "64e69e666cdd36254f291dd9811f714a739f4c87ddcccfc003142112895b3be8"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "index.js",
+        "bytes": 5235460,
+        "sha256": "ea930bc249afa9b3fbfe76c450bffd68a470a3942a6d8b32c34b96186b0827b3"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "pdf-B6l8FRA5.js",
+        "bytes": 1013761,
+        "sha256": "18a34e30a003b8283dcd7925150961a5b79d3388fe4a2e9c01c57964114547a6"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "pdf.worker-NB1PBVQH.js",
+        "bytes": 2340463,
+        "sha256": "271e4eb1bcf8a25e32579ecd92f4e7203d31b3c099a6fdee83e54b77e9c842ef"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "ppt-BHIGZr4q.js",
+        "bytes": 42289,
+        "sha256": "6f98b44e7389cf6685920d196fee0f51410a777b88d9e4017f2ba6437a8a5b7a"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "chunks/Carlito-Bold-BhbXr__n.ttf",
+        "bytes": 686240,
+        "sha256": "ed778b78ce652f5b17647344fb9a4c4dcb2e6f8bafe75a0366300da7f8c199ac"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "chunks/Carlito-BoldItalic-0dXjwGA0.ttf",
+        "bytes": 812344,
+        "sha256": "0468067dde1d54111862f20f3fc4a5e8dcbc0ad4549e318c601b8ff7bdec935d"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "chunks/Carlito-Italic-KkZUqxJW.ttf",
+        "bytes": 619052,
+        "sha256": "de59348ac812a347537b90a3d70796cfd5369048ecf9c78f5bca79ab55dd28a7"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "chunks/Carlito-Regular-Cbe9FLjp.ttf",
+        "bytes": 631712,
+        "sha256": "cca497a63f1cf8111d2189424ec38b95002e43799efe4f1486ec7f8063bb93c1"
+      },
+      {
+        "app": "slides",
+        "area": "main",
+        "path": "chunks/harfbuzz-CVplwa31.wasm",
+        "bytes": 421964,
+        "sha256": "66f25d50cdf9942366498d0504d13096d567946cb1f6b5af6cdd87f392be99da"
+      },
+      {
+        "app": "slides",
+        "area": "preload",
+        "path": "index.js",
+        "bytes": 23353,
+        "sha256": "b326b0ab12578385d3c6259669f7feb3ba787d676d956a004a28616b06564516"
+      },
+      {
+        "app": "pdf",
+        "area": "main",
+        "path": "image-edit-CxQkKq5W.js",
+        "bytes": 16563,
+        "sha256": "bcbc89dba5afc60f9aa3fe7f75357ff3bfaf4eb2ead8b898e5677df006c199e2"
+      },
+      {
+        "app": "pdf",
+        "area": "main",
+        "path": "annot-delete-DyTggFzg.js",
+        "bytes": 3712,
+        "sha256": "6d31c7db01351bcb5fd785f2af587d2abce95834a791cae27f400199df890824"
+      },
+      {
+        "app": "pdf",
+        "area": "main",
+        "path": "index-MbjUHvFF.js",
+        "bytes": 268209,
+        "sha256": "8ecf538c77d51340d0a38f99c6f51bc343bcb2b00c8c12fc058f343faf9c2f13"
+      },
+      {
+        "app": "pdf",
+        "area": "main",
+        "path": "ocr-DW6dHPZx.js",
+        "bytes": 3125,
+        "sha256": "56f2ca0b8011a60a04147a10f9a6f20eeac97d4ac10924ff8ade807677701a16"
+      },
+      {
+        "app": "pdf",
+        "area": "main",
+        "path": "index.js",
+        "bytes": 3928041,
+        "sha256": "d099bdf12a549b57d767c31acba05e087957c18580145777678f35d0e0404b86"
+      },
+      {
+        "app": "pdf",
+        "area": "preload",
+        "path": "index.js",
+        "bytes": 13345,
+        "sha256": "03dda07aea659c342a77632e048a7872b04184ba7c6932e5b5f81502804164c7"
+      },
+      {
+        "app": "markdown",
+        "area": "main",
+        "path": "index.js",
+        "bytes": 2173877,
+        "sha256": "38f1e4ec24a37b22a1464ff73186d40dc325994f8d5e8323037052f1e9e81558"
+      },
+      {
+        "app": "markdown",
+        "area": "preload",
+        "path": "index.js",
+        "bytes": 15281,
+        "sha256": "2442f1675f50becb631b9640d26df348c939c004521abf879aff6ba433a6d61e"
+      },
+      {
+        "app": "html",
+        "area": "main",
+        "path": "index.js",
+        "bytes": 4183302,
+        "sha256": "ba72bac720c9d3a79018f7093d51165bae036988bd3b4c4aa967bfea24ef2e81"
+      },
+      {
+        "app": "html",
+        "area": "main",
+        "path": "pdf-B6l8FRA5.js",
+        "bytes": 1013761,
+        "sha256": "18a34e30a003b8283dcd7925150961a5b79d3388fe4a2e9c01c57964114547a6"
+      },
+      {
+        "app": "html",
+        "area": "main",
+        "path": "ppt-BHIGZr4q.js",
+        "bytes": 42289,
+        "sha256": "6f98b44e7389cf6685920d196fee0f51410a777b88d9e4017f2ba6437a8a5b7a"
+      },
+      {
+        "app": "html",
+        "area": "main",
+        "path": "pdf.worker-NB1PBVQH.js",
+        "bytes": 2340463,
+        "sha256": "271e4eb1bcf8a25e32579ecd92f4e7203d31b3c099a6fdee83e54b77e9c842ef"
+      },
+      {
+        "app": "html",
+        "area": "preload",
+        "path": "index.js",
+        "bytes": 12370,
+        "sha256": "558e37f1f6adc911d7e728d3bd325bb5bcc98a6d9ba869f516d022bd45c57e45"
+      }
+    ],
+    "generatedFilesCompared": 1094,
+    "allGeneratedBytesMatchPackage": true,
+    "platform": "Windows x64 main app. OCR helper is .NET IL-only/AnyCPU; this is not a claim that every helper is a native x64 executable."
+  },
+  "packagedChecks": {
+    "passed": 19,
+    "names": [
+      "Packaged brand candidate launches with isolated profile",
+      "Saddle mark and full product wordmark render without inversion",
+      "Light and dark palettes apply to the actual packaged home",
+      "System theme follows dark and light media preference",
+      "Brand lockup fits a narrow desktop window",
+      "Packaged docs editor loads the rebuilt shared palette",
+      "Packaged sheets editor loads the rebuilt shared palette",
+      "Packaged slides editor loads the rebuilt shared palette",
+      "Packaged pdf editor loads the rebuilt shared palette",
+      "Packaged markdown editor loads the rebuilt shared palette",
+      "Packaged html editor loads the rebuilt shared palette",
+      "All six editor views receive the actual shared dark palette",
+      "Markdown Follow paper preserves baseline light, dark and system colors",
+      "Default remote Mail gate remains disabled",
+      "Command search still opens",
+      "Packaged product metadata and disabled analytics injection",
+      "Bundled CLI reports the matching branding version",
+      "No renderer exceptions or console errors in exercised paths",
+      "No unexpected application errors in observed main log"
+    ],
+    "allListedPassed": true,
+    "scope": "Branding and selected packaged loading paths. This does not establish complete editing/fidelity/accessibility/performance or live-provider acceptance."
+  },
+  "previewLauncher": {
+    "source": "../../tools/preview/Start-Vantage-Preview.cmd",
+    "packagedSha256": "80400805e93b24da8887792c74cf7fca80897bca1346abc97300b5c70c867084",
+    "profileScope": "Separate suite userData, authentication, engine-temp and absolute Mail profile storage under LOCALAPPDATA/VantageProductivityBrandPreview/0.15.0-brand.1. Existing Mail accounts/credentials are not imported.",
+    "isolatedMailOverrideVerified": true
+  },
+  "windowsIdentity": {
+    "binaries": [
+      {
+        "path": "Vantage Productivity.exe",
+        "machine": "0x8664",
+        "architectureScope": "x64",
+        "product": "Vantage Productivity",
+        "description": "Vantage Productivity",
+        "productVersion": "0.15.0.0",
+        "fileVersion": "0.15.0-brand.1",
+        "signature": "NotSigned",
+        "sha256": "d871ae42f7f6b591549baa73c7532ee2e2010b7ea82bfe8ed1d1b6403b1ac477"
+      },
+      {
+        "path": "resources\\native\\xlsx-sidecar.exe",
+        "machine": "0x8664",
+        "architectureScope": "x64",
+        "product": null,
+        "description": null,
+        "productVersion": null,
+        "fileVersion": null,
+        "signature": "NotSigned",
+        "sha256": "66b9fd9d7a0ffe9eb316f84e38cc3b2c71f9bea097b63d6ceb440f5a01b77bcd"
+      },
+      {
+        "path": "resources\\mail\\vantage-mail.exe",
+        "machine": "0x8664",
+        "architectureScope": "x64",
+        "product": "Vantage Mail",
+        "description": "Vantage Mail",
+        "productVersion": "0.8.17",
+        "fileVersion": "0.8.17",
+        "signature": "NotSigned",
+        "sha256": "1c046d71d0dbc0c5da86eb5274428cb1d9b68548debf60af83349cd852971b2a"
+      },
+      {
+        "path": "resources\\ocr\\win-ocr.exe",
+        "machine": "0x014c",
+        "architectureScope": "Unchanged managed OCR helper; retained-base scope, not a new OCR acceptance run",
+        "product": "",
+        "description": " ",
+        "productVersion": "0.0.0.0",
+        "fileVersion": "0.0.0.0",
+        "signature": "NotSigned",
+        "sha256": "5ebae45981625ea724a8b1339e5765c551af51f2be53b40fd35edfc2f418907a"
+      }
+    ],
+    "embeddedIcon": "Extracted from the packaged executable and visually checked at 32 pixels; source ICO also validated at eight sizes.",
+    "signing": "All four inspected executables are NotSigned."
+  },
+  "repositoryCi": {
+    "repository": "Adilson09/vantage-productivity",
+    "runId": 41200710532,
+    "runUrl": "https://github.com/Adilson09/vantage-productivity/actions/runs/41200710532",
+    "checkedRevision": "cfbfc6b356d828086c3ab01380150a7b40625dc8",
+    "reviewedBrandRevision": "04139733d4dca2b833198e89c7557cc4939af080",
+    "method": "Read-only GitHub connector job logs and step metadata; no workflow rerun or broad local tests",
+    "formatJob": {
+      "jobId": 124535782771,
+      "url": "https://github.com/Adilson09/vantage-productivity/actions/runs/41200710532/job/124535782771",
+      "runner": "Ubuntu 24.04",
+      "failureStep": 11,
+      "failureStepName": "Check formatting",
+      "exitCode": 1,
+      "formatBaseRef": "2da564587e60d3c038b4899e3a53b14ad4f09236",
+      "files": [
+        ".github/ISSUE_TEMPLATE/bug_report.yml",
+        ".github/ISSUE_TEMPLATE/feature_request.yml",
+        ".github/ISSUE_TEMPLATE/feedback.yml",
+        "README.md"
+      ],
+      "limitation": "This job stopped at formatting. Lint, typecheck, fixture verification, unit tests and Sheets compatibility gate were skipped, so the run does not establish those checks passed.",
+      "remediation": "Brand README formatting already passed. Three inherited issue-template files were subsequently formatted; YAML parse and Prettier write/check passed (exit 0). Diff review confirmed quote-style substitutions only, with no text or structure changes. See feedback-template-format.json. The historical CI run remains failed and was not rerun."
+    },
+    "electronJob": {
+      "jobId": 124535782495,
+      "url": "https://github.com/Adilson09/vantage-productivity/actions/runs/41200710532/job/124535782495",
+      "runner": "Ubuntu 22.04",
+      "passedSteps": ["Build apps", "Generate sheets fixtures", "Markdown browser tests"],
+      "markdownBrowserTests": {
+        "passed": 46,
+        "durationSeconds": 56.2
+      },
+      "failureStep": 14,
+      "failureStepName": "E2E (Electron shell)",
+      "exitCode": 1,
+      "summary": {
+        "passed": 234,
+        "failed": 3,
+        "flaky": 1,
+        "skipped": 23,
+        "durationMinutes": 15.4
+      },
+      "failures": [
+        {
+          "test": "e2e/home-search.spec.ts:56",
+          "assertionLocation": "e2e/home-search.spec.ts:109",
+          "summary": "After Control+F, .file-search input remained inactive instead of focused; 15000 ms assertion timeout."
+        },
+        {
+          "test": "e2e/sheets-filter-reopen.spec.ts:23",
+          "assertionLocation": "e2e/sheets-filter-reopen.spec.ts:101",
+          "summary": "Expected temporary Vantage save directory was absent (ENOENT from scandir); 15000 ms predicate timeout before saved row-filter XML assertion could pass."
+        },
+        {
+          "test": "e2e/sheets-paste-shared-formula-save.spec.ts:20",
+          "assertionLocation": "e2e/sheets-paste-shared-formula-save.spec.ts:121",
+          "summary": "Expected temporary Vantage save directory was absent (ENOENT from scandir); 15000 ms predicate timeout before saved formula XML assertion could pass."
+        }
+      ],
+      "flaky": [
+        {
+          "test": "e2e/docs-spellcheck-reenable.spec.ts:52",
+          "assertionLocation": "e2e/docs-spellcheck-reenable.spec.ts:91",
+          "summary": "Initial spellcheck marker assertion received 0 pixels, expected at least 146, timed out after 15000 ms; final report marks test flaky (passed retry)."
+        }
+      ],
+      "additionalObservedConsoleErrors": "Logs include undefined onFontsChanged/onLanguageChanged errors in Slides renderer. Causation of the three failing tests was not established from these logs.",
+      "limitation": "Passing tests are selected Linux CI workloads, not packaged Windows acceptance or complete document compatibility."
+    },
+    "assessment": {
+      "inheritedFailures": true,
+      "reason": "Both fetched job logs explicitly checked out the pre-brand base revision. The branding revision changes neither the failing E2E test code nor spreadsheet save/spellcheck behavior.",
+      "newBrandRegressionEstablished": false,
+      "notEstablished": "This triage does not prove root causes, fix E2E behavior, or prove the branding revision passes full CI. No new brand workflow run was reviewed.",
+      "requiredDisclosure": "Full CI remains open: baseline formatting and Electron E2E failures were observed. Branding-specific local checks and Windows package checks must be reported separately."
+    }
+  },
+  "portableArchive": {
+    "name": "Vantage-Productivity-0.15.0-brand.1-win-x64.zip",
+    "bytes": 270711978,
+    "sha256": "4ace795fd7d7fec200aca3bccd1085e14b9634f1fe7896eb20b929d994962ff7",
+    "filesVerified": 3206,
+    "inventoryCrcAndPerFileSha256Match": true
+  },
+  "limitations": [
+    "Unsigned development preview; not production acceptance.",
+    "No fresh full feature corpus or Office-fidelity acceptance.",
+    "Loading six editors does not establish every-editor create/edit/save/reopen/export/failure behavior.",
+    "No clean-machine installation, update, uninstall or signing acceptance.",
+    "No live-provider or whole-process network acceptance.",
+    "No macOS, Linux or Windows ARM64 application acceptance.",
+    "Original separately licensed ee documents are excluded from the separately packaged source ZIP."
+  ]
+}
