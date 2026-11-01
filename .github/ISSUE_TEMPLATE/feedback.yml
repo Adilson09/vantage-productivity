@@ -1,6 +1,6 @@
 name: Share your experience
 description: Tell us what worked, what frustrated you and what you would use again
-title: "[Feedback] "
+title: '[Feedback] '
 body:
   - type: markdown
     attributes:
@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: Vantage version and operating system
-      placeholder: "0.15.0-dev.1 on Windows 11 x64"
+      placeholder: '0.15.0-dev.1 on Windows 11 x64'
     validations:
       required: true
   - type: textarea

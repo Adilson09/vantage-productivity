@@ -193,6 +193,27 @@ button {
 }
 
 .doc-page {
+  /* Paper-scoped colors retain the document's baseline appearance when the
+     suite chrome palette changes. Named paper themes and explicit Light below
+     have higher specificity and keep their existing precedence. */
+  --surface: #ffffff;
+  --surface-subtle: #f6f7f9;
+  --bg-content: #fafafa;
+  --border: #e3e6ea;
+  --border-subtle: #efefef;
+  --border-strong: #d9d9d9;
+  --text: #242424;
+  --text-primary: #232425;
+  --text-secondary: #606366;
+  --text-tertiary: #909499;
+  --text-muted: #616870;
+  --text-dim: #605e5c;
+  --hover: #f5f5f5;
+  --pressed: #edebe9;
+  --active-bg: #eaeaea;
+  --icon-muted: #b9bfc7;
+  --danger: #d13438;
+  --danger-bg: #fdf3f3;
   max-width: 860px;
   min-height: 100%;
   margin: 0 auto;
@@ -200,6 +221,50 @@ button {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--md-page-shadow);
+}
+
+:where([data-theme='dark']) .doc-page {
+  --surface: #1e1e1e;
+  --surface-subtle: #2a2a2a;
+  --bg-content: #1a1a1a;
+  --border: #3a3a3a;
+  --border-subtle: #3a3a3a;
+  --border-strong: #555;
+  --text: #e4e4e4;
+  --text-primary: #e4e4e4;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #a0a0a0;
+  --text-muted: #949494;
+  --text-dim: #a0a0a0;
+  --hover: #333;
+  --pressed: #3c3c3c;
+  --active-bg: #454545;
+  --icon-muted: #666;
+  --danger: #d13438;
+  --danger-bg: #3a2020;
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme='light']):not([data-theme='dark'])) .doc-page {
+    --surface: #1e1e1e;
+    --surface-subtle: #2a2a2a;
+    --bg-content: #1a1a1a;
+    --border: #3a3a3a;
+    --border-subtle: #3a3a3a;
+    --border-strong: #555;
+    --text: #e4e4e4;
+    --text-primary: #e4e4e4;
+    --text-secondary: #a0a0a0;
+    --text-tertiary: #a0a0a0;
+    --text-muted: #949494;
+    --text-dim: #a0a0a0;
+    --hover: #333;
+    --pressed: #3c3c3c;
+    --active-bg: #454545;
+    --icon-muted: #666;
+    --danger: #d13438;
+    --danger-bg: #3a2020;
+  }
 }
 
 /* Document page theme (vantage#1811): an explicit Light under the dark UI

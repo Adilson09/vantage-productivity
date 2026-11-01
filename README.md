@@ -16,6 +16,17 @@ Vantage Productivity is an open-source Windows desktop suite with six editors fo
 
 The saddle-point logo combines **electric blue (#0072FC)** and **deep navy (#0D264A)**. Cool white surfaces keep the work readable; light-theme controls use **action blue (#0064D9)** for stronger text contrast. Dark mode uses navy surfaces with pale-blue controls. Read the [complete brand palette and contrast pairs](docs/BRAND.md).
 
+<details>
+<summary>See the Windows workspace in light and dark modes</summary>
+
+These screenshots show the actual branding preview with an empty test workspace.
+
+![Vantage Productivity Windows workspace in light mode](docs/brand/screenshots/workspace-light.png)
+
+![Vantage Productivity Windows workspace in dark mode](docs/brand/screenshots/workspace-dark.png)
+
+</details>
+
 ## What you can work on
 
 | Tool              | What it provides                                                                                                                                                                                                                                      |
@@ -75,6 +86,8 @@ The hash values must match. The release also provides a separately packaged sour
 
 The [branding validation record](docs/implementation/branding-evidence.json) describes the fresh build, icon, palette, updater and packaged checks for **0.15.0-brand.1**. The feature-validation counts below belong to the earlier **0.15.0-dev.1 baseline**; they are not a new complete acceptance run for this branding preview.
 
+Repository-wide CI acceptance remains open. The [preceding baseline CI run](https://github.com/Adilson09/vantage-productivity/actions/runs/41200710532) failed formatting and three Electron end-to-end tests. The formatting findings are corrected in this source; the inherited end-to-end failures remain unresolved and are identified in the branding validation record.
+
 The [release evidence](docs/implementation/delivery-evidence.json) records **12 corrected packaged checks**, **11 selected desktop workflows** and **1,200 selected native spreadsheet calculation cases** compared with an installed Excel reference. Loading all six editors is covered by the packaged checks; loading alone does not establish editing compatibility.
 
 The format corpus records **82 no-op/reopen cases and 79 targeted-edit cases**, plus **five Office raster smoke pairs**. Synthetic cases, interrupted broader runs and historical failures remain identified in the evidence. These separate workloads do not establish a completeness or compatibility percentage.
@@ -106,6 +119,8 @@ npm run dev
 ```
 
 These commands describe a source development workflow; they are not evidence of a new clean-machine build. Release packaging also needs `npm run build:mail`, generated notices and the external resources declared in [the packaging configuration](apps/shell/electron-builder.cjs). Reproducing the published qpdf inventory requires the complete verified distribution and separate [engine-package staging](tools/stage-engine-package.mjs). Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Test results must identify the revision and workload actually checked.
+
+The [preview launcher source](tools/preview/Start-Vantage-Preview.cmd) belongs beside the built Windows executable. It selects separate suite, authentication, engine-temp and Mail storage for this version. Mail accounts and credentials are not imported into the new preview profile.
 
 ## License and provenance
 

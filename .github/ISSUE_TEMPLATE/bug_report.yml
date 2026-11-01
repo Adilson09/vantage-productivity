@@ -1,6 +1,6 @@
 name: Bug report
 description: Report a reproducible problem in Vantage Productivity
-title: "[Bug] "
+title: '[Bug] '
 body:
   - type: markdown
     attributes:
@@ -32,14 +32,14 @@ body:
     id: version
     attributes:
       label: Vantage version or source commit
-      placeholder: "0.15.0-dev.1 Windows ZIP, or full source commit"
+      placeholder: '0.15.0-dev.1 Windows ZIP, or full source commit'
     validations:
       required: true
   - type: input
     id: windows
     attributes:
       label: Operating system and architecture
-      placeholder: "Windows 11 version/build, x64"
+      placeholder: 'Windows 11 version/build, x64'
     validations:
       required: true
   - type: textarea

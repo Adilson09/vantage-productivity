@@ -107,4 +107,5 @@ Sources: [W3C Understanding Contrast (Minimum)](https://www.w3.org/WAI/WCAG22/Un
 - The shell also defines accents in `apps/shell/src/renderer/src/home.css` and `VantageWorkspace.css`; keep its native controls aligned with this palette.
 - Preserve per-editor identification accents. A spreadsheet's identity green is distinct from the suite's main action blue.
 - Do not rewrite authored page colors, cell fills, chart palettes, PDF page images, highlights, print styles or export data to match the brand. Interface theming must not alter the document.
+- Markdown paper colors are scoped in `apps/markdown/src/renderer/styles.css`, independently of the shared chrome tokens. Follow, Light-page and named-theme displays retain their baseline paper colors; print and export use separate fixed styles.
 - Keep the original supplied artwork and any generated or derived icon assets separately identified. Branding changes do not establish a new application release or validation result.

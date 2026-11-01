@@ -1,6 +1,6 @@
 name: Feature request
 description: Explain a workflow Vantage Productivity should make easier
-title: "[Feature] "
+title: '[Feature] '
 body:
   - type: markdown
     attributes:
@@ -11,7 +11,7 @@ body:
     id: tool
     attributes:
       label: Affected tool or workflow
-      placeholder: "For example, Sheets pivot refresh or local calendar import"
+      placeholder: 'For example, Sheets pivot refresh or local calendar import'
     validations:
       required: true
   - type: textarea
