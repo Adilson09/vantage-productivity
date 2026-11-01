@@ -1,23 +1,31 @@
 # Vantage Productivity
 
+<p align="center"><img src="docs/brand/vantage-logo-original.png" width="540" alt="Vantage Productivity saddle point logo"></p>
+
 **Write the document. Calculate the numbers. Present the decision. Keep the work together.**
 
 Vantage Productivity is an open-source Windows desktop suite with six editors for **DOCX, XLSX, PPTX, PDF, Markdown and HTML**, plus local calendar, contacts, records, search and recovery tools. Use one workspace to move from a written proposal to a spreadsheet, a slide deck and supporting notes, while keeping ordinary document editing on your computer.
 
-**Current download: 0.15.0-dev.1, an unsigned Windows x64 development preview.** It is for evaluation and feedback. Full Office compatibility and production readiness have not been established.
+**Current download: 0.15.0-brand.1, an unsigned Windows x64 development preview.** It is for evaluation and feedback. This branding preview is based on the published 0.15.0-dev.1 feature baseline, with the saddle identity, shared interface palette and a portable-updater guard. Full Office compatibility and production readiness have not been established.
 
-[Download the Windows preview](https://github.com/Adilson09/vantage-productivity/releases/tag/v0.15.0-dev.1) · [Share your experience](https://github.com/Adilson09/vantage-productivity/issues/new?template=feedback.yml) · [Report a bug](https://github.com/Adilson09/vantage-productivity/issues/new?template=bug_report.yml) · [Request a feature](https://github.com/Adilson09/vantage-productivity/issues/new?template=feature_request.yml)
+[Download the Windows preview](https://github.com/Adilson09/vantage-productivity/releases/tag/v0.15.0-brand.1) · [Share your experience](https://github.com/Adilson09/vantage-productivity/issues/new?template=feedback.yml) · [Report a bug](https://github.com/Adilson09/vantage-productivity/issues/new?template=bug_report.yml) · [Request a feature](https://github.com/Adilson09/vantage-productivity/issues/new?template=feature_request.yml)
+
+## Our visual identity
+
+![Vantage Productivity brand palette](docs/brand/palette.svg)
+
+The saddle-point logo combines **electric blue (#0072FC)** and **deep navy (#0D264A)**. Cool white surfaces keep the work readable; light-theme controls use **action blue (#0064D9)** for stronger text contrast. Dark mode uses navy surfaces with pale-blue controls. Read the [complete brand palette and contrast pairs](docs/BRAND.md).
 
 ## What you can work on
 
-| Tool | What it provides |
-| --- | --- |
-| **Documents** | A DOCX editing workspace for written documents. Open and revise document content, then save a document copy. |
-| **Spreadsheets** | An XLSX editing workspace with native formula calculation, selected pivot refresh paths and XLSM resource preservation. Macro resources can be retained; VBA and XLM do not execute. |
-| **Presentations** | A PPTX editing workspace for slide content and layout, with slideshow playback and PDF export. |
-| **PDF** | A PDF workspace for reading, highlighting, underlining, strikeout and sticky-note threads, alongside separate structural inspection using PDF parsing and bundled qpdf. Structural checks do not certify visual fidelity or PDF standards compliance. |
-| **Markdown** | A Markdown editing workspace with original-source retention for unchanged documents and text draft journaling for named and unnamed files. |
-| **HTML** | An HTML editing workspace with visual/source editing and export to PDF, DOCX and standalone HTML. |
+| Tool              | What it provides                                                                                                                                                                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Documents**     | A DOCX editing workspace for written documents. Open and revise document content, then save a document copy.                                                                                                                                          |
+| **Spreadsheets**  | An XLSX editing workspace with native formula calculation, selected pivot refresh paths and XLSM resource preservation. Macro resources can be retained; VBA and XLM do not execute.                                                                  |
+| **Presentations** | A PPTX editing workspace for slide content and layout, with slideshow playback and PDF export.                                                                                                                                                        |
+| **PDF**           | A PDF workspace for reading, highlighting, underlining, strikeout and sticky-note threads, alongside separate structural inspection using PDF parsing and bundled qpdf. Structural checks do not certify visual fidelity or PDF standards compliance. |
+| **Markdown**      | A Markdown editing workspace with original-source retention for unchanged documents and text draft journaling for named and unnamed files.                                                                                                            |
+| **HTML**          | An HTML editing workspace with visual/source editing and export to PDF, DOCX and standalone HTML.                                                                                                                                                     |
 
 These are implemented modules, with different levels of testing. End-to-end create, edit, save, reopen, export and failure acceptance is still incomplete across all six editors. Evaluate representative copies of your documents before relying on the preview for important work.
 
@@ -37,8 +45,8 @@ For automation, the **`vantage` command line**, MCP integration and productivity
 
 ## Try the Windows preview
 
-1. Open the [0.15.0-dev.1 release](https://github.com/Adilson09/vantage-productivity/releases/tag/v0.15.0-dev.1).
-2. Download **`Vantage-Productivity-0.15.0-dev.1-win-x64.zip`** and its matching **`.sha256`** file.
+1. Open the [0.15.0-brand.1 release](https://github.com/Adilson09/vantage-productivity/releases/tag/v0.15.0-brand.1).
+2. Download **`Vantage-Productivity-0.15.0-brand.1-win-x64.zip`** and its matching **`.sha256`** file.
 3. Extract the **entire ZIP** into a writable folder. Keep the application, resources and helper programs together.
 4. Run **`Start-Vantage-Preview.cmd`** from that folder. It creates separate preview profile and authentication storage under `%LOCALAPPDATA%`.
 5. Open a copy of a representative file, make a small change, save it and reopen it. Tell us how the result compares with what you expected.
@@ -48,8 +56,8 @@ The downloadable application is **Windows x64**. Vantage Mail requires Microsoft
 To check the downloaded archive in PowerShell:
 
 ```powershell
-Get-FileHash .\Vantage-Productivity-0.15.0-dev.1-win-x64.zip -Algorithm SHA256
-Get-Content .\Vantage-Productivity-0.15.0-dev.1-win-x64.zip.sha256
+Get-FileHash .\Vantage-Productivity-0.15.0-brand.1-win-x64.zip -Algorithm SHA256
+Get-Content .\Vantage-Productivity-0.15.0-brand.1-win-x64.zip.sha256
 ```
 
 The hash values must match. The release also provides a separately packaged source archive.
@@ -65,11 +73,13 @@ The hash values must match. The release also provides a separately packaged sour
 
 ## What has been checked
 
+The [branding validation record](docs/implementation/branding-evidence.json) describes the fresh build, icon, palette, updater and packaged checks for **0.15.0-brand.1**. The feature-validation counts below belong to the earlier **0.15.0-dev.1 baseline**; they are not a new complete acceptance run for this branding preview.
+
 The [release evidence](docs/implementation/delivery-evidence.json) records **12 corrected packaged checks**, **11 selected desktop workflows** and **1,200 selected native spreadsheet calculation cases** compared with an installed Excel reference. Loading all six editors is covered by the packaged checks; loading alone does not establish editing compatibility.
 
 The format corpus records **82 no-op/reopen cases and 79 targeted-edit cases**, plus **five Office raster smoke pairs**. Synthetic cases, interrupted broader runs and historical failures remain identified in the evidence. These separate workloads do not establish a completeness or compatibility percentage.
 
-Full rendered Office coverage, every-editor failure handling, accessibility with screen readers, performance acceptance and whole-process network observation remain open. VBA/XLM execution, Power Query/OLAP/Data Model parity, DOCM/PPTM macro acceptance, Access compatibility and authenticated real-time coauthoring are not implemented. See the [preview guide](docs/VANTAGE_PREVIEW.md) and [32 implementation choices](docs/implementation/choices.json) for the detailed boundaries. Work in draft pull requests is not included in the downloadable release.
+Full rendered Office coverage, every-editor failure handling, accessibility with screen readers, performance acceptance and whole-process network observation remain open. VBA/XLM execution, Power Query/OLAP/Data Model parity, DOCM/PPTM macro acceptance, Access compatibility and authenticated real-time coauthoring are not implemented. See the [feature-baseline preview guide](docs/VANTAGE_PREVIEW.md) and [32 implementation choices](docs/implementation/choices.json) for the detailed boundaries. Work in draft pull requests is not included in the downloadable release.
 
 ## Help shape the next release
 

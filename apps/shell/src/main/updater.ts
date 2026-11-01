@@ -428,7 +428,7 @@ const MANUAL_FALLBACK_AFTER = 2
 // and signing track, so a stable/legacy-track user could land on the wrong
 // build. Preferred is the CDN installer derived from the user's own update
 // feed (see manualDownloadUrlFor), which matches channel, track, and arch.
-const DOWNLOAD_PAGE_URL = 'https://github.com/Adilson09/aster-office/releases/latest'
+const DOWNLOAD_PAGE_URL = 'https://github.com/Adilson09/vantage-productivity/releases'
 
 /// Trusted HTTPS base URL baked into resources/app-update.yml. Manual download
 /// links are always rebuilt from this base rather than trusting URLs supplied
@@ -634,6 +634,9 @@ export function initAutoUpdater(
   if (!app.isPackaged) return
   const isLinuxAppImage = process.platform === 'linux' && Boolean(process.env.APPIMAGE)
   if (process.platform !== 'win32' && process.platform !== 'darwin' && !isLinuxAppImage) return
+
+  // Packaged previews may intentionally omit a configured update service.
+  if (updateFeedBaseUrl() === null) return
 
   updaterActive = true
   autoUpdater.channel = CHANNEL_FEED[initialChannel]

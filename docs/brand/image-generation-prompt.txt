@@ -1,0 +1,13 @@
+Mode: built-in image-generation tool, edit of the user-supplied PNG.
+Target: mark-only derivative used by tools/build-brand-assets.mjs.
+Input: Vantage Productivity saddle point logo.png (original preserved unchanged).
+Transparent background: true.
+
+Exact prompt:
+Use case: background-extraction / logo-brand. Edit target: the attached Vantage Productivity saddle point logo. Create an icon-ready transparent PNG containing ONLY the existing blue-and-navy saddle/ribbon symbol from above the word Vantage. Remove all lettering and remove the white textured background. Preserve the distinctive existing silhouette and asymmetric topology exactly: the shorter left rising dark-navy ribbon folds into a blue lower-left lobe, a small circular transparent saddle-point gap in the center, a tall vivid-blue upper-right lobe, and the curved dark-navy lower-right ribbon with a slim transparent curved seam. Preserve original orientation, navy and vivid electric blue; use crisp flat clean edges and no grain/shadows. Center the whole mark on a square transparent canvas with a modest 10 percent safe margin. Do not introduce letters, badges, extra shapes, an icon tile, a new logo design, a white matte, gradients outside the original mark, or any watermark. Actual alpha transparency is required.
+
+The prompt expresses preservation goals, not a claim of pixel equivalence. The
+generated mark is a labeled small-icon derivative. The canonical original PNG
+remains unchanged. A generated rounded-tile draft was not used; the final clean
+white tile and platform formats are prepared deterministically by the committed
+asset script.

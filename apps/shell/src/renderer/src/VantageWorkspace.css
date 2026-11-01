@@ -1,8 +1,8 @@
 /* Vantage Productivity modification (2026): responsive workspace and accessible command dialog. */
 .vantage-workspace {
-  --vantage-accent: #24665d;
+  --vantage-accent: #0064d9;
   --vantage-accent-ink: #ffffff;
-  --vantage-accent-soft: #e5f2ed;
+  --vantage-accent-soft: #eaf3ff;
   --vantage-card-docx: #3268b8;
   --vantage-card-xlsx: #237957;
   --vantage-card-pptx: #b65e39;
@@ -12,9 +12,9 @@
   color: var(--text);
 }
 [data-theme='dark'] .vantage-workspace {
-  --vantage-accent: #82cdb8;
-  --vantage-accent-ink: #172d27;
-  --vantage-accent-soft: #253e36;
+  --vantage-accent: #78b7ff;
+  --vantage-accent-ink: #0d264a;
+  --vantage-accent-soft: #1b365a;
   --vantage-card-docx: #8eb9f4;
   --vantage-card-xlsx: #81c9a9;
   --vantage-card-pptx: #e6a17e;
@@ -24,9 +24,9 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) .vantage-workspace {
-    --vantage-accent: #82cdb8;
-    --vantage-accent-ink: #172d27;
-    --vantage-accent-soft: #253e36;
+    --vantage-accent: #78b7ff;
+    --vantage-accent-ink: #0d264a;
+    --vantage-accent-soft: #1b365a;
     --vantage-card-docx: #8eb9f4;
     --vantage-card-xlsx: #81c9a9;
     --vantage-card-pptx: #e6a17e;
@@ -38,13 +38,6 @@
 .vantage-workspace button,
 .vantage-workspace input {
   font-family: inherit;
-}
-.home .sidebar-logo .logo-lockup {
-  max-width: 100%;
-  height: auto;
-  max-height: 28px;
-  object-fit: contain;
-  object-position: left;
 }
 .vantage-workspace.is-controller {
   position: absolute;

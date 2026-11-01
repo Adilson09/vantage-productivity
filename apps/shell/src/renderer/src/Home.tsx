@@ -5,7 +5,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactElement,
 } from 'react'
-import logoLockup from './assets/vantage-logo.svg'
+import brandMark from './assets/vantage-mark.png'
 import { VantageWorkspace } from './VantageWorkspace'
 import { KbAskPanel } from './KbAskPanel'
 import { FileBadge } from './file-badge'
@@ -3441,7 +3441,11 @@ export function Home() {
         style={sidebarWidth === null ? undefined : { width: sidebarWidth }}
       >
         <div className="sidebar-logo">
-          <img className="logo-lockup" src={logoLockup} alt="Vantage Productivity" />
+          <img className="logo-mark" src={brandMark} width={42} height={42} alt="" />
+          <span className="logo-wordmark">
+            <strong>Vantage</strong>
+            <span>PRODUCTIVITY</span>
+          </span>
         </div>
         <nav className="sidebar-nav">
           <button

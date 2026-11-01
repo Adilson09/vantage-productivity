@@ -1,57 +1,53 @@
 /* Shared chrome/AI-panel tokens come from @vantage/ui/tokens.css (imported
  * before this file in main.tsx); only shell-specific tokens live here. */
 :root {
-  /* Genspark DS v4.1: guide/onboarding accent is the brand blue */
-  --accent: #0f7fff;
-  --accent-hover: #0e72e5;
+  --accent: #0064d9;
+  --accent-hover: #0053b5;
+  --accent-contrast: #ffffff;
   /* selected-option tint for the shared dropdown (gs-dd) */
-  --accent-soft: #eaf0fd;
+  --accent-soft: #eaf3ff;
   --modal-width-sm: 480px;
-  --avatar-bg: #e8ebef;
-  --badge-bg: #eaf0fd;
-  --checkbox-bg: #ececec;
-  --timeline-user-bg: #eef1f5;
-  --timeline-user-text: #5a6170;
+  --avatar-bg: #e7edf5;
+  --badge-bg: #eaf3ff;
+  --checkbox-bg: #e7edf5;
+  --timeline-user-bg: #edf3fc;
+  --timeline-user-text: #52647b;
   /* lift for the active segment in gray-track tab pills */
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 8%);
   --shadow-composer: 0 6px 30px rgb(0 0 0 / 8%);
-
-  /* vantage-logo.svg is pure black-and-white; dark themes flip it to 1 */
-  --logo-invert: 0;
-  /* lift for the kb-ask composer box */
 }
 
 /* ── Dark mode overrides ─────────────────────────────────── */
 
 /* Explicit dark: [data-theme="dark"] on <html> */
 [data-theme='dark'] {
-  --accent: #3f99ff;
-  --accent-hover: #5ba5ff;
-  --accent-soft: #24354d;
-  --avatar-bg: #333;
-  --badge-bg: #2a3a4a;
-  --checkbox-bg: #333;
-  --timeline-user-bg: #2a2a3a;
-  --timeline-user-text: #b0b0c0;
+  --accent: #78b7ff;
+  --accent-hover: #92caff;
+  --accent-contrast: #0d264a;
+  --accent-soft: #1b365a;
+  --avatar-bg: #1b314d;
+  --badge-bg: #1b365a;
+  --checkbox-bg: #1b314d;
+  --timeline-user-bg: #1b314d;
+  --timeline-user-text: #b1c1d5;
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
   --shadow-composer: 0 6px 30px rgb(0 0 0 / 30%);
-  --logo-invert: 1;
 }
 
 /* System dark: no data-theme or data-theme="system" — follow OS preference */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
-    --accent: #3f99ff;
-    --accent-hover: #5ba5ff;
-    --accent-soft: #24354d;
-    --avatar-bg: #333;
-    --badge-bg: #2a3a4a;
-    --checkbox-bg: #333;
-    --timeline-user-bg: #2a2a3a;
-    --timeline-user-text: #b0b0c0;
+    --accent: #78b7ff;
+    --accent-hover: #92caff;
+    --accent-contrast: #0d264a;
+    --accent-soft: #1b365a;
+    --avatar-bg: #1b314d;
+    --badge-bg: #1b365a;
+    --checkbox-bg: #1b314d;
+    --timeline-user-bg: #1b314d;
+    --timeline-user-text: #b1c1d5;
     --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
     --shadow-composer: 0 6px 30px rgb(0 0 0 / 30%);
-    --logo-invert: 1;
   }
 }
 
@@ -127,16 +123,64 @@ body.vib .home {
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
+  min-width: 0;
   padding: 0 8px;
   margin-bottom: 20px;
 }
 
-.logo-lockup {
+.logo-mark {
   display: block;
-  height: 28px;
-  width: auto;
-  filter: invert(var(--logo-invert));
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.logo-wordmark {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  line-height: 1;
+}
+
+.logo-wordmark strong {
+  color: var(--text-primary);
+  font-size: 21px;
+  font-weight: 750;
+  letter-spacing: -0.7px;
+}
+
+.logo-wordmark > span {
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+}
+
+@media (max-width: 480px) {
+  .sidebar-logo {
+    gap: 6px;
+    padding: 0 4px;
+  }
+
+  .logo-mark {
+    flex-basis: 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+
+  .logo-wordmark strong {
+    font-size: 17px;
+  }
+
+  .logo-wordmark > span {
+    font-size: 6.7px;
+    letter-spacing: 1.1px;
+  }
 }
 
 .sidebar-nav {
@@ -233,8 +277,8 @@ body.vib .home {
 }
 
 .account-avatar.logged-in {
-  background: linear-gradient(135deg, #3d7ff5, #1b58cf);
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-contrast);
 }
 
 .account-avatar.waiting {
@@ -805,6 +849,7 @@ body.vib .home {
 }
 
 .col-check input {
+  position: relative;
   width: 14px;
   height: 14px;
   margin: 0;
@@ -817,9 +862,19 @@ body.vib .home {
 
 .col-check input:checked {
   border-color: var(--accent);
-  background: var(--accent)
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.4 2.4 4.6-5' stroke='%23fff' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-    center / 10px 10px no-repeat;
+  background: var(--accent);
+}
+
+.col-check input:checked::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 43%;
+  width: 4px;
+  height: 7px;
+  border: solid var(--accent-contrast);
+  border-width: 0 1.8px 1.8px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 /* checkboxes are always visible (mock: every row shows its checkbox) */
@@ -1021,8 +1076,8 @@ body.vib .home {
 }
 
 .btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgb(35 36 37 / 20%);
+  outline: 2px solid var(--color-border-brand);
+  outline-offset: 3px;
 }
 
 .btn-secondary {
@@ -1039,7 +1094,7 @@ body.vib .home {
 .btn-danger {
   background: var(--color-error);
   border: none;
-  color: #fff;
+  color: var(--color-error-contrast);
 }
 
 .btn-danger:hover:not(:disabled) {

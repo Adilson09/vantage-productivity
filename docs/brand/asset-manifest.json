@@ -1,0 +1,165 @@
+{
+  "source": "User-provided Vantage Productivity saddle point logo.png",
+  "originalPreserved": "docs/brand/vantage-logo-original.png",
+  "symbolMaster": "docs/brand/vantage-saddle-mark.png",
+  "symbolPreparation": "Built-in image generation: remove lettering/background while preserving the saddle symbol; platform outputs use deterministic resizing and a clean white rounded tile.",
+  "inputDimensions": {
+    "width": 1254,
+    "height": 1254
+  },
+  "crop": {
+    "left": 63,
+    "top": 368,
+    "width": 1175,
+    "height": 581
+  },
+  "components": [
+    {
+      "count": 193526,
+      "l": 638,
+      "t": 371,
+      "r": 1234,
+      "b": 945
+    },
+    {
+      "count": 112938,
+      "l": 66,
+      "t": 469,
+      "r": 595,
+      "b": 901
+    }
+  ],
+  "platformAcceptance": "Windows x64 preview checked separately; generated macOS/Linux formats do not establish platform release acceptance",
+  "files": [
+    {
+      "path": "docs/brand/vantage-app-icon.png",
+      "bytes": 168679,
+      "sha256": "015d86902fadb7d005fc23e464c624e3550eba351fb657b6557f80b4a7e50796"
+    },
+    {
+      "path": "apps/shell/build/icon.png",
+      "bytes": 168679,
+      "sha256": "015d86902fadb7d005fc23e464c624e3550eba351fb657b6557f80b4a7e50796"
+    },
+    {
+      "path": "apps/shell/build/icon-mac.png",
+      "bytes": 168679,
+      "sha256": "015d86902fadb7d005fc23e464c624e3550eba351fb657b6557f80b4a7e50796"
+    },
+    {
+      "path": "apps/shell/build/icon.ico",
+      "bytes": 31443,
+      "sha256": "2adc0c56d8809bac0ed9d04da20f9d6171e1518d036586abe19bdda4431e7313"
+    },
+    {
+      "path": "apps/shell/build/icon.icns",
+      "bytes": 251259,
+      "sha256": "7629bcdc8616692233d9f4bf882325976225766831a87aa0a8cb6bab84d46a7c"
+    },
+    {
+      "path": "apps/docs/build/icon.png",
+      "bytes": 168679,
+      "sha256": "015d86902fadb7d005fc23e464c624e3550eba351fb657b6557f80b4a7e50796"
+    },
+    {
+      "path": "apps/docs/build/icon-mac.png",
+      "bytes": 168679,
+      "sha256": "015d86902fadb7d005fc23e464c624e3550eba351fb657b6557f80b4a7e50796"
+    },
+    {
+      "path": "apps/docs/build/icon.ico",
+      "bytes": 31443,
+      "sha256": "2adc0c56d8809bac0ed9d04da20f9d6171e1518d036586abe19bdda4431e7313"
+    },
+    {
+      "path": "apps/docs/build/icon.icns",
+      "bytes": 251259,
+      "sha256": "7629bcdc8616692233d9f4bf882325976225766831a87aa0a8cb6bab84d46a7c"
+    },
+    {
+      "path": "apps/shell/build/vantage.ico",
+      "bytes": 31443,
+      "sha256": "2adc0c56d8809bac0ed9d04da20f9d6171e1518d036586abe19bdda4431e7313"
+    },
+    {
+      "path": "apps/shell/build/vantage.png",
+      "bytes": 168679,
+      "sha256": "015d86902fadb7d005fc23e464c624e3550eba351fb657b6557f80b4a7e50796"
+    },
+    {
+      "path": "apps/shell/build/vantage.svg",
+      "bytes": 225070,
+      "sha256": "092873595a035afc791ff027851c8419e5eea849b9e66718316e0036bf8daec4"
+    },
+    {
+      "path": "apps/shell/build/icons/16x16.png",
+      "bytes": 536,
+      "sha256": "2a2f56ab2b0ad4f0ac0cc2725f4ebee41b524ac35ec300812ee104fe97bf0fc4"
+    },
+    {
+      "path": "apps/shell/build/icons/32x32.png",
+      "bytes": 1174,
+      "sha256": "f4a161e58286d0dc3df1349db12885059049c64e6a0af46130f4f0233e4f23fc"
+    },
+    {
+      "path": "apps/shell/build/icons/48x48.png",
+      "bytes": 1991,
+      "sha256": "e8eb30d8ded38998bc1b72ac7a77db5717d96f47c2b9c6036eaea28194884699"
+    },
+    {
+      "path": "apps/shell/build/icons/64x64.png",
+      "bytes": 2617,
+      "sha256": "c66a3d00ef25bd9580d8fa725755aa83cd8fe348f7a51eb730bcc85e157fc59b"
+    },
+    {
+      "path": "apps/shell/build/icons/128x128.png",
+      "bytes": 6546,
+      "sha256": "08615d02b2b2d8270994f2901a4aee998e7e97b2e29c4d9c53948101cc3dd320"
+    },
+    {
+      "path": "apps/shell/build/icons/256x256.png",
+      "bytes": 16845,
+      "sha256": "a6f7e202874f22072876e3c0c28acef8374e5b0a6b3941e9fb0ea86187a33bbe"
+    },
+    {
+      "path": "apps/shell/build/icons/512x512.png",
+      "bytes": 54798,
+      "sha256": "57c454451307921ec939f3ac8af4017e67320026db0d1fbdbb3c7c93fcc83f0e"
+    },
+    {
+      "path": "apps/shell/build/icons/1024x1024.png",
+      "bytes": 168679,
+      "sha256": "015d86902fadb7d005fc23e464c624e3550eba351fb657b6557f80b4a7e50796"
+    },
+    {
+      "path": "apps/shell/src/renderer/src/assets/vantage-mark.png",
+      "bytes": 6546,
+      "sha256": "08615d02b2b2d8270994f2901a4aee998e7e97b2e29c4d9c53948101cc3dd320"
+    },
+    {
+      "path": "apps/shell/src/renderer/src/assets/vantage-logo.svg",
+      "bytes": 225070,
+      "sha256": "092873595a035afc791ff027851c8419e5eea849b9e66718316e0036bf8daec4"
+    },
+    {
+      "path": "apps/shell/src/renderer/src/assets/app-icon.png",
+      "bytes": 16845,
+      "sha256": "a6f7e202874f22072876e3c0c28acef8374e5b0a6b3941e9fb0ea86187a33bbe"
+    },
+    {
+      "path": "apps/docs/src/renderer/assets/app-icon.png",
+      "bytes": 16845,
+      "sha256": "a6f7e202874f22072876e3c0c28acef8374e5b0a6b3941e9fb0ea86187a33bbe"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/app-icon.png",
+      "bytes": 16845,
+      "sha256": "a6f7e202874f22072876e3c0c28acef8374e5b0a6b3941e9fb0ea86187a33bbe"
+    },
+    {
+      "path": "apps/slides/src/renderer/assets/app-icon.png",
+      "bytes": 16845,
+      "sha256": "a6f7e202874f22072876e3c0c28acef8374e5b0a6b3941e9fb0ea86187a33bbe"
+    }
+  ]
+}

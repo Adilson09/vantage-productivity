@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 1,
+  "product": "Vantage Productivity",
+  "paletteName": "Saddle Blue and Navy",
+  "updated": "2026-10-31",
+  "decision": "Preserve the supplied electric-blue/navy logo; use an adjusted action shade and cool neutral surfaces for readable product controls. This is a practical recommendation, not a claim of a universally optimal palette.",
+  "brand": {
+    "electricBlue": "#0072FC",
+    "navy": "#0D264A",
+    "white": "#FFFFFF",
+    "samplingNote": "The supplied raster contains gradients and near-white texture. The fixed brand colors are representative design anchors, not a claim that every logo pixel has these values.",
+    "originalArtwork": "vantage-logo-original.png"
+  },
+  "roleLabels": {
+    "background": "Workspace background",
+    "surface": "Panel surface",
+    "raisedSurface": "Raised surface",
+    "textPrimary": "Primary text",
+    "textSecondary": "Secondary text",
+    "textMuted": "Muted readable text",
+    "action": "Action / link",
+    "actionText": "Action text",
+    "actionHover": "Action hover",
+    "accentSoft": "Accent tint",
+    "borderDecorative": "Decorative divider",
+    "borderControl": "Required control border",
+    "focusRing": "Focus ring"
+  },
+  "themes": {
+    "light": {
+      "background": "#F5F8FC",
+      "surface": "#FFFFFF",
+      "raisedSurface": "#FFFFFF",
+      "textPrimary": "#0D264A",
+      "textSecondary": "#52647B",
+      "textMuted": "#5D6F88",
+      "action": "#0064D9",
+      "actionText": "#FFFFFF",
+      "actionHover": "#0053B5",
+      "accentSoft": "#EAF3FF",
+      "borderDecorative": "#D8E1ED",
+      "borderControl": "#7A8CA5",
+      "focusRing": "#0064D9"
+    },
+    "dark": {
+      "background": "#0B1526",
+      "surface": "#13243B",
+      "raisedSurface": "#1B314D",
+      "textPrimary": "#F5F8FC",
+      "textSecondary": "#B1C1D5",
+      "textMuted": "#9AAFC9",
+      "action": "#78B7FF",
+      "actionText": "#0D264A",
+      "actionHover": "#92CAFF",
+      "accentSoft": "#1B365A",
+      "borderDecorative": "#2C4360",
+      "borderControl": "#7187A4",
+      "focusRing": "#92CAFF"
+    }
+  },
+  "status": {
+    "success": {
+      "label": "Success",
+      "light": {
+        "text": "#167045",
+        "background": "#E9F7EF"
+      },
+      "dark": {
+        "text": "#75DAA7",
+        "background": "#16382C"
+      }
+    },
+    "warning": {
+      "label": "Warning",
+      "light": {
+        "text": "#8C5700",
+        "background": "#FFF4D6"
+      },
+      "dark": {
+        "text": "#FFD481",
+        "background": "#3B2D15"
+      }
+    },
+    "error": {
+      "label": "Error",
+      "light": {
+        "text": "#B42332",
+        "background": "#FFF0F2"
+      },
+      "dark": {
+        "text": "#FF9AA7",
+        "background": "#40232D"
+      }
+    },
+    "information": {
+      "label": "Information",
+      "light": {
+        "text": "#0064D9",
+        "background": "#EAF3FF"
+      },
+      "dark": {
+        "text": "#78B7FF",
+        "background": "#1B365A"
+      }
+    }
+  },
+  "contrast": {
+    "method": "WCAG relative luminance of sRGB colors; ratio=(Llighter+0.05)/(Ldarker+0.05). Values are calculated without transparency or blending.",
+    "normalTextTarget": 4.5,
+    "largeTextTarget": 3,
+    "requiredNonTextTarget": 3,
+    "pairs": [
+      {
+        "name": "Original logo blue on white",
+        "foreground": "#0072FC",
+        "background": "#FFFFFF",
+        "ratio": 4.3636,
+        "kind": "logoReference",
+        "target": 4.5,
+        "meetsTarget": false,
+        "note": "Logo-only reference. Logotypes are exempt from the text contrast requirement; this blue is not the light UI action color."
+      },
+      {
+        "name": "Light primary text on workspace",
+        "foreground": "#0D264A",
+        "background": "#F5F8FC",
+        "ratio": 14.1505,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light primary text on panel",
+        "foreground": "#0D264A",
+        "background": "#FFFFFF",
+        "ratio": 15.0728,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light secondary text on workspace",
+        "foreground": "#52647B",
+        "background": "#F5F8FC",
+        "ratio": 5.6854,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light secondary text on panel",
+        "foreground": "#52647B",
+        "background": "#FFFFFF",
+        "ratio": 6.056,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light muted readable text on workspace",
+        "foreground": "#5D6F88",
+        "background": "#F5F8FC",
+        "ratio": 4.8148,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light muted readable text on panel",
+        "foreground": "#5D6F88",
+        "background": "#FFFFFF",
+        "ratio": 5.1286,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light primary action text",
+        "foreground": "#FFFFFF",
+        "background": "#0064D9",
+        "ratio": 5.4905,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light hovered action text",
+        "foreground": "#FFFFFF",
+        "background": "#0053B5",
+        "ratio": 7.2301,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light link on panel",
+        "foreground": "#0064D9",
+        "background": "#FFFFFF",
+        "ratio": 5.4905,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light link on accent tint",
+        "foreground": "#0064D9",
+        "background": "#EAF3FF",
+        "ratio": 4.9055,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light required border on panel",
+        "foreground": "#7A8CA5",
+        "background": "#FFFFFF",
+        "ratio": 3.4302,
+        "kind": "nonText",
+        "target": 3,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light required border on workspace",
+        "foreground": "#7A8CA5",
+        "background": "#F5F8FC",
+        "ratio": 3.2203,
+        "kind": "nonText",
+        "target": 3,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light focus ring on panel",
+        "foreground": "#0064D9",
+        "background": "#FFFFFF",
+        "ratio": 5.4905,
+        "kind": "nonText",
+        "target": 3,
+        "meetsTarget": true,
+        "note": "Use an offset so the ring is separated from a same-color filled control."
+      },
+      {
+        "name": "Light success text",
+        "foreground": "#167045",
+        "background": "#E9F7EF",
+        "ratio": 5.5314,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light warning text",
+        "foreground": "#8C5700",
+        "background": "#FFF4D6",
+        "ratio": 5.5093,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light error text",
+        "foreground": "#B42332",
+        "background": "#FFF0F2",
+        "ratio": 5.887,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Light information text",
+        "foreground": "#0064D9",
+        "background": "#EAF3FF",
+        "ratio": 4.9055,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark primary text on workspace",
+        "foreground": "#F5F8FC",
+        "background": "#0B1526",
+        "ratio": 17.1513,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark primary text on panel",
+        "foreground": "#F5F8FC",
+        "background": "#13243B",
+        "ratio": 14.6778,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark secondary text on workspace",
+        "foreground": "#B1C1D5",
+        "background": "#0B1526",
+        "ratio": 9.9682,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark secondary text on panel",
+        "foreground": "#B1C1D5",
+        "background": "#13243B",
+        "ratio": 8.5306,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark muted readable text on workspace",
+        "foreground": "#9AAFC9",
+        "background": "#0B1526",
+        "ratio": 8.1336,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark muted readable text on panel",
+        "foreground": "#9AAFC9",
+        "background": "#13243B",
+        "ratio": 6.9606,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark primary action text",
+        "foreground": "#0D264A",
+        "background": "#78B7FF",
+        "ratio": 7.189,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark hovered action text",
+        "foreground": "#0D264A",
+        "background": "#92CAFF",
+        "ratio": 8.6951,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark link on panel",
+        "foreground": "#78B7FF",
+        "background": "#13243B",
+        "ratio": 7.4569,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark link on accent tint",
+        "foreground": "#78B7FF",
+        "background": "#1B365A",
+        "ratio": 5.8168,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark required border on panel",
+        "foreground": "#7187A4",
+        "background": "#13243B",
+        "ratio": 4.2464,
+        "kind": "nonText",
+        "target": 3,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark required border on workspace",
+        "foreground": "#7187A4",
+        "background": "#0B1526",
+        "ratio": 4.9621,
+        "kind": "nonText",
+        "target": 3,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark focus ring on panel",
+        "foreground": "#92CAFF",
+        "background": "#13243B",
+        "ratio": 9.0191,
+        "kind": "nonText",
+        "target": 3,
+        "meetsTarget": true,
+        "note": "Use an offset so the ring is separated from a same-color filled control."
+      },
+      {
+        "name": "Dark success text",
+        "foreground": "#75DAA7",
+        "background": "#16382C",
+        "ratio": 7.5439,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark warning text",
+        "foreground": "#FFD481",
+        "background": "#3B2D15",
+        "ratio": 9.5325,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark error text",
+        "foreground": "#FF9AA7",
+        "background": "#40232D",
+        "ratio": 6.972,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      },
+      {
+        "name": "Dark information text",
+        "foreground": "#78B7FF",
+        "background": "#1B365A",
+        "ratio": 5.8168,
+        "kind": "normalText",
+        "target": 4.5,
+        "meetsTarget": true,
+        "note": ""
+      }
+    ],
+    "scope": "Pair calculations only. They do not establish application-wide WCAG conformance, accessibility certification, focus-area acceptance or screen-reader acceptance."
+  },
+  "usage": {
+    "logo": "Preserve artwork proportions and colors; do not invert the full-color logo. Use the master on white or use a separately prepared approved dark lockup. Use the saddle mark alone for small app icons.",
+    "surfaces": "Use neutral surfaces for most of the interface; reserve blue for interactive emphasis and navy for text and identity.",
+    "borders": "Decorative dividers are not sufficient to identify a control. Use borderControl when the boundary is necessary.",
+    "status": "Keep an explicit text label or icon with status colors; do not communicate meaning by color alone.",
+    "documentData": "Do not recolor document content, cells, charts, PDF pages, print output or exports. Preserve per-editor identification accents.",
+    "themeCopies": "Keep light, explicit dark and system dark token blocks synchronized."
+  },
+  "sources": [
+    {
+      "title": "W3C Understanding Contrast (Minimum)",
+      "url": "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum"
+    },
+    {
+      "title": "W3C WCAG 2.2 Non-text Contrast",
+      "url": "https://www.w3.org/TR/WCAG22/#non-text-contrast"
+    }
+  ]
+}

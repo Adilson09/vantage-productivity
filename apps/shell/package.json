@@ -1,7 +1,7 @@
 {
   "name": "@vantage/shell",
   "productName": "Vantage Productivity",
-  "version": "0.15.0-dev.1",
+  "version": "0.15.0-brand.1",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Adilson09/vantage-productivity",
   "private": true,

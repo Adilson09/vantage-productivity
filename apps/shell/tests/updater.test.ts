@@ -8,6 +8,8 @@ import type { UpdateUiState } from '../src/shared/update-api'
  */
 
 const appState = { isPackaged: true }
+const originalResourcesPath = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
+const CONFIGURED_FEED = 'provider: generic\nurl: https://updates.example.test/vantage/\n'
 
 const openExternal = vi.hoisted(() => vi.fn())
 const showMessageBox = vi.hoisted(() =>
@@ -147,6 +149,7 @@ beforeEach(() => {
   vi.resetModules()
   vi.useFakeTimers()
   appState.isPackaged = true
+  Object.defineProperty(process, 'resourcesPath', { value: '/res', configurable: true })
   delete process.env.VANTAGE_FAKE_UPDATE
   updaterState.listeners.clear()
   updaterState.autoDownload = true
@@ -165,13 +168,13 @@ beforeEach(() => {
   showMessageBox.mockReset()
   showMessageBox.mockImplementation(() => Promise.resolve({ response: 0 }))
   readFileSyncMock.mockReset()
-  readFileSyncMock.mockImplementation(() => {
-    throw new Error('no app-update.yml')
-  })
+  readFileSyncMock.mockReturnValue(CONFIGURED_FEED)
   setPlatform('darwin')
 })
 
 afterEach(() => {
+  if (originalResourcesPath) Object.defineProperty(process, 'resourcesPath', originalResourcesPath)
+  else Reflect.deleteProperty(process, 'resourcesPath')
   vi.useRealTimers()
   platformSpy?.restore()
   platformSpy = null
@@ -197,6 +200,38 @@ describe('initAutoUpdater', () => {
     vi.advanceTimersByTime(FIRST_CHECK_DELAY_MS)
     expect(updaterState.listeners.size).toBe(0)
     expect(checkForUpdates).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['missing', null],
+    ['without a URL', 'provider: generic\n'],
+    ['malformed', 'url: not-a-url\n'],
+    ['non-HTTPS', 'url: http://updates.example.test/vantage/\n'],
+    ['credentialed', 'url: https://user:pass@updates.example.test/vantage/\n'],
+  ] as const)('keeps packaged updates inactive when the feed is %s', async (_reason, yml) => {
+    platformSpy?.restore()
+    setPlatform('win32')
+    if (yml === null) {
+      readFileSyncMock.mockImplementation(() => {
+        throw Object.assign(new Error('missing app-update.yml'), { code: 'ENOENT' })
+      })
+    } else readFileSyncMock.mockReturnValue(yml)
+
+    const { initAutoUpdater, applyUpdateChannel, checkForUpdatesNow } = await loadUpdater()
+    initAutoUpdater(() => null)
+    vi.advanceTimersByTime(FIRST_CHECK_DELAY_MS + RECHECK_INTERVAL_MS)
+    applyUpdateChannel('beta')
+    expect(updaterState.listeners.size).toBe(0)
+    expect(updaterState.channel).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(checkForUpdates).not.toHaveBeenCalled()
+    expect(downloadUpdate).not.toHaveBeenCalled()
+    expect(showUpdateWindow).not.toHaveBeenCalled()
+
+    await checkForUpdatesNow()
+    expect(showMessageBox).toHaveBeenCalledTimes(1)
+    expect(checkForUpdates).not.toHaveBeenCalled()
+    expect(openExternal).not.toHaveBeenCalled()
   })
 
   it('configures manual full-package download and checks after the initial delay', async () => {
@@ -492,10 +527,7 @@ describe('manual download fallback', () => {
     }
   })
 
-  const winFiles = [
-    { url: 'VantageSetup-v0.2.0.exe' },
-    { url: 'VantageSetup-v0.2.0-arm64.exe' },
-  ]
+  const winFiles = [{ url: 'VantageSetup-v0.2.0.exe' }, { url: 'VantageSetup-v0.2.0-arm64.exe' }]
 
   it('picks the arm64 installer on Windows arm64', async () => {
     Object.defineProperty(process, 'resourcesPath', { value: '/res', configurable: true })
@@ -567,24 +599,28 @@ describe('manual download fallback', () => {
     }
   })
 
-  it('rejects a non-HTTPS baked feed URL', async () => {
+  it('rejects a non-HTTPS manual-download base after initialization', async () => {
     Object.defineProperty(process, 'resourcesPath', { value: '/res', configurable: true })
+    readFileSyncMock.mockReturnValueOnce(CONFIGURED_FEED)
     readFileSyncMock.mockReturnValue('url: http://cdn.example.com/mac\n')
     const actions = await failTwiceIntoManual(macFiles)
     actions.onOpenDownload()
     expect(openExternal).toHaveBeenCalledWith(
-      'https://github.com/Adilson09/aster-office/releases/latest',
+      'https://github.com/Adilson09/vantage-productivity/releases',
     )
   })
 
-  it('falls back to the generic download page when the feed base cannot be read', async () => {
-    // readFileSyncMock throws by default (no app-update.yml)
+  it('falls back to the generic download page when the configured feed becomes unreadable', async () => {
+    readFileSyncMock.mockReturnValueOnce(CONFIGURED_FEED)
+    readFileSyncMock.mockImplementation(() => {
+      throw new Error('no app-update.yml')
+    })
     const actions = await failTwiceIntoManual([
       { url: 'https://attacker.example/Vantage-0.2.0-arm64.dmg' },
     ])
     actions.onOpenDownload()
     expect(openExternal).toHaveBeenCalledWith(
-      'https://github.com/Adilson09/aster-office/releases/latest',
+      'https://github.com/Adilson09/vantage-productivity/releases',
     )
   })
 })
@@ -642,7 +678,7 @@ describe('checkForUpdatesNow (r148 manual check)', () => {
     expect(showMessageBox).toHaveBeenCalledTimes(1)
     expect(lastDialogOpts().buttons.length).toBe(2)
     expect(openExternal).toHaveBeenCalledWith(
-      'https://github.com/Adilson09/aster-office/releases/latest',
+      'https://github.com/Adilson09/vantage-productivity/releases',
     )
     expect(checkForUpdates).not.toHaveBeenCalled()
   })
